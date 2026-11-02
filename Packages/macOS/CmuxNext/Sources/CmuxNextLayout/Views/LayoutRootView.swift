@@ -131,7 +131,7 @@ public final class LayoutRootView: NSView {
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
-    private struct Snapshot: Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
@@ -334,7 +334,8 @@ public final class LayoutRootView: NSView {
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
-    private func sync(_ snapshot: Snapshot) {
+    /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
@@ -504,7 +505,8 @@ public final class LayoutRootView: NSView {
         setLayoutInMotion(false)
     }
 
-    func advanceFrame(_ dt: Double) -> Bool {
+    /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func advanceFrameBatched(_ dt: Double) -> Bool {
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {

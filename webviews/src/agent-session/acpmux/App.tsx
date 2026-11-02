@@ -390,7 +390,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
+import { headerChangesInPlace, repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
@@ -2145,10 +2145,14 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   referenceScope,
+  gapBelow,
   children,
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
+  /// gap target spans it, so a drag from between two rows starts a selection.
+  gapBelow: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -2295,6 +2299,18 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: integralTop, marginTop: placedTop - integralTop }}
       onFocus={() => onFocus(row.id)}
     >
+      {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
+          Keeping it as a separate hit target means content controls (including native media) never
+          need to be enumerated by the gap handler. On the grid the stack places the gap under the row
+          (design/grid.md 5.5), so the target spans the row's own bottom padding (inherited) and that
+          placed gap under it, down to the next row. It comes first: the action rows
+          laid in the same gap are positioned later in the row and stay over it, with their clicks. */}
+      <span
+        className="acpmux-row__gap"
+        data-transcript-gap="row"
+        aria-hidden="true"
+        style={gapBelow > 0 ? { bottom: -gapBelow, height: gapBelow, boxSizing: "content-box" } : undefined}
+      />
       {messageEntering ? (
         // The article is the virtualizer's measured box. Animate only this presentation wrapper:
         // compositor scale/opacity cannot change drawnHeightOf(article) while the entrance runs.
@@ -2302,10 +2318,6 @@ const RowFrame = React.memo(function RowFrame({
       ) : (
         content
       )}
-      {/* The row's own trailing padding is the only row-local empty surface owned by transcript
-          selection. Keeping it as a separate hit target means content controls (including native
-          media) never need to be enumerated by the gap handler. */}
-      <span className="acpmux-row__gap" data-transcript-gap="row" aria-hidden="true" />
     </article>
   );
 }, sameRowFrame);
@@ -5488,6 +5500,16 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
+                      gapBelow={
+                        absoluteIndex + 1 < rows.length
+                          ? Math.max(
+                              0,
+                              layout.tops[absoluteIndex + 1]! -
+                                layout.tops[absoluteIndex]! -
+                                layout.heights[absoluteIndex]!,
+                            )
+                          : 0
+                      }
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
@@ -8913,29 +8935,32 @@ function AcpmuxPane() {
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            chat={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-          />
+          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+            <SubagentTray
+              key={shownSessionId}
+              chat={shownSessionId}
+              items={trayList}
+              finished={trayFinished}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+              canReadTail={
+                opensProcessTerminal(snapshot.summary) &&
+                clientEpoch > 0 &&
+                directClient.current !== undefined &&
+                backgroundTaskOutput !== undefined
+              }
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+              placement={trayPlacement}
+              shown={trayChat}
+              enters={trayEnters}
+            />
+          </SubagentHarnessContext.Provider>
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
@@ -11554,6 +11579,18 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  // Changes opens the folder's diff tab beside the chat. A folder outside a repository has no diff for
+  // that tab, and the app's fallback was the folder picker in the palette (Leo, 2026-10-28: "All it does
+  // is open up the command palette, and it doesn't open up the diff viewer on the right side"), so there
+  // it toggles the last turn's changes view on the chat's right, as the edited-files card does.
+  const toggleChanges = (mode: QuickActionMode) => {
+    void headerChangesInPlace(localCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then(
+      (inPlace) => {
+        if (!inPlace) runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
+        else if (mode === "toggle" || !diffOpen) toggleLastChanges();
+      },
+    );
+  };
   const togglePreview = (url: string | undefined) => {
     ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
     window.setTimeout(refreshTabState, 400);
@@ -13367,6 +13404,7 @@ function AcpmuxPane() {
               machineName,
               peerKinds: snapshot.peerKinds,
               repository: githubRepository,
+              cloudRepositoryAvailable,
               onOpenFolder:
                 quick || !sessionInfoLocal
                   ? undefined
@@ -13796,7 +13834,7 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onChanges={toggleChanges}
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
