@@ -772,6 +772,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         if !isDragging, hypot(point.x - start.x, point.y - start.y) >= 4 {
             isDragging = true
             paint()
+            NSCursor.closedHand.set()
         }
     }
     override func mouseUp(with event: NSEvent) {
@@ -791,7 +792,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { focused = true }
+        // Keyboard focus only (the web's :focus-visible): a click that focuses a header leaves no chevron.
+        if accepted, NSApp.isFullKeyboardAccessEnabled { focused = true }
         return accepted
     }
     override func resignFirstResponder() -> Bool {
