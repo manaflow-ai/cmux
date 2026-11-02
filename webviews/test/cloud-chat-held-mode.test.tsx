@@ -143,6 +143,10 @@ const chipText = () => (host.querySelector(".acpmux-mode .acpmux-mode-text")?.te
 const trigger = () => host.querySelector<HTMLButtonElement>("button.acpmux-access-trigger");
 const rows = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-access-item")];
 const row = (name: string) => rows().find((item) => item.textContent?.includes(name));
+// Microtask turns under act until the condition holds (bounded); no real timer.
+async function settle(done: () => boolean) {
+  for (let turn = 0; turn < 50 && !done(); turn += 1) await act(async () => await Promise.resolve());
+}
 async function openMenu() {
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Mode"));
@@ -158,7 +162,7 @@ test("a Cloud chat before its first send has started it can pick a permission mo
   await openMenu();
   expect(rows().length).toBeGreaterThan(0);
   await act(async () => row("Bypass permissions")!.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  await settle(() => calls.some((call) => call.method === "chat.mode"));
   expect(calls.filter((call) => call.method === "chat.mode")).toEqual([
     { method: "chat.mode", params: { modeId: "bypassPermissions" } },
   ]);
