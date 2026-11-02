@@ -75,7 +75,6 @@ final class CEFDevToolsController {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim, !standIn else { return }
         // A parked tab (hidden in its pane) has no frame to show early: its open goes at once, to its own browser.
         guard !tab.devTools.isOpen, !opening, layout.dock.isDocked, tab.container.window != nil,
-              tab.host.visibleTab === tab, !tab.container.isHiddenOrHasHiddenAncestor,
               tab.runtime.supportsEmbeddedDevTools else {
             _ = shim.devToolsCommand(browserID, command, 0, 0)
             return
