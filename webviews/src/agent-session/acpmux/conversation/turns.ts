@@ -179,6 +179,9 @@ export type TurnView = {
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
 
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((id) => b.has(id));
+
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -318,6 +321,20 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  // Reused turns were drawn with the previous view's folds. A row after them can change which
+  // background turns fold (cmux#30535), so a different set draws every turn again.
+  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+    return turnViewFrom(rows, expanded, {
+      now,
+      working,
+      clockOffset,
+      liveRuns,
+      sessionStatus,
+      lineBelow,
+      agentFamily,
+      waitingSteers,
+      messageBreaks,
+    });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
