@@ -2,7 +2,37 @@
 
 use super::*;
 
+/// What the roster fold lock guards: it orders folds and roster snapshot
+/// saves (`Mux::advance_agent_roster`, terminal retirement).
+#[derive(Default)]
+pub(super) struct AgentRosterFold {
+    /// Pauses the next fold after it reads one journal page (test seam).
+    #[cfg(test)]
+    page_hook: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
+}
+
+impl AgentRosterFold {
+    #[cfg(test)]
+    fn pause_after_page_for_test(&mut self) {
+        if let Some((entered, release)) = self.page_hook.take() {
+            entered.send(()).unwrap();
+            release.recv().unwrap();
+        }
+    }
+}
+
 impl Mux {
+    /// The next roster fold signals `entered` after it reads one page of
+    /// the journal tail and waits for `release` before it goes on.
+    #[cfg(test)]
+    pub(crate) fn pause_agent_roster_fold_after_page_for_test(
+        &self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.agent_roster_fold.lock().unwrap().page_hook = Some((entered, release));
+    }
+
     /// Committed agent hook events double as the live agent-status feed:
     /// a fresh `agent.*` journal event updates its terminal's agent record,
     /// so agents views show working/blocked/idle/done without a separate
@@ -257,7 +287,8 @@ impl Mux {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
-        let _fold = self.agent_roster_fold.lock().unwrap();
+        #[cfg_attr(not(test), allow(unused_mut, unused_variables))]
+        let mut fold = self.agent_roster_fold.lock().unwrap();
         // Consume every intervening committed record under registry -> roster
         // lock order. Concurrent appends and delayed hook retries cannot jump
         // the cursor over a record that startup replay would have consumed.
@@ -292,6 +323,8 @@ impl Mux {
                         return None;
                     }
                 };
+                #[cfg(test)]
+                fold.pause_after_page_for_test();
                 for record in &records {
                     let changes = host.roster.apply(&RosterEvent::from_record(record));
                     // Hooks already use the durable projector, which decides
