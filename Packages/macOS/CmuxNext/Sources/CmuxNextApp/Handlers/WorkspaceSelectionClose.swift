@@ -17,8 +17,7 @@ enum WorkspaceSelectionClose {
         }
         let closing = members.map(\.0.id), undoWindow = WorkspaceBulkClose.survivor(closing: closing, AppActionContext(services: services))
         let incognito = members.contains { windows.isIncognito(workspace: $0.0.id) }, selected = WorkspaceCloseSelection()
-        let cleanups = WorkspaceGroupClose.closeCleanups(PersonalGroupLife(machines: services.machines).groupsClosing(closing), services,
-                                                         failed: { _ in controller?.sidebar.resync() })
+        let cleanups = WorkspaceGroupClose.closeCleanups(closing, services)
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceSelectionCloseFlow(
             hide: { ids in

@@ -45,9 +45,7 @@ enum WorkspaceGroupClose {
 
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group). `undone` runs when its Undo does.
-    /// `cleanups`: the personal groups this close may delete once it lands (`closeCleanups`); Undo
-    /// stops each one that has not sent its delete, or waits for the delete in flight, then reopens
-    /// the workspaces and, last, the record each delete made, so the group forms again around them.
+    /// Undo stops or waits for each of `cleanups` (`closeCleanups`), then reopens each deleted group's record last.
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices, cleanups: [GroupCloseCleanup] = [],
                           undone: (@MainActor () -> Void)? = nil) {
@@ -74,16 +72,13 @@ enum WorkspaceGroupClose {
     /// daemon's closed items to reach the store.
     static let arrivalLimit: Duration = .seconds(5)
 
-    /// One cleanup per personal group in `groups` (`PersonalGroupLife.groupsClosing`) for a close
-    /// whose Undo they share (`offerUndo`); each runs once the close lands (`GroupCloseCleanup.run`).
-    static func closeCleanups(_ groups: Set<WorkspaceGroupID>, _ services: AppServices,
-                              failed: @escaping @MainActor @Sendable (ActionWorkFailure) -> Void) -> [GroupCloseCleanup] {
+    /// One cleanup per personal group the close of `ids` may empty (`GroupCloseCleanup`), shared with its Undo.
+    static func closeCleanups(_ ids: [String], _ services: AppServices) -> [GroupCloseCleanup] {
         let life = PersonalGroupLife(machines: services.machines)
-        return groups.sorted { $0.rawValue < $1.rawValue }.map { group in
+        return life.groupsClosing(ids).sorted { $0.rawValue < $1.rawValue }.map { group in
             life.closeCleanup(group, history: { [weak services] in
-                guard let services else { return [] }
-                return DaemonClosedHistory.entries([.workspace], in: services).map { ($0.item.id, $0.item.group?.id) }
-            }, failed: failed)
+                services.map { DaemonClosedHistory.entries([.workspace], in: $0).map { ($0.item.id, $0.item.group?.id) } } ?? []
+            }, failed: { [weak services] _ in services?.windows.active?.sidebar.resync() })
         }
     }
 

@@ -240,10 +240,7 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
-        // Closing the last workspace in an unpinned personal group removes the
-        // now-empty group (cx-rcby, `PersonalGroupLife.endsGroupsOnClose`). Capture
-        // the group before the workspace leaves its daemon; `deleteIfEmpty` rechecks
-        // after the close has been applied so a concurrent move keeps it.
+        // The unpinned group this close may empty (cx-rcby), read before the workspace leaves; `deleteIfEmpty` rechecks.
         let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
@@ -282,8 +279,7 @@ extension AppActions {
                     // Wait for the close event before deciding whether its personal group is empty.
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     if failure == nil, let personalGroup {
-                        let life = PersonalGroupLife(machines: services.machines)
-                        life.deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
+                        PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
                     guard hidden else { return failure }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)

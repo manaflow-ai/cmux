@@ -107,11 +107,8 @@ enum WorkspaceBulkClose {
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
-        // The groups these closes may empty. `workspaceGroup.closeOthers` closes whole groups,
-        // whose unpinned ones `PersonalGroupPin` already deletes, so it prunes none.
-        let groupsToPrune: Set<WorkspaceGroupID> = id == "workspaceGroup.closeOthers" ? []
-            : PersonalGroupLife(machines: services.machines).groupsClosing(members.map(\.0.id))
-        let cleanups = WorkspaceGroupClose.closeCleanups(groupsToPrune, services, failed: { [weak services] _ in services?.windows.active?.sidebar.resync() })
+        // The groups these closes may empty (Close Others in Group's whole groups go as `PersonalGroupPin` says).
+        let cleanups = WorkspaceGroupClose.closeCleanups(id == "workspaceGroup.closeOthers" ? [] : members.map(\.0.id), services)
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
@@ -125,11 +122,8 @@ enum WorkspaceBulkClose {
         } else {
             WorkspaceClose.close(members)
         }
-        // The unpinned groups these closes empty go once the closes land (cx-rcby); a refused close keeps its group.
-        for cleanup in cleanups {
-            // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
-            Task { @MainActor in await cleanup.run() }
-        }
+        // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
+        for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
                                       cleanups: cleanups)

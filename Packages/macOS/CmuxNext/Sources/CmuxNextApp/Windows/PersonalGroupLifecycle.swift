@@ -97,44 +97,28 @@ struct PersonalGroupLife {
         }
     }
 
-    /// Deletes `group` when it is still an unpinned group with no live member.
-    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) {
-        guard isEmptyUnpinned(group) else { return }
-        let life = self
-        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
+    /// Deletes `group` when it is still an unpinned group with no live member; `landed` gets whether the delete went and landed.
+    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void,
+                       landed: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        guard isEmptyUnpinned(group) else { return landed(false) }
+        let life = self, doomed = DeleteSent()
+        commit("delete-personal-group", ending: [group], recheck: { doomed.value = life.isEmptyUnpinned(group); return doomed.value ? [group] : [] },
+               failed: failed, completed: { landed($0 && doomed.value) }) { _ -> Void in }
     }
 
-    /// Whether a close ends the groups it empties: on a home daemon that
-    /// serves personal state with pinned (saved) groups, the same daemons
-    /// on which Close Workspaces in Group deletes an unpinned group
-    /// (`PersonalGroupPin`). A home daemon without the capability keeps
-    /// groups as they are.
+    /// Whether a close ends the groups it empties: where Close Workspaces in Group does (`PersonalGroupPin`).
     var endsGroupsOnClose: Bool {
         let home = machines.local
         return personal.isLoaded && home.store.servesStateResources && home.supports(DaemonCapability.workspaceGroupPin.rawValue)
     }
 
-    /// The unpinned personal groups of the workspaces `ids` that a close of
-    /// them may empty, read before they close (none when `endsGroupsOnClose`
-    /// is false). A pinned group stays, so its close has nothing to delete.
+    /// The unpinned personal groups a close of the workspaces `ids` may empty, read before they close.
     func groupsClosing(_ ids: [String]) -> Set<WorkspaceGroupID> {
         guard endsGroupsOnClose else { return [] }
         let closing = Set(ids.compactMap { id in
             WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
         })
         return rules.prunable(closing)
-    }
-
-    /// Deletes `group` as `deleteIfEmpty` does, and returns whether the
-    /// delete went to the group (its recheck still found it empty) and landed.
-    func deleteIfEmptyLanded(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) async -> Bool {
-        guard isEmptyUnpinned(group) else { return false }
-        let life = self, doomed = DeleteSent()
-        return await withCheckedContinuation { done in
-            commit("delete-personal-group", ending: [group],
-                   recheck: { doomed.value = life.isEmptyUnpinned(group); return doomed.value ? [group] : [] },
-                   failed: failed, completed: { ok in done.resume(returning: ok && doomed.value) }) { _ -> Void in }
-        }
     }
 
     @MainActor private final class DeleteSent { var value = false }
@@ -146,7 +130,7 @@ struct PersonalGroupLife {
         return GroupCloseCleanup(group, home: .init(
             exists: { life.personal.group(group) != nil },
             isEmptyUnpinned: { life.isEmptyUnpinned(group) },
-            delete: { await life.deleteIfEmptyLanded(group, failed: failed) },
+            delete: { await withCheckedContinuation { done in life.deleteIfEmpty(group, failed: failed) { done.resume(returning: $0) } } },
             history: history))
     }
 }
