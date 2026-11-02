@@ -405,6 +405,7 @@ typedef struct CmuxScrollStatus {
 } CmuxScrollStatus;
 
 CmuxScroll *cmux_scroll_new(uint8_t kind);
+CmuxScroll *cmux_scroll_clone(const CmuxScroll *scroll); /* an independent copy */
 void cmux_scroll_free(CmuxScroll *scroll);
 void cmux_scroll_set_mode(CmuxScroll *scroll, uint8_t mode);
 CmuxScrollEffects cmux_scroll_sync(CmuxScroll *scroll, CmuxScrollSpring *spring, const CmuxScrollStrip *strip, const CmuxScrollSync *sync);
