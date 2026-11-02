@@ -109,7 +109,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             let view = entry.session.surfaceView
             if window.firstResponder !== view { window.makeFirstResponder(view) }
         case .browserPage(let pane, let tab):
-            guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
+            guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return resignPaneResponder(in: window) } // no page yet: as for a terminal
             focusPage(entry.tab, in: window)
         case .devTools(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
