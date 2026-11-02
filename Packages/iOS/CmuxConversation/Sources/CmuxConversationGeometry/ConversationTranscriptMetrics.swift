@@ -59,6 +59,9 @@ public enum ConversationTranscriptMetrics {
     public static let nonContiguousSpace: CGFloat = 10
     public static let smallSpace: CGFloat = 6
     public static let mediumSpace: CGFloat = 10
+    /// `selfReplyTranscriptSpace`: around an inline reply (its quote above,
+    /// the next row below).
+    public static let replyBlockSpace: CGFloat = 24
     public static let mediumLargeSpace: CGFloat = 16
 
     /// The caption 2 line spacing (line height plus leading) at Large, 13 pt

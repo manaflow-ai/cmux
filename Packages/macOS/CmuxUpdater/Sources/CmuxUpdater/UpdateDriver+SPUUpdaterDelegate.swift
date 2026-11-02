@@ -59,6 +59,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         log.append("silent install staged \(item.versionString) (\(item.displayVersionString))")
         model.clearDetectedUpdate()
+        if installsInBackground {
+            // YES stalls Sparkle's cycle and provides no cancellation API. NO permits a new
+            // foreground cycle, where showUpdateFound supplies the reply that can cancel the
+            // installer (Skip). Never retain the uncancellable immediate-install block here.
+            quitInstallItem = item
+            eventDelegate?.updateDriverNeedsSilentInstallResume()
+            return false
+        }
         // Sparkle's own silent install: only a click starts it, never the idle policy.
         relaunchIsAutomatic = false
         quitInstallItem = item
@@ -144,6 +152,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Forwards Sparkle's authoritative session-finished signal to the lifecycle owner.
     /// Extracted so the replacement-check race is testable without constructing `SPUUpdater`.
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        invalidatePreparedOffer()
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
         relaunchGate.cancel()

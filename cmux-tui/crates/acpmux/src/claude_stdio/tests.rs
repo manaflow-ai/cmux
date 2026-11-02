@@ -572,3 +572,39 @@ async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
         mode["options"].as_array().unwrap().iter().filter_map(|o| o["value"].as_str()).collect();
     assert_eq!(values, ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]);
 }
+
+/// A chat started with a versioned family name (`opus-5-5`, as a picker or
+/// an agent's `--model` may pass it) failed every turn: Claude Code sent it to
+/// the API unchanged ("There's an issue with the selected model (opus-5-5)").
+/// The translator hands Claude Code the full id at spawn and on every switch.
+#[tokio::test]
+async fn versioned_family_names_reach_claude_code_as_full_ids() {
+    assert_eq!(model_id("opus-5-5"), "claude-opus-5-5");
+    assert_eq!(model_id("sonnet-5-5[1m]"), "claude-sonnet-5-5[1m]");
+    for unchanged in ["opus", "opusplan", "opus[1m]", "claude-opus-5-5", "default", "gpt-6.1-sol"] {
+        assert_eq!(model_id(unchanged), unchanged);
+    }
+
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", Some("opus-5-5"));
+    let at = plan.args.iter().position(|a| a == "--model").expect("--model");
+    assert_eq!(plan.args[at + 1], "claude-opus-5-5");
+
+    let t = Translator::new("acp-1".into(), "default", "opus-5-5", "default");
+    assert_eq!(*t.model.lock().await, "claude-opus-5-5");
+    let req = Message::request(
+        3,
+        method::SESSION_SET_MODEL,
+        json!({"sessionId": "acp-1", "modelId": "haiku-5-5"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(lines[0]["request"]["model"], "claude-haiku-5-5");
+    let req = Message::request(
+        4,
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": "acp-1", "configId": "model", "value": "sonnet-5-5"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(lines[0]["request"]["model"], "claude-sonnet-5-5");
+}

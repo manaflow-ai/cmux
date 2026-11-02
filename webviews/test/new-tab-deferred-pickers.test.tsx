@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
+import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -317,9 +318,7 @@ async function mountNewTab({
   const pickInline = async () => {
     await act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
     expect(Boolean(dom.window.document.querySelector(".acpmux-quick-rail"))).toBe(!startedChat || rail);
-    const high = dom.window.document.querySelector<HTMLElement>(
-      '.acpmux-quick-effort-segment[aria-label="Sonnet 5.5 · High"]',
-    );
+    const high = await effortLevel(dom.window.document, "Sonnet 5.5 · High");
     expect(high).not.toBeNull();
     await act(async () => high!.click());
   };
@@ -509,9 +508,7 @@ test("a New Tab replaces held Sonnet High with Medium after switching to Codex a
   const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label^="Claude"]');
   expect(claude).not.toBeNull();
   await act(async () => claude!.click());
-  const medium = dom.window.document.querySelector<HTMLElement>(
-    '.acpmux-quick-effort-segment[aria-label="Sonnet 5.5 · Medium"]',
-  );
+  const medium = await effortLevel(dom.window.document, "Sonnet 5.5 · Medium");
   expect(medium).not.toBeNull();
   await act(async () => medium!.click());
 

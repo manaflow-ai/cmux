@@ -31,10 +31,20 @@ The gates, each the same invocation as its push-time job:
                   the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
+
+The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
+not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
+rust-panic-baseline.json rows at its own merge; a row the base lowers after that leaves the green standing
+(2026-10-30: #28182 landed 6 acpmux indexing hits and #28369 1 over rows lowered since their checks ran).
+The baseline is a check path, so a merger dispatches these gates, and on a dispatch `prepare` writes
+ratchet=true when the base lowered a deny-lint row of a crate the pull request changes (or any row, for a
+workspace-wide Rust input) since the merge base: the job then lints those packages at BASE and on the merge
+and fails only on counts over the tip's row that BASE does not already reach.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -103,6 +113,56 @@ def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
         return True
     changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
     return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
+
+
+# The panic ratchet's baseline and the cmux-tui inputs whose change can move every crate's count.
+PANIC_BASELINE = "scripts/cmux-next/rust-panic-baseline.json"
+PANIC_WORKSPACE_WIDE = re.compile(r"^cmux-tui/(Cargo\.(toml|lock)|\.?clippy\.toml|rust-toolchain(\.toml)?|\.cargo/config\.toml)$"
+                                  r"|^scripts/cmux-next/rust_panic_ratchet\.py$")
+
+
+def panic_rows(repo: Path, ref: str) -> tuple[dict, list[str]] | None:
+    """The baseline's crate rows and deny lints at `ref`, or None when it has none."""
+    shown = git(repo, "show", f"{ref}:{PANIC_BASELINE}", check=False)
+    if shown.returncode != 0:
+        return None
+    try:
+        data = json.loads(shown.stdout)
+        return dict(data.get("crates") or {}), list(data.get("deny_lints") or [])
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def panic_crate(path: str) -> str | None:
+    """The ratchet's crate name for a path (rust_panic_ratchet.crate_of): crates/<name>, bindings-<name>."""
+    parts = path.split("/")
+    if len(parts) >= 4 and parts[0] == "cmux-tui" and parts[1] == "crates":
+        return parts[2]
+    if len(parts) >= 4 and parts[0] == "cmux-tui" and parts[1] == "bindings":
+        return f"bindings-{parts[2]}"
+    return None
+
+
+def ratchet_needed(repo: Path, event: str, base: str, head: str) -> list[str]:
+    """The crates whose panic-ratchet verdict a dispatch must redo: a deny-lint row BASE lowered since the
+    merge base, of a crate the pull request changes (every lowered crate for a workspace-wide input). A pull
+    request event has none: cmux-tui-spec.yml's clippy job ran the ratchet on this same merge."""
+    if event != "workflow_dispatch":
+        return []
+    since = git(repo, "merge-base", head, base, check=False).stdout.split()
+    old, new = (panic_rows(repo, since[0]) if since else None), panic_rows(repo, base)
+    if old is None or new is None:
+        return []
+    rows, deny = new
+    lowered = {crate for crate, row in old[0].items()
+               if isinstance(row, dict) and any(int((rows.get(crate) or {}).get(lint, 0)) < int(row.get(lint, 0))
+                                                for lint in deny)}
+    if not lowered:
+        return []
+    changed = git(repo, "diff", "--name-only", since[0], head).stdout.split()
+    if any(PANIC_WORKSPACE_WIDE.match(path) for path in changed):
+        return sorted(lowered)
+    return sorted(lowered & {crate for path in changed if (crate := panic_crate(path))})
 
 
 def deep_enough(repo: Path, head: str, base: str) -> bool:
@@ -181,7 +241,12 @@ def prepare(args: argparse.Namespace) -> int:
                 "push, and the gates run again.")
             return 1
         merge = rev(repo, "HEAD")
+        ratchet = ratchet_needed(repo, args.event, base, head)
+        if ratchet:
+            log(f"fast-gates: {BRANCH} lowered the panic-ratchet rows of {', '.join(ratchet)} since #{args.pr}'s "
+                "merge base, and it changes them: the panic-ratchet job runs again on this merge")
     else:
+        ratchet = []
         merge = rev(repo, "HEAD")
         first, second = rev(repo, "HEAD^1"), rev(repo, "HEAD^2")
         if not merge or not first or not second:
@@ -198,7 +263,8 @@ def prepare(args: argparse.Namespace) -> int:
         # parents, or the per-commit gates read a cut commit as adding the whole tree.
         deepen(repo, args.remote, [head, base], head, base)
     write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
-                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false"})
+                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false",
+                                "ratchet": "true" if ratchet else "false"})
     return 0
 
 

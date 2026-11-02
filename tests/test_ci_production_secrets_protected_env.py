@@ -57,7 +57,7 @@ RELEASE_JOBS = {
 # The cmux NEXT feed's own token lives in `release-next` (policy: branch
 # nightly-next only).
 RELEASE_NEXT_JOBS = {
-    "nightly-next-rollback.yml": ["rollback"],
+    "nightly-next-rollback.yml": ["rollback", "pulled-json"],
 }
 
 
