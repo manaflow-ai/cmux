@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4153778460701",
+  "notes": "notes/4153778460701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32619,
+      "title": "measure: nightly-ws-switch heavy workspaces (splits, tabs, browser)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32467,
+      "title": "api: production routes NEXT Cloud to cmux-platform-production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32587,
+      "title": "fix(home): reset chief default zoom to native size",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    }
+  ]
+}
