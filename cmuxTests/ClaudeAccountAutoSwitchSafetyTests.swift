@@ -163,6 +163,33 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
         }
     }
 
+    @Test(arguments: ClaudeUsageLimitScreen.all)
+    @MainActor
+    func claudesOwnUsageLimitScreenDoesNotHoldTheSwitchBack(limitScreen: ClaudeUsageLimitScreen) throws {
+        // After the limit Claude shows its auto-continue footer or its limit menu, both about the
+        // limit itself; the restart loses nothing there. Holding back on them would stop every
+        // automatic switch.
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "claude-account-auto-switch-test",
+            stateSeq: 0,
+            columns: 100,
+            rows: limitScreen.rows.count,
+            text: limitScreen.rows.joined(separator: "\n"),
+            cursor: limitScreen.cursorRow.map { .init(row: $0, column: 2) }
+        )
+        let screen = AgentAutoResumeCoordinator.screenState(in: frame)
+
+        // The same check runs again, synchronously, right before the pane restarts.
+        #expect(
+            ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen, textBoxHasDraft: false) == nil,
+            "screen read as \(screen)"
+        )
+        guard case .switchAccount = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
+            Issue.record("Claude's usage-limit screen, read as \(screen), must not hold the switch back")
+            return
+        }
+    }
+
     @Test
     func aHoldBackNeedsAFreeAccount() {
         // With nowhere to go, the pane just keeps its usage-limit status; no "switch manually".
@@ -227,6 +254,44 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
         }
         #expect(exhaustion.accountKey == fixture.workKey)
     }
+}
+
+/// A screen Claude Code shows once a turn stops at the usage limit, built from the strings in
+/// Claude Code 2.1.316: its auto-continue footer under the empty prompt, as the wait starts and
+/// while it runs, and its `/rate-limit-options` menu, which hides the prompt and the cursor.
+struct ClaudeUsageLimitScreen: Sendable, CustomTestStringConvertible {
+    let name: String
+    let rows: [String]
+    /// The row the cursor shows on, at column 2; `nil` while Claude hides it.
+    let cursorRow: Int?
+
+    var testDescription: String { name }
+
+    static let all: [ClaudeUsageLimitScreen] = {
+        let limitLine = "⎿  You've hit your limit · resets 5pm (Asia/Seoul)"
+        let rule = String(repeating: "─", count: 60)
+        return [
+            ClaudeUsageLimitScreen(
+                name: "auto-continue footer as the wait starts",
+                rows: [limitLine, "", rule, "❯ ", rule, "  Usage limit reached · continuing automatically at 5pm · esc to cancel"],
+                cursorRow: 3
+            ),
+            ClaudeUsageLimitScreen(
+                name: "auto-continue footer while it waits",
+                rows: [limitLine, "", rule, "❯ ", rule, "  Continuing automatically at 5pm · Esc to cancel"],
+                cursorRow: 3
+            ),
+            ClaudeUsageLimitScreen(
+                name: "limit menu",
+                rows: [
+                    limitLine, "", "What do you want to do?", "",
+                    "❯ 1. Stop and wait for limit to reset", "  2. Upgrade your plan", "",
+                    "Enter to confirm · Esc to cancel",
+                ],
+                cursorRow: nil
+            ),
+        ]
+    }()
 }
 
 /// What the coordinator remembers between reports.
