@@ -853,7 +853,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             warn_unstable_handles(method, &value, global.output);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
-                    .or_else(|| super::vm::created_line(&params, &value))
+                    .or_else(|| super::vm::created_line(&params, &value, global))
             {
                 print!("{line}");
                 return Ran::Done(0);
@@ -1052,7 +1052,9 @@ fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStre
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
 /// The liveness probes skip it: they read no session state, and a busy
-/// daemon must not make a live app look dead.
+/// daemon must not make a live app look dead. A caller that passes its own
+/// `after` keeps it (the `focused` overlay reads the window with `after: 0`,
+/// app_focus.rs).
 fn with_read_barrier(method: &str, mut params: Value) -> Value {
     if matches!(method, "system.ping" | "system.capabilities") {
         return params;

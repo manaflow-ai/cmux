@@ -169,3 +169,38 @@ fn a_mutation_that_routes_nothing_keeps_the_key_off_the_session_lock() {
     );
     mux.shutdown();
 }
+
+/// Runs `f` and counts the session lock acquisitions it made on this thread: a path proven to take none never waits
+/// behind automation, with no timing in the test.
+fn session_locks_of<R>(f: impl FnOnce() -> R) -> (R, u64) {
+    let before = crate::mux::state_locks_taken_on_this_thread();
+    let result = f();
+    (result, crate::mux::state_locks_taken_on_this_thread() - before)
+}
+
+/// TYPING FIX 2 (follow-up A of #31940): the kept terminal is dropped only when its own route changes. A tab created
+/// or closed in another workspace routes nothing this client types into; it must not send the person's next key back
+/// to the session lock. Before, any routing write anywhere moved one process-wide generation, so every attached
+/// client's next key took the lock again (O(clients) per tab create, during the agents' tab storms).
+#[cfg(unix)]
+#[test]
+fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    // Automation: a new workspace, a tab in it, and that tab closed again.
+    let other = mux.new_workspace(Some("automation".into()), Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(other.id).unwrap());
+    let tab = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    assert!(mux.close_surface(tab.id).unwrap(), "the automation tab did not close");
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(
+        locks, 0,
+        "a tab created and closed in another workspace sent the person's next key to the session lock"
+    );
+    mux.shutdown();
+}

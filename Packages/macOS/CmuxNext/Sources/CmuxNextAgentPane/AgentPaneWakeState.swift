@@ -113,13 +113,15 @@ extension AgentPaneWakeState {
     }
 
     /// Why a hidden page asked for its wake state (`wake`, nil when it did not answer in time) stays
-    /// instead of being let go, for the log; nil when it may go. The next plan asks again.
+    /// instead of being let go, for the log; nil when it may go. A kept page is asked again after
+    /// the planner's `keptRecheck`.
     public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool) -> String? {
         // A connected page that did not say what it holds (a large attachment still encoding)
         // stays: letting it go would drop its chips.
         if wake == nil, hasHandshake { return "no wake state in time" }
         // A page holding prompts for a folder trust answer stays: each keeps its send's gesture
-        // ticket, which ends with the page (webviews trustHeld.ts).
+        // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
+        // prompts have.
         if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
         return nil
     }
