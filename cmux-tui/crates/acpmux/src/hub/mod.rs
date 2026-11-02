@@ -1334,19 +1334,17 @@ impl Hub {
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
         let id = session.id.clone();
         let generation = self.events.summary_generation.load(Ordering::SeqCst);
-        if session.status() == SessionStatus::Closed {
-            if let Some(bytes) = self
+        if session.status() == SessionStatus::Closed
+            && let Some(bytes) = self
                 .closed_summary_cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&id)
                 .filter(|entry| entry.0 == generation)
                 .map(|entry| if with_tools { &entry.2 } else { &entry.1 })
-            {
-                if let Ok(row) = serde_json::from_str(bytes) {
-                    return row;
-                }
-            }
+            && let Ok(row) = serde_json::from_str(bytes)
+        {
+            return row;
         }
         let row = if with_tools {
             self.session_summary(session)
