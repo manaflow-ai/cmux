@@ -128,23 +128,66 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                 );
             }
             let params = json!({ "build": build["build"].clone() });
-            match super::exchange(&mut stream, "updates.switch_build", params, INSTALL_TIMEOUT) {
-                Ok(Ok(value)) => match global.output {
+            let switching = || json!({ "switching_to": build["build"].clone() });
+            match switch_build(&mut stream, params) {
+                Switched::Answer(Ok(value)) => match global.output {
                     OutputMode::Human => 0,
                     _ => super::super::wire::print_local_success(&value, global.output),
                 },
-                Ok(Err(error)) => super::super::wire::print_operation_error(&error, global.output),
-                // The app quits into the new build once the swap is done: a connection that closes
-                // after the request went out is that restart, not a failure.
-                Err(_) => match global.output {
+                Switched::Answer(Err(error)) => super::super::wire::print_operation_error(&error, global.output),
+                // The app quits into the new build once the swap is done: the connection closing
+                // with no answer after the request went out is that restart.
+                Switched::Restarted => match global.output {
                     OutputMode::Human => 0,
-                    _ => super::super::wire::print_local_success(
-                        &json!({ "switching_to": build["build"].clone() }),
-                        global.output,
-                    ),
+                    _ => super::super::wire::print_local_success(&switching(), global.output),
                 },
+                Switched::Failed(message) => failure("app.transport", &message, global.output),
             }
         }
+    }
+}
+
+/// How `updates.switch_build` ended.
+#[derive(Debug)]
+pub(super) enum Switched {
+    /// The app answered: the switch's result or its refusal.
+    Answer(Result<Value, Value>),
+    /// The connection closed with no answer after the request went out: the app restarted.
+    Restarted,
+    /// The request could not be sent, the wait timed out, or the answer was unreadable.
+    Failed(String),
+}
+
+fn switch_build(stream: &mut std::os::unix::net::UnixStream, params: Value) -> Switched {
+    use std::io::{BufRead, BufReader, Read};
+    let line = json!({ "id": 1, "method": "updates.switch_build", "params": params });
+    if let Err(message) = super::send_line(stream, &line) {
+        return Switched::Failed(message);
+    }
+    if let Err(error) = stream.set_read_timeout(Some(INSTALL_TIMEOUT)) {
+        return Switched::Failed(error.to_string());
+    }
+    let reader = match stream.try_clone() {
+        Ok(clone) => clone,
+        Err(error) => return Switched::Failed(error.to_string()),
+    };
+    let mut response = String::new();
+    match BufReader::new(reader.take(super::MAX_RESPONSE_BYTES)).read_line(&mut response) {
+        Ok(_) => switched(&response),
+        // A process that exits with the request unread resets the connection instead of closing it.
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => Switched::Restarted,
+        Err(error) => Switched::Failed(super::read_error(&error, Some(INSTALL_TIMEOUT))),
+    }
+}
+
+/// The answer line read after `updates.switch_build` went out; empty is the connection closing.
+pub(super) fn switched(response: &str) -> Switched {
+    if response.trim().is_empty() {
+        return Switched::Restarted;
+    }
+    match super::parse_response(response) {
+        Ok(answer) => Switched::Answer(answer),
+        Err(message) => Switched::Failed(message),
     }
 }
 

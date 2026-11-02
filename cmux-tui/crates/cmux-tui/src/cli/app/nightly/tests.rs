@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{Command, Target, human, parse, pick};
+use super::{Command, Switched, Target, human, parse, pick, switched};
 use crate::localization::NightlyMessages;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -101,4 +101,21 @@ fn nightly_list_marks_the_running_kept_and_pulled_builds() {
     assert!(lines[3].contains(messages().kept));
     assert!(lines[0].contains("abcdef01") && lines[0].contains("Fix the sidebar; Faster tabs"));
     assert_eq!(human(&json!({ "builds": [] }), messages()), format!("{}\n", messages().no_builds));
+}
+
+/// Only a connection that closes with no answer counts as the restart; an answer, a refusal and an
+/// unreadable line are reported as they are.
+#[test]
+fn nightly_install_counts_only_a_closed_connection_as_the_restart() {
+    assert!(matches!(switched(""), Switched::Restarted));
+    assert!(matches!(switched("\n"), Switched::Restarted));
+    assert!(matches!(
+        switched(r#"{"id":1,"ok":true,"result":{"switching_to":"200"}}"#),
+        Switched::Answer(Ok(_))
+    ));
+    assert!(matches!(
+        switched(r#"{"id":1,"ok":false,"error":{"code":"switch_refused","message":"no"}}"#),
+        Switched::Answer(Err(_))
+    ));
+    assert!(matches!(switched("{not json"), Switched::Failed(_)));
 }

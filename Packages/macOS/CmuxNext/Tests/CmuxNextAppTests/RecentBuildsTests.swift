@@ -30,4 +30,14 @@ struct RecentBuildsTests {
     @Test func nothingIsSwitchableOnABuildThatFollowsNoFeed() {
         #expect(Self.builds(switches: false).allSatisfy { !$0.switchable })
     }
+
+    @Test func aLimitNoIntHoldsIsTheDefaultNotATrap() {
+        #expect(UpdaterService.recentBuildsLimit(nil) == 10)
+        #expect(UpdaterService.recentBuildsLimit(1e308) == 10)
+        #expect(UpdaterService.recentBuildsLimit(.nan) == 10)
+        #expect(UpdaterService.recentBuildsLimit(-.infinity) == 10)
+        #expect(UpdaterService.recentBuildsLimit(0) == 1)
+        #expect(UpdaterService.recentBuildsLimit(7.9) == 7)
+        #expect(UpdaterService.recentBuildsLimit(500) == 50)
+    }
 }

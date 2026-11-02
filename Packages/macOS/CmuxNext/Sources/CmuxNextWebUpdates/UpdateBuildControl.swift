@@ -42,7 +42,7 @@ public struct UpdateBuildControl {
             // with its date, commit, first change titles, and whether `updates.switch_build` takes it.
             // It reads the feed's notes, verdicts and pulled list, so it gets more than the 2 s deadline.
             .mainActor("updates.builds") { call in
-                let limit = call.params["limit"]?.doubleValue.map { max(1, min(50, Int($0))) } ?? 10
+                let limit = UpdaterService.recentBuildsLimit(call.params["limit"]?.doubleValue)
                 return .followUp {
                     let builds = await updater.recentBuilds(limit: limit)
                     return await MainActor.run {

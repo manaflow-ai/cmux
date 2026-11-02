@@ -48,6 +48,13 @@ extension UpdaterService {
         return Self.recentBuilds(builds, titles: titles, switches: switchesBuilds)
     }
 
+    /// `updates.builds`' `limit`: 1 to 50, 10 when absent; a fraction rounds down, and a value no
+    /// `Int` holds (1e308, NaN, infinity) is the default instead of a trap.
+    nonisolated public static func recentBuildsLimit(_ value: Double?) -> Int {
+        guard let value, value.isFinite, let whole = Int(exactly: value.rounded(.down)) else { return 10 }
+        return max(1, min(50, whole))
+    }
+
     nonisolated static func recentBuilds(_ builds: [ChannelBuild], titles: [String: [String]], switches: Bool) -> [RecentBuild] {
         builds.map { build in
             RecentBuild(build: build.build, version: build.shortVersion, date: build.date, commit: build.commit,
