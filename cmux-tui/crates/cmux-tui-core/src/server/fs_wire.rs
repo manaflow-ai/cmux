@@ -54,10 +54,6 @@ impl RemoteGate for FsGate {
     fn admit_native_owner(&self, frame: &str) -> bool {
         super::native_owner::admits(frame)
     }
-
-    fn admit_native_owner(&self, frame: &str) -> bool {
-        super::native_owner::admits(frame)
-    }
 }
 
 /// Handles an `fs.*` line; `None` when the message is not one.
