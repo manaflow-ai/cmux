@@ -1,8 +1,10 @@
-// The prompt rail starts at the height the chat's prompts take (Leo, 2026-11-01: "i also want the left
-// scroll rail to be starting off to its max height if there truly are that many prompts in the chat
-// and also for it to shift less on load"). Before the prompt index answers (or on a daemon without
-// one) the snapshot's `promptCount` sizes the rail, and the held prompts' ticks sit at the rows they
-// keep; the index or older pages that arrive later fill the rows above them and move nothing.
+// The prompt rail's vertical placement. Its box is centered in the transcript's view (model.ts railTop)
+// and holds the ticks it draws. Prompts not held yet (the snapshot's `promptCount`, before the prompt
+// index answers or on a daemon without one) reserve no empty rows above the held ticks: that pushed the
+// held ticks to the box's foot, just above the composer (Leo, 2026-11-01: "what a stupid f***ing choice
+// to put the f***ing scroll rail at the bottom???"). The prompt index gives every prompt its tick, so
+// the rail is full height once it answers (Leo, 2026-11-01: "i also want the left scroll rail to be
+// starting off to its max height if there truly are that many prompts in the chat").
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -115,10 +117,20 @@ const rail = () => {
   );
   const top = Number.parseFloat(nav.style.top);
   const lead = Number.parseFloat(list.style.marginTop || "0");
-  return { top, height: Number.parseFloat(nav.style.height), latest: top + lead + (rows - 1) * 10 - list.scrollTop };
+  return {
+    top,
+    lead,
+    height: Number.parseFloat(nav.style.height),
+    latest: top + lead + (rows - 1) * 10 - list.scrollTop,
+  };
 };
 
-test("the rail opens at the height of every prompt the chat has, and the index arriving moves no tick", async () => {
+/// Centered in the view, then moved up only as far as it takes to clear the bottom stack (model.ts railTop).
+const centered = (height: number) => Math.round((VIEWPORT - height) / 2);
+/// Where the drawn ticks' run is centered, in px down the view.
+const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 10) / 2;
+
+test("held ticks sit centered in the view, never stacked at the box's foot, while older prompts are not held", async () => {
   const all = chat(45);
   const prompts = all.filter((entry) => entry.kind === "user");
   const held = all.slice(all.indexOf(prompts[33]!));
@@ -142,10 +154,20 @@ test("the rail opens at the height of every prompt the chat has, and the index a
     // The first frame: twelve prompts held, the summary says forty-five.
     await render({ promptCount: 45 });
     const open = rail();
-    expect(open.height).toBe(450);
-    // The index answers: every prompt has its tick, in the same box, the latest on the same row.
+    // The box holds the twelve ticks (the 320 px floor), centered: no empty rows above them.
+    expect(open.lead).toBe(0);
+    expect(open.height).toBe(320);
+    expect(open.top).toBeLessThanOrEqual(centered(320));
+    // The ticks' run is about the view's middle, nowhere near its foot.
+    expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
+    expect(open.latest).toBeLessThan(VIEWPORT - stack - 100);
+    // The index answers: every prompt has its tick, and the taller box is still centered.
     await render({ earlier });
-    expect(rail()).toEqual(open);
+    const full = rail();
+    expect(full.lead).toBe(0);
+    expect(full.height).toBe(450);
+    expect(full.top).toBeLessThanOrEqual(centered(450));
+    expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
   } finally {
     await act(async () => root.unmount());
   }
@@ -167,14 +189,15 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
         />,
       ),
     );
-    // Twelve prompts: the rail's 320 px floor.
+    // Twelve prompts: the rail's 320 px floor, centered.
     expect(rail().height).toBe(320);
+    expect(rail().top).toBeLessThanOrEqual(centered(320));
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("a chat with more prompts than the rail holds keeps its latest tick at the box's end as the index arrives", async () => {
+test("a chat with more prompts than the rail holds keeps its latest tick at the box's end once the index arrives", async () => {
   const all = chat(80);
   const prompts = all.filter((entry) => entry.kind === "user");
   const held = all.slice(all.indexOf(prompts[68]!));
@@ -196,12 +219,14 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
     );
   try {
     await render({ promptCount: 80 });
+    // Twelve held: the 320 px floor, centered, with no empty rows above the ticks.
+    expect(rail().lead).toBe(0);
+    expect(rail().height).toBe(320);
+    await render({ earlier });
     const open = rail();
     // Taller than the room: the rail fills it, and the latest tick ends at its bottom.
     expect(open.height).toBeLessThan(800);
     expect(open.latest + 10).toBe(open.top + open.height);
-    await render({ earlier });
-    expect(rail()).toEqual(open);
   } finally {
     await act(async () => root.unmount());
   }

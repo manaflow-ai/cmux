@@ -133,6 +133,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("normal"), ["transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output",
                                     "expand", "collapse", "fold", "details"]),
+            row(["presentation"], SettingsText.keyed("settings.agentPane.display.presentation", "Chat Presentation"),
+                .choice([
+                    SettingChoice("transcript", SettingsText.keyed("settings.choice.agentChatPresentationTranscript", "Transcript")),
+                    SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
+                ]),
+                .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
             row(["rail", "side"], SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
                 help: SettingsText.keyed("settings.agentPane.display.rail.side.help",
                                          "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),

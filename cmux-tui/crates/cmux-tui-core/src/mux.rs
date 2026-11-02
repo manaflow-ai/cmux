@@ -211,8 +211,10 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod output_cleanup;
 mod pinned_columns;
 mod pty_reclaim;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -305,6 +307,7 @@ mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
+mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -505,6 +508,9 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// The registry's id and generation, fixed when it opened: read without
+    /// its lock, which durable commits hold.
+    registry_identity: (String, String),
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -672,9 +678,15 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// Keys of the incognito (ephemeral) workspaces this run created
+    /// (incognito_terminals.rs): a terminal created with its workspace
+    /// spawns before the workspace's row is published.
+    incognito_workspace_keys: Mutex<HashSet<String>>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
+    output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
     /// published journal event marks it.
     journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
@@ -955,23 +967,6 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
-    }
-
     #[track_caller]
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
@@ -1053,6 +1048,7 @@ impl Drop for Mux {
         {
             maintenance.stop();
         }
+        self.stop_output_cleanup();
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

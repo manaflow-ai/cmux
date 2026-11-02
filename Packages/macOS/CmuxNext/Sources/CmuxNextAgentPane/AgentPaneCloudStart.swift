@@ -113,6 +113,36 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 }
 
+/// `cloud.repickChat {machine?, name?}`: the person picked another machine in the environment picker
+/// for a Cloud chat whose first send has not run (it failed, say "Claude is not signed in here"). The
+/// App moves the chat there and sends its first prompt again (``AgentPaneModel/onCloudRepickChat``,
+/// CmuxNextApp `CloudStartChat+Repick`), rather than leaving it on the machine it was on. `machine`: an
+/// account Cloud machine's id (a row acpmux does not list); `name`: the machine's name as acpmux lists
+/// it as a peer. At least one. Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker,
+/// but the chat stayed on sr2-tunnel-probe".
+public nonisolated struct AgentPaneCloudRepick: Sendable, Equatable {
+    public var machine: String?
+    public var name: String?
+
+    public init(machine: String?, name: String?) {
+        (self.machine, self.name) = (machine, name)
+    }
+
+    /// The page's params, checked; nil for anything else.
+    public init?(params: [String: Any]?) {
+        let params = params ?? [:]
+        guard Set(params.keys).isSubset(of: ["machine", "name"]) else { return nil }
+        func text(_ key: String) -> String?? {
+            guard let value = params[key] else { return .some(nil) }
+            guard let text = value as? String, !text.isEmpty, text.utf8.count <= 128,
+                  text.unicodeScalars.allSatisfy({ $0.isASCII && !CharacterSet.controlCharacters.contains($0) }) else { return nil }
+            return .some(text)
+        }
+        guard let machine = text("machine"), let name = text("name"), machine != nil || name != nil else { return nil }
+        self.init(machine: machine, name: name)
+    }
+}
+
 /// A new chat's first send that runs somewhere other than this Mac's chat: a Sandboxed send
 /// (`sandbox.run`) or a Cloud chat (`cloud.startChat`). Both are the Send's own gesture, only for a
 /// chat that has not started or opened here, one at a time, and while one runs no chat starts or

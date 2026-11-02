@@ -1,6 +1,6 @@
 /// `chat.asks.open {sessionId}`: the person went to another chat's ask from Needs you (its list, a
-/// row's answer or side question, the Needs your input pill). The tab that shows that chat already
-/// is shown and focused; else the chat opens on its right as a link does (`layout.linkPlacement`,
+/// row's answer or side question, the Needs your input pill). A tab that shows that chat already
+/// beside this one (its pane or right column, never another workspace) is shown and focused; else the chat opens on its right as a link does (`layout.linkPlacement`,
 /// ``AgentPaneHeaderHooks/openRight``, ``RightColumnPlacement``): a new split there, else a split
 /// below what is already on its right (a plain split's terminal included), else a tab in the right
 /// column's lower pane, focused. Only when that opens nothing, it goes where ``AgentSidePanes``

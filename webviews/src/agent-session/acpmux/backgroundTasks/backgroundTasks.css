@@ -15,8 +15,13 @@
 .acpmux-shell[data-tab-row] {
   --acpmux-bg-top: var(--acpmux-tab-row-height);
 }
+/* The column paints over its row siblings: a pushed Session Info slides in from under the pane's
+   right edge (sessionInfo.css, negative margin-right while it enters, #31423), and with the column
+   there that edge is the column's, so the panel comes out from behind it instead of over it. */
 .acpmux-shell > .acpmux-bg {
   --ui-enter-distance: 100%;
+  position: relative;
+  z-index: var(--layer-raised);
   flex: 0 0 var(--acpmux-bg-column);
   min-width: 0;
   margin-top: var(--acpmux-bg-top);

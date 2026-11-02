@@ -74,6 +74,9 @@ public final class AcpmuxChatWindows {
         /// How many chats matched a query window's query, or a counted window could show (more than
         /// `rows` when it shows a page).
         public private(set) var total: Int?
+        /// acpmux has more chats past these rows that the window's filter passes (`hasMore`): a list's
+        /// Show More. acpmux decides it, so a list never asks for one more row to find out.
+        public private(set) var hasMore = false
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
         /// Called with the rows after each message of this window acpmux sends for its current spec
@@ -103,8 +106,9 @@ public final class AcpmuxChatWindows {
             for refusal in refusals { refusal.refused() }
         }
 
-        fileprivate func set(rows: [AcpmuxChat], total: Int? = nil) {
+        fileprivate func set(rows: [AcpmuxChat], total: Int? = nil, hasMore: Bool = false) {
             if self.total != total { self.total = total }
+            if self.hasMore != hasMore { self.hasMore = hasMore }
             if self.rows != rows { self.rows = rows }
         }
 
@@ -126,14 +130,18 @@ public final class AcpmuxChatWindows {
         public var rows: [String: AcpmuxChat]
         /// How many chats matched, or a counted window could show.
         public var total: Int?
+        /// More chats pass the window's filter past its rows.
+        public var hasMore: Bool
 
-        public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat]) {
+        public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat],
+                    hasMore: Bool = false) {
             self.window = window
             self.generation = generation
             self.revision = revision
             self.full = full
             self.keys = keys
             self.rows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            self.hasMore = hasMore
             total = nil
         }
 
@@ -142,7 +150,7 @@ public final class AcpmuxChatWindows {
                   let keys = params["keys"] as? [String] else { return nil }
             let rows = (params["rows"] as? [[String: Any]] ?? []).compactMap(AcpmuxChat.init(json:))
             self.init(window: window, generation: (params["gen"] as? NSNumber)?.uint64Value, revision: revision,
-                      full: params["full"] as? Bool ?? false, keys: keys, rows: rows)
+                      full: params["full"] as? Bool ?? false, keys: keys, rows: rows, hasMore: params["hasMore"] as? Bool ?? false)
             total = (params["total"] as? NSNumber)?.intValue
         }
     }
@@ -299,7 +307,7 @@ public final class AcpmuxChatWindows {
         }
         model.revision = update.revision
         lastTouchedRows = update.rows.count
-        model.set(rows: rows, total: update.total)
+        model.set(rows: rows, total: update.total, hasMore: update.hasMore)
         answeredGeneration[update.window] = generations[update.window]
         model.answered()
         // The index that was not ready filled this window: a reader that ended on `ready: false` asks again.

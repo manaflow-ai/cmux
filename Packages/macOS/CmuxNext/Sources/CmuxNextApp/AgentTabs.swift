@@ -138,6 +138,13 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
+    /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
+    var takeConnectedSpare: (() -> AgentPaneView?)?
+    /// Whether this Mac's Chief home keeps session `session` (an older subagent tab recorded with
+    /// this Mac's host attaches there, ``AcpmuxChiefSessionRouter``): the spare is connected to
+    /// this Mac's acpmux, so such a chat gets its own page.
+    var chiefKeepsSession: @MainActor (String) -> Bool = { _ in false }
     /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
     /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
     var onPageBuilt: ((String) -> Void)?
@@ -344,10 +351,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
-    func tab(showing session: String, host: String? = nil) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
+        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -424,6 +431,17 @@ final class AgentTabStore {
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
+            track(key, in: store)
+            onPageBuilt?(key)
+            return spare
+        }
+        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
+        // spare too: it is loaded and connected, and switches to the chat in place.
+        if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[key] ?? record.session,
+                                                newTabPage: newTabPages[key] != nil, seeded: seed != nil,
+                                                wake: wakeStates[key] != nil || relaunchWake.mayHold(key))
+            .adopted(chiefKeeps: chiefKeepsSession),
+           let spare = takeConnectedSpare?(), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
             track(key, in: store)
             onPageBuilt?(key)
             return spare

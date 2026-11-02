@@ -310,9 +310,10 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
-        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        // Onto the row's hover card: rows hold still until the pointer leaves the card too.
+        releaseHeldModelChangeIfPointerLeft()
     }
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
     /// scrolled under a possibly still pointer (no point: the coordinator's

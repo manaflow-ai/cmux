@@ -6,14 +6,19 @@ use crate::config::{Config, home, socket_path};
 use crate::hub::Hub;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
-use lock::{DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release};
+#[cfg(unix)]
+pub(crate) use lock::socket_held_by_other;
+use lock::{
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, not_serving_recovery,
+    wait_for_lock_release,
+};
 mod running;
 pub use running::connect_running;
 mod router_owner;
@@ -37,6 +42,8 @@ mod home_watch;
 mod notify;
 pub(crate) mod owner_exit;
 mod persist_retry;
+#[cfg(unix)]
+mod socket_rebind;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -305,7 +312,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
-                let _ = std::fs::remove_file(socket_path());
+                remove_bound_socket(bound_socket.as_ref());
                 return Err(e.context(format!(
                     "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
                 )));
@@ -320,7 +327,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                         Some((l, token.clone()))
                     }
                     Err(e) => {
-                        let _ = std::fs::remove_file(socket_path());
+                        remove_bound_socket(bound_socket.as_ref());
                         return Err(e.context("no free loopback port for the WebSocket listener"));
                     }
                 }
@@ -463,6 +470,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
         None => None,
     };
+    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    #[cfg(unix)]
+    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
+    #[cfg(unix)]
+    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -547,11 +560,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         &home(),
         &socket_path(),
     ));
-    let _home_watch = AbortOnDrop(home_gone.abort_handle());
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut _home_watch = AbortOnDrop(home_gone.abort_handle());
+    // The socket as last bound: a re-bind replaces it (`daemon/socket_rebind.rs`).
+    let bound_socket = std::sync::Mutex::new(bound_socket);
+    #[cfg(unix)]
+    let mut rebinds = 0u32;
     // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
     // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
     // Its home and lock, re-read during the shutdown too.
+    #[cfg(unix)]
+    let held_home = owned_home.clone();
     let recheck_home = move || {
         if let Some(why) = owned_home.as_ref().and_then(|owned| owned.lost()) {
             if !crate::config::home_lost() {
@@ -636,29 +656,68 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
+        // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
-        {
+        let mut app_orphan = std::pin::pin!(app_orphan);
+        #[cfg(unix)]
+        loop {
             let (term, int) = &mut stop_signals;
             tokio::select! {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
+                    tracing::warn!("stopping: SIGTERM (a restart handoff)");
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
-                _ = next_signal(int.as_mut()) => {},
-                _ = hub.shutdown.notified() => {},
+                _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
+                _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
-                end_agents = app_orphan => {
+                end_agents = &mut app_orphan => {
                     if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
                 // A normal stop, not a restart handoff: nothing can reach this daemon again.
-                Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
+                // Except a loss of its socket alone: it binds that again and serves on, a
+                // bounded number of times (`daemon/socket_rebind.rs`).
+                Ok(lost) = &mut home_gone => match lost {
+                    home_watch::Lost::Socket(why) if rebinds < socket_rebind::MAX_REBINDS => {
+                        rebinds += 1;
+                        match socket_rebind::rebind(held_home.as_ref(), &socket_path()).await {
+                            Ok((listener, bound)) => {
+                                tracing::warn!(
+                                    "{why}; bound it again ({rebinds} of {})",
+                                    socket_rebind::MAX_REBINDS
+                                );
+                                let _ = rebound_tx.send(listener).await;
+                                home_gone = tokio::spawn(home_watch::watch(
+                                    held_home.clone(),
+                                    bound.clone(),
+                                    &home(),
+                                    &socket_path(),
+                                ));
+                                _home_watch = AbortOnDrop(home_gone.abort_handle());
+                                *bound_socket.lock().unwrap_or_else(PoisonError::into_inner) =
+                                    bound;
+                                continue;
+                            }
+                            Err(e) => {
+                                crate::config::mark_socket_lost();
+                                tracing::warn!("stopping: {why}; binding it again failed: {e:#}");
+                            }
+                        }
+                    }
+                    home_watch::Lost::Socket(why) => {
+                        crate::config::mark_socket_lost();
+                        tracing::warn!("stopping: {why}, after {rebinds} re-binds");
+                    }
+                    home_watch::Lost::Stop(why) => tracing::warn!("stopping: {why}"),
+                },
                 why = &mut unused => tracing::info!("stopping: {why}"),
             }
+            break;
         }
         #[cfg(not(unix))]
         {
@@ -673,7 +732,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
-                Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
+                Ok(lost) = &mut home_gone => tracing::warn!("stopping: {lost:?}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
             }
         }
@@ -749,6 +808,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // One that could not be read right after the bind is left alone: it may be another's. (A
     // replacement between this check and the unlink cannot be ruled out: unlink takes a path.)
     // Off Unix there is no identity to read: the socket goes, as it always did.
+    let bound_socket = bound_socket.into_inner().unwrap_or_else(PoisonError::into_inner);
     if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
@@ -798,6 +858,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// A startup that fails after the bind removes the socket only while it is still the one this
+/// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
+fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
+    if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
+        let _ = std::fs::remove_file(socket_path());
+    }
 }
 
 /// Aborts a task when dropped.
@@ -1460,9 +1528,10 @@ where
         }
         if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
             return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}; see {}",
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}{}; see {}",
                 home().join("daemon.lock").display(),
                 path.display(),
+                not_serving_recovery(&home().join("daemon.lock")),
                 home().join("daemon.log").display()
             ));
         }

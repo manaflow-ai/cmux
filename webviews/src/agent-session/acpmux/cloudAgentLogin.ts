@@ -144,10 +144,8 @@ export class LoginStepError extends Error {
   }
 }
 
-/// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
-/// not connected, not on a Cloud machine, not Claude or Codex, or on an acpmux that does not
-/// advertise `agent_login`.
-export function cloudAgentLogin(options: {
+/// What ``cloudAgentLogin`` and ``localApiKeyLogin`` take.
+type LoginOptions = {
   connected: boolean;
   machineID: string | undefined;
   sessionId: string | undefined;
@@ -157,11 +155,34 @@ export function cloudAgentLogin(options: {
   openURL: (url: string) => void;
   isCurrent: (sessionId: string) => boolean;
   currentClient: () => LoginClient | undefined;
-}): CloudSignIn | undefined {
-  const { connected, machineID, sessionId, harness, supported, gesture, openURL, isCurrent, currentClient } = options;
+};
+
+/// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
+/// not connected, not on a Cloud machine, not Claude or Codex, or on an acpmux that does not
+/// advertise `agent_login`.
+export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
+  return options.machineID ? agentLogin(options) : undefined;
+}
+
+/// Use an API key for a chat on this Mac whose built-in Claude Code or Codex is not signed in (Leo
+/// 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+/// their own api key"). acpmux saves the key where the agent's own CLI reads it (Claude's
+/// `settings.json` `env.ANTHROPIC_API_KEY`, `codex login --with-api-key`) and restarts the chat on it.
+/// Only the built-in `claude` and `codex` harnesses: a route (`claude-cr`, `claude-sr`) sets its own
+/// key and endpoint, which a saved key would never reach. Undefined for a Cloud chat (its card is
+/// ``cloudAgentLogin``'s).
+export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined {
+  const harness = options.harness?.split("/").pop();
+  if (options.machineID || (harness !== "claude" && harness !== "codex")) return undefined;
+  return agentLogin(options);
+}
+
+/// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
+/// Codex, or on an acpmux that does not advertise `agent_login`.
+function agentLogin(options: LoginOptions): CloudSignIn | undefined {
+  const { connected, sessionId, harness, supported, gesture, openURL, isCurrent, currentClient } = options;
   const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !machineID || !sessionId || !supported || (agent !== "claude" && agent !== "codex"))
-    return undefined;
+  if (!connected || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");

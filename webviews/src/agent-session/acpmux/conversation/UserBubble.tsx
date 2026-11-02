@@ -12,8 +12,19 @@
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
-// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt. A video
+// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -28,6 +39,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
 import {
   ForkButton,
   forkWithFeedback,
@@ -38,7 +50,10 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
+import { SkillWordsContext } from "./skillWords";
+import { SentVideoTile } from "./SentVideoTile";
+import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -67,10 +82,18 @@ export function UserBubble({
   // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
   // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
+  // Only a skill of the chat's list reads so (skillWords.ts).
+  const skills = useContext(SkillWordsContext);
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
+  const videos = useMemo(() => sentVideosOf(given), [given]);
   const text = useMemo(
-    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
-    [givenText, given],
+    () =>
+      withoutSkillDollars(
+        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        skills,
+      ),
+    [givenText, given, skills],
   );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
@@ -86,13 +109,15 @@ export function UserBubble({
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
   const recorded = recordedFiles(row.inlineParts, originals);
-  const files = recorded?.length
-    ? recorded
-    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-        file.kind === "link" && !file.mimeType.startsWith("video/")
-          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-          : [],
-      );
+  const files = (
+    recorded?.length
+      ? recorded
+      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !file.mimeType.startsWith("video/")
+            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+            : [],
+        )
+  )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -121,6 +146,17 @@ export function UserBubble({
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
+  const renderFile = useCallback(
+    (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
+      const video = sentVideoOf(part, videos);
+      return video ? (
+        <span className="cv-user__inline-image">
+          <SentVideoTile video={video} width={sentImageWidth(video)} />
+        </span>
+      ) : undefined;
+    },
+    [videos],
+  );
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -133,8 +169,9 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          // The skills it named go as `/$name` again; the App writes any other skill so too.
-          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          // Its skills go as `/$name` again, a skill it named keeping that name where a command
+          // shares it, and a skill added in the editor too.
+          const sent = withSkillDollars(value, skills, pickedSkillsOf(given.text ?? givenText, skills));
           if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
@@ -142,7 +179,9 @@ export function UserBubble({
   }
   return (
     <>
-      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      )}
       {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
@@ -158,7 +197,9 @@ export function UserBubble({
                 {renderImage(part)}
               </span>
             ) : (
-              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+              <Fragment key={`${part.kind}-${part.id ?? part.name}-${index}`}>
+                {renderFile(part) ?? <PromptFile part={part} />}
+              </Fragment>
             ),
           )}
         </div>
@@ -169,7 +210,13 @@ export function UserBubble({
         {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              <InlinePromptContent
+                rowId={row.id}
+                parts={shownParts!}
+                show={show}
+                renderImage={renderImage}
+                renderFile={renderFile}
+              />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
@@ -250,15 +297,15 @@ export function UserBubble({
 
 /// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
 /// `row` itself when it names no Codex skill.
-function shownSkills(row: AcpmuxRow): AcpmuxRow {
+function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
   const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
   if (!sent.some((text) => text?.includes("/$"))) return row;
   return {
     ...row,
-    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text, skills) }),
     ...(row.inlineParts && {
       inlineParts: row.inlineParts.map((part) =>
-        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text, skills) } : part,
       ),
     }),
   };
@@ -290,21 +337,32 @@ function UserFooter({
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+/// `leading` goes first in the same row: the prompt's videos (SentVideoTile.tsx).
 export const SentImages = memo(function SentImages({
   images,
   className,
+  leading,
 }: {
   images: readonly PromptImage[];
   className?: string;
+  leading?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
+      {leading}
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
     </div>
   );
 });
+
+/// A prompt's videos, each at a sent image's height in its own shape.
+function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+  return videos.map((video) => (
+    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+  ));
+}
 
 /// The sent thumbnail's height (conversation.css), and the narrowest and
 /// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
@@ -333,6 +391,8 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
+  // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
+  const from = useSourceLabel(image.source);
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
@@ -369,18 +429,26 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       }}
     />
   );
-  if (!openImage) return thumbnail;
-  return (
+  const opened = openImage ? (
     <button
       type="button"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
-      /* tooltip-allow: an image thumbnail shows no name */ title={label}
+      /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}
     >
       {thumbnail}
     </button>
+  ) : (
+    thumbnail
+  );
+  if (!image.source) return opened;
+  return (
+    <span className="cv-user__sourced">
+      {opened}
+      <SourceBadge source={image.source} />
+    </span>
   );
 });
 

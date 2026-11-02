@@ -66,6 +66,35 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
 }
 
+/// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
+async function pasteComparison(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  const handle = field.acpmuxMarkdownField!;
+  handle.setCaret(13);
+  const canvas = ctx.document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const drawing = canvas.getContext("2d")!;
+  drawing.fillStyle = "#5783b5";
+  drawing.fillRect(0, 0, 320, 180);
+  drawing.fillStyle = "white";
+  drawing.font = "24px system-ui";
+  drawing.fillText("Before and after", 36, 96);
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [new view.File([blob], "comparison.png", { type: "image/png" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+}
+
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
 // mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
 const SEND_ARRIVES = {
@@ -1008,7 +1037,7 @@ export default agentPaneEntry({
       },
     },
     "file-saved-as-path": {
-      note: "Pasted files (a text file, a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path.",
+      note: 'Pasted files (a text file, a zip, a video) are saved by the chat\'s host; each file chip names the file and links the saved copy, and the video is the square tile with its play glyph (Leo, 2026-10-26: "Just do the square.").',
       snapshot: chat(finished),
       native: {
         "chat.upload": {
@@ -1035,14 +1064,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 3);
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2 &&
+            ctx.document.querySelector(".acpmux-attachment-video[title='repro.mov']"),
+        );
         const links = ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-link[data-saved]");
         const chips = [...links].map((chip) => ({
           name: chip.querySelector(".acpmux-attachment-link-name")?.textContent,
           note: chip.querySelector(".acpmux-attachment-link-note")?.textContent,
           path: chip.title,
         }));
-        for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
+        for (const name of ["notes.md", "build-logs.zip"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
           if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);
@@ -1218,32 +1251,18 @@ export default agentPaneEntry({
       note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot is pasted between words at the caret. Backspace removes the atom in one press; undo restores it. The strip remains available in Settings.',
       snapshot: chat(finished),
       ready: { draft: "Compare this with the previous result." },
+      play: pasteComparison,
+    },
+    "attachment-inline-arrow": {
+      note: 'Leo: "i dont want left arrow to be selecting them??? just jump over them treat them like it\'s one character". The screenshot pasted after "Compare this", then Left: the caret jumps to before the chip, which stays unselected. Right jumps back after it; Shift+arrow takes it as one unit.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
       play: async (ctx) => {
+        await pasteComparison(ctx);
+        const editor = ctx.find({ selector: ".acpmux-md" });
         const view = ctx.document.defaultView!;
-        view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
-        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
-        const handle = field.acpmuxMarkdownField!;
-        handle.setCaret(13);
-        const canvas = ctx.document.createElement("canvas");
-        canvas.width = 320;
-        canvas.height = 180;
-        const drawing = canvas.getContext("2d")!;
-        drawing.fillStyle = "#5783b5";
-        drawing.fillRect(0, 0, 320, 180);
-        drawing.fillStyle = "white";
-        drawing.font = "24px system-ui";
-        drawing.fillText("Before and after", 36, 96);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", {
-          value: {
-            files: [new view.File([blob], "comparison.png", { type: "image/png" })],
-            types: ["Files"],
-            getData: () => "",
-          },
-        });
-        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+        editor.dispatchEvent(new view.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-md .ProseMirror-selectednode"));
       },
     },
     "attachment-inline-image-and-file": {

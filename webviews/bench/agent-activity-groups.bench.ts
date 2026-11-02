@@ -7,6 +7,7 @@
 //   local:    the state is the same objects (a select, scrub, layout action or frame event).
 //   bun bench/agent-activity-groups.bench.ts [rounds=9] [renders=200]
 import { groups, initialActivityState, reduceActivity, type ActivitySession } from "../src/agent-activity/model";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 9);
 const RENDERS = Number(process.argv[3] ?? 200);
@@ -73,4 +74,10 @@ for (const size of SIZES) {
     }
   }
   console.log(`${size} | ${median(snapshotRounds).toFixed(4)} | ${median(localRounds).toFixed(4)}`);
+  // The median of rounds, as both p50 and p95 (perfRow.ts); one render's ask is part of a frame's work.
+  for (const [arm, value] of [
+    ["snapshot", median(snapshotRounds)],
+    ["local", median(localRounds)],
+  ] as const)
+    perfRow({ name: `agent_activity.groups.${arm}.${size}`, p50: value, p95: value, target: TARGET_MS.frameWork });
 }

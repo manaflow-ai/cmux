@@ -109,7 +109,7 @@ def idle_runner(runners: Sequence[Mapping[str, Any]], wanted: Sequence[str]) -> 
     return ""
 
 
-def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
+def read_live(env: Mapping[str, str], *, use_state: bool = True) -> Sequence[Mapping[str, Any]] | None:
     token = (env.get("ROUTE_TOKEN") or env.get("GITHUB_TOKEN") or "").strip()
     repo = (env.get("GITHUB_REPOSITORY") or "").strip()
     if not token or not repo:
@@ -121,7 +121,7 @@ def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
         # clients so one token's narrow scope cannot accidentally be used for
         # the other read.
         client = pr_runner_pool.GitHub(token, repo)
-        runners = client.runners()
+        runners = client.runners(use_state=use_state)
         # When the workflow provides the janitor token, require its queue
         # snapshot to be fresh as well. A stale or missing snapshot is not
         # evidence that an idle runner can accept this control job.
@@ -136,7 +136,7 @@ def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
         return None
 
 
-def choose(env: Mapping[str, str], read=read_live, sleep=time.sleep, clock=time.monotonic) -> str:
+def choose(env: Mapping[str, str], read=None, sleep=time.sleep, clock=time.monotonic) -> str:
     # A re-run is the no-start rescue for an admission label that refused or
     # never started. Do not select that same label again; use measured overflow.
     if (env.get("GITHUB_RUN_ATTEMPT") or "1") != "1":
@@ -145,8 +145,10 @@ def choose(env: Mapping[str, str], read=read_live, sleep=time.sleep, clock=time.
     if not wanted:
         return fallback(env)
     deadline = clock() + WAIT_SECONDS
+    first_look = True
     while True:
-        runners = read(env)
+        runners = read(env) if read is not None else read_live(env, use_state=first_look)
+        first_look = False
         if runners is not None:
             selected = idle_runner(runners, wanted)
             if selected:

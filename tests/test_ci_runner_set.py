@@ -32,14 +32,51 @@ TARGETS = {
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_uses_the_live_ephemeral_mirror(self) -> None:
+    def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
+        # The router runs before any picker can, so it is a declared hosted light job
+        # (.github/runners.json hosted_light_jobs): ephemeral hosted Ubuntu on attempt 1, Blacksmith
+        # 8 vCPU or the LINUX_RUNNER mirror on a re-run, never LINUX_RUNNER first (run 41385632466 sat on its 4 vCPU queue)
+        # and never a persistent fleet label, since the job mints GLAEDA_ROUTE_APP_KEY tokens.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = job["runs-on"]
         self.assertNotIn(POOL, runs_on)
-        self.assertIn("contains(fromJSON", runs_on)
-        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", runs_on)
-        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
+        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+        # LINUX_RUNNER only after hosted Ubuntu, as the re-run's bounded ephemeral mirror.
+        hosted, retry = runs_on.split("github.run_attempt == 1 && 'ubuntu-24.04'", 1)
+        self.assertNotIn("LINUX_RUNNER", hosted)
+        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", retry)
+        self.assertTrue(runs_on.rstrip().endswith(
+            "|| vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}"), runs_on)
         self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+        self.assertNotIn("glaeda-", runs_on)
+
+    def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
+        # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
+        # routing work each, which on 2026-11-02 waited up to a minute behind the saturated
+        # blacksmith-4vcpu-ubuntu-2404 queue. Hosted Ubuntu on attempt 1, then a declared retry.
+        import json
+
+        declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
+        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
+        # The job that holds a pull-requests write token, or runs the checked-out revision's
+        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
+        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}"
+        cases = {
+            ("pr-red-checks-comment.yml", "comment"): ephemeral,
+            ("cmux-next.yml", "path_route"): ephemeral,
+            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+        }
+        for (workflow, name), tail in cases.items():
+            with self.subTest(job=f"{workflow}#{name}"):
+                self.assertIn(f"{workflow}#{name}", declared)
+                runs_on = yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name]["runs-on"]
+                self.assertIn(hosted, runs_on)
+                self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
+                self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+                if tail == ephemeral:
+                    self.assertNotIn(POOL, runs_on)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():

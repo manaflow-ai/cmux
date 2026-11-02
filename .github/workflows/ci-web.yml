@@ -433,7 +433,7 @@ jobs:
         run: ./scripts/check-webviews-react-compiler.mjs
 
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
-      # layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
+      # menu-gutter, layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
       # run and only warn. The type check, the browser test-lane check, the protocol codegen
       # check and the string catalog key check fail, through fast_gate_webviews_checks.py: each
       # runs on its own, and on a pull request only errors the base (the merge parent) lacks
@@ -457,7 +457,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.

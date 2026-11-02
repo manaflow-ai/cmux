@@ -33,7 +33,7 @@ struct IncognitoSurfacesTests {
         var key = WorkspaceKey.generate()
         if incognito {
             let window = services.windows.newIncognitoWindow()
-            key = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+            key = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
         }
         let store = DaemonStore()
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", name: "deploy keys")])
@@ -70,17 +70,32 @@ struct IncognitoSurfacesTests {
         #expect(posted.body == "Rotated the production signing key.")
     }
 
-    /// An agent's passkey request from an incognito browser tab names neither the agent nor the site.
-    @Test func anIncognitoPasskeyBannerNamesNothing() async {
+    /// An agent's passkey request from an incognito browser tab names neither the agent nor the site; one
+    /// from a normal window's tab does. The tab resolves on its own machine and its window is read from
+    /// its pane (#28382), so the check works on the real tab tree, not on a by-id stand-in.
+    @Test func anIncognitoPasskeyBannerNamesNothing() async throws {
         let services = Self.services()
-        services.cache.browserTabs.isIncognitoTab = { $0 == "tab_secret" }
+        let window = services.windows.newIncognitoWindow()
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        func workspace(_ id: UInt64, _ key: WorkspaceKey, tab: String) -> WorkspaceSnapshot {
+            let page = TabSnapshot(surface: .init(rawValue: id), tabResourceID: ResourceID(rawValue: tab), kind: .browser, url: "https://bank.example")
+            let pane = PaneSnapshot(id: .init(rawValue: id), tabs: [page])
+            return WorkspaceSnapshot(id: .init(rawValue: id), key: key, name: tab,
+                                     screens: [ScreenSnapshot(id: .init(rawValue: id), layout: .leaf(.init(rawValue: id)), panes: [pane])])
+        }
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [workspace(1, secret, tab: "tab_secret"),
+                                                                      workspace(2, WorkspaceKey.generate(), tab: "tab_normal")]))
         let host = AppBrowserPasskeyHost(services: services)
         await host.post(BrowserPasskeyRequest(id: "p1", tabID: "tab_secret", agent: "Chief", site: "bank.example"))
         let posted = services.notifications.desktop.posted.last
         #expect(posted?.title == DesktopNotifier.incognitoTitle && posted?.body == DesktopNotifier.incognitoBody,
                 "an incognito tab's passkey banner names its agent or site: \(String(describing: posted))")
+        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_normal", agent: "Chief", site: "bank.example"))
+        let normal = services.notifications.desktop.posted.last
+        #expect(normal?.title.contains("Chief") == true && normal?.body.contains("bank.example") == true,
+                "a normal window's passkey banner lost its agent or site: \(String(describing: normal))")
         // A tab closed while the request waited may have been an incognito one: its banner names nothing either.
-        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_closed", agent: "Chief", site: "bank.example"))
+        await host.post(BrowserPasskeyRequest(id: "p3", tabID: "tab_closed", agent: "Chief", site: "bank.example"))
         #expect(services.notifications.desktop.posted.last?.body == DesktopNotifier.incognitoBody)
     }
 

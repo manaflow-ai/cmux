@@ -160,7 +160,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
 /// A connection served as a peer (it proved this launch's peer token) reads only this
 /// daemon's own sessions: the link drops every row mirrored from a peer (`peer.rs`
-/// `watch_sessions`), and with them big-red's list was 17 MB with tools on 2026-10-30, past
+/// `watch_sessions`), and with them one lane VM's list was 17 MB with tools on 2026-10-30, past
 /// the message limit, so no peer's handshake there finished. Built from the own sessions
 /// alone, never from the whole list, once per snapshot.
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {

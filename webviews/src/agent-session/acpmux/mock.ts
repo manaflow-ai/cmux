@@ -79,6 +79,13 @@ const commands = [
   { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
   { name: "pr-comments", description: "Get comments from a GitHub pull request" },
   { name: "review", description: "Review a pull request" },
+  // A skill, as acpmux tags Claude's (`_meta.kind`): its `/name` is blue in a sent prompt, with this
+  // description as its tooltip (conversation/SkillWord.tsx).
+  {
+    name: "design-vocabulary",
+    description: "The precise design and UI vocabulary, for the exact word for a design idea",
+    _meta: { kind: "skill" },
+  },
 ];
 /// The one empty session a recorded MockScript replays into.
 const scriptSession = {

@@ -40,13 +40,13 @@ struct AgentTabContent {
             // A quote from the file's viewer comes back to this chat (viewer-comments-DESIGN.md).
             pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
-            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey)
+            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
-            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
+            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
