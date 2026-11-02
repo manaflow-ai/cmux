@@ -484,6 +484,95 @@ fn cached_checkout_probe_reads_the_daemons_fs_stat() {
     }
 }
 
+/// A copy's send key pins its original project, subfolder, GitHub origin and
+/// environment. A retry after selecting another project never opens the old
+/// checkout, even when that old directory still exists on the guest.
+#[test]
+fn cached_chat_refuses_changed_project_subfolder_origin_and_environment() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project-a");
+    let other = dir.path().join("project-b");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let config = folder.join(".git/config");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let folder = folder.to_str().unwrap();
+    let copy = copy_of(folder, "src");
+    let first = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(first["ok"], json!(true), "{first}");
+    let ledger_before = std::fs::read(&path).unwrap();
+    let no_push = |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> {
+        panic!("a changed selection must never copy onto the old chat")
+    };
+    let no_probe = |_: &Path, _: &str| -> Result<bool, (String, String)> {
+        panic!("a changed selection must be refused before the guest is queried")
+    };
+    let changed = [
+        StartCopy { local: other.to_string_lossy().into_owned(), ..copy.clone() },
+        StartCopy { subpath: "tests".into(), ..copy.clone() },
+        StartCopy { environment: Some(ENV.into()), ..copy.clone() },
+    ];
+    for different in changed {
+        let result = different.run_with_probe(&path, &no_push, &no_probe);
+        assert_eq!(result["error_code"], json!("checkout.source_changed"), "{result}");
+        assert_eq!(result["checkout_state"], json!("unverified"));
+        assert_eq!(result["dependencies_state"], json!("unverified"));
+        assert!(result["error"].as_str().unwrap().contains("start a new chat"));
+        assert_eq!(std::fs::read(&path).unwrap(), ledger_before);
+    }
+    // The local directory stays identical, but its GitHub origin is now repo B.
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/two/project\n")
+        .unwrap();
+    let changed_origin = copy.run_with_probe(&path, &no_push, &no_probe);
+    assert_eq!(changed_origin["error_code"], json!("checkout.source_changed"));
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    // The exact first selection can still resume the original chat, without repushing.
+    let cached = copy.run_with_probe(&path, &no_push, &|_, _| Ok(true));
+    assert_eq!(cached["ok"], json!(true), "{cached}");
+    assert_eq!(cached["copied"], json!(false));
+    assert_eq!(cached["chat"], first["chat"]);
+}
+
+#[test]
+fn interrupted_copy_refuses_changed_source_and_resumes_the_original_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/work/project-a", "");
+    let first = copy.run(&path, &|_, _, _| Err(("timeout".into(), "cut off".into())));
+    assert_eq!(first["error_code"], json!("timeout"));
+    let original_place = Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a"))
+        .unwrap()
+        .unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let changed = StartCopy { local: "/Users/me/work/project-b".into(), ..copy.clone() };
+    let refused = changed.run(&path, &|_, _, _| panic!("changed retry cannot push"));
+    assert_eq!(refused["error_code"], json!("checkout.source_changed"), "{refused}");
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    let again = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(again["ok"], json!(true));
+    assert_eq!(again["folder"], json!(copy.remote("/home/cmux/work", &original_place).0));
+}
+
+#[test]
+fn copy_environment_flag_is_validated_before_the_ledger_or_guest_is_touched() {
+    let args = flags(&[
+        "--key", &key(), "--account", ACCOUNT, "--machine", "vm-a",
+        "--socket", "/tmp/guest.sock", "--local", "/Users/me/project",
+        "--work-root", "/home/cmux/work", "--environment", ENV,
+    ]);
+    let copy = StartCopy::of(&args).expect("valid selected environment");
+    assert_eq!(copy.environment.as_deref(), Some(ENV));
+    let invalid = flags(&[
+        "--key", &key(), "--account", ACCOUNT, "--machine", "vm-a",
+        "--socket", "/tmp/guest.sock", "--local", "/Users/me/project",
+        "--work-root", "/home/cmux/work", "--environment", "env_other",
+    ]);
+    assert!(StartCopy::of(&invalid).is_none());
+}
+
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
 fn assert_copy_timings(answer: &Value) {
     let started = answer["seed_started_at"].as_f64().expect("copy start timestamp");
