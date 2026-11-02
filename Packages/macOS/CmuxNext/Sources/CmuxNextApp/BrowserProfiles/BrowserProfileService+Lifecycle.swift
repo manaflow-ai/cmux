@@ -87,7 +87,7 @@ extension BrowserProfileService {
             let pending = await store.sourcesInDefaultProfile()
             let finished = await BrowserProfileBook.migrateImports(pending, id: \.proposedProfileID, migrate: { record in
                 guard let self else { return }
-                _ = try await createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
+                _ = try await self.createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
                                             source: record.sourceFields)
                 try await store.retarget(record.sourceKey, to: record.proposedProfileID)
             }, failed: { record, reason in
