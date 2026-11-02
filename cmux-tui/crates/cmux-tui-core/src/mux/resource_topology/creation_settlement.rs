@@ -21,7 +21,9 @@ impl Mux {
         debug_assert!(is_created_path_operation(operation));
         crate::debug_spans::mark("creation.start");
         let groupable = expected_revision.is_none() && creation_shares_group_commit(operation);
-        self.run_in_creation_group(groupable, || {
+        let correlation_key =
+            fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
+        self.run_in_creation_group(groupable, &[correlation_key, &mutation.id], || {
             self.stage_correlated_creation(
                 operation,
                 &selector_candidates,

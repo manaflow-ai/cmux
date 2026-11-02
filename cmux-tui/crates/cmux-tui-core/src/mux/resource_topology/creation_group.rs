@@ -52,6 +52,11 @@ struct GroupsState {
 #[derive(Default)]
 struct Group {
     members: usize,
+    /// The correlation keys and idempotency keys of its members. A request
+    /// sent again with the same key must not join: it would find its
+    /// original executed but not committed (`Blocked`, an indeterminate
+    /// answer). In the next group it gets the original's replay.
+    keys: HashSet<String>,
     /// The member whose turn it is; `None` until the leader holds the fence.
     turn: Option<usize>,
     /// Members that left before their turn ended (a panic); turns skip them.
@@ -101,23 +106,32 @@ pub(super) struct GroupSeat<'a> {
 
 impl CreationGroups {
     /// Join the open group, or start one. A creation that may not share a
-    /// commit (`groupable` false) starts a group that takes no one else.
-    pub(super) fn join(&self, groupable: bool) -> GroupSeat<'_> {
+    /// commit (`groupable` false) starts a group that takes no one else; a
+    /// creation whose `keys` a member of the open group holds starts the
+    /// next group, which waits for the open one's commit.
+    pub(super) fn join(&self, groupable: bool, keys: &[&str]) -> GroupSeat<'_> {
         let mut state = self.state.lock().recover_poison();
         let open = state.open.filter(|id| {
-            groupable && state.groups.get(id).is_some_and(|group| group.members < MAX_GROUP_MEMBERS)
+            groupable
+                && state.groups.get(id).is_some_and(|group| {
+                    group.members < MAX_GROUP_MEMBERS
+                        && keys.iter().all(|key| !group.keys.contains(*key))
+                })
         });
+        let keys = keys.iter().map(|key| (*key).to_owned());
         let (group, index) = match open {
             Some(id) => {
                 let group = state.groups.get_mut(&id).expect("the open group exists");
                 group.members += 1;
                 group.waiting += 1;
+                group.keys.extend(keys);
                 (id, group.members - 1)
             }
             None => {
                 let id = state.next_id;
                 state.next_id += 1;
-                state.groups.insert(id, Group { members: 1, ..Group::default() });
+                let group = Group { members: 1, keys: keys.collect(), ..Group::default() };
+                state.groups.insert(id, group);
                 if groupable {
                     state.open = Some(id);
                 }
@@ -304,8 +318,8 @@ pub(super) enum StagedCreationOutcome {
 }
 
 /// Whether creations of `operation` may share a group commit: a split or a
-/// new pane adds to a workspace that exists, and never makes a workspace
-/// (whose placement is a choice scoped to the caller's thread).
+/// new pane. A new pane makes a workspace only in an empty session, and its
+/// placement is not a choice scoped to the caller's thread.
 pub(super) fn creation_shares_group_commit(operation: ResourceOperation) -> bool {
     matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate)
 }
@@ -317,9 +331,10 @@ impl Mux {
     pub(super) fn run_in_creation_group(
         self: &Arc<Self>,
         groupable: bool,
+        keys: &[&str],
         stage: impl FnOnce() -> StagedCreationOutcome,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mut seat = self.creation_groups.join(groupable);
+        let mut seat = self.creation_groups.join(groupable, keys);
         let fence = seat.is_leader().then(|| {
             let fence = self.creation_wait(|| self.resource_creation_execution.lock().unwrap());
             seat.fence_held();
