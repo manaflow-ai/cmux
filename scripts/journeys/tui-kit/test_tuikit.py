@@ -973,5 +973,44 @@ class AcpStream(unittest.TestCase):
         self.assertEqual(a[:n], b[:n])
 
 
+class CargoPath(unittest.TestCase):
+    """build_bins puts cargo's own folder first on PATH, so cargo finds rustc in a slot whose PATH lacks it."""
+
+    def test_cargo_folder_first_and_no_duplicates(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            cargo = os.path.join(d, "cargo")
+            open(cargo, "w").close()
+            got = tuikit.cargo_path(cargo, "/usr/bin:/bin:" + d)
+            self.assertEqual(got.split(os.pathsep), [d, "/usr/bin", "/bin"])
+
+    def test_build_env_has_cargo_folder_on_path(self):
+        import tempfile
+        seen = {}
+        with tempfile.TemporaryDirectory() as d:
+            cargo = os.path.join(d, "cargo")
+            with open(cargo, "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(cargo, 0o755)
+            saved_find, saved_run, saved_env = tuikit.find_cargo, tuikit.subprocess.run, os.environ.get("CMUX_TUIKIT_NO_BUILD")
+            os.environ.pop("CMUX_TUIKIT_NO_BUILD", None)
+            tuikit.find_cargo = lambda: cargo
+
+            class Done:
+                returncode, stderr = 0, b""
+
+            def run(argv, env=None, **kw):
+                seen["path"] = env.get("PATH")
+                return Done()
+            tuikit.subprocess.run = run
+            try:
+                tuikit.build_bins(quiet=True)
+            finally:
+                tuikit.find_cargo, tuikit.subprocess.run = saved_find, saved_run
+                if saved_env is not None:
+                    os.environ["CMUX_TUIKIT_NO_BUILD"] = saved_env
+        self.assertEqual(seen["path"].split(os.pathsep)[0], d)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
