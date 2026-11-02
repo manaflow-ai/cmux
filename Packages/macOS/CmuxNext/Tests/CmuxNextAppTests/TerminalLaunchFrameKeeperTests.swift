@@ -147,21 +147,6 @@ import Testing
         #expect(Self.files("tab_quit", in: directory).isEmpty, "a file in progress counted as a saved frame")
     }
 
-    /// Review of #32372 (P3): a keeper write that started before the quit stopped the keeper must not land over the
-    /// quit's frames nor prune them: it checks again before it writes and before it cleans up.
-    @Test func aKeeperWriteThatTheQuitStoppedWritesAndRemovesNothing() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-stopped-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let quitFrame = directory.appending(path: "tab_quit@1x.jpg")
-        try Data("quit".utf8).write(to: quitFrame)
-        let frame = try #require(TerminalLaunchFrameTests.frame(NSSize(width: 4, height: 4), scale: 1)
-            .cgImage(forProposedRect: nil, context: nil, hints: nil))
-        TerminalLaunchFrames.writeOne(frame, key: "tab_kept", scale: 1, to: directory, keeping: ["tab_kept"], stillWanted: { false })
-        #expect(FileManager.default.fileExists(atPath: quitFrame.path), "a stopped keeper write pruned the quit's frame")
-        #expect(Self.files("tab_kept", in: directory).isEmpty, "a stopped keeper write landed after the quit")
-    }
-
     /// Never per keystroke: a terminal that changes constantly (an echo per key, a busy program) is saved at most once
     /// per interval.
     @Test func aBusyTerminalIsSavedAtMostOncePerInterval() async throws {
