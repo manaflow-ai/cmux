@@ -2,7 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextTerminal
 import CmuxNextTestSupport
@@ -33,9 +33,14 @@ struct HomePendingTerminalFocusTests {
     /// Home shows, the person asks for a new terminal (`newTab`), and until that terminal has the keyboard Home's message
     /// box neither takes the keyboard (its pane focused again by the app) nor gets a typed key.
     @Test func keysTypedForAPersonsNewTerminalOverHomeNeverReachTheChiefMessageBox() async throws {
-        try await PasswordManagerRouteTests.withApp { services, connection in
+        // Held keys run again as `CmuxApplication.sendEvent` runs a key (the key router, then the window): a test window is
+        // never key, so `NSApp.sendEvent` would deliver them nowhere.
+        try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }) { services, connection in
             let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
             let shell = try #require(window.window)
+            defer { shell.closeWithHomePopovers() } // the Chief Settings panel its Home host made up front
             let dockKey = try #require(window.focusedPane?.paneKey, "Home's dock has no focus")
             // The dock pane's content: Home's page, whose view is the docked Home (Messages, its default view).
             @MainActor func dockView() -> HomeDockView? {
@@ -60,6 +65,7 @@ struct HomePendingTerminalFocusTests {
                 return "responder \(String(describing: shell.firstResponder)), focus \(focus.resolved.kind) pane \(focus.pane ?? "-") generation \(focus.generation)"
             }
             let coordinator = services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .seconds(15) // the keys must reach the terminal because it showed, not at the hold's bound
             #expect(!coordinator.isHolding(in: shell), "a key hold was open before the request")
             let holds = shell.makeFirstResponder(holder) && shell.firstResponder === holder
             try #require(holds, "the test view did not take the keyboard")
@@ -97,6 +103,15 @@ struct HomePendingTerminalFocusTests {
             })
             let finalText = box.string
             #expect(finalText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(finalText)\"")
+            // Review of #31865: the held keys reach the new terminal (none dropped), and the hold ended because it showed.
+            let surface = try #require(services.daemon.store.workspaces.first { $0.name == "pending-terminal" }?.screens
+                .flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface,
+                "the new workspace has no terminal")
+            let screen = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "echo ok", timeoutMs: 20_000), timeout: .seconds(25))
+            #expect(screen?.matched == true, "the keys typed for the new terminal never reached it: \(screen?.text.suffix(300) ?? "unreadable")")
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: shell) }, report: { "the hold never ended" })
+            let end = coordinator.lastHoldEnd(in: shell)
+            #expect(end != .limitReached, "the hold ended at its bound, not when the terminal showed: \(String(describing: end))")
         }
     }
 
