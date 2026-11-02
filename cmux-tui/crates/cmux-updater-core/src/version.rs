@@ -215,8 +215,7 @@ pub fn compare_numeric(a: &str, b: &str) -> Ordering {
     let a: Vec<u16> = a.encode_utf16().collect();
     let b: Vec<u16> = b.encode_utf16().collect();
     let (mut i, mut j) = (0usize, 0usize);
-    loop {
-        let (Some(&ca), Some(&cb)) = (a.get(i), b.get(j)) else { break };
+    while let (Some(&ca), Some(&cb)) = (a.get(i), b.get(j)) {
         if is_ascii_digit_unit(ca) && is_ascii_digit_unit(cb) {
             let run_a = digit_run(&a, i);
             let run_b = digit_run(&b, j);

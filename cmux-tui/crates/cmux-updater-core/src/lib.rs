@@ -5,7 +5,8 @@
 //! the judgment of the last install.
 //!
 //! Sparkle (its driver, signature checks and installs) and the UI stay in the
-//! Swift app, which calls these rules over the app FFI ([`wire`]).
+//! Swift app, which will call these rules over the app FFI ([`wire`]; the
+//! link, the re-pin and the Swift calls land together in one move PR).
 
 pub mod appcast;
 pub mod channel_track;

@@ -156,7 +156,7 @@ impl Collector {
                 }
             }
             "enclosure" if self.fields.is_some() && self.delta_depth == 0 => {
-                self.enclosure = Some(attributes)
+                self.enclosure = Some(attributes);
             }
             _ => {}
         }

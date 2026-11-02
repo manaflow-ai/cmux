@@ -1,8 +1,9 @@
-//! The JSON operations the app sends through the app FFI's JSON channel
-//! (`cmux_layout_reducer_json`). The updater is not a hot path: each call is
-//! once per check, click or settings read. Requests and responses are
-//! camelCase JSON objects; `updater_pulled_decode` takes the raw `pulled.json`
-//! body as its request.
+//! The JSON operations of the update rules, for the app FFI's JSON channel
+//! (`cmux_layout_reducer_json`; the move PR links this crate into
+//! cmux-app-ffi and sends these from the Swift updater). The updater is not
+//! a hot path: each call is once per check, click or settings read. Requests
+//! and responses are camelCase JSON objects; `updater_pulled_decode` takes
+//! the raw `pulled.json` body as its request.
 
 use crate::appcast::{self, AppcastItem};
 use crate::channel_track::{self, TracksRequest};
