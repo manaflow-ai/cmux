@@ -2396,7 +2396,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # An idle gateway runner from this attempt submits the check; otherwise a Linux runner reads the build
         # fleet's own Release (-Onone) compile of the push, fail closed on sha, repo, recipe and configuration.
         self.assertTrue(fast["runs-on"].startswith(
-            "${{ needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
             "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
             fast["runs-on"])
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", fast["runs-on"])

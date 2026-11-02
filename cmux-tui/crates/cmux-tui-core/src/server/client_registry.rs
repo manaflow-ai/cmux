@@ -102,9 +102,9 @@ pub(super) struct AttachedSurface {
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
     /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
-    /// lock on the typing path. Kept with the route generation it was found at (`route_table`): any respawn, close,
-    /// move or other routing change makes the next key look it up again. Goes with this record at the last detach
-    /// and at disconnect.
+    /// lock on the typing path. Kept with the route generation of its id at the lookup (`route_table`): a respawn,
+    /// close, move or other change of that id's route makes the next key look it up again. Goes with this record at
+    /// the last detach and at disconnect.
     pub(super) input: (Weak<crate::Surface>, u64),
 }
 
@@ -699,6 +699,7 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
