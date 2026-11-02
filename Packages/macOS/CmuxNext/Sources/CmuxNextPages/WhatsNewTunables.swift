@@ -17,7 +17,8 @@ public nonisolated enum WhatsNewDesign: String, Sendable, CaseIterable, TunableC
     }
 }
 
-public nonisolated enum WhatsNewTunables {
+public nonisolated struct WhatsNewTunables {
+    public nonisolated init() {}
     public static let design = Tunable<WhatsNewDesign>.choice(
         "whatsNew.design", PageTunables.section, "What's New design",
         help: "Design of the What's New page. Applies the next time the page opens.",
