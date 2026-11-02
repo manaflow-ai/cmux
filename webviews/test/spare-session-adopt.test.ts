@@ -77,6 +77,8 @@ class Daemon {
   /// Lists asked while set are never answered: a list acpmux is still pacing.
   holdLists = false;
   attaches: string[] = [];
+  /// List reads asked (`_acpmux/watch`).
+  lists = 0;
   private held?: Message;
   private holding?: () => void;
   asked = new Promise<void>((resolve) => (this.holding = resolve));
@@ -93,6 +95,7 @@ class Daemon {
     if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
     if (message.method === "_acpmux/attach") this.attaches.push(sessionId);
+    if (message.method === "_acpmux/watch") this.lists += 1;
     if (message.method === "_acpmux/watch" && this.holdLists) return;
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
@@ -267,6 +270,21 @@ test("a chat the page's list lacks opens on its attach, without waiting for the 
   expect(page.last()?.sessionId).toBe(chat);
   expect(page.last()?.missingSession).toBeUndefined();
   expect(daemon.attaches).toEqual([chat]);
+});
+
+// HQ#5914: the adopted page read the whole list again beside its attach, on the same socket, and a
+// busy acpmux paces that list for seconds: reopens drew later than a cold page. The list is read
+// again only when the attach fails (the test above).
+test("a chat the page's list lacks opens with no list read beside its attach", async () => {
+  const chat = "adopt-unlisted";
+  const daemon = new Daemon(["newest"]);
+  const page = await spare(daemon);
+  daemon.listed.push(chat);
+  const listsBefore = daemon.lists;
+  expect(await page.client.adoptSession(chat)).toBe(chat);
+  await flush();
+  expect(daemon.lists).toBe(listsBefore);
+  expect(page.last()?.sessionId).toBe(chat);
 });
 
 test("a listed chat the page adopts opens as a pick opens it", async () => {
