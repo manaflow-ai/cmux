@@ -198,7 +198,8 @@ final class TerminalLaunchFrameKeeper {
         let written = onWritten, stopped = stopFlag
         work.post(.bestEffort, mayBlock: .files) {
             guard stopped.generation == 0 else { return } // the quit saves every frame itself
-            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune)
+            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune,
+                                          stillWanted: { stopped.generation == 0 })
             written?(key)
         }
     }
