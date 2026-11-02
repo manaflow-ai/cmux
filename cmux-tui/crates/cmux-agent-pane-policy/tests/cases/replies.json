@@ -686,7 +686,7 @@
   }
  },
  {
-  "name": "status: a url URLComponents refuses (bad port, two fragments, bad IP literal, bracket in the path, two @) reports no transport; valid ones do",
+  "name": "status: a url that is not strict RFC 3986 (bad port, two fragments, bad IP literal, bracket in the path, two @) reports no transport; valid ones do",
   "method": "_acpmux/status",
   "page_id": "7",
   "reply": {
@@ -760,6 +760,56 @@
      {
       "name": "g2",
       "transport": "ws"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a userinfo with a second : (a password holds none) reports no transport; user:password does",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "u0",
+      "url": "ssh://a:b:c@host"
+     },
+     {
+      "name": "u1",
+      "url": "wss://::1@host"
+     },
+     {
+      "name": "u2",
+      "url": "ws://u::@host"
+     },
+     {
+      "name": "ok",
+      "url": "ssh://a:b@host"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "u0"
+     },
+     {
+      "name": "u1"
+     },
+     {
+      "name": "u2"
+     },
+     {
+      "name": "ok",
+      "transport": "ssh"
      }
     ]
    }
