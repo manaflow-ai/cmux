@@ -41,6 +41,13 @@ const sessionInfo =
     setHeaderState({ inspector: true });
     setChatDisplay({ "agentPane.display.sessionInfo.placement": placement });
     setSessionInfoOpen(open);
+    // A pane that cannot hold a readable chat beside it, or a short one where it is a popover, opens
+    // Session Info only from the person's toggle (SessionInfo.tsx sessionInfoFits).
+    if (open) {
+      const toggle = '.acpmux-session-info-toggle[aria-pressed="false"]';
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info-toggle"));
+      if (ctx.document.querySelector(toggle)) await ctx.click({ selector: toggle });
+    }
     await ctx.waitFor(() =>
       open
         ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`)
