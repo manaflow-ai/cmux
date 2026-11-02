@@ -26,9 +26,6 @@ use windows_sys::Win32::Security::{
     ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetTokenInformation,
     OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-};
 use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
 use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::{
@@ -81,25 +78,37 @@ pub fn process_start(pid: u32) -> Option<u64> {
     (ok && !gone).then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
 }
 
+/// The parent of one process (`NtQueryInformationProcess`, ProcessBasicInformation):
+/// a single pid's record, never an enumeration.
 pub fn parent_pid(pid: u32) -> Option<u32> {
-    // SAFETY: a snapshot handle, closed by the wrapper.
-    let snapshot = Handle(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) });
-    if snapshot.0.is_null() || snapshot.0 as isize == -1 {
-        return None;
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        exit_status: i32,
+        peb: *mut c_void,
+        affinity: usize,
+        priority: i32,
+        unique_pid: usize,
+        parent_pid: usize,
     }
-    // SAFETY: PROCESSENTRY32W is plain data; dwSize is set before use.
-    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-    // SAFETY: a valid snapshot and entry.
-    let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
-    while more {
-        if entry.th32ProcessID == pid {
-            return Some(entry.th32ParentProcessID);
-        }
-        // SAFETY: as above.
-        more = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(process: HANDLE, class: u32, info: *mut c_void, length: u32, returned: *mut u32) -> i32;
     }
-    None
+    let process = open_process(pid)?;
+    // SAFETY: plain data; filled below.
+    let mut info: ProcessBasicInformation = unsafe { std::mem::zeroed() };
+    let mut returned = 0_u32;
+    // SAFETY: a correctly sized ProcessBasicInformation (class 0).
+    let status = unsafe {
+        NtQueryInformationProcess(
+            process.0,
+            0,
+            (&raw mut info).cast(),
+            std::mem::size_of::<ProcessBasicInformation>() as u32,
+            &mut returned,
+        )
+    };
+    (status >= 0).then(|| u32::try_from(info.parent_pid).ok()).flatten()
 }
 
 pub fn process_exe(pid: u32) -> Option<PathBuf> {
