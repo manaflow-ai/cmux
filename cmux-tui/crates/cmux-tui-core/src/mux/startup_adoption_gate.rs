@@ -157,9 +157,16 @@ impl StartupAdoptionGate {
                 self.changed.notify_all();
                 return Admission::Turn(Turn(self));
             }
-            // Stub (red): `jump` is not consulted yet.
-            let _ = &jump;
-            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+            let wakes = state.wakes;
+            drop(state);
+            if jump() {
+                // The ticket's drop gives its place up.
+                return Admission::Jumped;
+            }
+            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.wakes == wakes {
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+            }
         }
     }
 

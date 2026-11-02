@@ -273,15 +273,22 @@ impl Mux {
         // workspace first at a start). A retry after a backoff takes none:
         // it must not hold the line for its delay.
         let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
+        // A terminal hidden when it took its place, and shown while it waits
+        // (the person selected its workspace), goes first: the person now
+        // waits on it. One shown already is first in line (the start sorts
+        // the visible workspace first) and keeps its bounded wave.
+        let hidden_at_ticket = ticket.is_some() && !self.respawn_slot_shown(plan.slot);
         let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
+            let shown_now = || hidden_at_ticket && mux.respawn_slot_shown(plan.slot);
             let turn = match ticket {
-                Some(ticket) => match gate.turn(ticket, stopping) {
-                    Some(turn) => Some(turn),
-                    None => {
+                Some(ticket) => match gate.turn_or_jump(ticket, stopping, shown_now) {
+                    startup_adoption_gate::Admission::Turn(turn) => Some(turn),
+                    startup_adoption_gate::Admission::Jumped => None,
+                    startup_adoption_gate::Admission::GaveUp => {
                         mux.abandon_terminal_respawn(&plan.terminal_id);
                         return;
                     }
@@ -300,6 +307,18 @@ impl Mux {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             self.abandon_terminal_respawn(terminal_id);
         }
+    }
+
+    /// Whether the tab `slot` (a respawn's first placement) is in the
+    /// workspace the person sees. Takes the state lock: never call it under
+    /// the respawn gate's lock.
+    #[cfg(any(unix, windows))]
+    fn respawn_slot_shown(&self, slot: SurfaceId) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .pane_of(slot)
+            .and_then(|pane| state.screen_of(pane))
+            .is_some_and(|(workspace, _)| workspace == state.active_workspace)
     }
 
     #[cfg(any(unix, windows))]
