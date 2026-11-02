@@ -10362,19 +10362,25 @@ function AcpmuxPane() {
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
+        // Where the chat opens (cx-6bgzj), read beside the connect below rather than before it: the
+        // host's answer is a round trip of its own, and the connect's socket, initialize and attach
+        // are at least two more. The client's frames wait for it (`anchorRead`), so no row draws
+        // before the transcript knows where it opens.
+        let anchorRead: Promise<void> | undefined;
         if (!reconnect && host.sessionId) {
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
           const woken = wake?.scrollAnchor;
           if (woken !== undefined) postScrollAnchor(host.sessionId, woken);
-          const anchor = woken
-            ? { sessionId: host.sessionId, ...woken }
-            : woken === null
-              ? undefined
-              : await fetchScrollAnchor(host.sessionId);
-          if (cancelled) return;
-          setScrollAnchor(anchor);
+          if (woken !== undefined) setScrollAnchor(woken ? { sessionId: host.sessionId, ...woken } : undefined);
+          else
+            anchorRead = fetchScrollAnchor(host.sessionId).then((anchor) => {
+              if (!cancelled) setScrollAnchor(anchor);
+            });
         }
+        /// The client's frames that came before the anchor was read, applied in order once it is
+        /// (undefined: none are held).
+        let heldFrames: AcpmuxSnapshot[] | undefined = anchorRead ? [] : undefined;
         // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
         // repository until the snapshot effect observes a new session/origin/cwd; a fresh ready
         // handshake has no prior context and must clear it when the host has no GitHub origin.
@@ -10434,46 +10440,50 @@ function AcpmuxPane() {
           ? { ...mockHost, sessionId: undefined, newSession: true }
           : mockHost;
         let connectingClient: AcpmuxDirectClient | undefined;
-        const client = await AcpmuxDirectClient.connect(
+        const applyFrame = (next: AcpmuxSnapshot) => {
+          harnessSwitch.reconcile(next);
+          rowsRef.current = next.rows;
+          snapshotRef.current = next;
+          trustRouteSnapshot.current = next;
+          if (connectingClient)
+            trustRenderedOwner.current = {
+              client: connectingClient,
+              generation: connectingClient.trustGeneration,
+              sessionId: next.sessionId,
+            };
+          // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
+          const summary = next.summary;
+          const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
+          harnessProfiles.observe(summary, started);
+          // The next New Tab page names the project used last on its first frame
+          // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
+          if (!mock) {
+            rememberRecentFolders(next);
+            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+            publishSessions(next);
+            // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+            publishWarmNewTab(
+              next,
+              (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+              showsNewTabRef.current,
+            );
+          }
+          setSnapshot((previous) => {
+            if (
+              next.canHandoff &&
+              !next.handoff?.ready &&
+              next.sessionId === previous.sessionId &&
+              previous.handoff?.record
+            )
+              return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+            return next;
+          });
+        };
+        const connecting = AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
-            harnessSwitch.reconcile(next);
-            rowsRef.current = next.rows;
-            snapshotRef.current = next;
-            trustRouteSnapshot.current = next;
-            if (connectingClient)
-              trustRenderedOwner.current = {
-                client: connectingClient,
-                generation: connectingClient.trustGeneration,
-                sessionId: next.sessionId,
-              };
-            // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
-            const summary = next.summary;
-            const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
-            harnessProfiles.observe(summary, started);
-            // The next New Tab page names the project used last on its first frame
-            // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-            if (!mock) {
-              rememberRecentFolders(next);
-              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-              publishSessions(next);
-              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-              publishWarmNewTab(
-                next,
-                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
-                showsNewTabRef.current,
-              );
-            }
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            });
+            if (heldFrames) heldFrames.push(next);
+            else applyFrame(next);
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -10499,6 +10509,15 @@ function AcpmuxPane() {
               : undefined,
           mock ? "daemon" : "native",
         );
+        if (anchorRead) {
+          // A connect that fails meanwhile is awaited (and reported) below, not left unobserved.
+          connecting.catch(() => undefined);
+          await anchorRead;
+          const held = heldFrames ?? [];
+          heldFrames = undefined;
+          if (!cancelled) for (const frame of held) applyFrame(frame);
+        }
+        const client = await connecting;
         if (cancelled) {
           client.close();
           return;
