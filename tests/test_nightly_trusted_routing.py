@@ -21,8 +21,9 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
-# They and their picker have their own routes, outside the 16/32 runner-set rule.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner',)
+# They, their picker and the feed compare that picks the cmux NIGHTLY-identity signer's build
+# (legacy-identity-target, the signer route itself) have their own routes, outside the 16/32 runner-set rule.
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
@@ -313,7 +314,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build 7 s). Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner
         # pick, takes GitHub-hosted Ubuntu first". Attempt 1 takes GitHub-hosted Ubuntu, a re-run Blacksmith Linux
         # 4 vCPU, whatever LINUX_RUNNER, RUNNER_POOLS, the overflow switch or the sign pick's outputs hold.
-        for name in SIGNER_JOBS:
+        for name in SIGNER_JOBS + ('legacy-identity-target',):
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             self.assertNotIn('blacksmith-16vcpu', source)
             self.assertNotIn('blacksmith-32vcpu', source)
@@ -440,8 +441,6 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
-                                      {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"}
-                                      if name == "legacy-identity-target" else
                                       (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 

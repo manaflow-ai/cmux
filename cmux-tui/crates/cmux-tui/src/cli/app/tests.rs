@@ -349,7 +349,7 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
 /// person deadline here too: the CLI must not give up before the app does.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
     let Ok(entries) = std::fs::read_dir(&catalog) else { return };
     let mut checked = 0;
@@ -382,18 +382,25 @@ fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
 /// when an agent or script asks (#30263), so the CLI waits as long as the app's person deadline:
 /// a late Make Link still reaches the caller instead of a link nobody receives.
+///
+/// `share` is not an app scope ([`parse`] answers None for it): the CLI reaches the action through
+/// `run_app_action_fallback` in `cli.rs`, which leaves `share chat` to the generic path (only
+/// `share revoke|kick` are rewritten, `share_cli::action`) and runs [`run_action`] with the words
+/// before the first flag as the CLI name. This test takes that same path.
 #[test]
 fn share_chat_waits_for_the_owners_answer() {
-    let sent = match parse(&args(&["share", "chat", "--surface", "1"])) {
-        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
-            Some((method, params, timeout))
-        }
+    let words = args(&["share", "chat", "--surface", "1"]);
+    assert!(matches!(parse(&words), Ok(None)), "share is not an app scope");
+    assert_eq!(super::super::share_cli::action(&words), None, "share chat goes on as typed");
+    let sent = match run_action("share chat", &words[2..], ActionName::Cli) {
+        Ok(AppCommand::Call { method, params, timeout, .. }) => Some((method, params, timeout)),
         _ => None,
     };
     assert!(sent.is_some(), "expected one action.run call");
     if let Some((method, params, timeout)) = sent {
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], "share chat");
+        assert_eq!(params["args"], json!({ "surface": "1" }), "{params}");
         assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
     }
     assert_eq!(waiting_run_timeout("share chat"), PERSON_RUN_TIMEOUT);

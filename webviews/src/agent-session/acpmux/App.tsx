@@ -65,6 +65,7 @@ import {
   isLineRow,
   isLiveStep,
   restRoom,
+  linkUp,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -348,7 +349,7 @@ import {
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
-import { AgentNamesContext, agentNames } from "./conversation/agentNames";
+import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import {
@@ -4365,6 +4366,16 @@ export function VirtualTranscript({
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
         setSeeking(false);
+      } else if (folding) {
+        // A disclosure the reader clicked in a tail that fit made it overflow: the chat opens where
+        // the reader is, the clicked line held (above), not at the latest row. Jumping there put the
+        // rows a frame up before the hold brought them back, or, past the hold, moved the whole
+        // thread up under the line just clicked (#27650, an edit's diff opened in a short chat).
+        followTrace.set(node.scrollTop);
+        follow(node.scrollTop >= latest - 1);
+        didOpenAtLatest.current = true;
+        endSeek();
+        setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
         clearScrollOrigin(node);
@@ -6166,6 +6177,9 @@ function AcpmuxPane() {
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
+  // Footer actions and checkpoints show only while acpmux is reachable. The client reports failures
+  // in the transcript; a bridge that cannot route an action has nothing to add.
+  const connected = linkUp(snapshot.connection);
   const checkpoints = useCheckpoints({
     request: callNative,
     target: snapshot.summary?.cwd
@@ -6175,7 +6189,7 @@ function AcpmuxPane() {
           hostKind: snapshot.summary.hostKind,
         }
       : undefined,
-    online: snapshot.connection === "connected",
+    online: connected,
     strings: checkpointLabels,
     variant: checkpointVariant,
   });
@@ -6234,9 +6248,6 @@ function AcpmuxPane() {
   };
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
-  // Footer actions show only while acpmux is reachable. The client reports failures in the
-  // transcript; a bridge that cannot route an action has nothing to add.
-  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
@@ -8351,6 +8362,11 @@ function AcpmuxPane() {
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
   // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
   const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
+  // A sent message's "Sent to <subagent>" chip opens that subagent's view (MessageCard.tsx).
+  const chatAgentOpen = useMemo(
+    () => ({ views: agentViews(chatAgents), open: (id: string) => showSubagent(id) }),
+    [chatAgents, showSubagent],
+  );
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
@@ -8945,7 +8961,9 @@ function AcpmuxPane() {
       !!snapshot.unavailable,
       snapshot.sessionId,
       snapshot.rows.length,
-      snapshot.connection === "connected",
+      // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
+      // machine may be paused, so recovery reads it as it does a lost link.
+      connected && snapshot.connection !== "failed",
       freshView,
     ),
     recheck: recheckCloudChat,
@@ -14008,9 +14026,11 @@ function AcpmuxPane() {
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>
-                      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                        {transcript}
-                      </BackgroundTaskOutputContext.Provider>
+                      <AgentOpenContext.Provider value={chatAgentOpen}>
+                        <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                          {transcript}
+                        </BackgroundTaskOutputContext.Provider>
+                      </AgentOpenContext.Provider>
                     </AgentNamesContext.Provider>
                   </AgentTonesContext.Provider>
                 )}

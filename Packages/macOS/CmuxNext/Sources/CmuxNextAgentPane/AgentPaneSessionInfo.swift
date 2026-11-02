@@ -37,7 +37,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         public var subtitle: String?
         public var trailing: String?
         public var tone: Tone?
-        public var indent: Int?
+        /// CSS can carry fractional indentation; the native row rounds it to a bounded level.
+        public var indent: Double?
         public var meter: Double?
         public var action: String?
         public var buttons: [Button]?
@@ -102,7 +103,9 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
 
     public struct Reveal: Codable, Equatable, Sendable {
         public var section: String
-        public var at: Int
+        /// A page revision may be fractional while a browser layout is settling; native rounds it
+        /// only when comparing reveal requests.
+        public var at: Double
     }
 
     /// The page's `info`, nil when it is not a model this App draws (a bad field, a width out of range).
@@ -113,7 +116,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
               info.width.isFinite, (0...4000).contains(info.width),
               info.top.isFinite, (0...4000).contains(info.top),
               info.side.isFinite, (0...8000).contains(info.side),
-              info.foot.map({ $0.isFinite && (0...4000).contains($0) }) ?? true else { return nil }
+              info.foot.map({ $0.isFinite && (0...4000).contains($0) }) ?? true,
+              info.reveal.map({ $0.at.isFinite && $0.at >= 0 && $0.at <= Double(Int.max) }) ?? true else { return nil }
         return info
     }
 }

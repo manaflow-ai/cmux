@@ -50,6 +50,24 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(AgentPaneSessionInfoModel.decode(["open": true]) == nil)
     }
 
+    @Test func fractionalRowIndentAndRevealRevisionAreAcceptedAndRounded() throws {
+        var raw = Self.info()
+        raw["reveal"] = ["section": "subagents", "at": 3.6]
+        let sectionList = try #require(raw["sections"] as? [[String: Any]])
+        var section = sectionList[0]
+        var rows = try #require(section["rows"] as? [[String: Any]])
+        rows[0]["indent"] = 1.6
+        section["rows"] = rows
+        raw["sections"] = [section]
+        let model = try Self.model(raw)
+        #expect(model.reveal?.at == 3.6)
+        guard case .line(let row) = model.items.last else {
+            Issue.record("expected a Session Info row")
+            return
+        }
+        #expect(row.indent == 2)
+    }
+
     @Test func requestDecodesTheModelOrItsWithdrawal() throws {
         let request = AgentPaneRequest(body: ["id": "1", "method": "pane.sessionInfo", "params": ["info": Self.info()]])
         #expect(request == .sessionInfo(try Self.model(Self.info())))
@@ -83,6 +101,17 @@ struct AgentPaneNativeSessionInfoTests {
         let request = AgentPaneRequest(body: ["id": "copy", "method": "pane.copyText", "params": ["text": "private reference"]])
         #expect(request == .copyText("private reference"))
         #expect(String(describing: request) == "copyText")
+    }
+
+    @Test func copyRequestsRequireARecentPersonGesture() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        defer { view.close() }
+        let refused = await view.model.respond(to: .copyText("private reference"))
+        #expect((refused["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
+        view.model.transport.gestures.record()
+        let accepted = await view.model.respond(to: .copyText("private reference"))
+        #expect(accepted["ok"] as? Bool == true)
     }
 
     /// The button's on state follows the panel: open makes the panel, closed removes it.
@@ -341,6 +370,9 @@ struct AgentPaneNativeSessionInfoTests {
         let header = try #require(content.lines.first)
         let row = try #require(content.lines.last)
         let stop = try #require(row.buttons.first)
+        store.update(try Self.model(Self.info()))
+        #expect(content.lines.last === row)
+        #expect(content.lines.last?.buttons.first === stop)
         var next = Self.info()
         var sections = try #require(next["sections"] as? [[String: Any]])
         var rows = try #require(sections[0]["rows"] as? [[String: Any]])
@@ -350,7 +382,26 @@ struct AgentPaneNativeSessionInfoTests {
         store.update(try Self.model(next))
         #expect(content.lines.first === header)
         #expect(content.lines.last === row)
-        #expect(content.lines.last?.buttons.first === stop)
+        #expect(content.lines.last?.buttons.first !== stop)
         #expect(content.lines.last?.line.trailing == "2s")
+
+        rows[0]["subtitle"] = "updated subtitle"
+        rows[0]["detail"] = "updated detail"
+        rows[0]["meter"] = 0.42
+        rows[0]["marks"] = ["done", "failed"]
+        rows[0]["toggle"] = true
+        rows[0]["menu"] = [["label": "Copy", "action": "copy:new"]]
+        rows[0]["action"] = "subagents.open:new"
+        sections[0]["rows"] = rows
+        next["sections"] = sections
+        store.update(try Self.model(next))
+        #expect(content.lines.last === row)
+        #expect(content.lines.last?.line.subtitle == "updated subtitle")
+        #expect(content.lines.last?.line.detail == "updated detail")
+        #expect(content.lines.last?.line.meter == 0.42)
+        #expect(content.lines.last?.line.marks?.count == 2)
+        #expect(content.lines.last?.line.toggle == true)
+        #expect(content.lines.last?.line.action == "subagents.open:new")
+        #expect(content.lines.last?.buttons.first?.button.action == "subagents.stop:a1")
     }
 }
