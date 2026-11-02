@@ -216,8 +216,7 @@ extension SidebarDocProjection {
     /// The band groups whose header this window leaves out when it lists none of their workspaces: the ones another
     /// window lists (`bandGroupsListedElsewhere`) and the ones not of the window's space `drag.room` (spaces.md), with
     /// the groups nested under those. `listedHere`: the groups this window lists a workspace of; they stay, and so do
-    /// the groups above them. A group that stores no space under another group follows that parent
-    /// (`Group.followsParent`: a link-only child, a New Subgroup).
+    /// the groups above them. A nested group follows its parent (`Group.followsParent`).
     @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag, listedHere: Set<String> = []) -> Set<String> {
         let hidden = bandGroupsListedElsewhere(drag: drag)
         guard drag.room != nil else { return hidden }

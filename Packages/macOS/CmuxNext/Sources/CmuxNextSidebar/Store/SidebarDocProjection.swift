@@ -44,20 +44,23 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var room: String?
 
         /// Whether a window on space `room` lists this group when it lists none of its workspaces (an empty
-        /// group, a kept group whose members closed): only in its own space (spaces.md). A group with no stored space
-        /// is the default space's, unless an open workspace of it says otherwise (it lists where that one lists).
-        /// `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces that
-        /// exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`). A group that
-        /// follows its parent (`followsParent`) lists wherever that parent lists: the caller checks the parent.
+        /// group, a kept group whose members closed): a top-level group only in its own space (spaces.md). One with no
+        /// stored space is the default space's, unless an open workspace of it says otherwise (it lists where that one
+        /// lists). `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces
+        /// that exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`).
+        /// A nested group (`followsParent`) lists wherever its parent lists, and the caller checks the parent. So no
+        /// group lists in no space, whatever an op left stored: a top-level one always has a space that exists, and
+        /// every group under it goes with it.
         public func lists(inRoom room: String?, spaces: Set<String>? = nil) -> Bool {
             guard let room, !followsParent else { return true }
             if let own = self.room { return SidebarDocItem.owningRoom(own, spaces: spaces) == room }
             return room == SidebarDocItem.defaultRoom && openMembers.isEmpty
         }
 
-        /// A group under another group that stores no space (a link-only child, a New Subgroup, one made before groups
-        /// carried one): its space is its parent's.
-        public var followsParent: Bool { room == nil && parent != nil }
+        /// A group under another group: its space is its parent's, whatever it stores (a link-only child, a New
+        /// Subgroup, one nested under another space's group, one left behind when its parent moved space). Its own
+        /// stored space counts again if it leaves the parent.
+        public var followsParent: Bool { parent != nil }
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {

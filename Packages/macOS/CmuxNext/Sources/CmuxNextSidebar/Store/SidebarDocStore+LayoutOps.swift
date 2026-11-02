@@ -56,11 +56,30 @@ extension SidebarDocStore {
 
     /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
     /// stored space follows, so it stays in `room` once no workspace of it lists there (an empty group lists only in its
-    /// own space).
+    /// own space), and so does each group under it that stored the old space (`groupSpaceOps`).
     public func moveGroup(_ group: String, toSpace room: String) {
-        let id = item(group: GroupID(group))
-        guard case .group? = records.items[id]?.body, records.items[id]?.room != room else { return }
-        send(ops: [["op": "group.update", "id": id, "patch": ["profile": room]]], title: Self.moveTitle, undoable: false)
+        let ops = Self.groupSpaceOps(item(group: GroupID(group)), toSpace: room, records: records)
+        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
+    }
+
+    /// The ops of `moveGroup` for document group `id`: it and the groups nested under it that stored its old space
+    /// take `room`. A nested group lists with its parent anyway (`Group.followsParent`); this keeps what it stores
+    /// right for when it leaves the parent. One storing another space, or none, keeps it.
+    static func groupSpaceOps(_ id: String, toSpace room: String, records: SidebarDocRecords) -> [[String: Any]] {
+        guard let group = records.items[id], case .group = group.body else { return [] }
+        var children: [String: [SidebarDocItem]] = [:]
+        for item in records.items.values { if let parent = item.parent { children[parent, default: []].append(item) } }
+        var moving = group.room == room ? [] : [id]
+        var seen: Set<String> = [id]
+        var queue = [id]
+        while let at = queue.popLast() {
+            for child in children[at] ?? [] where seen.insert(child.id).inserted {
+                guard case .group = child.body else { continue }
+                queue.append(child.id)
+                if let old = group.room, child.room == old, old != room { moving.append(child.id) }
+            }
+        }
+        return moving.sorted().map { ["op": "group.update", "id": $0, "patch": ["profile": room]] }
     }
 
     /// The ops of `moveSpace`: a group's space is its `profile` (`group.update`), a link's, tab's or app's `extra.room`.
