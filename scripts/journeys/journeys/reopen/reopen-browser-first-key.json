@@ -500,13 +500,27 @@
    ]
   },
   {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='';",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;document.getElementById('o').textContent='seen'+s.split('').reverse().join('')}},true);",
+    "</script></head><body style='font:28px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:28px sans-serif;width:600px'><p id=o></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7)</script>",
+    "</body></html>"
+   ],
+   "title": "cycle 4 set-up: a local page (127.0.0.1) with a focused text field; its script shows every key the page gets, reversed"
+  },
+  {
    "do": "key",
    "key": "l",
    "modifiers": [
     "cmd"
    ],
    "mark": "page4",
-   "title": "cycle 4 set-up: the browser tab goes to a page with a focused text field; the page shows every key it gets, in reverse order"
+   "title": "cycle 4 set-up: the browser tab goes to the local page"
   },
   {
    "do": "expect",
@@ -525,7 +539,7 @@
   },
   {
    "do": "type",
-   "text": "data:text/html,<p%20id=r></p><input%20autofocus><p%20id=o></p><script>r.textContent='pg'+'ok'+(6*7);var%20s='';addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;o.textContent='seen'+s.split('').reverse().join('')}},true)</script>",
+   "text": "${page_url}",
    "mark": "url4"
   },
   {

@@ -1213,6 +1213,34 @@ def cond_reopen_window_frame_within(j, want, cache):
     return not bad, {"limit_ms": limit, "window_ms": rows, "bad": bad[:10]}
 
 
+def step_page_server(j, step):
+    """Set-up: serves the fixed page LINES (joined by LF, not substituted) at http://127.0.0.1:<free port>/p.html from a
+    thread of this driver process, and sets the journey value VAR (default page_url) to that URL. The server lives as
+    long as the driver, so a restored tab can load it again after a quit; it is gone when the journey ends. The URL
+    carries none of the page's text, so frame_text of that text cannot match the address bar or a search page."""
+    import http.server, threading
+    body = ("\n".join(step["lines"]) + "\n").encode()
+
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            ok = self.path.split("?")[0] == "/p.html"
+            self.send_response(200 if ok else 404)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if ok:
+                self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/p.html"
+    j.vars[step.get("var", "page_url")] = url
+    return {"url": url, "bytes": len(body)}
+
+
 def step_focus_browser_pane(j, step):
     """Set-up between cycles: the workspace that holds the terminal named NAME is shown again and its pane with a
     browser tab gets the focus (the daemon CLI's workspace/pane focus, as seed_workspaces does)."""
@@ -1353,7 +1381,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
