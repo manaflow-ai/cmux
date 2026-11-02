@@ -74,7 +74,13 @@ fn exposure_path() -> PathBuf {
 }
 
 fn load_session_exposure() -> SessionExposure {
-    let path = exposure_path();
+    load_session_exposure_at(&exposure_path())
+}
+
+/// Load the durable policy from an explicit path. Keeping the path-taking
+/// helper separate makes restart and fail-closed behavior testable without
+/// touching the process state directory.
+fn load_session_exposure_at(path: &std::path::Path) -> SessionExposure {
     match std::fs::read(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => SessionExposure::default(),
         Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|_| SessionExposure {
@@ -87,7 +93,10 @@ fn load_session_exposure() -> SessionExposure {
 }
 
 fn persist_session_exposure(state: &SessionExposure) -> Result<(), String> {
-    let path = exposure_path();
+    persist_session_exposure_at(&exposure_path(), state)
+}
+
+fn persist_session_exposure_at(path: &std::path::Path, state: &SessionExposure) -> Result<(), String> {
     let Some(parent) = path.parent() else { return Err("state path has no parent".into()) };
     std::fs::create_dir_all(parent).map_err(|error| format!("creating state directory: {error}"))?;
     let data = serde_json::to_vec(state).map_err(|error| format!("encoding session exposure: {error}"))?;
@@ -577,6 +586,81 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CHAT_A: &str = "00000000-0000-7000-8000-000000000001";
+    const CHAT_B: &str = "00000000-0000-7000-8000-000000000002";
+
+    fn disabled_chat(id: &str) -> SessionExposure {
+        SessionExposure {
+            available: true,
+            configured: true,
+            allowed: HashSet::new(),
+            blocked: [id.to_owned()].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn missing_policy_defaults_to_available_and_unconfigured() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = load_session_exposure_at(&dir.path().join("missing.json"));
+        assert_eq!(state, SessionExposure::default());
+    }
+
+    #[test]
+    fn corrupt_or_unreadable_policy_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, b"not-json").unwrap();
+        assert_eq!(
+            load_session_exposure_at(&corrupt),
+            SessionExposure { available: false, configured: true, ..SessionExposure::default() }
+        );
+
+        // A regular file in the parent position makes the policy unreadable,
+        // exercising the same fail-closed branch as a permissions/IO error.
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, b"occupied").unwrap();
+        let unreadable = load_session_exposure_at(&parent_file.join("policy.json"));
+        assert!(!unreadable.available);
+        assert!(unreadable.configured);
+    }
+
+    #[test]
+    fn persisted_chat_off_survives_restart_while_other_chats_inherit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote-control-sessions.json");
+        persist_session_exposure_at(&path, &disabled_chat(CHAT_A)).unwrap();
+
+        // A fresh load is the restart boundary. The explicit block remains,
+        // while an unmentioned chat has no block and inherits the Mac policy.
+        let restarted = load_session_exposure_at(&path);
+        assert!(restarted.available && restarted.configured);
+        assert!(restarted.blocked.contains(CHAT_A));
+        assert!(!restarted.blocked.contains(CHAT_B));
+        assert!(!restarted.allowed.contains(CHAT_B));
+    }
+
+    #[test]
+    fn failed_grant_persistence_does_not_replace_existing_chat_off_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote-control-sessions.json");
+        let existing = disabled_chat(CHAT_A);
+        persist_session_exposure_at(&path, &existing).unwrap();
+
+        // Simulate a failed grant at the real policy path: the atomic
+        // replacement temp path is already a directory, so the write fails
+        // before rename. The durable A-off policy must remain intact.
+        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        let grant = SessionExposure {
+            available: true,
+            configured: true,
+            allowed: [CHAT_A.to_owned()].into_iter().collect(),
+            blocked: HashSet::new(),
+        };
+        assert!(persist_session_exposure_at(&path, &grant).is_err());
+        let after_failure = load_session_exposure_at(&path);
+        assert_eq!(after_failure, existing);
+    }
 
     #[test]
     fn parses_control_lines() {

@@ -56,9 +56,9 @@ extension IPhoneHostService {
     /// match) or the build has no iPhone host; otherwise on as the setting is.
     nonisolated static func remoteControlState(signedIn: Bool, servesPhones: Bool, allowed: Bool,
                                                sessionID: String? = nil, exposureConfigured: Bool = false,
-                                               exposedSessionIDs: Set<String> = [], exposureKnown: Bool = true,
-                                               blockedSessionIDs: Set<String> = [],
+                                               exposedSessionIDs: Set<String> = [], blockedSessionIDs: Set<String> = [],
                                                exposureAvailable: Bool = true,
+                                               exposureKnown: Bool = true,
                                                revision: Int = 0) -> AgentPaneRemoteControl.State? {
         guard signedIn, servesPhones else { return nil }
         let on: Bool

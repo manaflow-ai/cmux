@@ -1081,7 +1081,7 @@ async fn acpmux(
                     // Bind every accepted session-targeting request, not only
                     // prompt/retry methods; info, events and mode changes also
                     // keep a live channel's exposure alive.
-                    for (id, session) in crate::acpmux_policy::request_targets(&text) {
+                    for (_, session) in crate::acpmux_policy::request_targets(&text) {
                         bound_sessions.insert(session.clone());
                     }
                     // An agent a phone drives stays in a mode that asks

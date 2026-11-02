@@ -318,9 +318,7 @@ pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<
     fn clean(value: &mut Value, state: &SessionExposure) {
         match value {
             Value::Object(object) => {
-                if object
-                    .pointer("/agent_session/session")
-                    .and_then(Value::as_str)
+                if object.get("agent_session").and_then(|v| v.get("session")).and_then(Value::as_str)
                     .is_some_and(|id| state.blocked.contains(id))
                 {
                     *value = Value::Null;

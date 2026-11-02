@@ -26,6 +26,21 @@ struct SessionExposureTests {
         #expect(state.exposedSessionIDs == ["chat-a"])
         #expect(state.blockedSessionIDs == ["chat-b"])
 
+        state.apply(.connecting, at: Date())
+        #expect(state.sessionExposureKnown)
+        #expect(state.sessionExposureAvailable)
+        state.apply(.online(deviceID: "mac", teamID: "team"), at: Date())
+        #expect(state.sessionExposureKnown)
+        #expect(state.sessionExposureAvailable)
+        state.apply(.waiting(reason: "reconnect", retryInSeconds: 1), at: Date())
+        state.apply(.connecting, at: Date())
+        #expect(state.sessionExposureKnown)
+        #expect(state.sessionExposureAvailable)
+
+        state.apply(.sessionExposureError(sessionID: "chat-a", allowed: true, reason: "unavailable"), at: Date())
+        #expect(state.sessionExposureKnown)
+        #expect(!state.sessionExposureAvailable)
+
         let malformed = #"{"type":"session_exposure_state","configured":true,"sessions":[],"blocked_sessions":[]}"#
         #expect(MobileHostEvent(line: malformed) == nil)
     }

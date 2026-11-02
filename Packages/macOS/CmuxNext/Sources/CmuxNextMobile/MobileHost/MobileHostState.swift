@@ -45,16 +45,12 @@ public struct MobileHostState: Sendable, Equatable {
         switch event {
         case .connecting:
             phase = .connecting
-            sessionExposureAvailable = false
-            sessionExposureKnown = false
         case .online(let device, let team):
             phase = .online
             deviceID = device
             teamID = team
         case .waiting(let reason, _):
             phase = .waiting(reason)
-            sessionExposureAvailable = false
-            sessionExposureKnown = false
         case .removed:
             phase = .removed
             phones = []
@@ -69,8 +65,9 @@ public struct MobileHostState: Sendable, Equatable {
             blockedSessionIDs = Set(blockedSessions)
             sessionExposureKnown = true
         case .sessionExposureError:
-            // Keep the last authoritative policy. A later state event replaces it atomically.
-            break
+            // Rust has failed closed; stale allow/block sets must not keep the UI lit.
+            sessionExposureAvailable = false
+            sessionExposureKnown = true
         case .phoneUp(var link):
             link.since = now
             phones.removeAll { $0.sessionID == link.sessionID }

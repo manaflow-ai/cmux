@@ -4,9 +4,8 @@ import Foundation
 
 /// Session Info's Remote Control switch (Environment section): whether cmux on the person's iPhone
 /// may open this Mac's agent chats, as Claude desktop's Remote Control lets a phone continue a
-/// local session. It is the iPhone host's own switch, `mobile.allowIPhoneConnections` (the Mobile
-/// Pairing page and Settings > Mobile show the same one), so it covers every chat on this Mac, not
-/// only the one the panel shows. The iPhone host owns the one instance and sets ``state`` and ``set``;
+/// local session. The iPhone host's master switch is the fallback; once chosen, each chat's Session
+/// Info switch controls that chat's durable exposure independently. The host owns the instance and sets ``state`` and ``set``;
 /// the App gives it to every chat page's model (``AgentPaneModel/remoteControl``). Each page gets the
 /// state at load and handshake (`remoteControl`), and again on every change. Nil state (no account
 /// signed in, or a build with no iPhone host) sends null, and the page draws no row. Not an
