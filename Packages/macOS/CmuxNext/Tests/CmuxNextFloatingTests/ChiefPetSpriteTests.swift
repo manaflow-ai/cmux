@@ -25,8 +25,9 @@ import Testing
         return ChiefPetSprite(sheet: sheet(columns: 8, rows: rows), json: Data(json.utf8))
     }
 
-    @Test func onlyMochiIsAnimatedAndItHasEveryState() throws {
-        for mascot in ChiefPetMascot.allCases where mascot != .mochi {
+    @Test func onlyTheAnimatedSetsAreAnimatedAndMochiHasEveryState() throws {
+        let animated: Set<ChiefPetMascot> = [.mochi, .captain, .sprout, .bolt]
+        for mascot in ChiefPetMascot.allCases where !animated.contains(mascot) {
             #expect(mascot.sprite == nil, "\(mascot.rawValue) stays a still character")
         }
         let mochi = try #require(ChiefPetMascot.mochi.sprite)
@@ -36,6 +37,22 @@ import Testing
         #expect(mochi.track(.error, facingRight: true).loop == false)
         #expect(mochi.track(.working, facingRight: true).frames == 8)
         #expect(mochi.frame(row: 1, 7)?.width == 32)
+    }
+
+    /// Leo 2026-10-26: "We need to be getting Codex to, like, generate some more animated stuff ... they
+    /// have, like, different directions". Captain, Sprout and Bolt (#25213's Codex sets) step every state
+    /// in the pet as Mochi does, facing right as drawn and mirrored for left.
+    @Test func captainSproutAndBoltStepEveryStateBothWays() throws {
+        for mascot in [ChiefPetMascot.captain, .sprout, .bolt] {
+            let sprite = try #require(mascot.sprite, "\(mascot.rawValue) has its sheet and manifest")
+            #expect(ChiefPetState.allCases.map { sprite.track($0, facingRight: true).row } == [0, 1, 2, 3, 4, 5])
+            #expect(sprite.track(.working, facingRight: true).frames == 6 || mascot == .sprout)
+            #expect(sprite.track(.done, facingRight: true).loop == false)
+            #expect(!sprite.track(.idle, facingRight: true).mirrored && sprite.track(.idle, facingRight: false).mirrored)
+            #expect(sprite.frame(row: 0, 0)?.width == 32)
+            #expect(mascot.image != nil && mascot.avatarURL != nil, "\(mascot.rawValue) has its still and avatar")
+        }
+        #expect(ChiefPetMascot.sprout.sprite?.track(.working, facingRight: true).frames == 8)
     }
 
     @Test func missingStatesFallBackAndTheOtherFacingMirrors() throws {

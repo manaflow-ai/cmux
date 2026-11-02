@@ -147,7 +147,7 @@ fn cloud_environment_reads_and_patch_use_the_install_token_and_never_return_secr
     let record = json!({"id":"env_default","name":"Default","is_default":true,
         "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return"}],
         "network":{"mode":"full","package_managers":true,"domains":[]}});
-    backend.reply("/v1/cloud-environments", 200, json!([record.clone()]));
+    backend.reply("/v1/cloud-environments", 200, json!([record]));
     let listed = reply(&mux, app, environment("list", json!({})));
     assert_eq!(listed["ok"], true, "{listed}");
     assert_eq!(listed["data"][0]["secrets"], json!([{"name":"TOKEN","updated_at":"now"}]));
@@ -248,6 +248,9 @@ fn cloud_environment_rejects_untrusted_origins_before_sending_the_install_token(
     let (mux, app, _, backend) = daemon();
     for origin in [
         "https://attacker.example",
+        "https://unrelated.debussy.workers.dev",
+        "https://cmux-platform-preview.debussy.workers.dev",
+        "https://attacker.cmux-platform-development.debussy.workers.dev",
         "https://cmux-platform-development.debussy.workers.dev.attacker.example",
         "http://cmux-platform-development.debussy.workers.dev",
         "https://cmux-platform-development.debussy.workers.dev:8443",
@@ -264,4 +267,26 @@ fn cloud_environment_rejects_untrusted_origins_before_sending_the_install_token(
     assert!(backend.got().is_empty());
     assert!(backend.posted().is_empty());
     assert!(backend.patched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn cloud_environment_accepts_declared_deployments_and_explicit_local_development() {
+    let (mux, app, _, backend) = daemon();
+    for origin in [
+        PLATFORM_BASE,
+        "https://cmux-platform-staging.debussy.workers.dev",
+        "https://cmux-platform-production.debussy.workers.dev",
+        "http://localhost:8787",
+        "http://127.0.0.1:8787",
+        "http://[::1]:8787",
+    ] {
+        backend.reply("/v1/cloud-environments", 200, json!([]));
+        let mut request = environment("list", json!({}));
+        request["platform_origin"] = json!(origin);
+        let listed = reply(&mux, app, request);
+        assert_eq!(listed["ok"], true, "{origin}: {listed}");
+        let sent = backend.got().pop().unwrap();
+        assert_eq!(sent.url, format!("{origin}/v1/cloud-environments"));
+        assert_eq!(sent.bearer, "install.jwt");
+    }
 }

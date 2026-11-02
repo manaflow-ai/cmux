@@ -438,16 +438,18 @@ export function useEscapingPopup(
 /**
  * A listbox the page keeps on one side of its field with CSS (the composer's slash and @ lists):
  * the ref for it. With no room on that side, its rows go past the window's edge. Undefined on a
- * page without a host.
+ * page without a host. `anchor` is the box the list stands beside (the composer's lists draw out
+ * of it, in a layer of their own: backdropLayer.tsx); unset, the list's offset parent.
  */
 export function useEscapingList(
   side: "top" | "bottom",
   gap: number,
   onDismiss?: () => void,
+  anchor?: HTMLElement | null,
 ): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
-  useEscapingPopup(host, list, () => list?.offsetParent ?? null, {
+  useEscapingPopup(host, list, () => anchor ?? list?.offsetParent ?? null, {
     side,
     align: "start",
     gap,

@@ -81,6 +81,8 @@ pub(crate) struct Snapshot {
     /// What it was built at (`key`).
     key: Key,
     serial: u64,
+    /// Whether this snapshot intentionally omits closed records for the Mac census path.
+    live_only: bool,
     started: Instant,
     /// How long it is reused, and how far the next build waits behind it.
     window: Duration,
@@ -126,9 +128,26 @@ impl FullRows {
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
-    fn new(key: Key, serial: u64, window: Duration, (text, spans, keys): Built) -> Self {
+    fn new(
+        key: Key,
+        serial: u64,
+        window: Duration,
+        live_only: bool,
+        (text, spans, keys): Built,
+    ) -> Self {
         let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
-        Self { key, serial, started, window, whole, spans, keys, made, full: Default::default() }
+        Self {
+            key,
+            serial,
+            live_only,
+            started,
+            window,
+            whole,
+            spans,
+            keys,
+            made,
+            full: Default::default(),
+        }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -137,6 +156,12 @@ impl Snapshot {
     fn build(hub: &Hub) -> Built {
         let mut rows = Rows::default();
         hub.visit_session_summaries(false, |row| rows.push(&row));
+        rows.finish()
+    }
+
+    fn build_live(hub: &Hub) -> Built {
+        let mut rows = Rows::default();
+        hub.visit_live_session_summaries(false, |row| rows.push(&row));
         rows.finish()
     }
 
@@ -158,7 +183,11 @@ impl Snapshot {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
-            hub.visit_session_summaries(true, |row| rows.push(&row));
+            if self.live_only {
+                hub.visit_live_session_summaries(true, |row| rows.push(&row));
+            } else {
+                hub.visit_session_summaries(true, |row| rows.push(&row));
+            }
             let (whole, spans, keys) = rows.finish();
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
@@ -511,10 +540,20 @@ impl ListGuard {
     /// The list for a request that arrived now: the shared snapshot while nothing it
     /// shows changed, or one begun since; else a new build once the pace allows.
     pub(crate) async fn snapshot(&self, hub: &Hub) -> Arc<Snapshot> {
+        self.snapshot_for(hub, false).await
+    }
+
+    /// Build the cheaper census projection when the caller explicitly excludes closed rows.
+    pub(crate) async fn snapshot_live(&self, hub: &Hub) -> Arc<Snapshot> {
+        self.snapshot_for(hub, true).await
+    }
+
+    async fn snapshot_for(&self, hub: &Hub, live_only: bool) -> Arc<Snapshot> {
         let asked = self.begun.load(Ordering::SeqCst);
         // One build at a time; requests that arrive meanwhile wait for it and share it.
         let mut state = self.state.lock().await;
         if let Some(last) = &state.last
+            && last.live_only == live_only
             && last.key.0
             && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
         {
@@ -530,7 +569,7 @@ impl ListGuard {
         // Counted before its key is read: it is as new as any request that came before.
         let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
         let (started, key) = (Instant::now(), key(hub));
-        let built = Snapshot::build(hub);
+        let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
@@ -540,7 +579,8 @@ impl ListGuard {
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
-        let snapshot = Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, built) });
+        let snapshot =
+            Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
         state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
@@ -644,7 +684,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
         assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
         assert_eq!(list.values(), rows);
         let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
         let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
@@ -674,8 +714,13 @@ mod tests {
             .map(|(i, id)| json!({"sessionId": id, "updatedAt": 10 - i, "pad": "x".repeat(40)}))
             .collect();
         super::super::session_pages::sort_session_summaries(&mut rows);
-        let list =
-            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let list = Snapshot::new(
+            (false, 0, 0, Vec::new()),
+            0,
+            Duration::ZERO,
+            false,
+            Snapshot::serialize(&rows),
+        );
         let after_b =
             super::super::session_pages::session_list_reply(rows.clone(), &json!({"limit": 2}))
                 .unwrap()["nextCursor"]
@@ -702,8 +747,13 @@ mod tests {
             json!({"sessionId": "small", "updatedAt": 5, "status": "idle"}),
         ];
         super::super::session_pages::sort_session_summaries(&mut rows);
-        let list =
-            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let list = Snapshot::new(
+            (false, 0, 0, Vec::new()),
+            0,
+            Duration::ZERO,
+            false,
+            Snapshot::serialize(&rows),
+        );
         let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
         // Pages go in an order updates do not change (`byte_page`), not newest first.
         let listed = first["sessions"].as_array().unwrap();
@@ -733,7 +783,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         super::super::session_pages::sort_session_summaries(&mut rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
         assert_eq!(list.values(), rows);
         for params in
             [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
@@ -789,7 +839,7 @@ mod tests {
     }
 
     async fn hold_at(hub: &Hub, window: Duration, serial: u64) -> Arc<Snapshot> {
-        let held = Arc::new(Snapshot::new(key(hub), serial, window, Default::default()));
+        let held = Arc::new(Snapshot::new(key(hub), serial, window, false, Default::default()));
         hub.list_guard.state.lock().await.last = Some(held.clone());
         held
     }

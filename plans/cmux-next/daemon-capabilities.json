@@ -7,6 +7,7 @@
     "agent-session-attach-v1",
     "agent-session-children-v1",
     "agent-session-folders-v1",
+    "agent-session-login-v1",
     "agent-session-observe-v1",
     "agent-session-presence-v1",
     "agent-session-settings-v1",

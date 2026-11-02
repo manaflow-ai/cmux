@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1264,
+    "entries": 1266,
     "shortcuts": 189
   },
   "sections": [
@@ -4852,6 +4852,12 @@
           "command": null
         },
         {
+          "id": "toggleFileEditorMinimap",
+          "title": "Toggle Editor Minimap",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.browserToggleOmnibar",
           "title": "Toggle Omnibar",
           "shortcut": null,
@@ -5496,6 +5502,12 @@
         {
           "id": "notificationDismiss",
           "title": "Dismiss Notification",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agent.jumpToNextNeedingInput",
+          "title": "Go to Next Agent Needing Input",
           "shortcut": null,
           "command": null
         },

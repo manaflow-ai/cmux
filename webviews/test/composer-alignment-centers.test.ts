@@ -17,12 +17,18 @@ import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { measureComposerAlignment, type Center, type ComposerAlignment } from "./support/composerAlignment";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
   /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
   const TEXT_GAP = 8;
+  /** The one-line box's height, read from the grid's token (schemas/layout-grid/layout-grid.json,
+   *  `composer-box` = 2 x `composer-block-inset` + `composer-control`): 10 + 28 + 10 = 48 since #29887
+   *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44.
+   *  design/grid.md 5.1's "box | 44 tall for one line (8 + 28 + 8)" row is stale against the token. */
+  const BOX_HEIGHT = gridLength("composer-box");
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -53,9 +59,9 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     await vite?.close();
   });
 
-  const measure = async (width: number, scheme: string): Promise<ComposerAlignment> => {
+  const measure = async (width: number, scheme: string, variant: string): Promise<ComposerAlignment> => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
-    await page.goto(stageURL("claude-auto", scheme));
+    await page.goto(stageURL(variant, scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-composer-box .acpmux-md-placeholder").first().waitFor();
     await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").first().waitFor();
@@ -71,6 +77,14 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     const out: string[] = [];
     const off = (a: number, b: number) => Math.abs(a - b) > TOLERANCE;
     const f = (n: number) => n.toFixed(2);
+    // design/grid.md 5.1: a one-line box is the grid's composer-box tall (48 since #29887) with a 12 px
+    // radius, the text's optical center (baseline less half the cap height) is the + glyph's. (The
+    // text's start on the 44 px line is the placeholder-gap check below.)
+    if (off(m.box.bottom - m.box.top, BOX_HEIGHT))
+      out.push(`box height ${f(m.box.bottom - m.box.top)} is not ${BOX_HEIGHT}`);
+    if (off(parseFloat(m.dom.boxRadius), 12)) out.push(`box radius ${m.dom.boxRadius} is not 12px`);
+    if (m.placeholderOptical && m.plusGlyph && off(m.placeholderOptical.cy, m.plusGlyph.cy))
+      out.push(`optical text center ${f(m.placeholderOptical.cy)} differs from + center ${f(m.plusGlyph.cy)}`);
     const plus = m.plusButton;
     const plusGlyph = m.plusGlyph;
     const placeholder = m.placeholder;
@@ -126,11 +140,14 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     return out;
   };
 
-  for (const width of [720, 420])
-    for (const scheme of ["light", "dark"])
-      test(`at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
-        const m = await measure(width, scheme);
-        console.log(JSON.stringify({ width, scheme, measure: m }));
-        expect(problems(m)).toEqual([]);
-      });
+  // The running turn's "↵ steer · ⌘↵ queue" placeholder too: only the idle one was measured, so its
+  // misalignment escaped (Leo 2026-10-29).
+  for (const variant of ["claude-auto", "grid-running"])
+    for (const width of [720, 420])
+      for (const scheme of ["light", "dark"])
+        test(`${variant} at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
+          const m = await measure(width, scheme, variant);
+          console.log(JSON.stringify({ variant, width, scheme, measure: m }));
+          expect(problems(m)).toEqual([]);
+        });
 });

@@ -1,7 +1,8 @@
 // Settings > Chief > Look: how the Chief looks is one glass card: the pet's preview with Show Pet,
 // the characters (every Chief surface wears the chosen one), and the chat's Bubble Style, which
 // before stood alone below the pet as a one-row "Chief Chat" card, with the bubble colors every chat
-// starts with (`home.bubbleColors.*`) under it.
+// starts with (`home.bubbleColors.*`) under it, and Show the Feed in Chief (`home.feedInChief`), the
+// chat's other row, so it never brings the one-row Chief Chat card back.
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 
@@ -34,6 +35,27 @@ test("Bubble Style shows once, in Look: no Chief Chat card of its own", async ()
   await settle();
   expect(page.container.querySelectorAll('[data-row-key="home.chiefBubbleStyle"]')).toHaveLength(1);
   expect(page.container.querySelector('[data-group="settings.group.chiefChat"]')).toBeNull();
+  page.unmount();
+});
+
+test("Show the Feed in Chief draws once, in Look, after the bubble colors", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await settle();
+  expect(page.container.querySelectorAll('[data-row-key="home.feedInChief"]')).toHaveLength(1);
+  const rows = [...look(page.container).querySelectorAll(".rows [data-row-key]")].map((row) =>
+    row.getAttribute("data-row-key"),
+  );
+  expect(rows).toEqual(["home.chiefBubbleStyle", ...BUBBLE_COLORS, "home.feedInChief"]);
+  page.unmount();
+});
+
+test("search renders Show the Feed in Chief in the Look card", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await changeValue(page.container.querySelector<HTMLInputElement>("[data-settings-search]")!, "Show the Feed");
+  await settle();
+  const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
+  expect(result?.querySelector('[data-row-key="home.feedInChief"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
 });
 
