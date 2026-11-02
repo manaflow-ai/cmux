@@ -41,11 +41,15 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
 # gained a fleet route (or no longer exists) must leave this list. decide left it first: run 41234993713 queued it on
-# blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
+# blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it. The signer route's
+# jobs (signer-app, signer-app-notary, signer-dmg, the cmux NIGHTLY-identity copy's legacy-signer-app and
+# legacy-signer-dmg, and legacy-identity-target, the feed compare that picks that copy's build) are the rulebook's
+# measured exception: GitHub-hosted Ubuntu first, Blacksmith
+# Linux 4 vCPU on a re-run (tests/test_ci_self_hosted_guard.sh allowlists that exact line).
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "signer-app", "signer-app-notary",
-    "signer-dmg", "keep-published-dsyms",
+    "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
@@ -301,28 +305,23 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
 
-    def test_legacy_identity_target_uses_fresh_linux_placement(self) -> None:
+    def test_legacy_identity_target_takes_the_signer_route(self) -> None:
+        """The feed compare picks the signing job's build: hosted Ubuntu first, Blacksmith 4 vCPU on a re-run.
+
+        Its fleet-Linux picker waited three minutes and then sent it to Blacksmith in every run
+        (2026-11-02, runs 41412703950..41418619409), on the old feed's path.
+        """
         import yaml
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text()))["jobs"]
+        self.assertNotIn("pick-legacy-identity-runner", jobs)
         job = jobs["legacy-identity-target"]
-        picker = jobs["pick-legacy-identity-runner"]
-        self.assertEqual(set(picker["needs"]), set(job["needs"]) - {"pick-legacy-identity-runner"})
-        self.assertEqual(picker["if"], job["if"])
+        self.assertEqual(job["runs-on"], jobs["signer-app"]["runs-on"])
         source = parse_expression(job["runs-on"].removeprefix("${{").removesuffix("}}"))
-        prefix = "needs.pick-legacy-identity-runner.outputs."
-        context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1, prefix + "attempt": "1",
-                   prefix + "runs_on": "cmux-fleet-linux-x64", prefix + "overflow": "blacksmith-4vcpu-ubuntu-2404",
-                   prefix + "alternate": "blacksmith-16vcpu-ubuntu-2404"}
-        self.assertEqual(evaluate(source, context), "cmux-fleet-linux-x64")
-        self.assertEqual(evaluate(source, {**context, prefix + "runs_on": ""}), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(evaluate(source, {**context, "github.run_attempt": 2}), "blacksmith-16vcpu-ubuntu-2404")
-        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1, "vars.LINUX_RUNNER": "macos-26"}), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}), "blacksmith-8vcpu-ubuntu-2404")
-        placement = next(step for step in picker["steps"] if step.get("id") == "place")
-        self.assertEqual(placement["env"]["LINUX_ONLY"], "legacy-identity-target")
-        self.assertEqual(placement["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        self.assertEqual(placement["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
+        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1}), "ubuntu-24.04")
+        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}),
+                         "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(source, {"github.repository_owner": "someone", "github.run_attempt": 2}), "ubuntu-24.04")
 
     def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
         """Fleet admission supplies unique reservations, never an unserved pool label."""

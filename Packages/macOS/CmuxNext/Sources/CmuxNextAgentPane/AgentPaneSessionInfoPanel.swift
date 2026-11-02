@@ -22,6 +22,7 @@ final class AgentPaneSessionInfoPanel: NSView {
         edge.autoresizingMask = [.height, .maxXMargin]
         addSubview(edge)
         edge.onDrag = { [weak self] delta, ended in self?.store.drag(by: delta, ended: ended) }
+        edge.onDoubleClick = { [weak self] in self?.store.act("width:reset") }
         store.rectForView = { [weak self] view in
             guard let self else { return nil }
             return self.convert(view.bounds, from: view)
@@ -154,10 +155,18 @@ struct AgentPaneSessionInfoColors: Equatable {
 final class AgentPaneSessionInfoEdge: NSView {
     static let width: CGFloat = 6
     var onDrag: ((CGFloat, Bool) -> Void)?
+    var onDoubleClick: (() -> Void)?
     private var last: CGFloat?
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
-    override func mouseDown(with event: NSEvent) { last = event.locationInWindow.x }
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            last = nil
+            onDoubleClick?()
+            return
+        }
+        last = event.locationInWindow.x
+    }
     override func mouseDragged(with event: NSEvent) { step(event, ended: false) }
     override func mouseUp(with event: NSEvent) { step(event, ended: true) }
 
