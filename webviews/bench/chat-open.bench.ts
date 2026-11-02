@@ -22,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -440,6 +441,15 @@ try {
         median((r) => r.drift).toFixed(0),
       ].join(" | "),
     );
+    // The median of rounds, as both p50 and p95 (perfRow.ts); stages from navigation start.
+    for (const [stage, pick, target] of [
+      ["attach", (r: Round) => r.attach, undefined],
+      ["first_row", (r: Round) => r.firstRow, undefined],
+      ["latest", (r: Round) => r.latest, TARGET_MS.load],
+      ["settled", (r: Round) => r.settled, undefined],
+      ["long_ms", (r: Round) => r.longMs, undefined],
+    ] as const)
+      perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target });
   }
 } finally {
   await release();
