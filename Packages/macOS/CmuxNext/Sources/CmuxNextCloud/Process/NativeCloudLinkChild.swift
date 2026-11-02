@@ -84,13 +84,11 @@ package actor NativeCloudLinkChild {
     private func launch(epoch: UInt64) async throws -> String {
         let startup = try await prepare()
         try check(epoch)
-        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096 else {
-            throw NativeCloudExecutable.refused("the link startup is \(startup.bytes.count) bytes")
-        }
+        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096 else { throw NativeCloudExecutableRefusal.startupSize }
         // The signature check hashes the bundle and its binary: on the blocking lane, never the actor's executor.
         let (bundleURL, publisher, work) = (bundleURL, publisher, blockingWork)
         let executable = try await work.run(.userVisible, mayBlock: .system) {
-            guard let bundle = Bundle(url: bundleURL) else { throw NativeCloudExecutable.refused("no bundle at \(bundleURL.path)") }
+            guard let bundle = Bundle(url: bundleURL) else { throw NativeCloudExecutableRefusal.bundle }
             return try NativeCloudExecutable(bundle: bundle, publisher: publisher)
         }
         try check(epoch)
@@ -105,9 +103,7 @@ package actor NativeCloudLinkChild {
         do {
             try process.start(inheritedInput: input)
             try input.close()
-            guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else {
-                throw NativeCloudExecutable.refused("the link child has no readable start")
-            }
+            guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else { throw NativeCloudExecutableRefusal.processStart }
             childPID = pid
             // task-owner: bounded startup task; cancellation stops the owned child and closes its peer.
             let work = blockingWork
