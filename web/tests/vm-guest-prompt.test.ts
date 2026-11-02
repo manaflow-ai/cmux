@@ -268,9 +268,13 @@ def layout(*installed):
     os.access = lambda target, mode: target == "/home/cmux" or binaries.get(target) in installed
     return module.tui_layout()[0]
 print(layout("work"), layout("root"), layout("work", "root"), layout())
+def timed_out(*args, **kwargs):
+    raise subprocess.TimeoutExpired("sudo", 2)
+subprocess.run = timed_out
+print(layout("work"), layout("root"))
 `, script]);
     expect(result.stderr).toBe("");
-    expect(result.stdout.trim()).toBe("cmux root root root");
+    expect(result.stdout.trim().split("\n")).toEqual(["cmux root root root", "cmux root"]);
   });
 
   test("prompt sync never polls faster after a failure than after a success", async () => {

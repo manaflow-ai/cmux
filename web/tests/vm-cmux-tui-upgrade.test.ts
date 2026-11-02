@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
@@ -103,6 +103,30 @@ if supervisor_would_strand_daemon; then echo strands; else echo safe; fi
 `;
       const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 5000, env: { ...process.env, CMUX_DEVBOX_BOOT: bootFile } });
       expect(result.stdout.trim()).toBe(strands ? "strands" : "safe");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a machine the supervisor would strand reports SKIP and its daemon is left alone", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-skip-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const gateStart = script.indexOf("# A crash-looping daemon is between restarts");
+      const gateEnd = script.indexOf('if [ "$(exe_sha "$D")"', gateStart);
+      const fixture = `flock() { return 0; }
+${functions}
+      daemon_pid() { echo 77; }
+      daemon_has_trusted_carrier() { :; }
+      supervisor_would_strand_daemon() { return 0; }
+${script.slice(gateStart, gateEnd)}
+echo reached-stop > "$RUN/reached-stop"
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe("SKIP supervisor-would-select-missing-root-install");
+      expect(existsSync(path.join(run, "reached-stop"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

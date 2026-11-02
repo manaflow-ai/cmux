@@ -137,6 +137,10 @@ to roll back, the previous helper is restored with the binary.
 
 - `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
   binary would not make it attachable; the machine is image-only (below).
+- `SKIP supervisor-would-select-missing-root-install`: the work user's sudo needs
+  a password, root has no binary, and the baked supervisor predates the selector
+  rule that keeps the work user. Stopping the daemon would leave the machine with
+  no terminals, so nothing changed, including the state-mount helper.
 - `SKIP disk-free=<n>MB`, `SKIP no-daemon`, `SKIP daemon-not-listening`:
   nothing changed. A no-daemon machine usually crash-loops or has a full
   disk; inspect it.
