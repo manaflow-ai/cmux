@@ -402,7 +402,7 @@ def stop(pids, timeout=10):
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
-    def __init__(self, tag, scratch, extra_env=None):
+    def __init__(self, tag, scratch, extra_env=None, sample=False):
         read_fd, write_fd = os.pipe()
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -422,6 +422,11 @@ class Launch:
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
             self.popen_returned_at = time.monotonic()
+        self.sample_path, self.sampler = None, None
+        if sample:
+            self.sample_path = os.path.join(scratch, f"launch-sample-{self.process.pid}.txt")
+            self.sampler = subprocess.Popen(["/usr/bin/sample", str(self.process.pid), str(SAMPLE_LAUNCH_S), "1", "-mayDie",
+                                             "-file", self.sample_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
         os.close(write_fd)
         self.read_fd = read_fd
@@ -472,6 +477,12 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --sample-launch (REOPEN-F7 scratch, never merge): /usr/bin/sample of each measured launch from its Popen, 1 ms
+# interval for SAMPLE_LAUNCH_S; the report goes into the run's marks as "launch_sample". The sampler attaches some
+# ms after the spawn, so the profile misses the first part of the launch, and a sampled run's marks are not timing
+# evidence (the sampler slows the app); the profile is only for the shape of the main thread's work.
+SAMPLE_LAUNCH = False
+SAMPLE_LAUNCH_S = 2
 
 
 def app_support_tag(tag):
@@ -960,7 +971,7 @@ def one_run(tag, mode, timeout, profile=None):
         prime.quit()
     # Cold allows no daemon older than this launch; warm and restart allow this step's (the floor taken above).
     floor = time.time() if mode == "cold" else STEP_STARTED_WALL[tag]
-    launch = Launch(tag, scratch)
+    launch = Launch(tag, scratch, sample=SAMPLE_LAUNCH)
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -978,6 +989,13 @@ def one_run(tag, mode, timeout, profile=None):
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
     marks = dict(launch.marks)
+    if launch.sampler:
+        try:
+            launch.sampler.wait(timeout=SAMPLE_LAUNCH_S + 30)
+            with open(launch.sample_path, errors="replace") as report:
+                marks["launch_sample"] = report.read()
+        except (OSError, subprocess.TimeoutExpired) as error:
+            marks["launch_sample"] = f"no sample: {error}"
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
@@ -1120,11 +1138,13 @@ def main():
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
+    parser.add_argument("--sample-launch", action="store_true", help="REOPEN-F7 scratch: /usr/bin/sample each measured launch")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, SAMPLE_LAUNCH
     HANG_THRESHOLD_MS = args.hangs
+    SAMPLE_LAUNCH = args.sample_launch
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
