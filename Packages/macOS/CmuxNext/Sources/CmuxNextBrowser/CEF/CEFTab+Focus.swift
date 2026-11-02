@@ -51,6 +51,14 @@ extension CEFRuntime {
     }
 }
 
+/// The app's key window, read and changed (AppKit's in the app, a recorder in a test).
+struct CEFKeyWindows {
+    var keyWindow: @MainActor () -> NSWindow?
+    var makeKey: @MainActor (NSWindow) -> Void
+
+    static var appKit: CEFKeyWindows { CEFKeyWindows(keyWindow: { NSApp.keyWindow }, makeKey: { $0.makeKey() }) }
+}
+
 extension CEFTab {
     /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`), in process only
     /// (``CEFRuntime/installFocusRequestPolicy(_:)``).
