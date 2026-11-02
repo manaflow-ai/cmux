@@ -147,6 +147,7 @@ class LogicLinesTests(Repo):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
         self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, "p", "a host"))
         base = self.commit()
+        (self.repo / SRC / "CmuxNextDomain" / "Hosts").mkdir()  # `git mv` into a missing directory fails
         self.git("mv", f"{SRC}/CmuxNextDomain/Store.swift", f"{SRC}/CmuxNextDomain/Hosts/Host.swift")
         self.commit("the file moves inside its module")
         self.assertEqual(self.count()["rows"]["swift_logic_lines"], 0)
