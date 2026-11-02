@@ -52,7 +52,8 @@ final class TabGroupBandCell {
     private func updateColors() {
         themeScope.perform {
             // The group's swatch and its wash, or the custom color, as the sidebar's groups draw it (GroupTint.headerFill).
-            washLayer.backgroundColor = color.headerFill.withAlphaComponent(0.09).cgColor
+            // No color: no wash (`.clear` with an alpha is a faint black, not nothing).
+            washLayer.backgroundColor = color.isNone ? NSColor.clear.cgColor : color.headerFill.withAlphaComponent(0.09).cgColor
             lineLayer.backgroundColor = color.headerFill.cgColor
         }
     }

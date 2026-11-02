@@ -246,18 +246,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
         }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
-        if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
-            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
-            return
-        }
+        if let requested, let (workspace, daemon) = machines.workspace(id: requested) { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
+        if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
-        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
-            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
-            return
-        }
-        // Keep what is shown (the old content stays until the manager
-        // closes or refills this window); a window with nothing yet waits.
+        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
     }
 
