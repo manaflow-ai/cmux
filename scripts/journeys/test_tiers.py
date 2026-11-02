@@ -12,6 +12,8 @@ sampler writes: [uptime_ns, cpu_ms per tier..., cycles per tier...], cumulative)
   the sampler process is killed; a sampler that exits non-zero is an OSError at stop; a failed journey's sampler ends
   at the next journey's start; two samplers of one journey both run to their stop;
 - video_start starts the sampler on the app's pid for the recording; a sampler that does not start never fails it;
+- a driver time (time.monotonic: process-relative on the minis' python 3.9) moves to the host clock of the journal and
+  the sampler; video_stop gives each HID action the start tier at its HOST time;
 - video_stop writes "tiers" (each key-down and HID action) in the recording's meta.json; a sampler that failed to
   start or fails at stop leaves its error there and the film still completes;
 - run.py fetches <case>/video/<name>.tiers.json; video-go.py publishes it;
@@ -48,6 +50,13 @@ def rows(plan, step_ns=1_000_000, start=T0):
             cyc[k] += 4_000_000 if k == 0 else 2_000_000
         out.append([start + (i + 1) * step_ns] + [round(x, 4) for x in cpu] + cyc[:])
     return {"levels": LEVELS, "rows": out, "ps": []}
+
+
+class HostClockTest(unittest.TestCase):
+    def test_driver_time_moves_to_the_host_clock(self):
+        import time
+        clock = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+        self.assertAlmostEqual(ext_tiers.host_seconds(time.monotonic()), time.clock_gettime(clock), delta=0.01)
 
 
 class TurnTiersTest(unittest.TestCase):
@@ -227,6 +236,7 @@ class VideoStopTiersTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.out = Path(self.tmp.name)
         self.saved = (self.v._motion, self.v.R._journal_entries, self.v.R._layers_window, self.v._bypass_dialog, self.v.T.stop)
+        self.saved_offset = self.v.T.HOST_OFFSET
         self.v._motion = lambda j, action, **p: {"written": True} if action == "record_read" else {"samples": []}
         key_ns = T0 + 10_000_000
         self.v.R._journal_entries = lambda j, last=40: [
@@ -237,6 +247,7 @@ class VideoStopTiersTest(unittest.TestCase):
 
     def tearDown(self):
         (self.v._motion, self.v.R._journal_entries, self.v.R._layers_window, self.v._bypass_dialog, self.v.T.stop) = self.saved
+        self.v.T.HOST_OFFSET = self.saved_offset
         self.tmp.cleanup()
 
     def journey(self, rec):
@@ -244,7 +255,9 @@ class VideoStopTiersTest(unittest.TestCase):
         return j
 
     def rec(self, **extra):
-        base = {"name": "case", "t_start": 0.0, "hid": [{"kind": "key", "t_sent": (T0 + 10_000_000) / 1e9}],
+        # t_sent is the driver's clock (process-relative time.monotonic), not the host clock: 3.0 s here.
+        self.v.T.HOST_OFFSET = (T0 + 10_000_000) / 1e9 - 3.0
+        base = {"name": "case", "t_start": 0.0, "hid": [{"kind": "key", "t_sent": 3.0}],
                 "journal_seq": 1, "start": {}, "notes": {}, "trace_views": None, "refresh_ms": 8.33}
         base.update(extra)
         return base
@@ -259,6 +272,8 @@ class VideoStopTiersTest(unittest.TestCase):
         self.assertEqual(meta["tiers"]["key_downs"][0]["ms_to_super"], 28.0)
         self.assertEqual(meta["tiers"]["hid"][0]["kind"], "key")
         self.assertEqual(meta["tiers"]["hid"][0]["start_tier"], "Efficiency")
+        self.assertEqual(meta["tiers"]["hid"][0]["t_sent"], 3.0)
+        self.assertNotIn("error", meta["tiers"]["hid"][0])
 
     def test_a_sampler_that_did_not_start_never_fails_the_film(self):
         j = self.journey(self.rec(tiers_error="tiers sampler did not start on pid 1: boom"))

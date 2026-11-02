@@ -36,6 +36,19 @@ D = None
 # video_start and video_stop leaves its sampler running (bounded by its `seconds`); the next start() of ANOTHER journey
 # and the driver's exit end it. Samplers of the same journey (tiers_start "a" and "b", or tiers_start and a film) run on.
 _LIVE = []
+# The driver's clock (D.now() = time.monotonic()) is NOT the host clock: the minis' /usr/bin/python3 3.9.6 counts
+# mach_absolute_time from the process start (0.004 s at start; hc-film-e2e-1, 2026-11-02). The app's journal
+# (uptimeNanos), the frame trace and this sampler use CLOCK_UPTIME_RAW (mach_absolute_time since boot). host_seconds()
+# moves a driver time (a HID t_sent, a journey mark) to the host clock; the offset is fixed for the driver process.
+_HOST_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+HOST_OFFSET = time.clock_gettime(_HOST_CLOCK) - time.monotonic()
+
+
+def host_seconds(driver_t):
+    """A driver time (time.monotonic() of this process) on the host clock (CLOCK_UPTIME_RAW s)."""
+    return driver_t + HOST_OFFSET
+
+
 START_TIMEOUT = 40.0  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
 
 SAMPLER = r'''
@@ -214,7 +227,7 @@ def step_tiers_stop(j, step):
     except OSError as error:
         raise D.StepError(str(error))
     marks = {k: v for k, v in (getattr(j, "marks", None) or {}).items() if isinstance(v, (int, float)) and v >= handle["t"]}
-    turns = turn_tiers(data, list(marks.values()))
+    turns = turn_tiers(data, [host_seconds(v) for v in marks.values()])
     return {"path": handle["path"], "rows": len(data["rows"]), "levels": data["levels"],
             "marks": {k: t for k, t in zip(marks, turns)}}
 

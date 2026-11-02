@@ -246,7 +246,8 @@ def step_video_stop(j, step):
         hid = [h for h in rec["hid"] if isinstance(h.get("t_sent"), (int, float))]
         tiers = {"levels": tiers_data["levels"], "rows": len(tiers_data["rows"]), "ps": tiers_data.get("ps", [])[:6],
                  "key_downs": T.turn_tiers(tiers_data, keys),
-                 "hid": [dict(t, kind=h.get("kind")) for h, t in zip(hid, T.turn_tiers(tiers_data, [h["t_sent"] for h in hid]))]}
+                 "hid": [dict(t, kind=h.get("kind"), t_sent=h["t_sent"])
+                         for h, t in zip(hid, T.turn_tiers(tiers_data, [T.host_seconds(h["t_sent"]) for h in hid]))]}
     layers = R._layers_window(j)
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
             "t_start": rec["t_start"], "t_stop": D.now(), "notes": rec["notes"], "trace_views": rec["trace_views"],
