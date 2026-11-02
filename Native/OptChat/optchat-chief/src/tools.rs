@@ -595,6 +595,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "control",
             &serde_json::json!({"action": "cloud", "peer": peer}),
         ),
+        ("control", ["sessions", n]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "sessions", "n": n}),
+        ),
         ("control", ["answer", id, option]) => Call::parse(
             "control",
             &serde_json::json!({"action": "answer", "id": id, "option": option}),
@@ -655,7 +659,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
             "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
@@ -1858,6 +1862,12 @@ mod control_session_tests {
             next.to_json(),
             json!({"tool": "control", "action": "sessions", "n": 60})
         );
+
+        let cli = match command("control", &["sessions", "60"]).unwrap() {
+            Command::Call(Call::Control(call)) => call,
+            other => panic!("unexpected command: {other:?}"),
+        };
+        assert_eq!(cli.n, Some(60));
 
         // Actions operating on a particular child still require its id.
         assert!(
