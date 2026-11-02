@@ -39,6 +39,11 @@
    "title": "set-up: the TUIs run"
   },
   {
+   "do": "require_visible_terminals",
+   "min": 8,
+   "title": "set-up: the HEAVY workspace shows at least 8 terminal panes on screen (else not run)"
+  },
+  {
    "do": "reopen_video",
    "count": 5,
    "how": "quit-keep-hid",

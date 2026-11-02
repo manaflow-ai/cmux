@@ -1138,5 +1138,17 @@ def step_input_journal(j, step):
     return {"entries": len(entries), "key_events": len(keys), "focus_resolved": focus[-12:]}
 
 
-STEPS = {"hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+def step_require_visible_terminals(j, step):
+    """Set-up check: at least MIN terminal panes are on screen (debug.surfaces `visible`) before a timed reopen;
+    else `not run` with the count and the app's own windows (a HEAVY profile that shows one pane is not HEAVY)."""
+    terms = _visible_terminals(j)
+    want = int(step.get("min", 1))
+    server = [w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == j.app.pid]
+    detail = {"visible_terminals": len(terms), "min": want, "app_server_windows": server[:6]}
+    if len(terms) < want:
+        raise D.NotRun(f"set-up: {len(terms)} terminal pane(s) on screen, {want} needed: {json.dumps(detail)[:400]}")
+    return detail
+
+
+STEPS = {"require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
