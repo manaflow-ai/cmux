@@ -144,3 +144,65 @@ test("the link is up for every emit reason but a lost or opening connection", as
     expect(linkUp(reason)).toBe(true);
   for (const reason of ["disconnected", "connecting", "connecting: socket closed"]) expect(linkUp(reason)).toBe(false);
 });
+
+// A Cloud chat whose open failed on a socket that stayed open (direct.ts emits "failed", with no
+// rows and no `unavailable`: that is set only while no chat is selected) still reads its machine,
+// and a paused machine shows the Resume card. "failed" is not a lost link, but the chat was never
+// read, so cloud recovery treats it as one (#27031).
+test("a Cloud chat whose open failed on an open socket shows its paused machine's Resume card", async () => {
+  const { chat } = fixtures;
+  const base = chat([]);
+  const snapshot: Snapshot = {
+    ...base,
+    connection: "failed",
+    summary: { ...base.summary!, hostKind: "cloud", turnCount: 3 },
+  };
+  const account = ["user", null];
+  const reads: string[] = [];
+  window_.webkit = {
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: { method?: string }) => {
+          if (message.method === "ready") {
+            setTimeout(() => window_.cmuxAcpmuxBridge?.receive(structuredClone(snapshot)), 0);
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "preview",
+                machineName: "Demo machine",
+                cloudMachineID: "vm-demo",
+                cloudAccount: account,
+              },
+            });
+          }
+          if (message.method === "cloudMachine.recoveryList") {
+            reads.push(message.method);
+            return Promise.resolve({
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account,
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+              },
+            });
+          }
+          return Promise.resolve({ ok: true, value: null });
+        },
+      },
+    },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const resume = () => dom.window.document.querySelector('[data-action="resumeMachine"]');
+  try {
+    await act(async () => root.render(<AcpmuxApp />));
+    for (let tries = 0; tries < 500 && !resume(); tries += 1)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(resume()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
