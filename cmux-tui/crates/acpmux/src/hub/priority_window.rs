@@ -12,9 +12,9 @@
 //!   client still owns: the ids with failing pull request checks (`failing`), the ids open in a
 //!   tab (`opened`), whether the view shows (`shown`: hidden, only the rows that need the person
 //!   are kept, for the bell's dot), how rows name machines (`localMachine`, `peerNames`), the
-//!   lanes of chats another owner reports (`lanes`: summaries with `lane` and an optional
-//!   `machine`, for the Chief home's acpmux and other machines' daemon trees), and once the app's
-//!   saved marks (`importMarks`). A lane of this daemon wins over one of `lanes` with the same id.
+//!   lanes of chats another owner reports (`lanes`: summaries with `lane`, an optional `machine`
+//!   and `archivable` when the client has the owning acpmux's socket; for the Chief home's
+//!   acpmux and other machines' daemon trees), and once the app's saved marks (`importMarks`). A lane of this daemon wins over one of `lanes` with the same id.
 //!   Each message also carries `needingInput` (Go to Next Agent Needing Input's order),
 //!   `attentionCount` and `nextChangeMs` (when a snooze ends or an idle chat ages out with no
 //!   other change; the server wakes then).
@@ -301,8 +301,19 @@ impl PrioritySpec {
     pub fn mark(&self, op: MarkOp, set: &LaneSet) -> Result<Mark, String> {
         let lane = match &op {
             MarkOp::Read(id) | MarkOp::Snooze { id, .. } => Some(listed(set, &self.lanes, id)?),
-            MarkOp::TogglePin(id) | MarkOp::Archive(id) => {
+            MarkOp::TogglePin(id) => {
                 listed(set, &self.lanes, id)?;
+                None
+            }
+            // Archive reaches the chat's owning acpmux: this daemon, or one whose socket the
+            // client has. Another machine's chat has none (`AgentPriorityChats.archive`).
+            MarkOp::Archive(id) => {
+                let lane = listed(set, &self.lanes, id)?;
+                if set.get(id).is_none() && !lane.archivable {
+                    return Err(format!(
+                        "no acpmux of this client lists chat {id:?} to archive it"
+                    ));
+                }
                 None
             }
             _ => None,

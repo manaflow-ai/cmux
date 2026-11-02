@@ -89,6 +89,10 @@ pub struct Lane {
     pub harness: Option<String>,
     /// acpmux classifies agent-started sessions as needing an opened tab before a sidebar row.
     pub requires_open: bool,
+    /// A lane a client reported (`archivable` in its summary) that an acpmux whose socket the
+    /// client has lists (the Chief home's), so Archive can reach its owner. This daemon's own
+    /// lanes are archivable whatever this says.
+    pub archivable: bool,
     /// What a mark holds for beside the state when `since` cannot say it (another machine's
     /// chat tab's notice); none: `since`.
     pub mark_key: Option<String>,
@@ -155,6 +159,7 @@ impl Lane {
             project: field(summary, "cwd").as_str().and_then(folder_name),
             harness: text(field(summary, "harness")),
             requires_open: field(lane, "requiresOpen").as_bool().unwrap_or(false),
+            archivable: field(summary, "archivable").as_bool().unwrap_or(false),
             mark_key: text(field(summary, "markKey")),
             parent: text(field(tags, "mux.parent")),
             spawned_by: text(field(summary, "spawnedBy")),

@@ -32,6 +32,7 @@ fn lane(id: &str, state: LaneState, ago_minutes: i64) -> Lane {
         project: Some("cmux".to_owned()),
         harness: None,
         requires_open: false,
+        archivable: false,
         mark_key: None,
         parent: None,
         spawned_by: None,
