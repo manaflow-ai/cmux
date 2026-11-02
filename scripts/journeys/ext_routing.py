@@ -29,6 +29,7 @@ Conditions (inside `expect.all`):
                   person sees), and no other pane's viewport shows it. ON is:
                     NAME          a terminal named before the action (smoke_adopt_line);
                     "new:SNAP"    the one terminal that is new since smoke_snapshot SNAP (exactly one new);
+                    "new:A..B"    the one terminal that snapshot B has and snapshot A has not;
                     "focused"     the selected terminal of the pane the app shows focused now.
                   The detail names the verdict of the attempt: `right` (on the expected terminal only), `wrong` (on
                   another terminal), `lost` (on no terminal), `split` (on more than one), and where it landed
@@ -67,6 +68,15 @@ def _expected(j, on, terms, focused_pane):
     if on == "focused":
         hits = [t for t, place in terms.items() if place[1] == focused_pane and place[2]]
         return (hits[0] if len(hits) == 1 else None), f"the selected terminal of the focused pane {focused_pane}"
+    if on.startswith("new:") and ".." in on:
+        # new:A..B: the one terminal that snapshot B has and snapshot A has not (made between the two snapshots; the
+        # topology keys terminals on terminal_key, which a stand-in keeps when the daemon's tab replaces it).
+        first, second = on[4:].split("..", 1)
+        snaps = getattr(j, "smoke_snapshots", {}) or {}
+        if first not in snaps or second not in snaps:
+            return None, f"no smoke_snapshot named {first!r} or {second!r} ran before this check"
+        made = sorted((set(snaps[second]["terms"]) - set(snaps[first]["terms"])) & set(terms))
+        return (made[0] if len(made) == 1 else None), f"the one terminal made between {first} and {second} ({made})"
     if on.startswith("new:"):
         snap = (getattr(j, "smoke_snapshots", {}) or {}).get(on[4:])
         if snap is None:
@@ -116,7 +126,7 @@ def cond_routing_marker(j, want, cache):
     if expect is None:
         problems.append(f"no expected terminal: {why}")
     elif want.get("in_new_workspace") and str(want["on"]).startswith("new:"):
-        snap = (getattr(j, "smoke_snapshots", {}) or {}).get(str(want["on"])[4:]) or {}
+        snap = (getattr(j, "smoke_snapshots", {}) or {}).get(str(want["on"])[4:].split("..")[0]) or {}
         if terms[expect][0] in set(snap.get("workspaces") or []):
             problems.append(f"the new terminal is in workspace {terms[expect][0]}, which the snapshot had: Cmd-N made "
                             "no new workspace for it")

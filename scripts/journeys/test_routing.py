@@ -97,6 +97,23 @@ class RoutingMarkerTests(unittest.TestCase):
         self.assertTrue(any("made no new workspace" in p for p in detail["problems"]))
 
 
+class BetweenSnapshotsTests(unittest.TestCase):
+    def test_new_between_two_snapshots(self):
+        saved = ext_smoke._layout, ext_smoke._focused_pane
+        ext_smoke._layout = lambda j: ({**TERMS, "k3": ("w3", "p3", True, "term_3")}, {})
+        ext_smoke._focused_pane = lambda j: "p3"
+        try:
+            j = Journey(App({"term_2": LINE}, {"p2": LINE}))
+            j.smoke_snapshots = {"h1": {"terms": ["k1"], "workspaces": ["w1"]}, "h2": {"terms": ["k1", "k2"]}}
+            ok, detail = ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:h1..h2"}, {})
+            self.assertTrue(ok, detail)
+            j = Journey(App({"term_3": LINE}, {"p3": LINE}))
+            j.smoke_snapshots = {"h1": {"terms": ["k1"]}, "h2": {"terms": ["k1", "k2"]}}
+            self.assertEqual(ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:h1..h2"}, {})[1]["verdict"], "wrong")
+        finally:
+            ext_smoke._layout, ext_smoke._focused_pane = saved
+
+
 class WorkspaceKeyMapTests(unittest.TestCase):
     """routing_map_workspace_keys takes the app's own digit of each workspace: Cmd-1 is Home here, Cmd-2 the
     slot's first workspace, Cmd-3 and Cmd-4 the journey's; a digit that changes nothing maps nothing."""
