@@ -66,7 +66,8 @@
       "Each pool is a class of work and its members in order. The RUNNER_POOLS repository variable",
       "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
       "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
-      "when the queue janitor or the overflow probe sees the current one start nothing.",
+      "when the queue janitor or the overflow probe sees the current one start nothing,",
+   "and spills linux to a later member with room while its member is backed up (_spill).",
       "Members are ephemeral only: owned Macs come first through a picker's output, never a pool.",
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],

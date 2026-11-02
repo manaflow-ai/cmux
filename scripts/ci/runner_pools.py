@@ -37,6 +37,12 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   the linux pool went from 16 back to the stalled 32 vCPU size;
 - points each pool at its first member with no mark. With every member marked, the pool keeps
   its first member;
+- spills a queue-aware pool (QUEUE_AWARE_POOLS: linux) to a later live member while its chosen member is
+  backed up and that member has room, and brings it back once the backlog drains (spill_choice(), the
+  `_spill` record). On 2026-11-02 at about 04:40Z blacksmith-4vcpu-ubuntu-2404 had 428 jobs queued beside
+  535 running, the oldest about 45 minutes (721 earlier), while 16 vCPU had about 11 queued; the label kept
+  starting jobs, so it was never dead and nothing moved. The load is the janitor snapshot's `linux_load`
+  (queue_janitor.linux_load()), a lower bound;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -92,6 +98,23 @@ MIRRORS = {"LINUX_RUNNER": "linux"}
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"
+# Queue-aware spill (spill_choice()). `_spill` maps a pool to {"from", "to", "since", "running"}: the member it
+# left, the member it took, when, and how many jobs `from` was running then.
+SPILL_KEY = "_spill"
+LOAD_KEY = "linux_load"  # queue_janitor.LINUX_LOAD_KEY
+QUEUE_AWARE_POOLS = ("linux",)
+# Spill when at least this many jobs on the chosen member have waited three minutes or more (the stall-aware
+# failover's bound; queue_janitor.LINUX_WAITED_MINUTES)...
+SPILL_WAITED = 25
+# ...onto the first later live member with at most this many such jobs.
+SPILL_ROOM_WAITED = 3
+# Come back no sooner than this, and only once the member left has nothing waiting, at most SPILL_RETURN_QUEUED
+# queued, and runs at most SPILL_RETURN_SHARE of what it ran when the pool left: room for the jobs coming back.
+SPILL_MIN_HOLD = dt.timedelta(minutes=30)
+SPILL_RETURN_QUEUED = 5
+SPILL_RETURN_SHARE = 0.7
+# The janitor sweeps every 10 minutes; a load older than this decides no spill either way.
+LOAD_MAX_AGE = dt.timedelta(minutes=20)
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -191,7 +214,105 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    spills = value.get(SPILL_KEY)
+    if spills is not None:
+        good_spills = {}
+        if isinstance(spills, dict):
+            for name, spill in spills.items():
+                if valid_spill(spill, pools.get(name)):
+                    good_spills[name] = spill
+                else:
+                    dropped.append(f"{VARIABLE}.{SPILL_KEY}.{name} is not a spill between two of its members; dropped")
+        else:
+            dropped.append(f"{VARIABLE}.{SPILL_KEY} is not an object; reset")
+        if good_spills:
+            clean[SPILL_KEY] = good_spills
     return clean, dropped
+
+
+def valid_spill(spill: object, spec: Mapping[str, Any] | None) -> bool:
+    """A `_spill` entry: from and to distinct members of the pool, a zoned since, a running count."""
+    if not isinstance(spill, Mapping) or spec is None:
+        return False
+    listed = members(spec)
+    running = spill.get("running")
+    return (spill.get("from") in listed and spill.get("to") in listed and spill.get("from") != spill.get("to")
+            and parse_time(spill.get("since")) is not None
+            and isinstance(running, int) and not isinstance(running, bool) and running >= 0)
+
+
+def queue_load(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[str, dict[str, int]] | None:
+    """Blacksmith Linux label -> {queued, running, waited} from the janitor snapshot, or None when unknown.
+
+    Unknown: no snapshot, one older than LOAD_MAX_AGE (or undated, or from the future), a truncated one, or one
+    written before the janitor counted Linux jobs. A label it does not list had nothing seen on it."""
+    if not isinstance(snapshot, Mapping):
+        return None
+    generated = parse_time(snapshot.get("generated_at"))
+    if generated is None or not (dt.timedelta(minutes=-1) <= now - generated <= LOAD_MAX_AGE):
+        return None
+    if pr_runner_pool.snapshot_truncated(snapshot):
+        return None
+    raw = snapshot.get(LOAD_KEY)
+    if not isinstance(raw, Mapping):
+        return None
+    load: dict[str, dict[str, int]] = {}
+    for label, entry in raw.items():
+        if not (isinstance(label, str) and isinstance(entry, Mapping)):
+            continue
+        try:
+            load[label] = {key: max(0, int(entry.get(key) or 0)) for key in ("queued", "running", "waited")}
+        except (TypeError, ValueError):
+            continue
+    return load
+
+
+def spill_choice(name: str, candidates: Sequence[str], marks: Mapping[str, str], base: str,
+                 spill: Mapping[str, Any] | None, load: Mapping[str, Mapping[str, int]] | None, *,
+                 now: dt.datetime) -> tuple[str, dict[str, Any] | None, list[str]]:
+    """(member, spill record or None, lines) for a pool whose first live member is `base`.
+
+    A pool outside QUEUE_AWARE_POOLS, or with an unknown load and no spill, takes `base`. An unknown load keeps a
+    spill as it is: the pool never moves on a guess. A spill whose `from` is no longer the first live member, or
+    whose `to` is dead, ends: the dead-member rule decides."""
+    if name not in QUEUE_AWARE_POOLS:
+        return base, None, []
+    zero = {"queued": 0, "running": 0, "waited": 0}
+    later = candidates[candidates.index(base) + 1:] if base in candidates else []
+    if spill is not None:
+        target = spill.get("to")
+        if spill.get("from") != base or target not in later or target in marks:
+            return base, None, [f"pools.{name}: spill {spill.get('from')} -> {target} ended; "
+                                f"{base} is the first live member"]
+        if load is None:
+            return str(target), dict(spill), []
+        left, took = load.get(base, zero), load.get(str(target), zero)
+        if took["waited"] >= SPILL_WAITED and left["waited"] < SPILL_WAITED:
+            return base, None, [f"pools.{name}: {target} is backed up too ({took['waited']} jobs waited 3+ min) "
+                                f"and {base} is not; back to {base}"]
+        since = parse_time(spill.get("since"))
+        held = since is not None and now - since >= SPILL_MIN_HOLD
+        if held and left["waited"] == 0 and left["queued"] <= SPILL_RETURN_QUEUED \
+                and left["running"] <= SPILL_RETURN_SHARE * int(spill.get("running") or 0):
+            return base, None, [f"pools.{name}: {base} drained ({left['queued']} queued, {left['running']} running, "
+                                f"{spill.get('running')} when the pool left); back to {base}"]
+        return str(target), dict(spill), []
+    if load is None:
+        return base, None, []
+    left = load.get(base, zero)
+    if left["waited"] < SPILL_WAITED:
+        return base, None, []
+    for member in later:
+        if member in marks:
+            continue
+        room = load.get(member, zero)
+        if room["waited"] <= SPILL_ROOM_WAITED:
+            record = {"from": base, "to": member, "since": iso(now), "running": left["running"]}
+            return member, record, [f"pools.{name}: {base} backed up ({left['waited']} of {left['queued']} queued "
+                                    f"jobs waited 3+ min, {left['running']} running); spill to {member} "
+                                    f"({room['waited']} waited)"]
+    return base, None, [f"pools.{name}: {base} backed up ({left['waited']} jobs waited 3+ min) "
+                        "and no later live member has room; staying"]
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -349,10 +470,12 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None,
+              load: Mapping[str, Mapping[str, int]] | None = None) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire.
+    `load` (queue_load()) drives the queue-aware spill; None is unknown."""
     lines: list[str] = []
     marks: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
@@ -376,15 +499,23 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     known = {label for spec in pools.values() for label in members(spec)}
     marks = {label: since for label, since in marks.items() if label in known}
     value: dict[str, Any] = {}
+    spills: dict[str, Any] = {}
+    previous = current.get(SPILL_KEY) or {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
         chosen = next((label for label in candidates if label not in marks), candidates[0])
+        chosen, spill, said = spill_choice(name, candidates, marks, chosen, previous.get(name), load, now=now)
+        lines += said
+        if spill is not None:
+            spills[name] = spill
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
     value[DEAD_KEY] = dict(sorted(marks.items()))
+    if spills:
+        value[SPILL_KEY] = spills
     comparable = {key: current.get(key) for key in value}
-    if comparable != value or UPDATED_KEY not in current:
+    if comparable != value or UPDATED_KEY not in current or (SPILL_KEY in current) != (SPILL_KEY in value):
         value[UPDATED_KEY] = iso(now)
     else:
         value[UPDATED_KEY] = current[UPDATED_KEY]
@@ -472,8 +603,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
+    load = queue_load(snapshot, now=now)
+    if snapshot is not None and load is None:
+        print("the janitor snapshot has no fresh, complete linux_load; no queue-aware spill change this pass")
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now), load=load)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")

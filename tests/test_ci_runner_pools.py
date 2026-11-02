@@ -399,12 +399,13 @@ class Main(unittest.TestCase):
     def test_a_macos_only_overflow_record_does_not_freeze_linux_runner_on_a_dead_member(self) -> None:
         # 2026-11-01: the record (04:23Z) changed only macOS variables; RUNNER_POOLS marked 32 vCPU dead at
         # 05:30Z and moved linux to 16 vCPU, but LINUX_RUNNER stayed on 32 and its jobs queued there.
-        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404"}),
+        # The declared linux pool is now 4 then 16 vCPU (32 vCPU left it on 2026-11-01), so the dead member is 4.
+        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404"}),
                                               runner_pools.load_pools())
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
-                                          dead_now={"blacksmith-32vcpu-ubuntu-2404"}, served_now=(), now=NOW)
+                                          dead_now={"blacksmith-4vcpu-ubuntu-2404"}, served_now=(), now=NOW)
         self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
-        live = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}
+        live = {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}
         self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
                          [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
         # The switch's own change stays the switch's, and an unreadable record still defers everything.
@@ -412,7 +413,7 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.mirror_writes(value, live, record="not json"), [])
         self.assertEqual(runner_pools.mirror_writes(value, live, record='{"since": "x"}'), [])
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
@@ -460,6 +461,145 @@ class Main(unittest.TestCase):
     def test_check_fails_on_an_unset_or_malformed_variable(self) -> None:
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": ""}), 1)
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
+
+
+
+FOUR, SIXTEEN = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"
+
+
+def linux_snapshot(load, at=NOW, **extra):
+    # The janitor snapshot's linux_load (queue_janitor.linux_load()); the rest of the snapshot is the recorded one.
+    snap = copy.deepcopy(RECORDED)
+    snap["generated_at"] = runner_pools.iso(at)
+    snap["linux_load"] = load
+    snap.update(extra)
+    return snap
+
+
+class QueueAwareSpill(unittest.TestCase):
+    """2026-11-02 ~04:40Z: 4 vCPU had 428 queued beside 535 running (oldest ~45 min), 16 vCPU ~11 queued."""
+
+    POOLS = runner_pools.load_pools()
+    BACKED_UP = {FOUR: {"queued": 428, "running": 535, "waited": 400}, SIXTEEN: {"queued": 11, "running": 212, "waited": 1}}
+
+    def step(self, current, load, now, dead=()):
+        parsed, dropped = runner_pools.parse_value(runner_pools.render(current) if current else None, self.POOLS)
+        self.assertEqual(dropped, [])
+        return runner_pools.reconcile(parsed, self.POOLS, dead_now=dead, served_now=(), now=now, load=load)
+
+    def test_a_backed_up_member_spills_to_a_later_member_with_room(self) -> None:
+        value, lines = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        self.assertEqual(value["linux"], SIXTEEN)
+        self.assertEqual(value["_spill"]["linux"], {"from": FOUR, "to": SIXTEEN, "since": runner_pools.iso(NOW),
+                                                    "running": 535})
+        self.assertTrue(any("spill to" in line for line in lines))
+        self.assertEqual(runner_pools.value_problems(value, self.POOLS), [])
+        # LINUX_RUNNER follows the pool.
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": FOUR}, record=None), [("LINUX_RUNNER", SIXTEEN)])
+
+    def test_a_short_queue_or_a_busy_sibling_does_not_spill(self) -> None:
+        short = {FOUR: {"queued": 40, "running": 535, "waited": runner_pools.SPILL_WAITED - 1}}
+        self.assertEqual(self.step({"linux": FOUR}, short, NOW)[0]["linux"], FOUR)
+        busy = {FOUR: self.BACKED_UP[FOUR], SIXTEEN: {"queued": 50, "running": 212, "waited": 10}}
+        value, lines = self.step({"linux": FOUR}, busy, NOW)
+        self.assertEqual(value["linux"], FOUR)
+        self.assertNotIn("_spill", value)
+        self.assertTrue(any("no later live member has room" in line for line in lines))
+
+    def test_a_dead_sibling_is_never_a_spill_target(self) -> None:
+        value, _ = self.step({"linux": FOUR, "_dead": {SIXTEEN: runner_pools.iso(NOW)}}, self.BACKED_UP, NOW)
+        self.assertEqual(value["linux"], FOUR)
+        self.assertNotIn("_spill", value)
+
+    def test_unknown_load_never_moves_the_pool(self) -> None:
+        value, _ = self.step({"linux": FOUR}, None, NOW)
+        self.assertEqual(value["linux"], FOUR)
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        later = NOW + dt.timedelta(hours=2)
+        kept, _ = self.step(spilled, None, later)
+        self.assertEqual(kept["linux"], SIXTEEN)
+        self.assertEqual(kept["_spill"], spilled["_spill"])
+
+    def test_it_holds_then_comes_back_once_the_member_drains(self) -> None:
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        drained = {FOUR: {"queued": 0, "running": 100, "waited": 0}, SIXTEEN: {"queued": 2, "running": 400, "waited": 0}}
+        # Drained, but inside the hold: stays.
+        early, _ = self.step(spilled, drained, NOW + runner_pools.SPILL_MIN_HOLD - dt.timedelta(minutes=1))
+        self.assertEqual(early["linux"], SIXTEEN)
+        # Past the hold but still running near what it ran when the pool left: stays.
+        busy = {FOUR: {"queued": 0, "running": 500, "waited": 0}}
+        self.assertEqual(self.step(spilled, busy, NOW + runner_pools.SPILL_MIN_HOLD)[0]["linux"], SIXTEEN)
+        # Still a backlog: stays.
+        backlog = {FOUR: {"queued": 30, "running": 100, "waited": 2}}
+        self.assertEqual(self.step(spilled, backlog, NOW + runner_pools.SPILL_MIN_HOLD)[0]["linux"], SIXTEEN)
+        back, lines = self.step(spilled, drained, NOW + runner_pools.SPILL_MIN_HOLD)
+        self.assertEqual(back["linux"], FOUR)
+        self.assertNotIn("_spill", back)
+        self.assertTrue(any("drained" in line for line in lines))
+
+    def test_a_steady_spill_writes_nothing(self) -> None:
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        again, lines = self.step(spilled, self.BACKED_UP, NOW + dt.timedelta(minutes=10))
+        self.assertEqual(runner_pools.render(again), runner_pools.render(spilled))
+        self.assertEqual(lines, [])
+
+    def test_a_backed_up_target_sends_the_pool_back_when_the_member_left_is_not(self) -> None:
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        flipped = {FOUR: {"queued": 5, "running": 300, "waited": 0}, SIXTEEN: {"queued": 90, "running": 400, "waited": 60}}
+        back, _ = self.step(spilled, flipped, NOW + dt.timedelta(minutes=10))
+        self.assertEqual(back["linux"], FOUR)
+        both = {FOUR: self.BACKED_UP[FOUR], SIXTEEN: flipped[SIXTEEN]}
+        self.assertEqual(self.step(spilled, both, NOW + dt.timedelta(minutes=10))[0]["linux"], SIXTEEN)
+
+    def test_a_dead_target_ends_the_spill(self) -> None:
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        value, lines = self.step(spilled, self.BACKED_UP, NOW + dt.timedelta(minutes=10), dead={SIXTEEN})
+        self.assertEqual(value["linux"], FOUR)
+        self.assertNotIn("_spill", value)
+        self.assertTrue(any("ended" in line for line in lines))
+
+    def test_a_dead_first_member_is_the_dead_rule_not_a_spill(self) -> None:
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        value, _ = self.step(spilled, self.BACKED_UP, NOW + dt.timedelta(minutes=10), dead={FOUR})
+        self.assertEqual(value["linux"], SIXTEEN)
+        self.assertNotIn("_spill", value)
+
+    def test_only_queue_aware_pools_spill(self) -> None:
+        load = {"blacksmith-6vcpu-macos-26": {"queued": 99, "running": 1, "waited": 99}}
+        value, _ = self.step({"macos_26": "blacksmith-6vcpu-macos-26"}, load, NOW)
+        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+
+    def test_malformed_spill_records_are_dropped(self) -> None:
+        for bad in ({"linux": {"from": FOUR, "to": FOUR, "since": "2026-11-02T00:00:00Z", "running": 1}},
+                    {"linux": {"from": FOUR, "to": "blacksmith-32vcpu-ubuntu-2404", "since": "2026-11-02T00:00:00Z", "running": 1}},
+                    {"linux": {"from": FOUR, "to": SIXTEEN, "since": "yesterday", "running": 1}},
+                    {"linux": {"from": FOUR, "to": SIXTEEN, "since": "2026-11-02T00:00:00Z", "running": True}},
+                    {"nope": {"from": FOUR, "to": SIXTEEN, "since": "2026-11-02T00:00:00Z", "running": 1}},
+                    "x"):
+            with self.subTest(bad=bad):
+                parsed, dropped = runner_pools.parse_value(json.dumps({"linux": SIXTEEN, "_spill": bad}), self.POOLS)
+                self.assertNotIn("_spill", parsed)
+                self.assertTrue(dropped)
+
+    def test_queue_load_reads_only_a_fresh_complete_snapshot(self) -> None:
+        self.assertEqual(runner_pools.queue_load(linux_snapshot(self.BACKED_UP), now=NOW), self.BACKED_UP)
+        self.assertIsNone(runner_pools.queue_load(None, now=NOW))
+        self.assertIsNone(runner_pools.queue_load(copy.deepcopy(RECORDED) | {"generated_at": runner_pools.iso(NOW)}, now=NOW))
+        stale = linux_snapshot(self.BACKED_UP, at=NOW - runner_pools.LOAD_MAX_AGE - dt.timedelta(minutes=1))
+        self.assertIsNone(runner_pools.queue_load(stale, now=NOW))
+        cut = linux_snapshot(self.BACKED_UP, truncated=True, listed=10, total=20)
+        self.assertIsNone(runner_pools.queue_load(cut, now=NOW))
+
+    def test_main_spills_and_mirrors_from_the_janitor_snapshot(self) -> None:
+        env = {"RUNNER_POOLS": runner_pools.render({"linux": FOUR, "_dead": {}, "_updated": runner_pools.iso(NOW)})}
+        switch = Main.Switch({"LINUX_RUNNER": FOUR})
+        self.assertEqual(runner_pools.main([], env, api=Main.Api(linux_snapshot(self.BACKED_UP)), switch=switch, now=NOW), 0)
+        names = [name for name, _ in switch.writes]
+        self.assertEqual(names, ["RUNNER_POOLS", "LINUX_RUNNER"])
+        self.assertEqual(json.loads(switch.writes[0][1])["linux"], SIXTEEN)
+        self.assertEqual(switch.writes[1], ("LINUX_RUNNER", SIXTEEN))
+        check = {"RUNNER_POOLS": switch.writes[0][1], "LINUX_RUNNER": SIXTEEN, "CI_CLOUD_OVERFLOW_SAVED": ""}
+        self.assertEqual(runner_pools.main(["--check"], check, now=NOW), 0)
 
 
 if __name__ == "__main__":

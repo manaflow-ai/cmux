@@ -1071,8 +1071,47 @@ def pool_load_snapshot(
         "pools": dict(sorted(pools.items())),
         "running": dict(sorted(running.items())),
         LABEL_STARTED_KEY: label_started(runs, jobs_by_run),
+        LINUX_LOAD_KEY: linux_load(runs, jobs_by_run, now=now),
         "settings": dict(settings or {}),
     }
+
+
+# The snapshot's per-label load of the Blacksmith Linux sizes (linux_load()), for runner_pools.py's queue-aware
+# spill of the linux pool. On 2026-11-02 at about 04:40Z blacksmith-4vcpu-ubuntu-2404, RUNNER_POOLS.linux and
+# LINUX_RUNNER, had 428 jobs queued beside 535 running (oldest about 45 min) while 16 vCPU had about 11 queued;
+# runner_pools.py moved a pool only off a dead size, so nothing moved.
+LINUX_LOAD_KEY = "linux_load"
+BLACKSMITH_LINUX_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*")
+# A queued job counts as `waited` once it has waited this long: the stall-aware failover's three minutes.
+LINUX_WAITED_MINUTES = 3
+
+
+def linux_load(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
+               now: dt.datetime) -> dict[str, dict[str, int]]:
+    """Blacksmith Linux label -> queued, running and `waited` (queued at least LINUX_WAITED_MINUTES) jobs.
+
+    Counted from the runs this sweep listed jobs for. Runs of workflows that run only on Linux are not listed
+    (needs_jobs()), so the counts are a lower bound: enough to show a size is backed up, never proof that it
+    is idle. runner_pools.py reads them that way."""
+    load: dict[str, dict[str, int]] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            status = job.get("status")
+            if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
+                continue
+            label = next((str(label) for label in job.get("labels") or ()
+                          if BLACKSMITH_LINUX_LABEL.fullmatch(str(label))), None)
+            if label is None:
+                continue
+            entry = load.setdefault(label, {"queued": 0, "running": 0, "waited": 0})
+            if status in RUNNING_JOB_STATUSES:
+                entry["running"] += 1
+                continue
+            entry["queued"] += 1
+            created = parse_time(job.get("created_at"))
+            if created and now - created >= dt.timedelta(minutes=LINUX_WAITED_MINUTES):
+                entry["waited"] += 1
+    return dict(sorted(load.items()))
 
 
 # The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner

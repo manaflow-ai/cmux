@@ -4538,6 +4538,37 @@ class DeliveryRunScopeTests(unittest.TestCase):
         self.assertIsNotNone(janitor.orphan_protected_reason(run))
 
 
+class LinuxLoadTests(unittest.TestCase):
+    """The snapshot's linux_load, which runner_pools.py spills the linux pool from (2026-11-02 4 vCPU queue)."""
+
+    def test_counts_queued_running_and_waited_per_blacksmith_linux_label(self):
+        run = {"id": 1, "path": ".github/workflows/ci.yml", "status": "in_progress"}
+        jobs = [
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404"], "status": "queued", "created_at": iso(45)},
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404"], "status": "queued", "created_at": iso(1)},
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404"], "status": "in_progress", "created_at": iso(10)},
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404"], "status": "completed", "created_at": iso(10)},
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404"], "status": "waiting", "created_at": iso(30)},
+            {"labels": ["blacksmith-16vcpu-ubuntu-2404"], "status": "queued", "created_at": iso(4)},
+            {"labels": ["blacksmith-4vcpu-ubuntu-2404-arm"], "status": "queued", "created_at": iso(9)},
+            {"labels": ["blacksmith-6vcpu-macos-26"], "status": "queued", "created_at": iso(9)},
+            {"labels": ["ubuntu-24.04"], "status": "queued", "created_at": iso(9)},
+        ]
+        snap = janitor.pool_load_snapshot([run], {1: jobs}, now=NOW)
+        self.assertEqual(snap[janitor.LINUX_LOAD_KEY], {
+            "blacksmith-16vcpu-ubuntu-2404": {"queued": 1, "running": 0, "waited": 1},
+            "blacksmith-4vcpu-ubuntu-2404": {"queued": 2, "running": 1, "waited": 1},
+            "blacksmith-4vcpu-ubuntu-2404-arm": {"queued": 1, "running": 0, "waited": 1},
+        })
+        # The macOS pools the pickers read are unchanged: Linux labels stay out of them.
+        self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
+
+    def test_runner_pools_reads_the_key_the_janitor_writes(self):
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import runner_pools
+        self.assertEqual(runner_pools.LOAD_KEY, janitor.LINUX_LOAD_KEY)
+
+
 class ReservedPoolWorkflowTests(unittest.TestCase):
     """Which runs' queued macOS jobs count as `reserved_queued`, the freshness work PR overflow stays off."""
 

@@ -1024,6 +1024,18 @@ malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
 (with #27114), whose re-run reads the pool's new member.
+A size that keeps starting jobs is never dead, however long its queue. So the
+linux pool is also queue-aware (`spill_choice()`): when 25 or more of its live
+member's jobs have waited 3 minutes or more and a later live member has at most
+3 such jobs, the pool (and `LINUX_RUNNER` with it) spills there, recorded in
+`RUNNER_POOLS._spill`. It comes back after at least 30 minutes, once the member
+it left has nothing waiting, at most 5 queued, and runs at most 70% of what it
+ran when the pool left, or sooner if the spill target backs up while the member
+it left does not. The load is the janitor snapshot's `linux_load`
+(`queue_janitor.linux_load()`, a lower bound: Linux-only workflows' runs are not
+listed); a snapshot older than 20 minutes, or truncated, changes no spill. On
+2026-11-02 at about 04:40Z 4 vCPU had 428 jobs queued beside 535 running, the
+oldest about 45 minutes, while 16 vCPU had about 11 queued, and nothing moved.
 `LINUX_RUNNER` predates the pools and most Linux `runs-on` still read it
 (`vars.LINUX_RUNNER || ...`), so each pass also writes the linux pool's live
 member to it, unless the overflow switch's record is set or it holds a value
