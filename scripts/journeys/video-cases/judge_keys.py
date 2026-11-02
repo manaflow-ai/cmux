@@ -12,8 +12,8 @@ A press is a key-down of a resize key in the journal (H 4, J 38, K 40, L 37 with
 key, fast presses). For each press or burst, against the rest before it:
   - target: the divider (or column edge) that moved most; none moved = "no motion" (a refused or dead press);
   - step: the travel in points and device pixels (a burst: its travel per press);
-  - first move: the first sample that differs from the rest, in refreshes after the key (target: the next refresh;
-    the trace may sample a tick before the layout steps in it, so up to 2.5 passes);
+  - first move: the first trace tick that differs from the rest, in refreshes after the key (target: at most 1, the
+    next refresh); film_first_move_refreshes: the first film frame whose pixels at the moving vertical edge changed;
   - motion: samples from the first move to the landing (1 = a snap, no animation), dropped refreshes in it
     (a sample interval over 1.5 refreshes);
   - jump back: a sample that moves against the travel by more than half a device pixel;
@@ -36,6 +36,7 @@ from pathlib import Path
 
 RESIZE_KEYS = {4: "H", 38: "J", 40: "K", 37: "L", 123: "Left", 124: "Right", 125: "Down", 126: "Up"}
 SETTLE_MS = 400.0
+JOURNAL_MARGIN_MS = 2.0
 
 
 def base_of(path):
@@ -104,6 +105,59 @@ def seam(sample, did):
     return None if lead is None or trail is None else trail - lead
 
 
+def film_first_moves(base, items, t0_s, scale):
+    """For each press: the first film frame (display time) that shows the move, in refreshes after the key. Only pixels
+    that stayed the same in the 3 frames before the key are compared (an animated pane's content is left out), in a
+    window of 60 px around the moving edge on every scan row (vertical edge) or scan column (horizontal edge)."""
+    path = Path(base + ".mov.scan")
+    if not path.is_file():
+        return
+    import struct
+    with path.open("rb") as f:
+        head = json.loads(f.readline())
+        width, height, rows, cols = head["width"], head["height"], head["rows"], head["columns"]
+        record = 8 + len(rows) * width * 4 + len(cols) * height * 4
+        data = f.read()
+    count = len(data) // record
+    times = [struct.unpack_from("<d", data, i * record)[0] for i in range(count)]
+
+    def line(i, vertical, k, a, b):
+        if vertical:  # a scan row: x from a to b
+            o = i * record + 8 + k * width * 4
+        else:  # a scan column: y from a to b
+            o = i * record + 8 + len(rows) * width * 4 + k * height * 4
+        return data[o + a * 4:o + b * 4]
+    for item in items:
+        if item.get("from_pt") is None or item.get("axis") not in ("x", "y"):
+            continue
+        vertical = item["axis"] == "x"
+        tk = t0_s + item["t_key_ms"] / 1000
+        px = int(round(item["from_pt"] * scale))
+        limit = width if vertical else height
+        a, b = max(0, px - 30), min(limit, px + 30)
+        idx = next((i for i, t in enumerate(times) if t > tk), None)
+        if idx is None or idx < 3:
+            continue
+        lines = range(len(rows) if vertical else len(cols))
+        stable = {}
+        for k in lines:
+            ref = [line(j, vertical, k, a, b) for j in (idx - 3, idx - 2, idx - 1)]
+            stable[k] = [p for p in range(b - a) if ref[0][p * 4:p * 4 + 3] == ref[1][p * 4:p * 4 + 3] == ref[2][p * 4:p * 4 + 3]]
+        found = None
+        for i in range(idx, min(count, idx + 12)):
+            cur_changed = False
+            for k in lines:
+                base_line, cur = line(idx - 1, vertical, k, a, b), line(i, vertical, k, a, b)
+                if any(cur[p * 4:p * 4 + 3] != base_line[p * 4:p * 4 + 3] for p in stable[k]):
+                    cur_changed = True
+                    break
+            if cur_changed:
+                found = i
+                break
+        if found is not None:
+            item["film_first_move_refreshes"] = round((times[found] - tk) * 1000 / 8.333, 2)
+
+
 def groups(keys):
     out = []
     for k in keys:
@@ -135,8 +189,11 @@ def judge(base):
     for gi, g in enumerate(gs):
         t_key, t_last = g[0]["t"], g[-1]["t"]
         t_end = gs[gi + 1][0]["t"] if gi + 1 < len(gs) else (times[-1] + 1 if times else t_key)
-        before = [s for s in samples if s["t"] <= t_key]
-        window = [s for s in samples if t_key < s["t"] < t_end]
+        # The app's journal stamps a key-down up to a few ms after the turn that handled it; with the spring started in
+        # that turn, the first display tick can move before the stamp. The rest is the last sample 2 ms before the
+        # key, and a window ends 2 ms before the next key.
+        before = [s for s in samples if s["t"] <= t_key - JOURNAL_MARGIN_MS]
+        window = [s for s in samples if t_key - JOURNAL_MARGIN_MS < s["t"] < t_end - JOURNAL_MARGIN_MS]
         item = {"keys": "".join(k["key"][0] if len(k["key"]) == 1 else k["key"] + " " for k in g).strip(), "n": len(g),
                 "t_key_ms": round(t_key, 2), "repeats": sum(k["repeat"] for k in g)}
         if not before or not window:
@@ -191,9 +248,10 @@ def judge(base):
             faults.append("lurch")
         if dropped:
             faults.append(f"{dropped} dropped refreshes")
-        # The trace and the layout are two clients of one FrameScheduler (a dictionary): the trace samples before or
-        # after the layout's step in a tick, so its first move is one tick late in some runs. Over 2.5 is late either way.
-        if item["first_move_refreshes"] is not None and item["first_move_refreshes"] > 2.5:
+        # Lawrence's case (lead 2026-11-02 21:1xZ): the first frame of the move is in the next refresh after the key. The
+        # first trace tick that moves must be the first tick after the key (at most 1 refresh); the film's first changed
+        # frame is reported beside it (film_first_move_refreshes) with the compositor's own latency in it.
+        if item["first_move_refreshes"] is not None and item["first_move_refreshes"] > 1.0:
             faults.append("late first frame")
         if seams and max(seams) > 0.25:
             faults.append("seam gap/overlap")
@@ -201,6 +259,7 @@ def judge(base):
             faults.append("not landed before the next press")
         item["verdict"] = "; ".join(faults) or "pass"
         report["items"].append(item)
+    film_first_moves(base, report["items"], float(trace["t0_s"]), scale)
     singles = [i for i in report["items"] if i.get("n") == 1 and i.get("target")]
     by_target = {}
     for i in singles:
@@ -217,12 +276,12 @@ def judge(base):
 
 
 def markdown(reports):
-    lines = ["| case | build | press | keys | target | step px | first move (refr.) | frames | landed ms | verdict |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = ["| case | build | press | keys | target | step px | first move (refr.) | film first move (refr.) | frames | landed ms | verdict |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r in reports:
         for n, i in enumerate(r["items"]):
             lines.append(f"| {r['case']} | {r['build']} | {n} | {i.get('keys')} | {i.get('target') or '-'} | {i.get('step_px', 0)} | "
-                         f"{i.get('first_move_refreshes')} | {i.get('motion_frames')} | {i.get('landed_ms')} | {i.get('verdict')} |")
+                         f"{i.get('first_move_refreshes')} | {i.get('film_first_move_refreshes')} | {i.get('motion_frames')} | {i.get('landed_ms')} | {i.get('verdict')} |")
         for f in r["faults"]:
             lines.append(f"| {r['case']} | {r['build']} | all | | | | | | | {f['check']}: {json.dumps({k: v for k, v in f.items() if k != 'check'})[:200]} |")
     return "\n".join(lines)
