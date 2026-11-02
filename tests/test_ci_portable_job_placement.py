@@ -115,7 +115,7 @@ class NightlyOnly(unittest.TestCase):
     def test_nightly_light_placement_reads_the_reservation_variable(self):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         step = text[text.index("- name: Place the light jobs on a free mini"):]
-        step = step[:step.index("run: python3 scripts/ci/portable_job_placement.py")]
+        step = step[:step.index("run: bash scripts/ci/nightly-steps/light-placement.sh start")]
         self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
 
 
@@ -551,7 +551,7 @@ class Wiring(unittest.TestCase):
 
     def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
         nightly = jobs("nightly.yml")
-        step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light")
+        step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
         expected_pools = {"prepare-nightly-variant-primary": "linux_32",
                           "prepare-nightly-variant": "linux_16",
@@ -565,6 +565,32 @@ class Wiring(unittest.TestCase):
                 self.assertLess(mini, runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{expected_pools[name]}"))
                 self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
                               runs_on)
+
+    def test_the_primary_preparation_takes_fleet_linux_only_from_an_idle_runner(self):
+        # build-nightly-app's place-fleet: fleet Linux while a runner idles there now, else nothing
+        # (the light placement's mini, then Blacksmith); it never waits and never offers a mini.
+        nightly = jobs("nightly.yml")
+        build = nightly["build-nightly-app"]
+        step = next(step for step in build["steps"] if step.get("id") == "place-fleet")
+        self.assertEqual(build["outputs"]["light_linux_runner"], "${{ steps.place-fleet.outputs.linux_runner }}")
+        config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
+        self.assertEqual(config["JOBS"], "prepare-nightly-variant-primary")
+        self.assertEqual(config["LINUX_ONLY"], config["JOBS"])
+        self.assertEqual(config["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertNotIn("NIGHTLY_WAIT_FOR_FLEET", step["env"])
+        self.assertTrue(step["continue-on-error"])
+        config["GITHUB_RUN_ATTEMPT"] = "1"
+        for runners, expected in (([fleet_runner()], "cmux-fleet-linux-x64"), ([fleet_runner(busy=True)], ""),
+                                  ([fleet_runner(status="offline")], ""), ([], ""), (None, "")):
+            with self.subTest(runners=runners):
+                placed = placement.decide(config, runners, snapshot(), NOW)
+                self.assertEqual(placed.linux_runner, expected)
+                self.assertEqual(placed.mini_jobs, ())
+        # A job already queued on the label takes the one idle runner first.
+        queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1}})
+        self.assertEqual(placement.decide(config, [fleet_runner()], queued, NOW).linux_runner, "")
+        readers = [name for name, job in nightly.items() if "light_linux_runner" in str(job.get("runs-on", ""))]
+        self.assertEqual(readers, ["prepare-nightly-variant-primary"])
 
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in self.PLACED:
