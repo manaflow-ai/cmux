@@ -1456,7 +1456,8 @@
               "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
-              "notifications.attention.moveToTop"
+              "notifications.attention.moveToTop",
+              "notifications.attention.moveToTopOnAgentFinish"
             ],
             "title" : {
               "key" : "settings.group.attention",
@@ -1609,7 +1610,8 @@
               "phone.allowConnections",
               "phone.startSessions",
               "phone.keepAwake",
-              "phone.cloudReplica"
+              "phone.cloudReplica",
+              "phone.cloudDesktop"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -11411,6 +11413,140 @@
       "title" : {
         "key" : "settings.phone.cloudReplica",
         "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudDesktop.help",
+        "text" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudDesktop",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "screen",
+        "desktop",
+        "computer",
+        "chief"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudDesktop"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:phone.cloudDesktop"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.phone.cloudDesktop",
+        "text" : "Show Your Cloud Machine's Screen on Your Phone"
       },
       "validation" : "portable"
     },
@@ -86102,6 +86238,141 @@
       "title" : {
         "key" : "settings.attention.moveToTop",
         "text" : "Move the Workspace to the Top"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.moveToTopOnAgentFinish.help",
+        "text" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.moveToTopOnAgentFinish",
+      "keywords" : [
+        "reorder",
+        "sort",
+        "bump",
+        "agent",
+        "done",
+        "finished"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "moveToTopOnAgentFinish"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.attention.moveToTopOnAgentFinish"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.attention.moveToTopOnAgentFinish",
+        "text" : "Move the Workspace to the Top When Its Agent Finishes"
       },
       "validation" : "portable"
     },

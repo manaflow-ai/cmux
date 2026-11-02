@@ -16,6 +16,7 @@
 #include "include/base/cef_callback.h"
 #include "include/cef_command_ids.h"
 #include "include/wrapper/cef_closure_task.h"
+#include "devtools_dock_state.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -33,6 +34,13 @@ struct Placement {
 // Inspected browser id -> where its DevTools goes next.
 std::map<int, Placement>& placements() {
   static std::map<int, Placement> map;
+  return map;
+}
+
+// Inspected browser id -> the background its next DevTools starts with
+// (cmux_shim_devtools_set_background: the pane's theme color).
+std::map<int, cef_color_t>& backgrounds() {
+  static std::map<int, cef_color_t> map;
   return map;
 }
 
@@ -217,10 +225,16 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
 }  // namespace
 
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                          bool* use_default_window) {
+                          CefBrowserSettings& settings, bool* use_default_window) {
   // The host decides now (synchronously, from this event) and calls
-  // cmux_shim_devtools_set_placement.
+  // cmux_shim_devtools_set_background and cmux_shim_devtools_set_placement.
   Emit(CMUX_SHIM_DEVTOOLS_WILL_OPEN, inspected);
+  // Until its frontend draws, DevTools shows its browser's background. With
+  // none of its own Chromium uses CefSettings.background_color from CEF start
+  // (the theme the app launched in): a dark block in a light pane (BROWSER
+  // VIDEO F1). Like every page of the pane, DevTools starts on its theme color.
+  auto color = backgrounds().find(inspected);
+  settings.background_color = color != backgrounds().end() && color->second ? color->second : BackgroundColor();
   Placement placement;
   auto it = placements().find(inspected);
   if (it != placements().end()) {
@@ -244,6 +258,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
 
 void ForgetDevTools(int inspected) {
   placements().erase(inspected);
+  backgrounds().erase(inspected);
 }
 
 }  // namespace cmux_shim
@@ -258,6 +273,10 @@ void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key) {
 
 void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height) {
   placements()[browser_id] = Placement{parent_view, x, y, width, height};
+}
+
+void cmux_shim_devtools_set_background(int browser_id, unsigned int argb) {
+  backgrounds()[browser_id] = static_cast<cef_color_t>(argb);
 }
 
 int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
@@ -295,6 +314,31 @@ int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
     default:
       return 0;
   }
+}
+
+int cmux_shim_devtools_set_frontend_dock_side(int browser_id, int side) {
+  // The DevTools frontend keeps its dock side in its own setting (currentDockState, a JSON string in the profile's
+  // devtools.preferences dictionary) and applies it when it loads; the fork reports that as a dock-side choice.
+  // Chrome keeps one side, the frontend's: write the host's side there before DevTools opens, so the frontend loads
+  // on it and never moves DevTools.
+  const std::string value = DevToolsDockStateValue(side);
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  CefRefPtr<CefRequestContext> context = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+  if (value.empty() || !context) return 0;
+  const char* pref = "devtools.preferences";
+  if (!context->CanSetPreference(pref)) return 0;
+  CefRefPtr<CefValue> current = context->GetPreference(pref);
+  CefRefPtr<CefDictionaryValue> prefs = current && current->GetType() == VTYPE_DICTIONARY
+                                            ? current->GetDictionary()->Copy(false)
+                                            : CefDictionaryValue::Create();
+  if (prefs->GetType(kDevToolsDockStateKey) == VTYPE_STRING && prefs->GetString(kDevToolsDockStateKey).ToString() == value) {
+    return 1;
+  }
+  prefs->SetString(kDevToolsDockStateKey, value);
+  CefRefPtr<CefValue> updated = CefValue::Create();
+  updated->SetDictionary(prefs);
+  CefString error;
+  return context->SetPreference(pref, updated, error) ? 1 : -1;
 }
 
 int cmux_shim_devtools_browser(int browser_id) {

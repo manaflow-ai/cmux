@@ -162,6 +162,7 @@ import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
   followHarnessChanges,
+  harnessCatalogKey,
   useHarnessCatalog,
   useHarnessesListed,
   type HarnessCatalogSource,
@@ -390,7 +391,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
+import { headerChangesInPlace, repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
@@ -452,7 +453,7 @@ import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
-import { installWheelPassThrough } from "./wheelPassThrough";
+import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -590,7 +591,7 @@ import {
 } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { AgentRunCard } from "./subagents/AgentRunCard";
+import { AgentRunTranscriptCard } from "./subagents/AgentRunCard";
 import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
@@ -1678,16 +1679,17 @@ const PermissionRecordRow = memo(
 );
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
-  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+  function SubagentGroupRow({ row, onToggleActivity, expanded, sessionId }: RowProps) {
     // An agent a shell call started (`codex exec`) draws as its own card where it started.
-    if (isRunGroup(row)) return <AgentRunCard agent={row.subagents![0]!} />;
+    if (isRunGroup(row)) return <AgentRunTranscriptCard agent={row.subagents![0]!} sessionId={sessionId} />;
     return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
-    a.onToggleActivity === b.onToggleActivity,
+    a.onToggleActivity === b.onToggleActivity &&
+    a.sessionId === b.sessionId,
 );
 const SubagentRow = memo(
   function SubagentRow({ row }: RowProps) {
@@ -2145,10 +2147,14 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   referenceScope,
+  gapBelow,
   children,
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
+  /// gap target spans it, so a drag from between two rows starts a selection.
+  gapBelow: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -2295,6 +2301,18 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: integralTop, marginTop: placedTop - integralTop }}
       onFocus={() => onFocus(row.id)}
     >
+      {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
+          Keeping it as a separate hit target means content controls (including native media) never
+          need to be enumerated by the gap handler. On the grid the stack places the gap under the row
+          (design/grid.md 5.5), so the target spans the row's own bottom padding (inherited) and that
+          placed gap under it, down to the next row. It comes first: the action rows
+          laid in the same gap are positioned later in the row and stay over it, with their clicks. */}
+      <span
+        className="acpmux-row__gap"
+        data-transcript-gap="row"
+        aria-hidden="true"
+        style={gapBelow > 0 ? { bottom: -gapBelow, height: gapBelow, boxSizing: "content-box" } : undefined}
+      />
       {messageEntering ? (
         // The article is the virtualizer's measured box. Animate only this presentation wrapper:
         // compositor scale/opacity cannot change drawnHeightOf(article) while the entrance runs.
@@ -2302,10 +2320,6 @@ const RowFrame = React.memo(function RowFrame({
       ) : (
         content
       )}
-      {/* The row's own trailing padding is the only row-local empty surface owned by transcript
-          selection. Keeping it as a separate hit target means content controls (including native
-          media) never need to be enumerated by the gap handler. */}
-      <span className="acpmux-row__gap" data-transcript-gap="row" aria-hidden="true" />
     </article>
   );
 }, sameRowFrame);
@@ -2329,6 +2343,13 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
+/// A step row by its layout mark: a step row above, or the running turn's line right under one
+/// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
+/// neighbours carry the after-step and before-step classes the layout implies (#31769).
+const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
+  const row = rows[index];
+  return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
+};
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -2395,6 +2416,9 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
 const SCROLL_LEAD_STEPS = 2;
+/// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
+/// of the reader and makes every later render pay for a scroll that already ended.
+const SCROLL_LEAD_IDLE_MS = 120;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
@@ -2741,11 +2765,26 @@ export function VirtualTranscript({
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
   const scrollRef = useRef({ top: 0, delta: 0 });
+  const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [, setScroll] = useState(scrollRef.current);
+  const scheduleScrollLeadReset = () => {
+    clearTimeout(scrollLeadTimer.current);
+    if (scrollRef.current.delta === 0) {
+      scrollLeadTimer.current = undefined;
+      return;
+    }
+    scrollLeadTimer.current = setTimeout(() => {
+      scrollLeadTimer.current = undefined;
+      if (scrollRef.current.delta === 0) return;
+      scrollRef.current = { ...scrollRef.current, delta: 0 };
+      setScroll(scrollRef.current);
+    }, SCROLL_LEAD_IDLE_MS);
+  };
   const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
     const next = { top, delta };
     scrollRef.current = next;
     setScroll(next);
+    scheduleScrollLeadReset();
   };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -2835,6 +2874,7 @@ export function VirtualTranscript({
     // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
     // CI runner, mounted rows a step behind the view).
     scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
+    scheduleScrollLeadReset();
     scrollPacer.current!.enqueue({ top, atLatest });
   };
   useEffect(() => {
@@ -2842,6 +2882,7 @@ export function VirtualTranscript({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
+      clearTimeout(scrollLeadTimer.current);
     };
   }, []);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
@@ -2923,6 +2964,8 @@ export function VirtualTranscript({
   withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
+  // The wheel over the stack's parts scrolls nothing (wheelPassThrough.ts installDockWheelHold).
+  useEffect(() => (dock ? installDockWheelHold(dock) : undefined), [dock]);
   const queueSession = useRef(sessionId);
   queueSession.current = sessionId;
   /// The chat and the stack `queuedIds` were noted in.
@@ -4924,7 +4967,13 @@ export function VirtualTranscript({
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
     const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
-    if (!reduce && glideFrom !== node.scrollTop) node.scrollTop = glideFrom;
+    if (!reduce && glideFrom !== node.scrollTop) {
+      node.scrollTop = glideFrom;
+      // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
+      // frame painted the skip with the rows of the old place, out of view: one blank frame
+      // (transcript-cached-rows-browser "jump").
+      flushSync(() => setScrollAt(node.scrollTop));
+    }
     const duration = reduce
       ? 0
       : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
@@ -5451,10 +5500,10 @@ export function VirtualTranscript({
                       row={row}
                       kind={kind}
                       joinsPrevious={
-                        (isStepRow(row) && isStepRow(rows[absoluteIndex - 1])) ||
+                        (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
                         isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
                       }
-                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
                       beforeFooter={isBeforeFooter(row, next)}
                       beforeIndicator={
                         next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
@@ -5468,6 +5517,16 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
+                      gapBelow={
+                        absoluteIndex + 1 < rows.length
+                          ? Math.max(
+                              0,
+                              layout.tops[absoluteIndex + 1]! -
+                                layout.tops[absoluteIndex]! -
+                                layout.heights[absoluteIndex]!,
+                            )
+                          : 0
+                      }
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
@@ -5935,6 +5994,9 @@ function AcpmuxPane() {
     };
   }, [newChatPrewarm]);
   const queryClient = useQueryClient();
+  // Each Cmd-T adoption of this page (kept mounted or not, newtab/adoption.ts): the folder's trust and
+  // harnesses are read again with the tab's roots (a parked spare's reads had none, SHORTCUT FRAMES F2).
+  const [newTabAdoptions, setNewTabAdoptions] = useState(0);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
@@ -5952,6 +6014,14 @@ function AcpmuxPane() {
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
+  // A Cmd-T adoption reads the folder's harnesses again (the parked spare's read had no tab's roots); the
+  // catalog keeps drawing until the new answer lands.
+  const adoptedCatalog = useRef(newTabAdoptions);
+  useEffect(() => {
+    if (adoptedCatalog.current === newTabAdoptions || !catalogSource) return;
+    adoptedCatalog.current = newTabAdoptions;
+    void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(catalogSource.id, catalogCwd), exact: true });
+  }, [newTabAdoptions, catalogSource, catalogCwd, queryClient]);
   // For the host actions, which read it when they run (`chat.new`'s remembered model).
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
@@ -6442,6 +6512,9 @@ function AcpmuxPane() {
               return readChatAccounts(await client.routes(sessionId));
             },
             set: switchRoute,
+            add: async (account) => {
+              await postNative("account.add", account);
+            },
           }
         : undefined,
     [connected, healthLocal, switchRoute],
@@ -6511,6 +6584,7 @@ function AcpmuxPane() {
       prompts: promptCount,
       authority: trustAuthority,
       visit: trustVisit,
+      reread: newTabAdoptions,
     },
     answersTrust,
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
@@ -7879,18 +7953,24 @@ function AcpmuxPane() {
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
-  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
+  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen
+  // unless the spare already draws that context (sameNewTabScreen).
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
   const adoptNewTab = useCallback((host: NewTabHost) => {
     newTabStartGeneration.current += 1;
+    setNewTabAdoptions((count) => count + 1);
     setNewTab(host);
     const cwd = host.cwd;
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
     setProjectDraft(named);
   }, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab);
+  // The screen the page shows now: an adopt that draws the same one keeps it mounted (SHORTCUT FRAMES F2).
+  const newTabNow = useRef(newTab);
+  newTabNow.current = newTab;
+  const currentNewTab = useCallback(() => newTabNow.current, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -8893,29 +8973,32 @@ function AcpmuxPane() {
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            chat={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-          />
+          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+            <SubagentTray
+              key={shownSessionId}
+              chat={shownSessionId}
+              items={trayList}
+              finished={trayFinished}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+              canReadTail={
+                opensProcessTerminal(snapshot.summary) &&
+                clientEpoch > 0 &&
+                directClient.current !== undefined &&
+                backgroundTaskOutput !== undefined
+              }
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+              placement={trayPlacement}
+              shown={trayChat}
+              enters={trayEnters}
+            />
+          </SubagentHarnessContext.Provider>
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
@@ -11534,6 +11617,18 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  // Changes opens the folder's diff tab beside the chat. A folder outside a repository has no diff for
+  // that tab, and the app's fallback was the folder picker in the palette (Leo, 2026-10-28: "All it does
+  // is open up the command palette, and it doesn't open up the diff viewer on the right side"), so there
+  // it toggles the last turn's changes view on the chat's right, as the edited-files card does.
+  const toggleChanges = (mode: QuickActionMode) => {
+    void headerChangesInPlace(localCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then(
+      (inPlace) => {
+        if (!inPlace) runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
+        else if (mode === "toggle" || !diffOpen) toggleLastChanges();
+      },
+    );
+  };
   const togglePreview = (url: string | undefined) => {
     ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
     window.setTimeout(refreshTabState, 400);
@@ -13347,6 +13442,7 @@ function AcpmuxPane() {
               machineName,
               peerKinds: snapshot.peerKinds,
               repository: githubRepository,
+              cloudRepositoryAvailable,
               onOpenFolder:
                 quick || !sessionInfoLocal
                   ? undefined
@@ -13776,7 +13872,7 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onChanges={toggleChanges}
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
