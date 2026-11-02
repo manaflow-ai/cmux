@@ -101,6 +101,9 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
+    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
+    /// lock on the typing path. Goes with this record at the last detach and at disconnect.
+    pub(super) input: Weak<crate::Surface>,
 }
 
 pub(super) struct DetachedSurface {

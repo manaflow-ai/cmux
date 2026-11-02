@@ -42,8 +42,11 @@ impl Mux {
     /// Keyboard, paste or mouse input from an attached client. Unlike
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
-    pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        if self.note_terminal_activity(surface, client, None).is_some() {
+    ///
+    /// Takes the terminal the input was written to, not its id: a key's turn never looks it up through the session
+    /// lock, which automation's lists, snapshots and durable mutations hold (TYPING UNDER LOAD F4).
+    pub(crate) fn note_terminal_input(&self, surface: &Surface, client: u64) {
+        if self.note_terminal_activity_of(surface, client, None).is_some() {
             self.activity.note_user_input();
         }
     }
@@ -58,10 +61,20 @@ impl Mux {
         client: u64,
         view: Option<&str>,
     ) -> Option<bool> {
-        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        self.note_terminal_activity_of(&self.surface(surface)?, client, view)
+    }
+
+    /// [`Self::note_terminal_activity`] for a terminal the caller holds (no session lock).
+    pub(crate) fn note_terminal_activity_of(
+        &self,
+        surface: &Surface,
+        client: u64,
+        view: Option<&str>,
+    ) -> Option<bool> {
+        let runtime = surface.terminal_runtime_id()?;
         let id = match view {
             Some(view) => sub_view_participant_id(client, view),
-            None => view_participant_id(runtime, surface, client),
+            None => view_participant_id(runtime, surface.id, client),
         };
         self.mutate_terminal_sizing(runtime, |_, sizing| {
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
