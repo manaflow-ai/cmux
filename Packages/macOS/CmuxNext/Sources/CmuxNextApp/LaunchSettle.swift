@@ -33,16 +33,19 @@ final class LaunchSettle {
     private let reveal: LaunchReveal
     /// The first window frame (`AppDelegate.firstFrame`).
     private let firstFrame: FirstFrameGate
+    /// The agent pages still drawing their last page (tests pass their own).
+    private let imageHold: LaunchImageHold
 
-    init(reveal: LaunchReveal = .shared, firstFrame: FirstFrameGate) {
+    init(reveal: LaunchReveal = .shared, firstFrame: FirstFrameGate, imageHold: LaunchImageHold = .shared) {
         self.reveal = reveal
         self.firstFrame = firstFrame
+        self.imageHold = imageHold
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
     /// its last frame (at once when both hold).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
+        if isSettled { imageHold.whenClear(work) } else { waiters.append(work) }
     }
 
     /// Returns once `whenSettled` work would run, or after `limit` (a launch
@@ -63,17 +66,18 @@ final class LaunchSettle {
         settleAsked = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
+        // The agent pages' warm-up page is not needed: their first page made its own process by now. Here, not at
+        // the first window frame: the warm-up starts at that frame (`startLaterTabWarmups`), and must see this first.
+        AgentPaneView.finishWarmup()
         firstFrame.whenOpen { [weak self] in self?.finishSettle() }
     }
 
     private func finishSettle() {
         isSettled = true
-        // The agent pages' warm-up page is done: their first page made its own process by now.
-        AgentPaneView.finishWarmup()
         let waiting = waiters
         waiters.removeAll()
         // An agent page still loading behind its last frame paints first (LaunchImageHold).
-        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
+        imageHold.whenClear { for work in waiting { work() } }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the

@@ -15,9 +15,14 @@ import Testing
         FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()))
     }
 
+    /// Its own image hold: another suite's launch image on the shared one must not hold this suite's work.
+    private static func settle(_ firstFrame: FirstFrameGate) -> LaunchSettle {
+        LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), firstFrame: firstFrame, imageHold: LaunchImageHold())
+    }
+
     @Test func aSettleBeforeTheFirstWindowFrameRunsItsWorkAfterThatFrame() {
         let firstFrame = Self.gate()
-        let settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), firstFrame: firstFrame)
+        let settle = Self.settle(firstFrame)
         var ran: [String] = []
         settle.whenSettled { ran.append("palette") }
         settle.settle() // a page pane shown first, inside applicationDidFinishLaunching
@@ -33,7 +38,7 @@ import Testing
 
     @Test func aSettleAfterTheFirstWindowFrameRunsItsWorkAtOnce() {
         let firstFrame = Self.gate()
-        let settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), firstFrame: firstFrame)
+        let settle = Self.settle(firstFrame)
         var ran = 0
         settle.whenSettled { ran += 1 }
         firstFrame.open()
@@ -45,13 +50,14 @@ import Testing
 
     @Test func theSettledWaitReturnsOnlyAfterTheFirstWindowFrame() async {
         let firstFrame = Self.gate()
-        let settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), firstFrame: firstFrame)
+        let settle = Self.settle(firstFrame)
         settle.settle()
         var returned = false
         let waiter = Task { @MainActor in
             await settle.settled(within: .seconds(60))
             returned = true
         }
+        // No signal says "has not returned": 20 turns are far more than the wait needs to return when it may.
         for _ in 0..<20 { await Task.yield() }
         #expect(!returned, "the control socket and settings migrations started before the first window frame")
         firstFrame.open()
