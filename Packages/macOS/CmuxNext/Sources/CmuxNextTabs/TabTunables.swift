@@ -150,6 +150,6 @@ public nonisolated enum TabTunables {
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor]
+               hoverPreviews.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
     }
 }
