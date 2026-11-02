@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4151547403101",
+  "notes": "notes/4151547403101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32522,
+      "title": "ci(nightly): the light jobs leave a stalled all-nightly reservation for hosted Ubuntu after three minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
