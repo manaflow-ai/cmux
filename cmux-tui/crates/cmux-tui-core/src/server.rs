@@ -132,6 +132,8 @@ mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
+mod mobile_chat;
+#[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
