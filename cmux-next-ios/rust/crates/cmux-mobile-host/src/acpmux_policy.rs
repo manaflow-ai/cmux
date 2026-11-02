@@ -317,17 +317,13 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
 }
 
 fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
-    // Conversation tabs, list-agents/agent-changed rows, their registry
-    // projections, and send's expected agent all carry agent identities.
-    // A bare `session`/`session_id` instead identifies the daemon or terminal
-    // registry and must not be treated as an acpmux chat.
+    // Conversation tabs name acpmux chats, whose aliases require canonical
+    // authorization. Bare daemon `session`/`session_id` fields instead name a
+    // terminal registry or source label and must remain untouched.
     [
         "/agent_session",
         "/conversation/agent_session",
         "/extra/conversation/agent_session",
-        "/agent_session_id",
-        "/extra/agent_session_id",
-        "/expect_agent/session",
     ]
     .iter()
     .any(|path| {
@@ -336,6 +332,12 @@ fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
             .and_then(|agent| agent.as_str().or_else(|| agent.get("session").and_then(Value::as_str)))
             .is_some_and(|id| !allowed(state, id, &HashSet::new()))
     })
+        // Terminal hooks use native harness IDs, not acpmux aliases. The
+        // daemon compares expect_agent.session exactly; a short native ID
+        // must keep working when an unrelated chat's exposure changes.
+        || ["/agent_session_id", "/extra/agent_session_id", "/expect_agent/session"].iter().any(|path| {
+            value.pointer(path).and_then(Value::as_str).is_some_and(|id| state.blocked.contains(id))
+        })
 }
 
 /// Remove daemon rows with a blocked agent identity, preserving unrelated
@@ -562,7 +564,7 @@ mod tests {
     #[test]
     fn daemon_agent_rosters_events_and_projections_hide_blocked_agents() {
         let blocked = "00000000-0000-7000-8000-000000000001";
-        let visible = "00000000-0000-7000-8000-000000000002";
+        let visible = "0b6c3f8e";
         let state = exposure(&[blocked]);
         for (key, hidden, shown) in [
             (
@@ -590,13 +592,11 @@ mod tests {
     #[test]
     fn daemon_expected_agent_is_checked_independently_of_terminal_session() {
         let blocked = "00000000-0000-7000-8000-000000000001";
-        let visible = "00000000-0000-7000-8000-000000000002";
+        let visible = "0b6c3f8e";
         let state = exposure(&[blocked]);
-        for session in [blocked, "short-alias"] {
-            let request = json!({"id":1,"cmd":"send","surface":7,"text":"private",
-                                 "expect_agent":{"session":session},"submit":true});
-            assert!(daemon_request_blocked(&request.to_string(), &state));
-        }
+        let request = json!({"id":1,"cmd":"send","surface":7,"text":"private",
+                             "expect_agent":{"session":blocked},"submit":true});
+        assert!(daemon_request_blocked(&request.to_string(), &state));
         let visible_request = json!({"id":2,"cmd":"send","surface":8,"text":"hello",
                                      "expect_agent":{"session":visible},"submit":true});
         assert!(!daemon_request_blocked(&visible_request.to_string(), &state));
