@@ -251,7 +251,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
-            .filter(|name| !CLOUD_HELP.contains(name))
+            .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
     }
@@ -263,9 +263,9 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
-        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
 
     #[test]
@@ -1113,4 +1113,39 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}
+
+#[test]
+fn space_list_supports_json_and_has_dedicated_help() {
+    let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+        parse(&strings(&["space", "list", "--json"]), Surface::Cmux).unwrap()
+    else {
+        panic!("expected the space list request")
+    };
+    assert!(matches!(global.output, OutputMode::Json));
+    assert_eq!(request.operation.name().unwrap(), "room.list");
+    let help = scope_help_for("space", crate::localization::catalog());
+    for verb in ["list", "new", "switch", "rename", "move workspace", "move tab", "close"] {
+        assert!(help.contains(&format!("cmux space {verb}")), "{verb}: {help}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn space_mutations_accept_global_json_without_changing_the_action() {
+    for words in [
+        vec!["space", "new", "Work"],
+        vec!["space", "switch", "Work"],
+        vec!["space", "rename", "Work", "Office"],
+        vec!["space", "close", "Office"],
+        vec!["space", "move", "workspace", "ws_1", "Work"],
+        vec!["space", "move", "tab", "tab_1", "Work"],
+    ] {
+        let mut raw = strings(&words);
+        raw.push("--json".into());
+        let (global, remaining) = parse_globals(&raw).unwrap();
+        assert!(matches!(global.output, OutputMode::Json));
+        assert_eq!(remaining, strings(&words));
+        assert!(app::parse(&remaining).unwrap().is_some());
+    }
 }

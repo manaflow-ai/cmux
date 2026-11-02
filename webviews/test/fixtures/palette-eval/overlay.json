@@ -709,5 +709,128 @@
       "isVisibleWhenQueryEmpty": true,
       "entersScope": false
     }
+  },
+  {
+    "id": "action:agentChat.copySessionFilePaths",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copySessionFilePaths",
+      "title": "Copy Session File Paths",
+      "keywords": [
+        "agent",
+        "chat",
+        "session",
+        "files",
+        "paths",
+        "claude.json",
+        "settings.json",
+        "config.toml",
+        "transcript",
+        "jsonl",
+        "copy"
+      ],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copySessionFilePaths",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyTranscriptFile",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyTranscriptFile",
+      "title": "Copy Transcript File",
+      "keywords": ["agent", "chat", "session", "transcript", "jsonl", "rollout", "raw", "claude", "codex", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyTranscriptFile",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHarnessConfigFile",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyHarnessConfigFile",
+      "title": "Copy Harness Config File",
+      "keywords": [
+        "agent",
+        "chat",
+        "harness",
+        "config",
+        "claude.json",
+        "config.toml",
+        "claude",
+        "codex",
+        "json",
+        "copy"
+      ],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHarnessConfigFile",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHarnessSettingsFile",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyHarnessSettingsFile",
+      "title": "Copy Harness Settings File",
+      "keywords": ["agent", "chat", "harness", "settings", "settings.json", "claude", "json", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHarnessSettingsFile",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyAcpmuxSessionFile",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyAcpmuxSessionFile",
+      "title": "Copy acpmux Session File",
+      "keywords": ["agent", "chat", "acpmux", "session", "session.json", "json", "record", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyAcpmuxSessionFile",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
   }
 ]

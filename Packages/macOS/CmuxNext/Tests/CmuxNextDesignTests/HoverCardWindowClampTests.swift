@@ -57,3 +57,81 @@ import CmuxNextDesignTokens
         #expect(geometry.card == rest(row, window: window))
     }
 }
+
+
+/// The What's New popover uses `.beside`, whose vertical clamp must honor the parent window
+/// while still respecting the visible screen when the window is partly off-screen.
+@MainActor struct HoverCardBesideWindowClampTests {
+    private static let margin: CGFloat = 8
+    private static let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    private static let visible = CGRect(x: 0, y: 0, width: 1512, height: 945)
+    private static let window = CGRect(x: 100, y: 200, width: 1100, height: 720)
+    private static let popover = CGSize(width: 340, height: 432)
+    private static let updateCard = CGRect(x: 110, y: 212, width: 216, height: 120)
+
+    private static func card(_ anchor: CGRect, size: CGSize = popover, window: CGRect? = window) -> CGRect {
+        let rest = HoverCardPanel.rest(for: .beside, anchor: anchor, size: size, screen: screen, visible: visible,
+                                       window: window, margin: margin, scale: 2)
+        #expect(rest.placement == .beside)
+        return CGRect(origin: rest.origin, size: size)
+    }
+
+    @Test func thePopoverBesideTheUpdateCardStaysInTheWindow() {
+        let card = Self.card(Self.updateCard)
+        #expect(card.minY >= Self.window.minY + Self.margin)
+        #expect(card.maxY <= Self.window.maxY - Self.margin)
+        #expect(card.minX > Self.updateCard.maxX)
+    }
+
+    @Test func aCardThatFitsKeepsItsTopOnTheTarget() {
+        let row = CGRect(x: 110, y: 700, width: 216, height: 32)
+        let card = Self.card(row, size: CGSize(width: 280, height: 160))
+        #expect(card.maxY == row.maxY)
+        #expect(card.minX == row.maxX + HoverCardEscapeGeometry.edgeGap(scale: 2))
+    }
+
+    @Test func aCardTallerThanTheWindowKeepsItsTopInIt() {
+        let short = CGRect(x: 100, y: 200, width: 1100, height: 300)
+        let anchor = CGRect(x: 110, y: 212, width: 216, height: 120)
+        let card = Self.card(anchor, window: short)
+        #expect(card.maxY == short.maxY - Self.margin)
+        #expect(card.minY >= Self.visible.minY + Self.margin)
+    }
+
+    @Test func withoutAWindowTheScreenAloneClampsTheCard() {
+        let anchor = CGRect(x: 110, y: 40, width: 216, height: 120)
+        let card = Self.card(anchor, window: nil)
+        #expect(card.minY == Self.visible.minY + Self.margin)
+    }
+
+    @Test func aWindowPartlyOffTheScreenClampsToTheOverlap() {
+        let low = CGRect(x: 100, y: -400, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 20, width: 216, height: 120)
+        let card = Self.card(anchor, size: CGSize(width: 340, height: 200), window: low)
+        #expect(card.minY >= Self.visible.minY + Self.margin)
+        #expect(card.maxY <= low.maxY - Self.margin)
+    }
+
+    @Test func aTallCardOverAWindowMostlyBelowTheScreenStaysOnTheScreen() {
+        let low = CGRect(x: 100, y: -400, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 20, width: 216, height: 120)
+        let card = Self.card(anchor, window: low)
+        #expect(card.minY == Self.visible.minY + Self.margin)
+        #expect(card.maxY == Self.visible.minY + Self.margin + Self.popover.height)
+    }
+
+    @Test func aTallCardOverAWindowMostlyAboveTheScreenKeepsItsTopInTheWindow() {
+        let high = CGRect(x: 100, y: 700, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 820, width: 216, height: 120)
+        let card = Self.card(anchor, window: high)
+        #expect(card.maxY == Self.screen.maxY - Self.margin)
+        #expect(card.minY >= Self.visible.minY + Self.margin)
+    }
+
+    @Test func aCardTallerThanTheScreenSitsOnItsBottom() {
+        let low = CGRect(x: 100, y: -400, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 20, width: 216, height: 120)
+        let card = Self.card(anchor, size: CGSize(width: 340, height: 950), window: low)
+        #expect(card.minY == Self.visible.minY + Self.margin)
+    }
+}

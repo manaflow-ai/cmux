@@ -119,6 +119,7 @@ enum DebugChatOpenTrace {
             "frame_count": .number(Double(record.frameCount)),
             "first_content_ms": record.firstContentMilliseconds.map { JSON.number(rounded($0)) } ?? .null,
             "longest_empty_ms": .number(rounded(record.longestEmptyMilliseconds)),
+            "note": record.note.map(JSON.string) ?? .null,
         ])
     }
 }

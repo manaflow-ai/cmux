@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d'
+IR_SHA256 = 'ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8'
 
 
 @dataclass(frozen=True)
@@ -675,6 +675,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-host-replica-clear': CommandMetadata(
         'cloud-host-replica-clear',
         'local-admin',
@@ -719,6 +733,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'cursor': CommandFieldMetadata(None, None),
             'include_archived': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
         },

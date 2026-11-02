@@ -48,9 +48,15 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
 public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
+    /// Namespace of a native menu's target. It identifies its owner, never grants authority.
+    public var targetMachineID: String?
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The control socket carried the run (`RegistryControlBridge` sets it on every one). Its
+    /// ``origin`` is then only the caller's claim, `user` included, so a handler that gives a
+    /// person more than automation (a raw screenshot) checks this, not the origin alone.
+    public var viaControlSocket = false
     /// The calling app preserved by the native provider, even during its user gesture.
     /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
     public var callerApp: String?
@@ -106,11 +112,23 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         self.focusRequested = focusRequested
     }
 
+    /// This run scoped to the machine that owns its target (nil: unscoped). A forked or SSH machine
+    /// keeps this Mac's tab ids, so the id alone can name two tabs.
+    public func onMachine(_ machineID: String?) -> ActionInvocation {
+        var scoped = self
+        scoped.targetMachineID = machineID
+        return scoped
+    }
+
     /// Whether the run may change this client's focus, selection, shown
     /// workspace or key window.
     public var allowsViewChange: Bool {
         origin == .user || focusRequested || arguments["focus"]?.boolValue == true
     }
+
+    /// A person asked for this run (a click, the palette, a key, a `cmux` command): only such a
+    /// run may take over a remote session another daemon holds (HQ #4877 G5).
+    public var isPersonsRequest: Bool { origin == .user || origin == .cli }
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]
@@ -142,5 +160,15 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         case .bool(let flag): return String(flag)
         case .target(let ref): return ref.id
         }
+    }
+}
+
+public extension ActionInvocation {
+    /// Whether this is a person's own run in this app (palette, menu, keyboard, click): the only run
+    /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
+    /// the control socket carries is automation even when it claims the `user` origin, and so is a
+    /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
+    var isPersonsOwnRun: Bool {
+        origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

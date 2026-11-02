@@ -153,6 +153,9 @@ class GeneratedClientMixin:
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
 
+    def cloud_environment(self, access_token: str, action: str, params: Union[JsonValue, None], platform_origin: str) -> JsonValue:
+        return self._invoke_command('cloud-environment', CloudEnvironmentRequest(access_token=access_token, action=action, params=params, platform_origin=platform_origin))
+
     def cloud_host_replica_clear(self, *, purge: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-host-replica-clear', CloudHostReplicaClearRequest(purge=purge))
 
@@ -162,8 +165,8 @@ class GeneratedClientMixin:
     def cloud_host_replica_status(self) -> JsonValue:
         return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())
 
-    def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
+    def cloud_inbox_list(self, *, cursor: Union[str, None, MissingType] = MISSING, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(cursor=cursor, include_archived=include_archived, limit=limit))
 
     def cloud_inbox_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None]) -> JsonValue:
         return self._invoke_command('cloud-inbox-op', CloudInboxOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op))
@@ -918,6 +921,7 @@ GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['c
 GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
 GeneratedClientMixin.cloud_conversation_typing.__cmux_command__ = COMMANDS['cloud-conversation-typing']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
+GeneratedClientMixin.cloud_environment.__cmux_command__ = COMMANDS['cloud-environment']
 GeneratedClientMixin.cloud_host_replica_clear.__cmux_command__ = COMMANDS['cloud-host-replica-clear']
 GeneratedClientMixin.cloud_host_replica_set.__cmux_command__ = COMMANDS['cloud-host-replica-set']
 GeneratedClientMixin.cloud_host_replica_status.__cmux_command__ = COMMANDS['cloud-host-replica-status']

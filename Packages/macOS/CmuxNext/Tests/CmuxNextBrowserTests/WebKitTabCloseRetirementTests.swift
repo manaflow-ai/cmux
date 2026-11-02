@@ -3,13 +3,44 @@ import AppKit
 import CmuxNextDesign
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// Nightly crash 2026-10-25: Cmd-W held over many tabs freed WKWebViews whose pages were still
 /// scrolling, and macOS 26.6's WebKit left their scroll event dispatcher registered with the display
 /// link (SIGSEGV in `DisplayLink::notifyObserversDisplayDidRefresh`, bugs.webkit.org 315775). A
 /// closed tab's web view now leaves its window at once and stays alive, its page open, until
 /// `WebViewRetirement` closes the page after the scrolling stopped.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabCloseRetirementTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WebKitTabCloseRetirementTests {
+    @Test func retirementClosesPageInfoAuxiliaryWindowsAndRejectsALateCertificate() async throws {
+        _ = NSApplication.shared
+        let tab = MockBrowserEngine().makeMockTab(.init(initialURL: URL(string: "https://example.com")))
+        let chrome = BrowserChromeView(tab: tab)
+        let pageInfo = chrome.pageInfo
+        defer {
+            chrome.closePopupPanels()
+            pageInfo.windows.closeAll()
+            tab.close()
+        }
+        let site = PageInfoSite(state: tab.state)
+        pageInfo.windows.showCertificate([], site: site, failure: nil)
+        pageInfo.perform(.siteSettings)
+        pageInfo.perform(.manageSiteData)
+        let auxiliary = pageInfo.windows.ownedWindows
+        #expect(auxiliary.count == 3)
+        #expect(auxiliary.allSatisfy { $0.isVisible })
+
+        // Queue a certificate response, retire synchronously before its task runs, then join it.
+        // No sleeps: the late response must never create another window for the retired page.
+        pageInfo.perform(.showCertificate)
+        let certificate = try #require(pageInfo.certificateTask)
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
+        #expect(auxiliary.allSatisfy { !$0.isVisible })
+        await certificate.value
+        pageInfo.perform(.siteSettings)
+        pageInfo.perform(.manageSiteData)
+        #expect(pageInfo.windows.ownedWindows.isEmpty)
+    }
+
     @Test func aClosedTabsWebViewLeavesItsWindowButIsNotFreedWithTheTab() {
         weak var released: WKWebView?
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],

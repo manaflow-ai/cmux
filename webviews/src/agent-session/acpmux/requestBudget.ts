@@ -51,10 +51,10 @@ const realTimers: Timers = {
 /// the budget calls it when the request may go.
 export class RequestBudget {
   /// Ids on the wire that the daemon counts: answered or not by the caller, until their reply.
-  private readonly unanswered = new Set<number>();
-  private readonly waiting: { id: number; send: () => void }[] = [];
+  private readonly unanswered = new Set<number | string>();
+  private readonly waiting: { id: number | string; send: () => void }[] = [];
   /// Busy retries waiting for their time; cleared by `reset` (a closed connection).
-  private readonly retries = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly retries = new Map<number | string, ReturnType<typeof setTimeout>>();
   /// The most this connection had unanswered at once (perf harness, wire log).
   peak = 0;
 
@@ -72,19 +72,19 @@ export class RequestBudget {
   }
 
   /// Whether `id` went out and the daemon still counts it.
-  onWire(id: number): boolean {
+  onWire(id: number | string): boolean {
     return this.unanswered.has(id);
   }
 
   /// Sends request `id` now, or once a slot frees when `limit` are unanswered.
-  admit(id: number, method: string, send: () => void): void {
+  admit(id: number | string, method: string, send: () => void): void {
     if (!countsAgainstBudget(method)) return send();
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }
 
   /// The daemon answered `id` (or the request never went): its slot frees.
-  settled(id: number): void {
+  settled(id: number | string): void {
     const timer = this.retries.get(id);
     if (timer !== undefined) {
       this.timers.clear(timer);
@@ -97,7 +97,7 @@ export class RequestBudget {
 
   /// The daemon refused `id` as busy: its slot frees now and it goes again after `delayMs`, behind
   /// whatever waits then.
-  retryLater(id: number, send: () => void, delayMs: number): void {
+  retryLater(id: number | string, send: () => void, delayMs: number): void {
     this.settled(id);
     const timer = this.timers.set(() => {
       this.retries.delete(id);
@@ -108,7 +108,7 @@ export class RequestBudget {
   }
 
   /// The connection closed: the daemon's count went with it. Returns the ids that never went.
-  reset(): number[] {
+  reset(): (number | string)[] {
     for (const timer of this.retries.values()) this.timers.clear(timer);
     const never = [...this.waiting.map((item) => item.id), ...this.retries.keys()];
     this.retries.clear();
@@ -117,7 +117,7 @@ export class RequestBudget {
     return never;
   }
 
-  private start(id: number, send: () => void): void {
+  private start(id: number | string, send: () => void): void {
     this.unanswered.add(id);
     this.peak = Math.max(this.peak, this.unanswered.size);
     send();

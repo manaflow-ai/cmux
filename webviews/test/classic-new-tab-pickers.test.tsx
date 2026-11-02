@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -155,7 +156,7 @@ async function mount(
                       template: "classic",
                       cwd: "/tmp/classic-project",
                       lastAgent: "claude",
-                      projects: ["/tmp/classic-project", "/tmp/other-project"],
+                      projects: ["/tmp/classic-project", "/Users/sample/other-project"],
                     },
                   }
                 : undefined,
@@ -230,7 +231,7 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  const high = popup().querySelector<HTMLElement>('.acpmux-quick-effort-segment[aria-label="Opus 5.5 · High"]');
+  const high = await effortLevel(popup().ownerDocument, "Opus 5.5 · High");
   expect(high).not.toBeNull();
   await act(async () => high!.click());
   await open();
@@ -328,25 +329,62 @@ test("classic composer plugins receive the page's selected folder", async () => 
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const other = dom.window.document.querySelector<HTMLElement>(
-    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+    '.acpmux-project-menu [role="option"][aria-label$="/Users/sample/other-project"]',
   );
   expect(other).not.toBeNull();
   await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/other-project");
+  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/Users/sample/other-project");
 });
 
 test("a classic model pick starts in the project selected on the page", async () => {
   const { chatCalls } = await mount();
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const other = dom.window.document.querySelector<HTMLElement>(
-    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+    '.acpmux-project-menu [role="option"][aria-label$="/Users/sample/other-project"]',
   );
   expect(other).not.toBeNull();
   await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   await open();
   await pick("Sonnet 5.5");
   expect(chatCalls()).toEqual([
-    { method: "chat.new", params: { ...deferred, cwd: "/tmp/other-project" } },
+    { method: "chat.new", params: { ...deferred, cwd: "/Users/sample/other-project" } },
     { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
   ]);
+});
+
+test("classic Add Project keeps a failed browse open and applies the retried folder", async () => {
+  const { chatCalls } = await mount({ plugin: ({ cwd }) => <span data-plugin-folder>{cwd}</span> });
+  let attempts = 0;
+  paneWindow().cmuxAcpmuxActions!["project.browse"] = async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("Folder access was denied.");
+    return { cwd: "/tmp/retried-project" };
+  };
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
+  const add = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-project-menu [role=option]")].find((row) =>
+    row.textContent?.includes("New project"),
+  );
+  expect(add).toBeDefined();
+  await act(async () => add!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  const choose = async (label: string) => {
+    const option = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-add-project li")].find((row) =>
+      row.textContent?.includes(label),
+    );
+    expect(option).toBeDefined();
+    await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0 })));
+  };
+  await choose("This Mac");
+  await choose("Local folder");
+  expect(dom.window.document.querySelector(".acpmux-add-project")?.textContent).toContain("Folder access was denied.");
+  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
+  expect(chatCalls()).toEqual([]);
+  const retry = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-add-project button")].find(
+    (button) => button.textContent === "Retry",
+  );
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  expect(attempts).toBe(2);
+  expect(dom.window.document.querySelector(".acpmux-add-project")).toBeNull();
+  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/retried-project");
+  expect(chatCalls()).toEqual([]);
 });

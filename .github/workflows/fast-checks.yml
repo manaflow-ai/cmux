@@ -1,0 +1,443 @@
+name: Fast checks
+# A run that tests a commit names it as <owner>/<repo>@<full sha>, so a receipt reader
+# (glaeda-gh wait run|pr --sha) can match it: a dispatched run's head_sha is the
+# dispatch ref's tip (main), never the commit it tests. Only a tested_sha the
+# "Confirm the tested commit" step proves is named; a wrong claim fails the run.
+run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact scratch snapshot commit
+        required: true
+      command:
+        description: Shell-quoted command from the fast checks client
+        required: true
+      directory:
+        description: Worktree-relative working directory
+        default: '.'
+      tested_sha:
+        description: The commit this run tests (the snapshot's parent, same tree), or empty
+        default: ''
+      setup:
+        type: choice
+        options: [none, webviews, playwright, rust]
+        default: none
+      timeout:
+        description: Command deadline in seconds, at most 10800
+        default: '3600'
+      runner:
+        description: >-
+          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
+          label that started no job; any other value is ignored
+        default: ''
+
+# Same read-only checkout scope as the existing Linux test jobs. No secrets,
+# environment, provider credentials or write token is passed to test commands.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.repository == 'manaflow-ai/cmux'
+    # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
+    # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
+    # another size; only the Blacksmith Linux labels listed are taken.
+    # Otherwise the linux pool's live member (the repository's RUNNER_POOLS value, which the fleet reconciler keeps
+    # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
+    # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
+    # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
+    # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
+    # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 195
+    defaults:
+      run:
+        working-directory: .fast-checks-checkout
+    env:
+      CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
+      CARGO_HOME: /home/runner/.cache/fast-checks/cargo
+      BUN_INSTALL_CACHE_DIR: /home/runner/.cache/fast-checks/bun
+      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/fast-checks/browsers
+      ZIG_GLOBAL_CACHE_DIR: /home/runner/.cache/fast-checks/zig
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+    steps:
+      - name: Validate request
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TESTED_SHA: ${{ inputs.tested_sha }}
+          COMMAND_TIMEOUT: ${{ inputs.timeout }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$TESTED_SHA" || "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
+
+      # Reuse Git objects and tracked files, but remove all prior untracked
+      # outputs on checkout. Package caches stay on their separate disk below.
+      - name: Mount warm checkout
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-fast-checks-checkout-v1
+          path: ${{ github.workspace }}/.fast-checks-checkout
+          commit: on-change
+
+      - name: Sanitize persistent checkout metadata
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout
+        run: |
+          # Keep the sticky disk's Git object store for fetch speed, but never
+          # trust metadata written by a prior command or source snapshot.
+          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
+            rm -rf -- .git
+          elif [[ -d .git ]]; then
+            # -P is required here: -L would follow a linked objects directory
+            # and could miss the link, preserving an attacker-controlled store.
+            if find -P .git -type l -print -quit | grep -q .; then
+              rm -rf -- .git
+            else
+              rm -rf .git/hooks .git/logs .git/refs
+              rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              cat > .git/config <<'EOF'
+          [core]
+            repositoryformatversion = 0
+            filemode = true
+            bare = false
+            logallrefupdates = true
+            hooksPath = /dev/null
+          [remote "origin"]
+            url = https://github.com/manaflow-ai/cmux
+            fetch = +refs/heads/*:refs/remotes/origin/*
+          EOF
+            fi
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: .fast-checks-checkout
+          persist-credentials: false
+          clean: true
+          # The tested commit is the snapshot's parent: depth 2 brings it (its tree is the
+          # snapshot's, so only the commit object is new).
+          fetch-depth: ${{ inputs.tested_sha && 2 || 1 }}
+
+      # The run-name names tested_sha as the commit this run tests. Hold it to that:
+      # the snapshot's only parent, with the very same tree (no uncommitted edits).
+      - name: Confirm the tested commit
+        if: inputs.tested_sha != ''
+        env:
+          TESTED_SHA: ${{ inputs.tested_sha }}
+        run: |
+          parents=$(git rev-list --parents -n 1 HEAD | cut -d' ' -f2-)
+          if [[ "$parents" != "$TESTED_SHA" ]]; then
+            echo "tested_sha $TESTED_SHA is not the snapshot's only parent ($parents)" >&2
+            exit 2
+          fi
+          if [[ "$(git rev-parse 'HEAD^{tree}')" != "$(git rev-parse "$TESTED_SHA^{tree}")" ]]; then
+            echo "the snapshot's tree differs from $TESTED_SHA's: it does not test that commit" >&2
+            exit 2
+          fi
+
+      # This cache namespace is private to fast checks. Release/signing jobs
+      # never read it. Concurrent callers fork snapshots without a global queue.
+      - name: Mount package and compilation caches
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-fast-checks-v1
+          path: /home/runner/.cache/fast-checks
+          commit: on-change
+
+      - name: Read repository Bun pin
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        id: bun-pin
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          # Older source branches use the ci-web.yml pin without devEngines.
+          pin = json.load(open('webviews/package.json')).get('devEngines', {}).get(
+              'packageManager', {'name': 'bun', 'version': '1.3.14'})
+          assert pin['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', pin['version'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('version=' + pin['version'], file=output)
+          PY
+
+      - name: Set up Bun
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.bun-pin.outputs.version }}
+
+      - name: Set up Node
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.22.1'
+
+      - name: Install webview dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout/webviews
+        run: bun install --frozen-lockfile
+
+      # Bun resolves a package from the importing file's directory upward, so
+      # webviews/node_modules never serves a scripts/<tool>/ workspace that
+      # commits its own package.json and bun.lock (scripts/gallery-matrix needs
+      # pngjs). Install each one, frozen to its own lockfile.
+      - name: Install script workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          shopt -s nullglob
+          for manifest in scripts/*/package.json; do
+            workspace=${manifest%/package.json}
+            [[ -f "$workspace/bun.lock" ]] || continue
+            echo "bun install --frozen-lockfile in $workspace"
+            (cd "$workspace" && bun install --frozen-lockfile)
+          done
+
+      # The cloud backend (backend/, on feat-cmux-next) is one Bun workspace with
+      # its own lockfile: its apps' tests (vitest with the Workers pool in
+      # backend/apps/api, bun test in backend/apps/home-server) import from
+      # backend/node_modules, which no other install provides.
+      - name: Install backend workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          if [[ -f backend/package.json && -f backend/bun.lock ]]; then
+            echo "bun install --frozen-lockfile in backend"
+            (cd backend && bun install --frozen-lockfile)
+          fi
+
+      - name: Prepare full webview tests
+        if: inputs.setup == 'webviews'
+        run: |
+          if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          if [[ -x webviews/node_modules/.bin/playwright ]]; then
+            cd webviews
+            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          fi
+
+      - name: Install gallery dependencies and browsers
+        if: inputs.setup == 'playwright'
+        run: |
+          if [[ -f scripts/gallery-matrix/package.json ]]; then
+            # Its dependencies were installed with the other script workspaces.
+            cd scripts/gallery-matrix
+          else
+            cd webviews
+            if [[ ! -x node_modules/.bin/playwright ]]; then
+              echo 'setup: playwright requires Playwright dependencies in the source snapshot.' >&2
+              exit 2
+            fi
+          fi
+          bunx --no-install playwright install --with-deps chromium webkit
+          echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
+
+      # A script outside the checkout (a capture written to /tmp and run with bun) finds no
+      # node_modules above it, so Bun auto-installed the newest Playwright (1.64.1, Chromium
+      # revision 1248) rather than the pinned 1.62.1 whose browsers (revision 1234) setup had
+      # installed: run 40786981913 failed mid-capture with "Executable doesn't exist at
+      # .../chromium_headless_shell-1248/...". NODE_PATH, which Bun resolves before it
+      # auto-installs, lists first the workspace whose Playwright installed the browsers above
+      # (scripts/gallery-matrix for `playwright` when it has a manifest, else webviews), then
+      # webviews for everything else (vite, react). Then the Playwright such a script resolves,
+      # and each workspace's own, launches its headless Chromium here: a missing or mismatched
+      # browser fails setup, naming the version and browsers path, never the command mid-run.
+      - name: Pin and check the Playwright browsers
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        env:
+          SETUP: ${{ inputs.setup }}
+          PLAYWRIGHT_LAUNCH_CHECK: |
+            let version = "unknown";
+            try { version = require("playwright/package.json").version; } catch {}
+            const where = process.env.PLAYWRIGHT_BROWSERS_PATH || "the default browsers path";
+            require("playwright").chromium.launch({ headless: true })
+              .then((browser) => browser.close())
+              .catch((error) => {
+                const reason = String((error && error.message) || error).split("\n")[0];
+                console.error(`setup: ${process.argv[1] || process.cwd()}: Playwright ${version} cannot launch its headless Chromium from ${where}: ${reason}`);
+                process.exit(2);
+              });
+        run: |
+          installer=webviews
+          if [[ "$SETUP" == playwright && -f scripts/gallery-matrix/package.json ]]; then installer=scripts/gallery-matrix; fi
+          node_path="$PWD/$installer/node_modules"
+          [[ "$installer" == webviews ]] || node_path="$node_path:$PWD/webviews/node_modules"
+          echo "NODE_PATH=$node_path" >> "$GITHUB_ENV"
+          dirs=(webviews)
+          if [[ "$SETUP" == playwright ]]; then dirs+=(scripts/gallery-matrix); fi
+          for dir in "${dirs[@]}"; do
+            [[ -x "$dir/node_modules/.bin/playwright" ]] || continue
+            (cd "$dir" && bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "$dir")
+          done
+          # What a script outside the checkout gets: run from an empty directory through NODE_PATH.
+          if [[ -d "$installer/node_modules/playwright" ]]; then
+            outside=$(mktemp -d)
+            (cd "$outside" && NODE_PATH="$node_path" bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "a script outside the checkout")
+            rmdir "$outside"
+          fi
+
+      - name: Initialize Rust native dependencies
+        if: inputs.setup == 'rust'
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          export GHOSTTY_ZIG_SOURCE=ghostty
+          if [[ "$(git ls-files --stage -- ghostty-next)" == 160000* ]]; then
+            export GHOSTTY_ZIG_SOURCE=ghostty-next
+            bash scripts/ci/init-submodule.sh ghostty-next
+          fi
+          echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+          ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: inputs.setup == 'rust'
+        uses: ./.fast-checks-checkout/.github/actions/setup-cmux-tui-rust
+
+      # Linux SwiftPM (6.2, 6.3) crashes with signal 4 (`try!` in FoundationNetworking's EasyHandle.swift,
+      # libcurl code 43) when it downloads several redirected binary artifacts at once:
+      # swiftlang/swift-corelibs-foundation#5445. Every GitHub release URL redirects, so each
+      # `swift test --package-path Packages/macOS/CmuxNext` died in "Downloading binary artifact" before it
+      # compiled anything (runs 41049880540, 41046951228). Before a `swift build|test`, curl fetches each
+      # binary target the package graph declares into a checksum-keyed store on the cache disk, checks the
+      # checksum, and puts it at SwiftPM's shared cache name, so SwiftPM copies it instead of downloading.
+      # The script comes from this workflow's own commit, never from the source snapshot.
+      - name: Check out the SwiftPM artifact prefetch
+        if: contains(inputs.command, 'swift')
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .fast-checks-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prefetch SwiftPM binary artifacts
+        if: contains(inputs.command, 'swift')
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py" \
+            --store /home/runner/.cache/fast-checks/swiftpm-artifacts \
+            --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
+
+      # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
+      # reports, logs); whatever is there when it ends, passed or not, is uploaded as the
+      # fast-checks-output artifact below. Names starting with a dot are left out (the
+      # action's include-hidden-files default). Write captures there instead of printing
+      # them into the job log as base64, which gets truncated. Read it with
+      # gh run download RUN -R manaflow-ai/cmux -n fast-checks-output -D DIR.
+      - name: Run fast checks
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          FAST_CHECKS_TIMEOUT: ${{ inputs.timeout }}
+          FAST_CHECKS_SOURCE: ${{ inputs.source_sha }}
+          FAST_CHECKS_OUT: ${{ runner.temp }}/fast-checks-out
+        run: |
+          umask 022
+          rm -rf -- "$FAST_CHECKS_OUT"
+          mkdir -p -- "$FAST_CHECKS_OUT"
+          python3 - <<'PY'
+          import json, os, pathlib, shlex, signal, subprocess, time
+          root = pathlib.Path.cwd().resolve()
+          directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
+          directory.relative_to(root)
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          try:
+              command_words = shlex.split(command_text)
+          except ValueError:
+              # It is still a valid shell command when the unmatched quote is
+              # inside a comment; leave it on the normal execution path.
+              command_words = []
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          display_command = (
+              command_words[:2] == ['cmux-ci', 'run']
+              and '--display' in command_words
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\n'))
+          )
+          if display_command:
+              result = dict(
+                  source_sha=actual,
+                  source_tree=tree,
+                  head_after=actual,
+                  command_started_at=time.time(),
+                  command_seconds=0,
+                  skipped_display=True,
+                  command=os.environ['FAST_CHECKS_COMMAND'],
+                  run_id=os.environ['GITHUB_RUN_ID'],
+                  cpu_count=os.cpu_count(),
+                  exit_code=0,
+              )
+              print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
+              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              raise SystemExit(0)
+          started_at = time.time()
+          start = time.monotonic()
+          command = subprocess.Popen(
+              ['timeout', '--signal=TERM', '--kill-after=30s',
+               os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
+               os.environ['FAST_CHECKS_COMMAND']],
+              cwd=directory, start_new_session=True)
+          command_pgid = command.pid
+          try:
+              code = command.wait()
+          finally:
+              # The command owns this process group. Reap any child that kept
+              # the checkout open without name-based kills or touching the
+              # runner/action processes.
+              try:
+                  os.killpg(command_pgid, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
+          after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          result = dict(source_sha=actual, source_tree=tree, head_after=after,
+              command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
+              command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          raise SystemExit(code if actual == after else 2)
+          PY
+
+      # The checkout is mounted below the runner workspace, so the runner's
+      # own cwd cannot keep the mount busy during sticky-disk post cleanup.
+      # Capture holders before that post action and leave the mount from /.
+      - name: Inspect checkout mount holders
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          mount_path="${{ github.workspace }}/.fast-checks-checkout"
+          cd /
+          if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$mount_path"; then
+            {
+              echo "checkout mount holders: $mount_path"
+              sudo fuser -vm "$mount_path" || true
+              sudo lsof +f -- "$mount_path" || true
+            } > "$RUNNER_TEMP/fast-checks-checkout-holders.log" 2>&1 || true
+            cat "$RUNNER_TEMP/fast-checks-checkout-holders.log"
+          fi
+
+      - name: Save exact-source timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-receipt
+          path: ${{ runner.temp }}/fast-checks.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Save command output files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-output
+          path: ${{ runner.temp }}/fast-checks-out/
+          if-no-files-found: ignore
+          retention-days: 3

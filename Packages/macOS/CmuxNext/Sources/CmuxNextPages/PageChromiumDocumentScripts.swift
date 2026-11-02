@@ -9,6 +9,9 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
     public static let navigateHandler = "cmuxPageNavigate"
     /// The handler a drop the host takes posts to (``hostDropScript``).
     public static let hostDropHandler = "cmuxPageHostDrop"
+    /// The handler every drop of files on the page posts to, whoever takes it (``hostDropScript``):
+    /// the host learns the drop of a drag it saw enter (``PageWebView/onFilesDropped``).
+    public static let pageDropHandler = "cmuxPageFilesDropped"
 
     /// The scripts, in install order.
     public let sources: [String]
@@ -63,6 +66,9 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         event.dataTransfer.dropEffect = "copy";
       }, true);
       window.addEventListener("drop", (event) => {
+        if (hasFiles(event)) {
+          try { window.webkit.messageHandlers.\(pageDropHandler).postMessage({}); } catch (_) {}
+        }
         if (!take || !hasFiles(event)) return;
         event.preventDefault();
         event.stopImmediatePropagation();

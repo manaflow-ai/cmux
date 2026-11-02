@@ -52,12 +52,15 @@ extension SidebarListViewComponents {
             // On every dequeue: a parked block comes back in the sidebar's state now (its edit mode).
             view.region.docList = self
             configureBlockRegion?(view.region)
-        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
-            view.onSelect = { [weak self] in
-                self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
-            }
-            // The hover ✕ closes the tab as a middle-click on the row does (SidebarMiddleClick).
-            view.onClose = { [weak self] in self?.model.send(.closeTab(workspace: workspaceID, tab: tabID)) }
+        case let (.group(id), view as GroupHeaderRowView) where SidebarGroup.hostMachine(id) != nil:
+            // A remote group: its more button shows the machine's menu (no group editor: it has no name or color of
+            // its own), and its + makes a workspace on the machine, as the machine header's did.
+            let machine = SidebarGroup.hostMachine(id)
+            view.onMore = { [weak self] in self?.groupEditing.showMenu(id) }
+            view.onEdit = view.onMore
+            view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+            view.isEditing = false
+            view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
             view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
@@ -68,6 +71,11 @@ extension SidebarListViewComponents {
         case let (.emptyGroup(id), view as EmptyGroupRowView):
             // The same New Workspace in Group as the header's + (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+            view.onToggle = { [weak self] in
+                guard let self else { return false }
+                return SidebarFoldAction(list: self).toggle(key)
+            }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

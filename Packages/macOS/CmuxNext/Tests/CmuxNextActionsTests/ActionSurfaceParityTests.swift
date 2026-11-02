@@ -99,7 +99,9 @@ import Testing
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
             let rows = entries.filter { if case .separator = $0 { false } else { true } }
-            #expect(rows.count <= (context == .agentChat || context == .terminalSelection ? 13 : 12), "\(context) has \(rows.count) top-level rows")
+            // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
+            let cap = [.agentChat, .terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
+            #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count
                 #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")

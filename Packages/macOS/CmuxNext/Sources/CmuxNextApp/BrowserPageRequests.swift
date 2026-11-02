@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -7,6 +8,7 @@ import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextNowPlaying
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextRemoteLocalhostService
@@ -115,7 +117,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (openerTab, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -167,12 +169,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let insert = request.insertLeading { return insert(leading) }
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
+                                                         entries: services.registry.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id), machineID: services.daemon(for: pane).machineID,
                                                      services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
-            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
+            // The engine's menu holds the page rows: Customize Menu… ends it as it ends every whole menu.
+            // The engine's menu puts a separator before the extra rows; one more only after rows of ours.
+            let customize = services.registry.customizeMenuItem(for: .browserPage).map { extra.isEmpty ? [$0] : [NSMenuItem.separator(), $0] } ?? []
+            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra + customize)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
@@ -260,7 +265,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
-              let (_, pane) = services.locateTab(key) else { return false }
+              let (_, pane) = services.locateTabOnAnyMachine(key) else { return false }
         return pane.tabs.last?.id == key
     }
 
@@ -341,15 +346,43 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source) { target, placed in
-            target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
-                                 opener: target === source ? opener : nil, then: placed)
+        services.linkOpener.open(from: source, kind: .browser) { target, placed in
+            if target === source, placed == nil {
+                self.open(url: url, adopting: child, engine: engine, profile: profile, in: pane,
+                          opener: opener, background: false)
+                return true
+            }
+            return target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
+                                       opener: target === source ? opener : nil, then: placed)
         }
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
+        // Keep the same disabled-browser routing as PaneBrowserTabOpener before
+        // considering a same-pane match. A matching cmux tab must not swallow a
+        // web link when the cmux browser is disabled.
+        if !BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(url?.absoluteString) {
+            if let controller = services.paneController(for: pane) {
+                controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                         opener: opener)
+            } else {
+                child?.close()
+                if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    LinkRouter.shared.open(url, in: .system)
+                } else {
+                    services.registry.refuse(MiscHandlerStrings.browserOff)
+                }
+            }
+            return
+        }
+        if let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
+            // Chromium/WebKit may have created a child before this intent arrived. The
+            // matching tab is the one the pane already owns, so discard the duplicate page.
+            child?.close()
+            return
+        }
         if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
                                      opener: opener)
@@ -397,6 +430,32 @@ final class BrowserPageRequests: BrowserTabDelegate {
         } else {
             adoptions[surface] = page
         }
+    }
+
+    /// Selects the first live browser tab in `pane` that already shows `url`'s page.
+    /// URL identity uses the same normalization as the sidebar; a changed fragment
+    /// navigates the live page for foreground reuse.
+    @discardableResult
+    private func reuseExistingTab(_ url: URL, in pane: PaneModel, engine: String, profile: String?, background: Bool) -> Bool {
+        guard let services, let match = pane.tabs.first(where: { tab in
+            guard tab.kind == .browser else { return false }
+            guard services.cache.existingBrowser(tab.id)?.tab != nil else { return false }
+            let tabProfile = services.browserProfiles.profileID(ofTab: tab)
+            guard tabProfile == (profile ?? BrowserProfileRecord.defaultID) else { return false }
+            let tabEngine = tab.browserEngine ?? BrowserEngineTag.webkit.rawValue
+            guard tabEngine == engine else { return false }
+            let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
+            return shown.map { SidebarBridge.samePage($0, url) } == true
+        }) else { return false }
+
+        let shown = services.cache.existingBrowser(match.id)?.tab.state.url ?? match.url.flatMap(URL.init(string:))
+        if !background, shown?.fragment != url.fragment, let page = services.cache.existingBrowser(match.id)?.tab {
+            page.load(url)
+        }
+        guard !background, let controller = services.paneController(for: pane) else { return true }
+        controller.select(StripTabID(match.id), source: .intent)
+        controller.focusContent()
+        return true
     }
 
     /// The page made for daemon tab `tab` before it appeared, else a

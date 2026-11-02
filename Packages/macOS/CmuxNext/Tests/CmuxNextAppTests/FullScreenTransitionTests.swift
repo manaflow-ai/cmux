@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 ///
 /// AppKit's full screen needs a real Space, so these tests drive the transition through the
 /// window's delegate calls and a private notification center, as AppKit would post them.
-@MainActor @Suite(.serialized) struct FullScreenTransitionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct FullScreenTransitionTests {
     // MARK: Motion: a transition is a resize the person does not drag
 
     @Test func aWindowIsInATransitionFromWillEnterToDidEnterAndFromWillExitToDidExit() {

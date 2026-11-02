@@ -140,7 +140,7 @@ pub(super) fn bind(
         writer,
         id,
         json!({"app": "cmux-tui", "protocol": super::super::PROTOCOL_VERSION,
-        "version": crate::release::DISTRIBUTION_VERSION, "generation": mux.registry_identity().1,
+        "version": crate::release::distribution_version(), "generation": mux.registry_identity().1,
         "capabilities": ["agent-session-attach-v1", "agent-session-observe-v1"]}),
     )
 }

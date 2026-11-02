@@ -225,6 +225,32 @@ def gated_on_every_read(condition: str, reads: list[re.Match], expression: str =
     return False
 
 
+# The one routing source (scripts/ci/runner_pools.py on main): RUNNER_POOLS has no literal fallback on purpose.
+# Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
+# not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
+# never reaches the read: the fork pull request branch in front of it names its own label. Same rule as main's.
+FORK_PULL_REQUEST_BRANCH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
+    r" && '[^']+' \|\| "
+)
+
+
+# The owned-mini member a Blacksmith backlog switches on (2026-11-01): unset, the chain goes on to the
+# RUNNER_POOLS read right after it, so it needs no literal of its own.
+POOL_MEMBER_BEFORE_POOL = re.compile(r"CI_LINUX_GATE_OWNED_RUNNER \|\| fromJSON\(vars\.RUNNER_POOLS\)\.")
+
+
+def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it, or the owned-mini
+    member read directly before that pool read."""
+    if read.group(1) == "CI_LINUX_GATE_OWNED_RUNNER" and POOL_MEMBER_BEFORE_POOL.match(expression, read.start(1)):
+        return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+    if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
+        return False
+    return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+
+
 def check_runs_on(path: Path, errors: list[str]) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     for number, line in enumerate(lines, start=1):
@@ -234,6 +260,8 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         expression = matched.group(1)
         reads = list(VARS_REFERENCE.finditer(expression))
         if not reads:
+            continue
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
@@ -398,6 +426,17 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
                 )
 
 
+def self_test_pool_reads(errors: list[str]) -> None:
+    fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+    good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
+    bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+    for text, expected in ((good, True), (bad, False)):
+        reads = list(VARS_REFERENCE.finditer(text))
+        if all(pool_read_after_fork_branch(text, read) for read in reads) != expected:
+            errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -406,6 +445,7 @@ def main() -> int:
         return 1
     self_test_gate_matcher(errors)
     self_test_runs_on_gate(errors)
+    self_test_pool_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)

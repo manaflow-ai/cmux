@@ -1,0 +1,417 @@
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+index a081c4df..2916b347 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+@@ -1163,7 +1163,7 @@ pub fn build_manifest() -> serde_json::Value {
+     /// every call on the verified cmux host's machine consent.
+     fn manifest_capabilities() -> Vec<&'static str> {
+         #[allow(unused_mut)]
+-        let mut capabilities = vec![crate::serve::OWNER_PID_CAPABILITY];
++        let mut capabilities = vec![crate::serve::OWNER_PID_CAPABILITY, crate::serve::DISPLAY_STILL_CAPABILITY];
+         #[cfg(feature = "cmux-host-consent")]
+         capabilities.push(cmux_cua_core::machine_consent::GATE_CAPABILITY);
+         capabilities
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+index e3e7ffe0..d990479d 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+@@ -11,6 +11,7 @@
+ //!   {"method":"permissions_present"}      (private macOS operator control)
+ //!   {"method":"permissions_refresh"}      (private macOS operator control)
+ //!   {"method":"application_windows"}      (private authenticated cmux host control)
++//!   {"method":"display_still","args":{"width":1440,"exclude_bundle_ids":[...]}} (private host control)
+ //!   {"method":"machine_consent_host"}     (the cmux app serves machine consent on this
+ //!                                          connection; cmux-host-consent builds only)
+ //!   {"method":"application_surface_start","args":{...}}
+@@ -31,6 +32,8 @@ use base64::Engine as _;
+ use serde::{Deserialize, Serialize};
+ 
+ pub use crate::owner_watch::OWNER_PID_CAPABILITY;
++/// Host-only `display_still`: one still of the main display (cmux Share Screen with Chief).
++pub const DISPLAY_STILL_CAPABILITY: &str = "serve.display-still";
+ 
+ /// Why `run_serve_with_owner` returned without an error.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -2527,6 +2530,60 @@ pub async fn run_serve_with_owner(
+                                 #[cfg(not(target_os = "macos"))]
+                                 let _ = response_sent;
+                             }
++                            "display_still" => {
++                                // Host-only: one still of the main display for cmux's
++                                // Share Screen with Chief, so Screen Recording is asked of
++                                // and granted to this helper, never cmux.app.
++                                #[cfg(target_os = "macos")]
++                                let resp = if !host_request_authorized
++                                    || profile != DaemonProfile::Native
++                                {
++                                    DaemonResponse::err(
++                                        "Unauthorized host-only display request",
++                                        77,
++                                    )
++                                } else {
++                                    let request = req.args
++                                        .ok_or_else(|| "Missing display_still arguments".to_owned())
++                                        .and_then(|args| {
++                                            serde_json::from_value::<
++                                                platform_macos::display_still::DisplayStillRequest,
++                                            >(args)
++                                            .map_err(|_| "Invalid display_still arguments".to_owned())
++                                        })
++                                        .and_then(|request| {
++                                            platform_macos::display_still::validate(&request)
++                                                .map(|()| request)
++                                                .map_err(|error| format!("{error:#}"))
++                                        });
++                                    match request {
++                                        Ok(request) => match tokio::task::spawn_blocking(
++                                            move || platform_macos::display_still::capture(request),
++                                        ).await {
++                                            Ok(Ok(still)) => DaemonResponse::ok(
++                                                serde_json::to_value(still)
++                                                    .expect("display still is serializable"),
++                                            ),
++                                            Ok(Err(error)) => {
++                                                DaemonResponse::err(format!("{error:#}"), 1)
++                                            }
++                                            Err(error) => DaemonResponse::err(
++                                                format!("Display-capture task failed: {error}"),
++                                                1,
++                                            ),
++                                        },
++                                        Err(error) => DaemonResponse::err(error, 64),
++                                    }
++                                };
++                                #[cfg(not(target_os = "macos"))]
++                                let resp = DaemonResponse::err(
++                                    "display_still is available only on macOS",
++                                    64,
++                                );
++                                let _ = writer.write_all(
++                                    (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
++                                ).await;
++                            }
+                             "application_windows" => {
+                                 #[cfg(target_os = "macos")]
+                                 let resp = if !host_request_authorized
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/display_still.rs b/libs/cmux-cua/rust/crates/platform-macos/src/display_still.rs
+new file mode 100644
+index 00000000..1a6de580
+--- /dev/null
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/display_still.rs
+@@ -0,0 +1,303 @@
++//! One still of the main display for the cmux host (host-only `display_still`).
++//!
++//! cmux's "Share Screen with Chief" looks at the screen through this helper so
++//! the Screen Recording grant (and the relaunch macOS asks for after a grant)
++//! belongs to the helper, never to cmux.app. The host names the apps to leave
++//! out (its own process, cmux builds and password managers, by bundle id; this
++//! helper finds their processes, so cmux never scans processes); this helper
++//! also leaves out its own windows (the agent cursor).
++//!
++//! Cost while the screen is still: one window-list read, one capture at
++//! nominal resolution and a 32x20 grey thumbnail compared with the host's last
++//! one. Only a changed frame is scaled to `width` and JPEG encoded.
++
++use std::collections::HashSet;
++use std::ffi::c_void;
++
++use anyhow::{bail, Context};
++use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
++use core_foundation::array::CFArray;
++use core_graphics::{
++    base::{kCGImageAlphaNone, kCGImageAlphaNoneSkipLast},
++    color_space::CGColorSpace,
++    context::{CGContext, CGInterpolationQuality},
++    display::CGDisplay,
++    geometry::{CGPoint, CGRect, CGSize},
++    image::CGImage,
++    window::{create_image_from_array, create_window_list, kCGWindowImageNominalResolution, kCGWindowListOptionOnScreenOnly},
++};
++use image::{codecs::jpeg::JpegEncoder, ExtendedColorType, ImageEncoder};
++use serde::{Deserialize, Serialize};
++
++use crate::capture_deadline::{self, CaptureOperation};
++use crate::{permissions, windows};
++
++/// Thumbnail side lengths, the same as cmux's `VoiceRoomFrameSignature`.
++pub const SIGNATURE_WIDTH: usize = 32;
++pub const SIGNATURE_HEIGHT: usize = 20;
++const MAX_WIDTH: u32 = 4096;
++const MIN_WIDTH: u32 = 64;
++const MAX_EXCLUDED: usize = 256;
++const MAX_BUNDLE_ID: usize = 255;
++
++fn default_threshold() -> f64 {
++    0.02
++}
++
++fn default_quality() -> u8 {
++    60
++}
++
++/// The host's `display_still` arguments.
++#[derive(Debug, Clone, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct DisplayStillRequest {
++    /// The frame's width in pixels (64...4096); its height follows the display.
++    pub width: u32,
++    /// Processes whose windows are left out of the frame and the front-window answer.
++    #[serde(default)]
++    pub exclude_pids: Vec<i32>,
++    /// Apps whose windows are left out, by exact bundle id.
++    #[serde(default)]
++    pub exclude_bundle_ids: Vec<String>,
++    /// Apps whose windows are left out, by bundle id prefix (`com.cmuxterm.`: every cmux build).
++    #[serde(default)]
++    pub exclude_bundle_prefixes: Vec<String>,
++    /// The last frame's thumbnail (base64 of 32x20 grey bytes); absent always answers a frame.
++    #[serde(default)]
++    pub previous_signature: Option<String>,
++    /// The mean difference (0...1) that counts as a change.
++    #[serde(default = "default_threshold")]
++    pub threshold: f64,
++    /// JPEG quality (1...95).
++    #[serde(default = "default_quality")]
++    pub quality: u8,
++}
++
++/// One look at the display.
++#[derive(Debug, Clone, Serialize)]
++pub struct DisplayStill {
++    /// This frame's thumbnail, base64 of 32x20 grey bytes.
++    pub signature: String,
++    /// False when it looks the same as `previous_signature`: no JPEG then.
++    pub changed: bool,
++    /// The frame (base64 JPEG), only when changed.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub jpeg: Option<String>,
++    pub width: u32,
++    pub height: u32,
++    /// The front normal window's app, not an excluded one.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub front_app: Option<String>,
++    /// That window's title, when it has one.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub front_window: Option<String>,
++}
++
++/// Checks the arguments before any capture.
++pub fn validate(request: &DisplayStillRequest) -> anyhow::Result<()> {
++    if !(MIN_WIDTH..=MAX_WIDTH).contains(&request.width) {
++        bail!("width must be {MIN_WIDTH} to {MAX_WIDTH}");
++    }
++    if request.exclude_pids.len() > MAX_EXCLUDED
++        || request.exclude_bundle_ids.len() + request.exclude_bundle_prefixes.len() > MAX_EXCLUDED
++    {
++        bail!("at most {MAX_EXCLUDED} excluded processes and {MAX_EXCLUDED} excluded apps");
++    }
++    let bundle_ok = |id: &String| !id.is_empty() && id.len() <= MAX_BUNDLE_ID && id.contains('.');
++    if !request.exclude_bundle_ids.iter().all(bundle_ok) || !request.exclude_bundle_prefixes.iter().all(bundle_ok) {
++        bail!("an excluded bundle id must be 1 to {MAX_BUNDLE_ID} characters with a dot");
++    }
++    if !(0.0..=1.0).contains(&request.threshold) {
++        bail!("threshold must be 0 to 1");
++    }
++    if !(1..=95).contains(&request.quality) {
++        bail!("quality must be 1 to 95");
++    }
++    if let Some(previous) = &request.previous_signature {
++        decode_signature(previous)?;
++    }
++    Ok(())
++}
++
++fn decode_signature(value: &str) -> anyhow::Result<Vec<u8>> {
++    let bytes = BASE64.decode(value).context("previous_signature is not base64")?;
++    if bytes.len() != SIGNATURE_WIDTH * SIGNATURE_HEIGHT {
++        bail!("previous_signature must be {} bytes", SIGNATURE_WIDTH * SIGNATURE_HEIGHT);
++    }
++    Ok(bytes)
++}
++
++/// The mean absolute difference of two thumbnails over 255 (0 same, 1 inverted).
++pub fn difference(a: &[u8], b: &[u8]) -> f64 {
++    let total: u64 = a.iter().zip(b).map(|(x, y)| (i32::from(*x) - i32::from(*y)).unsigned_abs() as u64).sum();
++    total as f64 / (a.len().max(1) as f64 * 255.0)
++}
++
++/// Looks at the main display once, bounded like the other captures.
++pub fn capture(request: DisplayStillRequest) -> anyhow::Result<DisplayStill> {
++    validate(&request)?;
++    if !permissions::status::screen_recording_granted() {
++        bail!("screen_recording_not_granted");
++    }
++    capture_deadline::run(CaptureOperation::DisplayImage, capture_deadline::SCREENSHOT_BUDGET, move || capture_now(request))
++}
++
++fn capture_now(request: DisplayStillRequest) -> anyhow::Result<DisplayStill> {
++    let mut excluded: HashSet<i32> = request.exclude_pids.iter().copied().collect();
++    excluded.insert(std::process::id() as i32);
++    excluded.extend(bundle_processes(&request.exclude_bundle_ids, &request.exclude_bundle_prefixes));
++    // Front to back, including layers above 0 (menu bar, Dock); the desktop comes from the full list.
++    let described = windows::visible_windows();
++    let excluded_windows: HashSet<u32> =
++        described.iter().filter(|window| excluded.contains(&window.pid)).map(|window| window.window_id).collect();
++    let front = described.iter().find(|window| window.layer == 0 && !excluded.contains(&window.pid));
++    let ids: Vec<u32> = create_window_list(kCGWindowListOptionOnScreenOnly, 0)
++        .map(|list| list.iter().map(|id| *id).filter(|id| !excluded_windows.contains(id)).collect())
++        .unwrap_or_default();
++    if ids.is_empty() {
++        bail!("no window to capture");
++    }
++    let bounds = CGDisplay::main().bounds();
++    // A window-id array holds each id as a pointer-sized value, as CGWindowListCreate answers it.
++    let ids: Vec<*const c_void> = ids.into_iter().map(|id| id as usize as *const c_void).collect();
++    let image = create_image_from_array(bounds, CFArray::from_copyable(&ids), kCGWindowImageNominalResolution)
++        .context("WindowServer returned no display image")?;
++    if image.width() == 0 || image.height() == 0 {
++        bail!("WindowServer returned an empty display image");
++    }
++    let signature = thumbnail(&image)?;
++    let changed = match &request.previous_signature {
++        Some(previous) => difference(&decode_signature(previous)?, &signature) >= request.threshold,
++        None => true,
++    };
++    let width = request.width.min(image.width() as u32).max(1);
++    let height = ((f64::from(width) * image.height() as f64 / image.width() as f64).round() as u32).max(1);
++    let jpeg = if changed { Some(BASE64.encode(encode_jpeg(&image, width, height, request.quality)?)) } else { None };
++    Ok(DisplayStill {
++        signature: BASE64.encode(&signature),
++        changed,
++        jpeg,
++        width,
++        height,
++        front_app: front.map(|window| window.app_name.clone()).filter(|name| !name.is_empty()),
++        front_window: front.map(|window| window.title.clone()).filter(|title| !title.is_empty()),
++    })
++}
++
++/// The running processes of the apps named by bundle id or bundle id prefix.
++fn bundle_processes(ids: &[String], prefixes: &[String]) -> HashSet<i32> {
++    use objc2_app_kit::NSWorkspace;
++
++    let mut pids = HashSet::new();
++    if ids.is_empty() && prefixes.is_empty() {
++        return pids;
++    }
++    unsafe {
++        let applications = NSWorkspace::sharedWorkspace().runningApplications();
++        for app in (0..applications.len()).filter_map(|index| applications.get(index)) {
++            let Some(bundle) = app.bundleIdentifier().map(|value| value.to_string()) else { continue };
++            if ids.iter().any(|id| *id == bundle) || prefixes.iter().any(|prefix| bundle.starts_with(prefix.as_str())) {
++                pids.insert(app.processIdentifier());
++            }
++        }
++    }
++    pids
++}
++
++/// The 32x20 grey thumbnail, drawn the way cmux's `VoiceRoomFrameSignature(image:)` draws it.
++fn thumbnail(image: &CGImage) -> anyhow::Result<Vec<u8>> {
++    let mut context = CGContext::create_bitmap_context(
++        None,
++        SIGNATURE_WIDTH,
++        SIGNATURE_HEIGHT,
++        8,
++        SIGNATURE_WIDTH,
++        &CGColorSpace::create_device_gray(),
++        kCGImageAlphaNone,
++    );
++    context.set_interpolation_quality(CGInterpolationQuality::CGInterpolationQualityLow);
++    context.draw_image(full(SIGNATURE_WIDTH, SIGNATURE_HEIGHT), image);
++    Ok(context.data().to_vec())
++}
++
++fn encode_jpeg(image: &CGImage, width: u32, height: u32, quality: u8) -> anyhow::Result<Vec<u8>> {
++    let (w, h) = (width as usize, height as usize);
++    let mut context = CGContext::create_bitmap_context(
++        None,
++        w,
++        h,
++        8,
++        w * 4,
++        &CGColorSpace::create_device_rgb(),
++        kCGImageAlphaNoneSkipLast,
++    );
++    context.set_interpolation_quality(CGInterpolationQuality::CGInterpolationQualityMedium);
++    context.draw_image(full(w, h), image);
++    let rgba = context.data();
++    let mut rgb = Vec::with_capacity(w * h * 3);
++    for pixel in rgba.chunks_exact(4) {
++        rgb.extend_from_slice(&pixel[..3]);
++    }
++    let mut out = Vec::new();
++    JpegEncoder::new_with_quality(&mut out, quality).write_image(&rgb, width, height, ExtendedColorType::Rgb8)?;
++    Ok(out)
++}
++
++fn full(width: usize, height: usize) -> CGRect {
++    CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(width as f64, height as f64))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn request(width: u32) -> DisplayStillRequest {
++        DisplayStillRequest {
++            width,
++            exclude_pids: vec![],
++            exclude_bundle_ids: vec![],
++            exclude_bundle_prefixes: vec![],
++            previous_signature: None,
++            threshold: 0.02,
++            quality: 60,
++        }
++    }
++
++    #[test]
++    fn validate_bounds_width_quality_threshold_and_signature() {
++        assert!(validate(&request(1440)).is_ok());
++        assert!(validate(&request(10)).is_err());
++        assert!(validate(&request(5000)).is_err());
++        let mut bad = request(1440);
++        bad.quality = 0;
++        assert!(validate(&bad).is_err());
++        let mut bad = request(1440);
++        bad.threshold = 2.0;
++        assert!(validate(&bad).is_err());
++        let mut bad = request(1440);
++        bad.previous_signature = Some(BASE64.encode([0u8; 10]));
++        assert!(validate(&bad).is_err());
++        let mut bad = request(1440);
++        bad.exclude_bundle_prefixes = vec![String::new()];
++        assert!(validate(&bad).is_err(), "an empty prefix would leave out every app");
++        let mut good = request(1440);
++        good.exclude_bundle_ids = vec!["com.1password.1password".into()];
++        good.exclude_bundle_prefixes = vec!["com.cmuxterm.".into()];
++        good.previous_signature = Some(BASE64.encode([0u8; SIGNATURE_WIDTH * SIGNATURE_HEIGHT]));
++        assert!(validate(&good).is_ok());
++    }
++
++    #[test]
++    fn unknown_arguments_are_refused() {
++        let parsed = serde_json::from_value::<DisplayStillRequest>(serde_json::json!({"width": 1440, "path": "/tmp/x"}));
++        assert!(parsed.is_err());
++    }
++
++    #[test]
++    fn difference_matches_cmux_signature() {
++        assert_eq!(difference(&[0, 0], &[0, 0]), 0.0);
++        assert_eq!(difference(&[0, 255], &[255, 0]), 1.0);
++        assert!((difference(&[0, 0], &[51, 0]) - 0.1).abs() < 1e-9);
++    }
++}
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/lib.rs b/libs/cmux-cua/rust/crates/platform-macos/src/lib.rs
+index 0f464fff..57c52d45 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/lib.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/lib.rs
+@@ -21,6 +21,8 @@ pub mod windows;
+ #[cfg(target_os = "macos")]
+ pub mod displays;
+ #[cfg(target_os = "macos")]
++pub mod display_still;
++#[cfg(target_os = "macos")]
+ pub mod input;
+ #[cfg(target_os = "macos")]
+ pub mod cursor;

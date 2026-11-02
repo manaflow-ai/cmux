@@ -1,12 +1,14 @@
 // l10n-allow-file: stand-in chat text and assertions, not product copy.
 // Leo: "it doesnt shift and resize the same as the other elements on the agent chat area".
-// The real running row and composer must land together on a native pane/window resize; Session
-// Info's final shift must not start another web transition after native geometry has already moved.
+// The real running row and composer must land together on a native pane/window resize; with Session
+// Info open, nothing starts a web transition after native geometry has already moved (Session Info
+// never moves the chat: Leo, 2026-10-29, "it's not supposed to be a fucking sidebar that pushes the
+// fucking layout").
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
+import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -14,7 +16,6 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
     width: number;
     running: number;
     composer: number;
-    resized: boolean;
     transition: string[];
     animations: number;
   };
@@ -63,14 +64,13 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        await inspectorPushAlways(page, false);
-        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        await sessionInfoPushAlways(page, false);
+        const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor();
-        if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click();
-        await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor();
+        if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click();
+        await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor();
         await finite(page);
-        // The first read initializes the hook. A subsequent resize runs React's functional state
-        // updater after `measure` returns, so this also catches a mutable lastShellWidth closure.
+        // Two resizes: the first after the panel opens, then another, each landing in one frame.
         for (const width of [900, 1200]) {
           await page.evaluate((targetWidth) => {
             const samples: Sample[] = [];
@@ -86,7 +86,6 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
                 width: shell.clientWidth,
                 running: running.getBoundingClientRect().left,
                 composer: composer.getBoundingClientRect().left,
-                resized: shell.hasAttribute("data-inspector-chat-resizing"),
                 transition: moved.map((node) => getComputedStyle(node).transitionDuration),
                 animations: moved
                   .flatMap((node) => node.getAnimations())
@@ -127,7 +126,6 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
           const resize = result.samples.at(0)!;
           const first = result.painted.at(0)!;
           const last = result.painted.at(-1)!;
-          expect(resize.resized).toBe(true);
           expect(resize.transition).toEqual(["0s", "0s"]);
           expect(result.painted.every((sample) => sample.animations === 0)).toBe(true);
           expect(Math.abs(first.running - last.running)).toBeLessThanOrEqual(1);

@@ -22,7 +22,8 @@ extension PaletteController {
         if let source = sources.recentDirectories {
             providers.append(RecentDirectoriesPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
-        providers += contributedProviders(sources.searchContributions)
+        let contributed = contributed(sources.searchContributions)
+        providers += contributed.providers
         if let source = sources.settings {
             providers.append(SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
@@ -40,35 +41,50 @@ extension PaletteController {
             scope: PaletteScopeID.search
         )
         page.queryItems = goToRows()
+        page.contributedAnswers = contributed.answers
         return previewingActions(page)
     }
 
     /// Chats & agents (scope `chats`): the contributed pages that list chats and agent sessions,
     /// nothing else.
     func chatsPage() -> PalettePageSpec {
-        PalettePageSpec(
+        let contributed = contributed(sources.searchContributions.filter(\.searchesChats), showsItemsForEmptyQuery: true)
+        var page = PalettePageSpec(
             id: "chats",
             title: PaletteStrings.chatsAndAgentsTitle,
             placeholder: PaletteStrings.chatsAndAgentsPlaceholder,
             symbol: "bubble.left.and.bubble.right",
-            providers: contributedProviders(sources.searchContributions.filter(\.searchesChats), showsItemsForEmptyQuery: true),
+            providers: contributed.providers,
             showsRecent: true,
             scope: PaletteScopeID.chats
         )
+        page.contributedAnswers = contributed.answers
+        return page
     }
 
-    /// Each contribution's providers, its rows under the contribution's section unless they carry one.
-    private func contributedProviders(_ contributions: [PaletteSearchContribution],
-                                      showsItemsForEmptyQuery: Bool = false) -> [any PaletteProvider] {
+    /// Each contribution's rows under the contribution's section unless they carry one: its providers'
+    /// rows, ranked with the page's own, or, for a page that answers its own queries
+    /// (`PalettePageSpec.queryResults`, the agent chats page asks acpmux), its answer to each query.
+    private func contributed(_ contributions: [PaletteSearchContribution], showsItemsForEmptyQuery: Bool = false)
+        -> (providers: [any PaletteProvider], answers: [PaletteContributedAnswers]) {
         var providers: [any PaletteProvider] = []
+        var answers: [PaletteContributedAnswers] = []
         for contribution in contributions {
             guard let page = contribution.page() else { continue }
             let section = PaletteSection(id: "search.\(contribution.id)", title: contribution.title, order: contribution.order)
+            // Such a page ignores its providers too when it shows on its own (`PaletteModel.search`).
+            if let results = page.queryResults {
+                // In the Chats & agents scope the chats are the main content (`leads`); in Search one block of many.
+                answers.append(PaletteContributedAnswers(section: section, leads: showsItemsForEmptyQuery,
+                                                         results: results, close: page.onCancel, moreRow: page.moreRow,
+                                                         onSourceChange: page.onSourceChange))
+                continue
+            }
             for provider in page.providers {
                 providers.append(PaletteSearchSectionedProvider(provider, id: "search.\(contribution.id).\(provider.id)", section: section,
                                                                showsItemsForEmptyQuery: showsItemsForEmptyQuery))
             }
         }
-        return providers
+        return (providers, answers)
     }
 }

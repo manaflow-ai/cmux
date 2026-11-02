@@ -130,11 +130,25 @@ string or a RegExp), `{ testId }`, `{ text }` or `{ selector }`. `waitFor` check
 DOM mutation, animation end, transition end and frame. It never waits for a fixed time; its cap
 only fails a wait that never comes true.
 
-Each action is one step, and the stage measures it:
+Each action is one step, and the stage measures it. A `waitFor` that does not hold at once is a
+step too (what loads while the play waits, older history or a reply, must not move the rows on
+screen), and `ctx.resize(width)` resizes the pane as the sidebar toggle does: each box may move
+once to its new place, and a second move is a bounce. The stage's load, from navigation to the
+play, is measured the same way (`window.cmuxGalleryLoadReport`).
+
+Gallery health gates the layout shift of every state it renders against
+`scripts/gallery-matrix/shift-baseline.json`: a state whose row is 0 fails on any shift past frame-timing noise (load plus
+steps), a non-zero row fails past its margin, and a state with no row yet only warns. Rows only go
+down (`bun shift-baseline.ts --from <artifacts>`); `--add` writes rows for new states.
 
 - anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
   resize (0 px).
-- layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- layout shift: the step's CLS sum and each shift with its source node (0 allowed), and its box
+  shift (`shift.ts`): the boxes of the rows a person reads (`[data-row-id]`, the composer, menus,
+  list and tree rows, anything marked `data-gallery-track`, and the anchors) sampled every frame
+  and scored the way CLS is. Unlike the browser's CLS it sees a move that scrolling made (a
+  bottom-pinned transcript scrolling its rows up when a tool expands) and works in WebKit. The
+  step's target, rows after it pushed straight down, and boxes still entering do not count.
 - action-to-settled latency: wall time from dispatching the gesture until the page settles; the
   matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
   interaction has a user-facing responsiveness budget. Settling waits on frames, so like the
