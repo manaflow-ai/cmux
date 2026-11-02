@@ -192,17 +192,9 @@ fn vencrypt_auth<R: Read, W: Write>(
     match chosen {
         vencrypt::NONE => Ok(()),
         vencrypt::VNC => vnc_auth(reader, writer, credentials),
-        _ => {
-            let (Some(user), Some(pass)) = (&credentials.username, &credentials.password) else {
-                return Err(VncError::CredentialsRequired { username: true });
-            };
-            writer.write_all(&(user.len() as u32).to_be_bytes())?;
-            writer.write_all(&(pass.len() as u32).to_be_bytes())?;
-            writer.write_all(user.as_bytes())?;
-            writer.write_all(pass.as_bytes())?;
-            writer.flush()?;
-            Ok(())
-        }
+        // An unknown subtype must never fall through into a plaintext
+        // username/password exchange, even if the selector gains new cases.
+        _ => Err(VncError::protocol("unsupported VeNCrypt security subtype")),
     }
 }
 

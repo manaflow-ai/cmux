@@ -151,12 +151,15 @@ public final class SidebarSessionTreeFeed {
         var state = SidebarSessionTreeState()
         var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
+        // Even daemon-provided lineage can be cyclic after a corrupted replay or two peers
+        // reporting each other as parent. Keep the same cycle guard as recorded fallbacks:
+        // the sidebar needs a forest, and a bad edge must never hide either chat.
         for (id, refs) in remote {
             if let parent = refs.lazy.compactMap({ child -> SidebarWorkspaceID? in
                 guard let session = child.session,
                       let parentID = daemonLinks(child.host)[session] else { return nil }
                 return owning(child.host, parentID)
-            }).first(where: { $0 != id }) {
+            }).first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
                 state.parents[id] = parent
             }
         }
@@ -165,7 +168,7 @@ public final class SidebarSessionTreeFeed {
             if let parent = shown.lazy.compactMap({ lane -> SidebarWorkspaceID? in
                 guard let parentID = lane.spawnedBy, let localHost else { return nil }
                 return owner[AgentSessionParents.identity(host: localHost, session: parentID)]
-            }).first(where: { $0 != id }) {
+            }).first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
                 state.parents[id] = parent
             }
             // The strongest of its agents' states: one waiting on you outranks one still running.

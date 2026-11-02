@@ -95,6 +95,11 @@ public final class ManualClock: Clock, Sendable {
     /// The number of tasks asleep on the clock now.
     public var sleeperCount: Int { state.withLock { $0.sleepers.count } }
 
+    /// The deadlines of the tasks asleep on the clock now. With several timers on one clock,
+    /// ``waitForSleeper(within:)`` returns once any of them sleeps; a test that advances past one
+    /// timer's deadline first waits until that deadline is here.
+    public var sleeperDeadlines: [Instant] { state.withLock { $0.sleepers.map(\.deadline) } }
+
     /// Returns once a task is asleep on the clock (at once when one already is).
     ///
     /// Code under test usually reads `now` for its deadline when its own task starts; advancing

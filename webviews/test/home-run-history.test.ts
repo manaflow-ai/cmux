@@ -311,7 +311,7 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
   ).toBe(true);
 });
 
-test("cloud pages expose the endpoint limit for more than 100 timestamp ties", async () => {
+test("a legacy Cloud owner with a hard page cap cannot continue a timestamp tie", async () => {
   const raw = (id: string, started: number) => ({
     id,
     conversation: "cloud-ties",
@@ -368,13 +368,89 @@ test("cloud pages expose the endpoint limit for more than 100 timestamp ties", a
     limit: 2,
     beforeStartedAt: cursor,
   });
-  // The Cloud endpoint caps each owner page at 100 and exposes only a timestamp cursor. A tie
-  // larger than that page cannot be completed by a strict `before_started_at` request; document
-  // the bounded behavior until the Cloud protocol gains a composite cursor.
+  // Simulate a pre-#28069 Cloud brain that truncated a timestamp tie at 100.
+  // Its strict timestamp cursor cannot retrieve the omitted 101st row. Current Cloud
+  // brains use readRunPage and return the *whole* boundary tie (covered below).
   expect(first.runs.filter((entry) => entry.startedAt === 30)).toHaveLength(100);
   expect(first.hasMore).toBe(true);
   expect(second.runs.map((entry) => entry.id)).toEqual(["older"]);
   expect(requests.some((request) => request.before_started_at === cursor)).toBe(true);
+});
+
+test("a tie-preserving Cloud owner hydrates 300 same-time runs before older history", async () => {
+  const raw = (id: string, started: number) => ({
+    id,
+    conversation: "cloud-300",
+    author: "agent_a",
+    status: "done",
+    started_at: started,
+    updated_at: started,
+    rev: 1,
+    step_count: 0,
+    answers: [],
+  });
+  const runs = [
+    ...Array.from({ length: 300 }, (_, index) => raw(`report-${String(index).padStart(3, "0")}`, 30)),
+    raw("older", 20),
+  ];
+  const requests: Record<string, unknown>[] = [];
+  const socket = {
+    async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+      requests.push({ command, ...params });
+      if (command === "identify") return { capabilities: ["cloud-conversation-runs-v1"] } as T;
+      if (command !== "cloud-conversation-runs") return {} as T;
+      const before = typeof params.before_started_at === "number" ? params.before_started_at : Number.MAX_SAFE_INTEGER;
+      const available = runs.filter((entry) => entry.started_at < before);
+      const limit = Number(params.limit);
+      const boundary = available[Math.min(limit, available.length) - 1]?.started_at;
+      // Current Cloud contract (#28069): include the entire tie at the page limit.
+      // Unlike a hard slice(0, 100), this permits a strict timestamp cursor.
+      const page = boundary === undefined ? [] : available.filter((entry) => entry.started_at >= boundary);
+      return { runs: page, has_more: available.length > page.length } as T;
+    },
+  };
+  const home = new DaemonHomeClient(socket as never);
+  const cloud = (
+    home as unknown as {
+      cloud: {
+        known: Set<string>;
+        entries: Map<string, Record<string, unknown>>;
+        heads: Map<string, Record<string, unknown>>;
+      };
+    }
+  ).cloud;
+  cloud.known.add("cloud-300");
+  cloud.entries.set("cloud-300", { conversation: "cloud-300", kind: "group", title: "Cloud 300" });
+  cloud.heads.set("cloud-300", {
+    id: "cloud-300",
+    participants: [{ id: "agent_a", kind: "agent", display_name: "A" }],
+  });
+
+  const first = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-300",
+    limit: 20,
+  });
+  const reports = first.runs.filter((entry) => entry.startedAt === 30);
+  expect(reports).toHaveLength(300);
+  expect(new Set(reports.map((entry) => entry.id)).size).toBe(300);
+  expect(first.hasMore).toBe(true);
+  expect(first.runs.some((entry) => entry.id === "older")).toBe(false);
+
+  const cursor = Math.min(...first.runs.map((entry) => entry.startedAt));
+  expect(cursor).toBe(30);
+  const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-300",
+    limit: 20,
+    beforeStartedAt: cursor,
+  });
+  expect(second.runs.map((entry) => entry.id)).toEqual(["older"]);
+  expect(second.hasMore).toBe(false);
+  expect(
+    requests
+      .filter((request) => request.command === "cloud-conversation-runs")
+      .every((request) => request.limit === 100),
+  ).toBe(true);
+  expect(requests.some((request) => request.before_started_at === 30)).toBe(true);
 });
 
 test("run step reads stay serial, cache complete runs, and stop cancels queued reads", async () => {
