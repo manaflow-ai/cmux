@@ -69,6 +69,9 @@ pub struct Seed {
     /// A full seed is reusing an existing checkout. Check it again immediately
     /// before the forced checkout, after the potentially long network fetch.
     reseeding_existing: bool,
+    /// Baseline HEAD of an existing clean (but previously unseeded) clone.
+    /// A second check rejects an intervening commit after the network fetch.
+    unseeded_head: Option<String>,
 }
 
 impl Seed {
@@ -85,6 +88,7 @@ impl Seed {
         Self {
             job, params, folder, bundle, roots, git, credentials, chosen,
             reseeding_existing: false,
+            unseeded_head: None,
         }
     }
 
@@ -245,7 +249,7 @@ impl Seed {
                 .map_err(|refusal| failed(refusal.code, refusal.message))?;
             // Without this fence, a retried full seed can run checkout --force
             // and git clean -fd over edits made on Cloud after the first send.
-            self.check_existing_seed()?;
+            self.unseeded_head = self.check_existing_seed()?;
             self.reseeding_existing = true;
             self.job.enter(Phase::Fetch);
             // A fetch that fails is not the end: the base may be here already.
@@ -281,28 +285,35 @@ impl Seed {
     /// have changed since its last accepted seed. A full seed uses a forced
     /// checkout and `git clean -fd`, which otherwise discard those changes.
     /// An ordinary existing clone has no seed record and belongs to its owner.
-    fn check_existing_seed(&self) -> Result<(), Failed> {
+    fn check_existing_seed(&self) -> Result<Option<String>, Failed> {
         let changed = |why: &str| failed("seed.machine_changed", why);
         let recorded = |name: &str| {
             self.git(&["rev-parse", "--verify", "--quiet", name])
                 .ok()
                 .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_owned())
         };
-        let Some(head) = recorded("refs/cmux-seed/head^{commit}") else {
-            return Err(failed(
-                "seed.folder_not_empty",
-                "the existing checkout has no completed cmux seed; select a new folder",
-            ));
+        let head = recorded("HEAD^{commit}")
+            .ok_or_else(|| changed("the existing clone has no valid HEAD"))?;
+        let seeded_head = recorded("refs/cmux-seed/head^{commit}");
+        let (index, work) = if let Some(previous) = &seeded_head {
+            if previous != &head {
+                return Err(changed("HEAD moved on Cloud since its last seed"));
+            }
+            match (
+                recorded("refs/cmux-seed/index^{tree}"),
+                recorded("refs/cmux-seed/work^{tree}"),
+            ) {
+                (Some(index), Some(work)) => (index, work),
+                _ => return Err(changed("the existing checkout has an incomplete seed record")),
+            }
+        } else {
+            // A same-origin GitHub clone never seeded through cmux is safe
+            // to reuse only when it is pristine. Treat its HEAD tree as the
+            // baseline and retain its SHA across the network fetch.
+            let tree = recorded("HEAD^{tree}")
+                .ok_or_else(|| changed("the existing clone has no HEAD tree"))?;
+            (tree.clone(), tree)
         };
-        let (Some(index), Some(work)) = (
-            recorded("refs/cmux-seed/index^{tree}"),
-            recorded("refs/cmux-seed/work^{tree}"),
-        ) else {
-            return Err(changed("the existing checkout has an incomplete seed record"));
-        };
-        if recorded("HEAD^{commit}").as_deref() != Some(head.as_str()) {
-            return Err(changed("HEAD moved on Cloud since its last seed"));
-        }
         let branch = self.git(&["symbolic-ref", "-q", "HEAD"]).ok().map(|bytes| {
             String::from_utf8_lossy(&bytes).trim().to_owned()
         });
@@ -310,8 +321,13 @@ impl Seed {
         if branch != requested {
             return Err(changed("the checkout branch differs from this seed's branch"));
         }
-        if recorded("refs/stash^{commit}") != recorded("refs/cmux-seed/stash^{commit}") {
-            return Err(changed("refs/stash changed on Cloud since its last seed"));
+        let stash = recorded("refs/stash^{commit}");
+        if seeded_head.is_some() {
+            if stash != recorded("refs/cmux-seed/stash^{commit}") {
+                return Err(changed("refs/stash changed on Cloud since its last seed"));
+            }
+        } else if stash.is_some() {
+            return Err(changed("the existing clone has a stash that full seeding would overwrite"));
         }
         // Reconfiguring a sparse checkout can discard deliberately hidden
         // working files. Refuse full reseed when Cloud's current rules do
@@ -354,7 +370,7 @@ impl Seed {
         if !snapshot.left_out.is_empty() {
             return Err(changed("the checkout has excluded untracked files that reseeding could delete"));
         }
-        Ok(())
+        Ok(seeded_head.is_none().then_some(head))
     }
 
     /// The last accepted seed excludes ignored files. A new full seed may
@@ -365,9 +381,14 @@ impl Seed {
     fn check_new_paths_before_reseed(&self) -> Result<(), Failed> {
         let changed = |why: &str| failed("seed.machine_changed", why);
         let mut ignore_rules_changed = false;
+        let (previous_head, previous_work) = if self.unseeded_head.is_some() {
+            ("HEAD", "HEAD")
+        } else {
+            ("refs/cmux-seed/head", "refs/cmux-seed/work")
+        };
         for (previous, incoming) in [
-            ("refs/cmux-seed/head", self.params.head.as_str()),
-            ("refs/cmux-seed/work", self.params.work.as_str()),
+            (previous_head, self.params.head.as_str()),
+            (previous_work, self.params.work.as_str()),
         ] {
             let changed_paths = self.git(&[
                 "diff-tree", "-r", "-z", "--no-renames", "--name-only",
@@ -587,7 +608,9 @@ impl Seed {
     fn checkout(&mut self) -> Result<(), Failed> {
         self.recheck()?;
         if self.reseeding_existing {
-            self.check_existing_seed()?;
+            if self.check_existing_seed()? != self.unseeded_head {
+                return Err(failed("seed.machine_changed", "the Cloud checkout changed during fetch"));
+            }
             // Existing ignored files remain untouched unless the incoming Git
             // trees claim their paths. Catch those collisions before --force.
             self.check_new_paths_before_reseed()?;
