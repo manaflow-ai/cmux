@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4152929323101",
+  "notes": "notes/4152929323101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32590,
+      "title": "Cloud Native: retry Native after the cmux link fallback's hold instead of holding it until sign-out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27710,
+      "title": "test(composer): execute anchored history paging regressions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32481,
+      "title": "perf(icons): chrome glyphs come from one shared bitmap per glyph, size and scale (REOPEN-F7 part A2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32575,
+      "title": "sidebar-churn bench: STRESS types into the last pane's terminal when a late chat took the selection",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32571,
+      "title": "base red: a link handoff cancelled during entry verification closes the entry at once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30533,
+      "title": "PR checks: cancelled, skipped and superseded runs are not counted as failing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27997,
+      "title": "fix(transcript): hide duplicate code handoff controls",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
