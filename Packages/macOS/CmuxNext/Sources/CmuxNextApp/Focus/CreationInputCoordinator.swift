@@ -257,8 +257,7 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
-        // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown cold): the key
-        // waits for it, at most `holdLimit` (REOPEN-F4, port of #31707).
+        // The focused terminal or page does not show yet (a reopen, a workspace shown cold): keys wait, at most `holdLimit` (REOPEN-F4).
         if buffers[shell.windowNumber]?.awaitedTab == nil, buffers[shell.windowNumber].map({ !$0.holdsCreation }) ?? true, kind == .content,
            let controller, ActionRunScope.viewChangeAllowed(), let awaited = Self.awaitedContent(controller) {
             buffer(in: shell).awaitedTab = awaited.tab
@@ -282,9 +281,7 @@ final class CreationInputCoordinator {
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         // A surface hold keeps a chord no app shortcut takes (Ctrl-C, Ctrl-L), also as its first key.
-        let terminalChord = !closes && buffer.awaitedTab != nil && KeyRouter.isChord(event.modifierFlags) && controller.map { controller in
-            router.resolve(event, context: router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: shell, controller: controller))) == nil
-        } == true
+        let terminalChord = !closes && buffer.awaitedTab != nil && KeyRouter.isChord(event.modifierFlags) && controller.map { router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0))) == nil } == true
         // A page hold keeps a page action, a plain key and a chord the page takes, until its bound (REOPEN-F4 browser case).
         let pageKey = !closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && controller.map { AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0)))?.command.rawValue) } == true
         guard kind == .content, controller != nil, pageKey || terminalChord || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
