@@ -36,6 +36,8 @@ public final class DividerMouseCatchers {
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
+    /// Panels made since launch: each is a new window in the window server (`debug.layers`, tests).
+    public private(set) var panelsMade = 0
 
     public init(window: NSWindow) {
         self.window = window
@@ -131,6 +133,7 @@ public final class DividerMouseCatchers {
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
+        panelsMade += 1
         let panel = DividerMousePanel()
         panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
         return panel
