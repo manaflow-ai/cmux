@@ -185,8 +185,8 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// own credential, since `codex login status` says "Not logged in" there
 /// while Codex works. Otherwise `codex login status` answers (also behind
 /// codex-acp) when Codex keeps its login in a file. Claude's sign-in
-/// sources (`claude_auth`) only ever prove a sign-in, so none found stays
-/// unknown, never a guess from a missing file.
+/// sources (`claude_auth`) normally prove presence only. A sole, expired file login without
+/// a refresh token is Expired off macOS; none found stays unknown, never a missing-file guess.
 ///
 /// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
 /// start, every few hours), and acpmux never asks the keychain on its own.
@@ -227,6 +227,9 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
             let env = crate::login_env::effective_for(Some("claude"), &s.env);
             let found = crate::claude_auth::find(&env);
+            if found.expired_file_login {
+                return Some((Auth::Expired, Some("Claude file login expired; sign in again".into())));
+            }
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`

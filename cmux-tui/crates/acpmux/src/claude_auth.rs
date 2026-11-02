@@ -49,6 +49,9 @@ pub struct Found {
     pub endpoint: Option<String>,
     /// Credential keys that came from the environment (not a file).
     pub env_keys: Vec<String>,
+    /// The sole file login is positively expired and cannot refresh. Never set on macOS,
+    /// where an uninspected keychain login can still work, or with another credential source.
+    pub expired_file_login: bool,
 }
 
 impl Found {
@@ -166,12 +169,40 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     {
         found.sources.push(format!("the API key saved in {}", tilde(&config)));
     }
-    if home.join(".credentials.json").is_file() {
+    let credentials = home.join(".credentials.json");
+    if credentials.is_file() {
+        found.expired_file_login = !cfg!(target_os = "macos")
+            && found.sources.is_empty()
+            && std::fs::read(&credentials)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|json| unrefreshable_file_expiry(&json));
         found
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
     found
+}
+
+/// Only a known OAuth expiry with no usable refresh token proves failure. Unknown fields,
+/// missing timestamps and malformed token shapes retain the existing presence-only evidence.
+fn unrefreshable_file_expiry(json: &serde_json::Value) -> bool {
+    let Some(oauth) = json.get("claudeAiOauth") else { return false };
+    let has_access = oauth
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.trim().is_empty());
+    let no_refresh = match oauth.get("refreshToken") {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(token)) => token.trim().is_empty(),
+        _ => false,
+    };
+    let expired = oauth.get("expiresAt").and_then(|v| v.as_u64()).is_some_and(|expiry| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .is_ok_and(|now| u128::from(expiry) <= now.as_millis())
+    });
+    has_access && no_refresh && expired
 }
 
 /// The person's terminal: the daemon's environment with the login shell's

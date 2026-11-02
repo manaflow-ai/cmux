@@ -12,14 +12,34 @@ async fn claude_file_expiry_requires_unrefreshable_evidence_without_another_sour
     let expired = json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1}});
     let mut cases = vec![
         ("expired", expired.clone(), true),
-        ("blank-refresh", json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": "  "}}), true),
-        ("refreshable", json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": "synthetic-refresh"}}), false),
-        ("future", json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 9_000_000_000_000_u64}}), false),
+        (
+            "blank-refresh",
+            json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": "  "}}),
+            true,
+        ),
+        (
+            "refreshable",
+            json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": "synthetic-refresh"}}),
+            false,
+        ),
+        (
+            "future",
+            json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 9_000_000_000_000_u64}}),
+            false,
+        ),
         ("no-expiry", json!({"claudeAiOauth": {"accessToken": "synthetic-access"}}), false),
         ("no-access", json!({"claudeAiOauth": {"expiresAt": 1}}), false),
         ("unknown-format", json!({}), false),
-        ("string-expiry", json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": "1"}}), false),
-        ("malformed-refresh", json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": {}}}), false),
+        (
+            "string-expiry",
+            json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": "1"}}),
+            false,
+        ),
+        (
+            "malformed-refresh",
+            json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1, "refreshToken": {}}}),
+            false,
+        ),
     ];
     for id in ["env", "settings", "helper", "api-key", "cloud"] {
         cases.push((id, expired.clone(), false));
@@ -36,7 +56,8 @@ async fn claude_file_expiry_requires_unrefreshable_evidence_without_another_sour
         };
         std::fs::write(dir.join("settings.json"), settings.to_string()).unwrap();
         if *id == "api-key" {
-            std::fs::write(dir.join(".claude.json"), r#"{"primaryApiKey":"synthetic-key"}"#).unwrap();
+            std::fs::write(dir.join(".claude.json"), r#"{"primaryApiKey":"synthetic-key"}"#)
+                .unwrap();
         }
         let extra = if *id == "env" { "ANTHROPIC_API_KEY = \"synthetic-env\"\n" } else { "" };
         profile(
@@ -44,7 +65,8 @@ async fn claude_file_expiry_requires_unrefreshable_evidence_without_another_sour
             &format!("claude-{id}"),
             &format!(
                 "protocol = \"claude-stdio\"\ncommand = \"{}\"\n[env]\nCLAUDE_CONFIG_DIR = \"{}\"\n{extra}",
-                claude.display(), dir.display()
+                claude.display(),
+                dir.display()
             ),
         );
     }
