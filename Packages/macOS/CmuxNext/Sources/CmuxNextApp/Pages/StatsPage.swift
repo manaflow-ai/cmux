@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextPages
 import Observation

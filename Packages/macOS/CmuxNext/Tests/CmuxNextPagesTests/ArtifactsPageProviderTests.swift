@@ -164,8 +164,7 @@ struct ArtifactsPageProviderTests {
             onEvent(["changed": .bool(true)])
             return PageSubscription {}
         })
-        let descriptor = PageDescriptor(id: "cmux.artifacts-test", resource: "artifacts", namespaces: ["cmux.artifacts."])
-        let router = PageRouter(descriptor: descriptor, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider), PageRoute(prefix: "cmux.cloud.", provider: provider)])
+        let router = PageRouter(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider), PageRoute(prefix: "cmux.cloud.", provider: provider)])
         var seen = false
         router.send = { message in seen = message["data"]?["changed"]?.boolValue == true }
         let reply = await router.handle(["t": "sub", "id": 1, "stream": "cmux.cloud.auth.watch"])

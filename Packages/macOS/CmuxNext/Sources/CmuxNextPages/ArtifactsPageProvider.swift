@@ -6,7 +6,7 @@ public extension PageDescriptor {
     /// memories as a tree, a preview and their history, read only. Its three ops are relayed to
     /// cmux-platform's `/v1/artifacts` reads with the app's own bearer; the page never sees a token.
     /// Saved HTML previews in passive srcdoc frames, which never navigate.
-    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts."],
+    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts.", "cmux.cloud."],
                                           passiveFrames: true)
 }
 
@@ -70,7 +70,8 @@ public final class ArtifactsPageProvider: PageProvider {
     public static func page(baseURL: URL?, authChanges: AuthChanges? = nil,
                             token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
         let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token), authChanges: authChanges)
-        return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider)])
+        return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider),
+                                                            PageRoute(prefix: "cmux.cloud.", provider: provider)])
     }
 
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
