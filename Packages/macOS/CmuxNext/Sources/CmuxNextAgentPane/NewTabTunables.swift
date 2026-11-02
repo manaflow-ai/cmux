@@ -1,4 +1,5 @@
-import CmuxNextDesign
+public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// The new tab design prototypes (Debug Settings `newTab.layout`, DEV and
 /// NIGHTLY only; Release always shows B). A is deleted once B passes
