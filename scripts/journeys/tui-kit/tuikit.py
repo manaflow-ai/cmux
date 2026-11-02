@@ -327,6 +327,19 @@ def find_cargo():
     return None
 
 
+def cargo_path(cargo, path):
+    """PATH for the build: cargo's own folder first. cargo runs `rustc` (and rustup's shim finds the toolchain) by
+    PATH; a capture slot's PATH lacks /opt/homebrew/bin, so a cargo found there failed with "could not execute
+    process `rustc -vV`" (first real-app L1, cmux20 2026-11-02 08:33Z, exit 101)."""
+    folder = os.path.dirname(os.path.realpath(cargo)) if os.path.islink(cargo) else os.path.dirname(cargo)
+    parts = [folder, os.path.dirname(cargo)] + [x for x in path.split(os.pathsep) if x]
+    out = []
+    for x in parts:
+        if x and x not in out:
+            out.append(x)
+    return os.pathsep.join(out)
+
+
 BUILD_TIMEOUT = 300  # s: a cargo that waits on another job's package-cache lock does not hang a load run
 
 
@@ -353,6 +366,7 @@ def build_bins(quiet=False):
         env["RUSTUP_HOME"] = os.path.join(account, ".rustup")
     if account and "CARGO_HOME" not in env and os.path.isdir(os.path.join(account, ".cargo")):
         env["CARGO_HOME"] = os.path.join(account, ".cargo")
+    env["PATH"] = cargo_path(cargo, env.get("PATH", ""))
     # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin() does not look
     try:
         done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
@@ -390,6 +404,10 @@ def cmd_beacon(a):
         argv += ["--label", a.label]
     if a.log:
         argv += ["--log", a.log]
+    if a.log_frames:
+        argv.append("--log-frames")
+    if a.inject_stall_ms:
+        argv += ["--inject-stall-ms", repr(float(a.inject_stall_ms)), "--inject-stall-at", str(a.inject_stall_at)]
     sys.stdout.flush()
     os.execv(path, argv)
 
@@ -1464,6 +1482,9 @@ def build_parser():
     p.add_argument("--label")
     p.add_argument("--duration", type=nonnegative(float), default=0.0)
     p.add_argument("--log")
+    p.add_argument("--log-frames", action="store_true", help="one log line per drawn frame (its mono time)")
+    p.add_argument("--inject-stall-ms", type=nonnegative(float), default=0.0, help=argparse.SUPPRESS)  # tests
+    p.add_argument("--inject-stall-at", type=nonnegative(int), default=100, help=argparse.SUPPRESS)
     # rt, not spin: a SWITCH profile runs 18 beacons at 240 Hz, and 18 spinning cores would be the load
     # under test; rt is a real-time thread that waits with mach_wait_until (pace_probe's rust-rt row
     # says whether it holds the rate; the end event's verdict says it per run)
