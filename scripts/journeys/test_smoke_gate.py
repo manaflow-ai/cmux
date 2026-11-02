@@ -30,13 +30,15 @@ out = args[args.index("--out") + 1]
 os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
 n = int(os.path.basename(out).split("-")[1])
 plan = json.loads(os.environ["SMOKE_PLAN"])
-status = plan[n - 1]
+status = plan[n - 1] if n <= len(plan) else plan[-1]
+idle = status == "pass-idle"  # a pass whose hog log shows no pressure (this attempt only)
+status = "pass" if idle else status
 row = {"id": "smoke-dogfood", "status": status, "reason": "", "host": "cmux99",
        "build_job": os.environ.get("SMOKE_BUILD", "job123")}
 if status == "silent":  # run.py stopped before it wrote results
     sys.exit(3)
 if os.environ.get("SMOKE_HOG", "edge") != "none":
-    level = 15 if os.environ.get("SMOKE_HOG", "edge") == "edge" else 60
+    level = 15 if os.environ.get("SMOKE_HOG", "edge") == "edge" and not idle else 60
     with open(os.path.join(out, "hog-slot-cmux99-abc.jsonl"), "w") as f:
         for t in range(40):
             f.write(json.dumps({"t": t, "held_mb": 9000, "swap_used_mb": 1000 + t * 10, "level": level}) + "\n")
@@ -248,6 +250,30 @@ class Verdicts(unittest.TestCase):
                 code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_HOG": hog})
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
                 self.assertIn("no memory pressure", summary["rounds_detail"][0]["reason"])
+                # Each slot's no-pressure round is run again, at most --rounds times in all; then the rest stay not run.
+                self.assertEqual((len(summary["rounds_detail"]), len(summary["replaced_rounds"]), summary["not_run"]), (20, 10, 10))
+
+    def test_a_round_without_pressure_is_run_again_in_its_slot(self):
+        plan = ["pass-idle", "pass", "pass", "pass", "pass", "pass-idle", "pass", "pass", "pass", "pass", "pass", "pass"]
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(plan, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"), rounds=10)
+            self.assertEqual((summary["verdict"], summary["passed"], summary["not_run"]), ("PASS", 10, 0))
+            self.assertEqual(summary["replaced_rounds"], [1, 6])
+            detail = summary["rounds_detail"]
+            self.assertEqual([r["slot"] for r in detail], [1, 1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10])
+            # Slot 1 is a real-key slot: its replacement is typed with real keys too. Slot 5 (attempts 6 and 7) is
+            # not, and slot 6 (attempt 8) still is: a replacement does not shift the real-key slots.
+            self.assertEqual([r["key_path"] for r in detail[:2]], ["real_hid", "real_hid"])
+            self.assertEqual([r["key_path"] for r in detail[5:8]], ["debug.key", "debug.key", "real_hid"])
+            self.assertIn("run again for slot 1", detail[0]["reason"])
+            self.assertIn("rounds [1, 6] showed no memory pressure and were run again", open(os.path.join(tmp, "out", "summary.txt")).read())
+
+    def test_a_failed_round_is_never_run_again(self):
+        plan = ["pass-idle", "fail"] + ["pass"] * 10
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(plan, tmp, rounds=10)
+            self.assertEqual((summary["verdict"], summary["failed"], summary["replaced_rounds"]), ("FAIL", 1, [1]))
+            self.assertEqual(len(summary["rounds_detail"]), 11)
 
     def test_results_of_another_build_or_a_silent_run_do_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
