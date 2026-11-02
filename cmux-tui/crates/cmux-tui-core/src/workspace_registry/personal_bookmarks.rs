@@ -91,6 +91,17 @@ macro_rules! ensure_valid {
     };
 }
 
+// MARK: Outcomes
+
+/// A committed (or replayed) op: the wire result, with `replayed`, and,
+/// when it changed a tree, that browser profile and the committed
+/// `bookmarks_revision`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookmarkOutcome {
+    pub result: Value,
+    pub changed: Option<(String, u64)>,
+}
+
 // MARK: Ids
 
 pub fn new_bookmark_id() -> String {
