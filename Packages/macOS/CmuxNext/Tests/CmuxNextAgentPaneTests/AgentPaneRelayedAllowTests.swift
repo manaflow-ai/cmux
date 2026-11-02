@@ -298,6 +298,38 @@ struct AgentPaneRelayedAllowTests {
             "modeId": "m", "answers": ["q": "B"]]]]) == nil)
     }
 
+    /// 2026-10-21: Leo answered a question card on another machine and acpmux refused it, "allowing
+    /// a permission is accepted only from the cmux app". A second answer reserved before the first
+    /// answer's frame went out revoked the first ticket (one slot per method), so the first answer
+    /// went out unproved. Each ask keeps its own ticket, as each prompt does (#29745).
+    @Test func answersToTwoAsksReservedBackToBackKeepTheirOwnTickets() throws {
+        let clock = AgentPaneSlowStartPromptTests.Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
+        let firstIntent = try #require(Self.intent(option: "yes", permission: "p1"))
+        let secondIntent = try #require(Self.intent(option: "yes", permission: "p2"))
+        func frame(_ permission: String, option: String = "yes") -> [String: Any] {
+            ["sessionId": "s", "permissionId": permission, "optionId": option, "_meta": ["cmuxGesture": "t"]]
+        }
+        let method = "_acpmux/permission_respond"
+
+        // Two clicks, two asks, before either answer's frame reaches the relay.
+        gestures.record(click: true)
+        let first = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let second = try #require(gestures.reserve(connection: 1, intent: secondIntent))
+        #expect(gestures.redeem(first, connection: 1, method: method, params: frame("p1")),
+                "the second ask's answer revoked the first ask's ticket")
+        #expect(gestures.redeem(second, connection: 1, method: method, params: frame("p2")))
+
+        // A newer answer to the same ask still replaces the older one.
+        gestures.record(click: true)
+        let older = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let newer = try #require(gestures.reserve(connection: 1, intent: try #require(Self.intent(option: "no", permission: "p1"))))
+        #expect(!gestures.redeem(older, connection: 1, method: method, params: frame("p1")))
+        #expect(gestures.redeem(newer, connection: 1, method: method, params: frame("p1", option: "no")))
+    }
+
     /// The same review, through the transport: a ticket the page took for answer B does not let
     /// it send answer A to another machine (the gesture is refused, so nothing is signed).
     @Test func aTicketForOneAnswerIsRefusedForAnother() async throws {
