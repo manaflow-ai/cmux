@@ -2145,15 +2145,15 @@ export function layoutConversation(
         : edge === LIVE_STEP_EDGE
           ? toolRowHeight()
           : measuredRowHeight(
-            row,
-            width,
-            cache,
-            edge?.startsWith("footer") === true,
-            edge?.startsWith("last-turn") === true,
-            sessionId,
-            edge?.startsWith("continuation") === true,
-            edge?.endsWith(ACTIONS_EDGE) === true,
-          );
+              row,
+              width,
+              cache,
+              edge?.startsWith("footer") === true,
+              edge?.startsWith("last-turn") === true,
+              sessionId,
+              edge?.startsWith("continuation") === true,
+              edge?.endsWith(ACTIONS_EDGE) === true,
+            );
       // A row that draws nothing stays at 0; a custom renderer's height is its own.
       if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
