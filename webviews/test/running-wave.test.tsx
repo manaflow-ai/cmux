@@ -121,3 +121,25 @@ test("the wave runs only with motion: Reduce Motion, the motion gate, static ind
   const frames = css.slice(keyframes, css.indexOf("@media", keyframes));
   expect(frames.match(/[a-z-]+(?=:)/g)).toEqual(["opacity", "opacity"]);
 });
+
+test("Session Info's wave sweeps slower than the shared one, period and step scaled together", () => {
+  // Leo 2026-10-28: "I think it could maybe be a bit slower on the session info region".
+  const shared = readFileSync(path.resolve(import.meta.dir, "../src/ui/wave.css"), "utf8");
+  const css = readFileSync(
+    path.resolve(import.meta.dir, "../src/agent-session/acpmux/session-info/SubagentsSection.css"),
+    "utf8",
+  );
+  const at = css.indexOf(".acpmux-session-info-subagents {");
+  expect(at).toBeGreaterThanOrEqual(0);
+  const rule = css.slice(at, css.indexOf("}", at));
+  const ms = (text: string, name: string) => {
+    const match = text.match(new RegExp(`${name}:\\s*([\\d.]+)(m?s);`))!;
+    return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+  };
+  const period = ms(rule, "--cmux-wave-period");
+  expect(period).toBeGreaterThan(ms(shared, "--cmux-wave-period"));
+  expect(period / ms(rule, "--cmux-wave-step")).toBeCloseTo(
+    ms(shared, "--cmux-wave-period") / ms(shared, "--cmux-wave-step"),
+    6,
+  );
+});
