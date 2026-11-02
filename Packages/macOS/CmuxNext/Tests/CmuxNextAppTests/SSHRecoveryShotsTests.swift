@@ -13,12 +13,15 @@ import Testing
     @Test func recoveryVariantsRenderInLightAndDark() throws {
         _ = NSApplication.shared
         let detail = "Could not resolve hostname nohost.invalid: nodename nor servname provided, or not known"
-        // The theme's ink follows the app's look, not only the view's: on a Mac whose system look is the other one,
-        // the primary-ink title and buttons drew in the wrong appearance's text color on the card and OCR lost them.
-        let appLook = NSApp.appearance
-        defer { NSApp.appearance = appLook }
-        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-            NSApp.appearance = NSAppearance(named: appearance)
+        // Each pass draws in a theme of its own brightness, as the app does: a window's light or dark look comes
+        // from its theme scope (`ThemeScope.adopt`), and the dialog's ink is that theme's. Forcing only the look
+        // left the test's app scope on Ghostty's default dark theme, so the "light" pass drew the dark theme's
+        // near-white title and Cancel/Copy/Check labels over a light card and OCR read only the gray detail and
+        // the filled Retry button (job a821ec925b5cb01e0d3dd11f, 5 of 5).
+        for (appearance, input) in [(NSAppearance.Name.aqua, Self.lightTheme), (.darkAqua, ThemeInput.ghosttyDefault)] {
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(try #require(ThemeSpec("SSH Recovery \(appearance.rawValue)")), input: input, animated: false)
+            #expect(scope.appearance.name == appearance)
             var shots: [(String, NSImage)] = []
             for variant in ["compact", "balanced", "details"] {
                 var spec = SSHConnectRecovery.spec(title: "Cannot Connect to nohost.invalid", detail: detail, cancel: "Cancel", copy: "Copy Error", check: "Check Machine", retry: "Retry")
@@ -27,8 +30,7 @@ import Testing
                 let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
                 let id = center.present(spec, in: .app) { _ in }
                 let view = try #require(center.view(id))
-                view.appearance = NSAppearance(named: appearance)
-                let image = try Self.render(view, appearance: appearance)
+                let image = try Self.render(view, in: scope)
                 #expect(image.size.width >= 300)
                 shots.append(("\(appearance.rawValue) \(variant)", image))
                 center.dismiss(id)
@@ -41,7 +43,12 @@ import Testing
         }
     }
 
-    private static func render(_ view: NSView, appearance: NSAppearance.Name) throws -> NSImage {
+    /// A light terminal theme (white background, near-black text), as `CmuxDialogLightContrastTests` uses.
+    private static let lightTheme = ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F))
+
+    /// Captures `view` in a window that adopted `scope`, over the scope's window background: what a person sees
+    /// behind a dialog in that theme.
+    private static func render(_ view: NSView, in scope: ThemeScope) throws -> NSImage {
         // At least the dialog's own fitting size plus a margin: the stacked actions and a wrapped detail make the
         // card taller on some Macs (fonts, scale) than a fixed 420x280 root, which clipped the title off the top.
         view.layoutSubtreeIfNeeded()
@@ -50,8 +57,10 @@ import Testing
         let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        window.appearance = NSAppearance(named: appearance)
         window.contentView = root
+        scope.adopt(window)
+        root.wantsLayer = true
+        root.layer?.backgroundColor = scope.perform { Palette.windowBackground }.cgColor
         root.addSubview(view)
         NSLayoutConstraint.activate([
             view.centerXAnchor.constraint(equalTo: root.centerXAnchor),
@@ -83,8 +92,8 @@ import Testing
     /// What the capture holds under the title: its label's ink, the theme's light or dark, and the
     /// darkest and lightest captured pixels in its frame (white text on a white card reads as one value).
     private static func titleInk(in root: NSView, rep: NSBitmapImageRep) -> String {
-        func find(_ node: NSView) -> NSTextField? {
-            if let field = node as? NSTextField, field.stringValue.hasPrefix("Cannot Connect") { return field }
+        func find(_ node: NSView) -> ChromeLabel? {
+            if let label = node as? ChromeLabel, label.stringValue.hasPrefix("Cannot Connect") { return label }
             return node.subviews.lazy.compactMap(find).first
         }
         guard let title = find(root) else { return "no title label" }
