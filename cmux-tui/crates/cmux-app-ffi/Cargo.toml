@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker and cmux-motion"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion and the host budget"
 
 # Own workspace, like its members: built only for the app xcframework
 # (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
@@ -22,6 +22,9 @@ cmux-palette-ranker = { path = "../cmux-palette-ranker" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
+# The host CPU/RAM budget (src/host_budget.rs). No `tokio`: the app reads the
+# meter synchronously on its own queue.
+cmux-host-budget = { path = "../cmux-host-budget", default-features = false }
 
 [profile.release]
 opt-level = 3

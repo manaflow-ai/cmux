@@ -75,9 +75,20 @@ impl From<&crate::Verdict> for Reading {
 }
 
 /// The level `reading` alone calls for while the app shows `holding`.
-pub fn level_for(_reading: &Reading, _holding: Level) -> Level {
-    // Red step: the rule is not ported yet.
-    Level::Normal
+pub fn level_for(reading: &Reading, holding: Level) -> Level {
+    if reading.pressure == "critical" || reading.over.len() >= 2 {
+        return Level::Critical;
+    }
+    if !reading.over.is_empty() {
+        return Level::Warning;
+    }
+    let release = if holding > Level::Normal { LOAD_RELEASE_FRACTION } else { 0.0 };
+    let line = LOAD_WARN_FRACTION - release;
+    if reading.load1.unwrap_or(0.0) >= reading.load_limit * line {
+        Level::Warning
+    } else {
+        Level::Normal
+    }
 }
 
 /// Turns verdicts into a level that does not flicker (module docs).
@@ -109,9 +120,23 @@ impl Tracker {
     }
 
     /// Feeds one verdict; returns the new level when it changed.
-    pub fn feed(&mut self, _reading: &Reading) -> Option<Level> {
-        // Red step: the rule is not ported yet.
-        None
+    pub fn feed(&mut self, reading: &Reading) -> Option<Level> {
+        let wanted = level_for(reading, self.level);
+        if wanted >= self.level {
+            self.calm_streak = 0;
+            if wanted == self.level {
+                return None;
+            }
+            self.level = wanted;
+            return Some(wanted);
+        }
+        self.calm_streak = self.calm_streak.saturating_add(1);
+        if self.calm_streak < self.calm_samples {
+            return None;
+        }
+        self.calm_streak = 0;
+        self.level = wanted;
+        Some(wanted)
     }
 }
 

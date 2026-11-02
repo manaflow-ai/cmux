@@ -374,7 +374,8 @@ pub use level::{LOAD_RELEASE_FRACTION, LOAD_WARN_FRACTION, Level, Reading, Track
 mod rejudge;
 pub use rejudge::with_pressure;
 
-// The JSON calls the app's C ABI makes (cmux-app-ffi `host_budget.rs`).
+// The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
+pub mod ffi;
 pub mod json;
 
 #[cfg(test)]

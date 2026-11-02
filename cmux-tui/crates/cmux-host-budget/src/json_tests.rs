@@ -97,11 +97,23 @@ fn given_numbers_are_judged_with_the_built_in_formula() {
     assert_eq!(judge("[]"), None);
 }
 
+/// The process's meter answers `None` while another read is in flight (a test
+/// on another thread): ask again until one ends.
+fn local() -> String {
+    for _ in 0..200 {
+        if let Some(v) = local_verdict() {
+            return v;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the meter never answered");
+}
+
 /// The process's own meter answers with a verdict of this host.
 #[test]
 fn the_local_verdict_is_this_hosts() {
-    let v: Value = serde_json::from_str(&local_verdict().unwrap()).unwrap();
+    let v: Value = serde_json::from_str(&local()).unwrap();
     assert_eq!(v["host"], crate::host_name());
     assert!(v["load_limit"].as_f64().unwrap() > 0.0);
-    assert!(reading(&local_verdict().unwrap()).is_some());
+    assert!(reading(&local()).is_some());
 }

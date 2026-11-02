@@ -1,5 +1,5 @@
-//! The JSON calls of the macOS app's C ABI (cmux-app-ffi `host_budget.rs`,
-//! header `cmux_host_budget_ffi.h`). Each takes and returns the verdict as
+//! The JSON calls of the macOS app's C ABI (`ffi.rs`, header
+//! `include/cmux_host_budget_ffi.h`). Each takes and returns the verdict as
 //! the JSON acpmux's `daemon status` reports in `host_pressure`, so the app
 //! handles a daemon's verdict and its own the same way. None of them panics on
 //! any input; a bad input gives `None`.
