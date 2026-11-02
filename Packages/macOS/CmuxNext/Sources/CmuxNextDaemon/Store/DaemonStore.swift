@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextWakeups
 import Foundation
 public import Observation
@@ -58,8 +59,11 @@ public final class DaemonStore: StateResourceQueries {
     /// What the sidebar shows of a tab's unread notification
     /// (`notificationText(for:)`): each live notification's text by id, and
     /// the ledger's newest unread text by surface, seeded at connect.
-    var notificationTexts: [NotificationID: String] = [:]
-    var ledgerNotificationTexts: [SurfaceID: String] = [:]
+    /// Each observed one key at a time (`ObservedMap`): a sidebar row reads its own tab's text, so a notification
+    /// posted to another workspace maps no other row again (TYPING UNDER LOAD F6: every row with an unread tab
+    /// re-mapped on every `notify`).
+    @ObservationIgnored let notificationTexts = ObservedMap<NotificationID, String>()
+    @ObservationIgnored let ledgerNotificationTexts = ObservedMap<SurfaceID, String>()
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
     /// True while the tree is the daemon's launch snapshot (drawn before
@@ -254,6 +258,11 @@ public final class DaemonStore: StateResourceQueries {
     public func tab(idOrResource id: String) -> TabModel? {
         _ = tabListRevision
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
+    }
+    /// The pane with public id or pane resource id `id`.
+    public func pane(idOrResource id: String) -> PaneModel? {
+        index.panesByResource[ResourceID(rawValue: id)]
+            ?? workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == id || $0.resourceID?.rawValue == id }
     }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
