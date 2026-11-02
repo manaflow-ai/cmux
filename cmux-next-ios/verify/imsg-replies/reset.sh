@@ -2,7 +2,7 @@
 # Fresh paired state: both gesture servers, both apps reseeded, keyboards down.
 OUT=${OUT:-$HOME/imsgreply/out/light}; source ~/imsgreply/pair.sh
 export DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer
-if ! pgrep -f GestureServerUITests >/dev/null; then
+if ! { _galive ref && _galive ours; }; then
   serve_start
   until grep -q "testServe\]' started" $GDIR/ref.log && grep -q "testServe\]' started" $GDIR/ours.log; do sleep 1; done
   sleep 2
