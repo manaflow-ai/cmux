@@ -170,8 +170,15 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
         lead = 0
         while lead < len(play) and play[lead]["do"] == "use_pane":
             lead += 1
-        steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5), kit_record_start(jid, seconds)]
-        steps += play[lead:] + [kit_record_stop(jid, tail)] + after_check()
+        # Main-thread evidence per display frame (fix owner, STATUS 4473): debug.frames (each frame's interval, the
+        # main run loop's busy time and layout passes in it, raw arrays) and debug.main_budget / debug.hangs.
+        probes_on = [{"do": "rpc", "method": "debug.main_budget", "params": {"reset": True}, "title": "probe: main budget reset"},
+                     {"do": "rpc", "method": "debug.frames", "params": {"action": "start", "raw": True}, "title": "probe: per-frame main thread on"}]
+        probes_off = [{"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "title": "probe: per-frame main thread (raw)"},
+                      {"do": "rpc", "method": "debug.main_budget", "params": {}, "title": "probe: main budget since the reset"},
+                      {"do": "rpc", "method": "debug.hangs", "params": {}, "title": "probe: hangs"}]
+        steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5)] + probes_on + [kit_record_start(jid, seconds)]
+        steps += play[lead:] + [kit_record_stop(jid, tail)] + probes_off + after_check()
         CASES.append({"id": jid, "priority": "P1", "title": f"{title} ({load} load, {look})",
                       "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. "
                              "The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",

@@ -162,6 +162,23 @@
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
+   "do": "rpc",
+   "method": "debug.main_budget",
+   "params": {
+    "reset": true
+   },
+   "title": "probe: main budget reset"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start",
+    "raw": true
+   },
+   "title": "probe: per-frame main thread on"
+  },
+  {
    "do": "video_start",
    "name": "rv-close-in-row-heavy-light",
    "seconds": 20,
@@ -181,6 +198,27 @@
    "name": "rv-close-in-row-heavy-light",
    "tail": 1.2,
    "title": "the motion ends; stop the recording (rv-close-in-row-heavy-light)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "probe: per-frame main thread (raw)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.main_budget",
+   "params": {},
+   "title": "probe: main budget since the reset"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {},
+   "title": "probe: hangs"
   },
   {
    "do": "use_pane",
