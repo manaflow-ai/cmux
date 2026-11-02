@@ -166,13 +166,13 @@ final class CreationInputCoordinator {
                                             machine: controller.content?.daemon.machineID, takesEveryKey: hides)
     }
 
-    /// Keys of closes that ended while a close's question was up, by window: they wait for its answer with its own keys.
-    private var asking: [Int: [NSEvent]] = [:]
+    /// By window, while close questions are up (how many): the keys of closes that ended meanwhile, which wait for the answer with its own keys.
+    private var asking: [Int: (events: [NSEvent], questions: Int)] = [:]
 
     /// The close asks the person: its keys wait for the answer outside the hold (the question takes its own keys).
     func parkClose(_ ticket: CreationInputBuffer.Ticket?, in window: NSWindow?) -> CreationInputBuffer.ParkedClose? {
         guard let window else { return nil }
-        if asking[window.windowNumber] == nil { asking[window.windowNumber] = [] }
+        asking[window.windowNumber, default: (events: [], questions: 0)].questions += 1
         guard let ticket, let parked = buffers[window.windowNumber]?.parkClose(ticket) else { return .init(events: [], closing: "", machine: nil) }
         scheduleFlush(in: window)
         return parked
@@ -183,12 +183,11 @@ final class CreationInputCoordinator {
     func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
         guard let window else { return }
         let number = window.windowNumber
-        if parked == nil, asking[number] != nil {
-            if let ticket, let more = buffers[number]?.parkClose(ticket) { asking[number]?.append(contentsOf: more.events); scheduleFlush(in: window) }
-            return
-        }
-        let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking.removeValue(forKey: number) ?? []), closing: $0.closing, machine: $0.machine) }
-        defer { if parked != nil { scheduleFlush(in: window) } } // the question is answered: the keys the hold kept meanwhile go on
+        if parked == nil, asking[number] != nil, let ticket, let more = buffers[number]?.parkClose(ticket) { asking[number]?.events.append(contentsOf: more.events) }
+        if parked == nil, asking[number] != nil { return } // the answer lets these keys go on (``flush(in:force:end:)`` waits for it)
+        let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking[number]?.events ?? []), closing: $0.closing, machine: $0.machine) }
+        // The question is answered: the keys the hold kept meanwhile go on, once no other close's question is up.
+        defer { if parked != nil { asking[number]?.events = []; asking[number]?.questions -= 1; if asking[number]?.questions == 0 { asking[number] = nil }; scheduleFlush(in: window) } }
         if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty {
             let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)
             return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
@@ -215,6 +214,7 @@ final class CreationInputCoordinator {
         let shell = controller?.window ?? window
         // A held key runs again: never captured twice; a person's claim still keeps one typed for no terminal from the window.
         if replaying.on { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
+        if asking[shell.windowNumber] != nil { return false } // a close's question is up: a key typed now is its own, the held keys wait for its answer
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
         if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
