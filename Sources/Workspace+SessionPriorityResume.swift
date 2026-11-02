@@ -61,7 +61,7 @@ extension Workspace {
         cmuxDebugLog(
             "sessionPriority.apply panel=\(panelId.uuidString.prefix(5)) " +
                 "effort=\(target.effort?.rawValue ?? "-") model=\(target.model ?? "-") " +
-                "result=\(result.debugSummary)"
+                "result=\(SessionPriorityCoordinatorState.describe(result))"
         )
 #endif
         return result
