@@ -12,12 +12,18 @@ def setup(theme, page=None):
     steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
              {"do": "rpc", "title": f"set-up: the app in {theme} (debug.appearance; Chromium and pages follow NSApp)",
               "method": "debug.appearance", "params": {"mode": theme}},
-             {"do": "wait", "seconds": 0.8}, {"do": "bv_serve"},
-             {"do": "new_terminal", "via": "key", "name": "bv",
-              "title": "set-up: a workspace (the page tab opens in its pane, full width, not beside Home)"},
-             {"do": "neutral_prompt"}]
+             {"do": "wait", "seconds": 0.8}, {"do": "bv_serve"}]
     if page:
-        steps += [{"do": "bv_open", "page": page}, {"do": "wait", "seconds": 1.5}]
+        steps += [{"do": "hid_key", "key": "n", "modifiers": ["cmd", "option"],
+                   "title": "set-up: New Browser Workspace (Opt-Cmd-N): the page fills the workspace"},
+                  {"do": "wait", "seconds": 1.5},
+                  {"do": "hid_key", "key": "l", "modifiers": ["cmd"], "title": "set-up: the address bar (Cmd-L)"},
+                  {"do": "wait", "seconds": 0.4},
+                  {"do": "smoke_type", "text": "${bv_base}/" + page + ".html", "enter": True,
+                   "title": "set-up: the test page typed in the address bar"},
+                  {"do": "bv_page_ready", "page": page}, {"do": "wait", "seconds": 1.5}]
+    else:
+        steps += [{"do": "new_terminal", "via": "key", "name": "bv", "title": "set-up: a workspace"}, {"do": "neutral_prompt"}]
     return steps
 
 
@@ -32,7 +38,7 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 20},
                   {"do": "bv_state", "page": page, "note": "before"}, {"do": "wait", "seconds": 0.3}]
         if r == 0:
-            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open",
+            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open-action",
                           "fallback_key": {"key": "i", "modifiers": ["cmd", "option"]}})
         else:
             steps.append(dict(OPEN_KEY, mark=f"open-r{r}", title="open DevTools: real Cmd-Opt-I"))

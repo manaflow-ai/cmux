@@ -35,7 +35,7 @@
    "do": "new_terminal",
    "via": "key",
    "name": "bv",
-   "title": "set-up: a workspace (the page tab opens in its pane, full width, not beside Home)"
+   "title": "set-up: a workspace"
   },
   {
    "do": "neutral_prompt"

@@ -12,6 +12,7 @@ Steps (`do`):
   bv_serve       {}                         starts the page server once; ${bv_base} is its URL
   bv_open        {page, scroll?: 400}       a Chromium tab on the page (openBrowser.chromium, focused), waits for its
                                             title, scrolls; ${bv_tab_<page>} is its tab id
+  bv_page_ready  {page, scroll?: 400}       waits until the focused page shows the test page, scrolls it
   bv_scroll      {page, y?: 400}
   bv_state       {page, note}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
                                             scheme, plus debug.cef's DevTools frames; kept in the recording's notes
@@ -106,6 +107,19 @@ def step_bv_open(j, step):
     return {"tab": tab, "url": url, "state": _state(j, tab)}
 
 
+def step_bv_page_ready(j, step):
+    """Waits (`timeout`, default 90 s) until the focused page shows the test page `page` (its title), then scrolls it
+    (`scroll`, default 400). The first agent call rebuilds a Chromium page (AppBrowserPage+AgentDriven): run this
+    before a recording. ${bv_tab_<page>} becomes empty (the focused page)."""
+    page = step["page"]
+    if not _wait(lambda: _eval(j, "document.title") == "bv " + page, float(step.get("timeout", 90)), 0.25):
+        raise D.StepError("bv_page_ready: the focused page never showed the %s page (title %r)" % (page, _eval(j, "document.title")))
+    j.vars["bv_tab_" + page] = ""
+    _eval(j, "scrollTo(0, %d)" % int(step.get("scroll", 400)))
+    time.sleep(0.3)
+    return {"state": _state(j, None)}
+
+
 def step_bv_scroll(j, step):
     tab = j.vars.get("bv_tab_" + step["page"]) or None
     _eval(j, "scrollTo(0, %d)" % int(step.get("y", 400)), tab)
@@ -188,5 +202,5 @@ def step_bv_devtools(j, step):
     return row
 
 
-STEPS = {"bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
+STEPS = {"bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
          "bv_agent": step_bv_agent}

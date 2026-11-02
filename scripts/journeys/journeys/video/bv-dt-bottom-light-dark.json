@@ -32,16 +32,38 @@
    "do": "bv_serve"
   },
   {
-   "do": "new_terminal",
-   "via": "key",
-   "name": "bv",
-   "title": "set-up: a workspace (the page tab opens in its pane, full width, not beside Home)"
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "set-up: New Browser Workspace (Opt-Cmd-N): the page fills the workspace"
   },
   {
-   "do": "neutral_prompt"
+   "do": "wait",
+   "seconds": 1.5
   },
   {
-   "do": "bv_open",
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "set-up: the test page typed in the address bar"
+  },
+  {
+   "do": "bv_page_ready",
    "page": "light"
   },
   {
@@ -74,7 +96,7 @@
   {
    "do": "bv_action",
    "action": "devtools.openDocked",
-   "note": "open",
+   "note": "open-action",
    "fallback_key": {
     "key": "i",
     "modifiers": [
