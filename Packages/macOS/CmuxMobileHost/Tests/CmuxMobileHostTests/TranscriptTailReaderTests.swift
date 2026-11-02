@@ -276,9 +276,15 @@ struct AgentChatArtifactIndexBuildTests {
         #expect(await index.startedBuildCount == 1)
     }
 
+    private func waitForRequests(_ count: Int, on index: AgentChatArtifactIndex) async {
+        while await index.waitingRequestCount < count {
+            await Task.yield()
+        }
+    }
+
     @Test("one cancelled request doesn't fail another waiting on the same build")
     func cancelledWaiterLeavesOthers() async throws {
-        let url = try makeFile(sparseBytes: 8 * 1024 * 1024 * 1024)
+        let url = try makeFile(sparseBytes: 64 * 1024 * 1024 * 1024)
         defer { try? FileManager.default.removeItem(at: url) }
         let index = AgentChatArtifactIndex()
         let path = url.path
@@ -292,9 +298,32 @@ struct AgentChatArtifactIndexBuildTests {
         }
         let kept = Task { try await request() }
         let cancelled = Task { try await request() }
+        await waitForRequests(2, on: index)
         cancelled.cancel()
         _ = try await kept.value
-        _ = try? await cancelled.value
+        #expect(await index.startedBuildCount == 1)
+    }
+
+    @Test("the last waiter leaving cancels the build, and nothing is cached")
+    func lastWaiterCancelsBuild() async throws {
+        let url = try makeFile(sparseBytes: 64 * 1024 * 1024 * 1024)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let index = AgentChatArtifactIndex()
+        let path = url.path
+        let request = Task {
+            try await index.snapshot(
+                sessionID: "session",
+                agentKind: .codex,
+                transcriptPath: path,
+                workingDirectory: nil
+            )
+        }
+        await waitForRequests(1, on: index)
+        request.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await request.value
+        }
+        #expect(await index.waitingRequestCount == 0)
     }
 }
 

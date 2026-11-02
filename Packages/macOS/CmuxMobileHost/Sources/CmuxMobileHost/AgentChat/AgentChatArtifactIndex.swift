@@ -48,7 +48,14 @@ public actor AgentChatArtifactIndex {
         let snapshot: Snapshot
     }
 
-    /// A snapshot being built, shared by every request waiting on the session.
+    /// What must match for two requests to share a build.
+    private struct BuildIdentity: Sendable, Hashable {
+        let sessionID: String
+        let transcriptPath: String
+        let workingDirectory: String?
+    }
+
+    /// A snapshot being built, shared by every request with the same identity.
     private struct InFlightBuild: Sendable {
         let id = UUID()
         let key: CacheKey
@@ -65,9 +72,14 @@ public actor AgentChatArtifactIndex {
     )
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
-    private var buildsBySessionID: [String: InFlightBuild] = [:]
+    private var builds: [BuildIdentity: InFlightBuild] = [:]
     /// Builds started since creation; concurrent misses must share one.
     private(set) var startedBuildCount = 0
+
+    /// Requests waiting on any build, so a test can act once they have joined.
+    var waitingRequestCount: Int {
+        builds.values.reduce(0) { $0 + $1.waiterCount }
+    }
 
     public func snapshot(
         sessionID: String,
@@ -75,21 +87,28 @@ public actor AgentChatArtifactIndex {
         transcriptPath: String,
         workingDirectory: String?
     ) async throws -> Snapshot {
-        // A build read the file after this request arrived, so it answers this
-        // request whatever its key. Waiting at most once stops a transcript that
-        // grows during every build from holding a request forever.
+        // Builds are shared per session, path and directory, so scope never
+        // crosses transcripts. After one wait, the build in flight read the file
+        // after this request arrived and answers it even if the file grew again,
+        // which stops a transcript growing during every build from holding a
+        // request forever.
+        let identity = BuildIdentity(
+            sessionID: sessionID,
+            transcriptPath: transcriptPath,
+            workingDirectory: workingDirectory
+        )
         var mayJoinAnyBuild = false
         while true {
             let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
             if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
                 return cached.snapshot
             }
-            if let build = buildsBySessionID[sessionID] {
+            if let build = builds[identity] {
                 if build.key == key || mayJoinAnyBuild {
-                    return try await join(buildID: build.id, sessionID: sessionID)
+                    return try await join(buildID: build.id, identity: identity)
                 }
                 // Older than this request: wait for it rather than scan alongside it.
-                _ = try? await join(buildID: build.id, sessionID: sessionID)
+                _ = try? await join(buildID: build.id, identity: identity)
                 try Task.checkCancellation()
                 mayJoinAnyBuild = true
                 continue
@@ -104,46 +123,46 @@ public actor AgentChatArtifactIndex {
                 )
             }
             let build = InFlightBuild(key: key, task: task)
-            buildsBySessionID[sessionID] = build
+            builds[identity] = build
             startedBuildCount += 1
-            return try await join(buildID: build.id, sessionID: sessionID)
+            return try await join(buildID: build.id, identity: identity)
         }
     }
 
     /// Waits for a session's build. A cancelled waiter stays until the build
     /// ends unless it is the last one, whose departure cancels the build.
-    private func join(buildID: UUID, sessionID: String) async throws -> Snapshot {
-        guard var build = buildsBySessionID[sessionID], build.id == buildID else {
+    private func join(buildID: UUID, identity: BuildIdentity) async throws -> Snapshot {
+        guard var build = builds[identity], build.id == buildID else {
             throw CancellationError()
         }
         build.waiterCount += 1
-        buildsBySessionID[sessionID] = build
+        builds[identity] = build
         let task = build.task
         let key = build.key
         let result = await withTaskCancellationHandler {
             await task.result
         } onCancel: {
-            Task { await self.leave(buildID: buildID, sessionID: sessionID) }
+            Task { await self.leave(buildID: buildID, identity: identity) }
         }
         // The first waiter to resume publishes the result for later requests.
-        if buildsBySessionID[sessionID]?.id == buildID {
-            buildsBySessionID[sessionID] = nil
+        if builds[identity]?.id == buildID {
+            builds[identity] = nil
             if case .success(let snapshot) = result {
-                cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
+                cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: identity.sessionID)
             }
         }
         return try result.get()
     }
 
-    private func leave(buildID: UUID, sessionID: String) {
-        guard var build = buildsBySessionID[sessionID], build.id == buildID else { return }
+    private func leave(buildID: UUID, identity: BuildIdentity) {
+        guard var build = builds[identity], build.id == buildID else { return }
         build.waiterCount -= 1
         guard build.waiterCount == 0 else {
-            buildsBySessionID[sessionID] = build
+            builds[identity] = build
             return
         }
         // Later requests start fresh instead of joining a cancelled build.
-        buildsBySessionID[sessionID] = nil
+        builds[identity] = nil
         build.task.cancel()
     }
 
