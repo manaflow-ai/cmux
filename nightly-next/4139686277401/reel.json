@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4139686277401",
+  "notes": "notes/4139686277401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31876,
+      "title": "ci: use shared runner state in remaining picker steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31720,
+      "title": "fix(cef): docked DevTools starts on the pane's theme color, not the color CEF started with",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31866,
+      "title": "ci: include reset boundary in picker API spend logs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31857,
+      "title": "agent-pane-policy: the first frame drops the page's personKey, as the Swift host does (cx-fcaq)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31848,
+      "title": "fix(dialog): Return pastes a multi-line paste, and no dialog opens with Space on a button",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31719,
+      "title": "Agent chat: the prompt bubble as ChatGPT and Claude draw it (44 one line, 16 sides, 12 radius)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31734,
+      "title": "test(windows): a window made after the restore zooms in only when the panes motion gate allows it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
