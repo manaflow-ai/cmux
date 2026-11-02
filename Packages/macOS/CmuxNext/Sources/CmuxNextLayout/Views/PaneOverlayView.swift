@@ -37,6 +37,8 @@ final class PaneOverlayView: NSView {
     private let attention = CALayer()
     /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
     var attentionLayer: CALayer { attention }
+    /// The ring's glass lens (`AttentionLensLook`): sublayers of `attention`, so its animations carry them.
+    let attentionLens = AttentionLensLayers()
     private let dimLayer = CALayer()
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
@@ -70,6 +72,10 @@ final class PaneOverlayView: NSView {
     private var attentionAgentChat = false
     /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
     private var attentionLook = AttentionHighlightLook.tunable.defaultValue
+    /// The ring's glass (`AttentionLensLook`, Debug Settings), read with the look.
+    private var lensLook = AttentionLensLook.tunable.defaultValue
+    /// Reduce Transparency at the last layout: the lens draws solid under it.
+    private var lensReducesTransparency = false
     /// One observation of the look is registered at a time.
     private var observesAttentionLook = false
     private var borderStyle = Border(shows: false)
@@ -90,6 +96,7 @@ final class PaneOverlayView: NSView {
         }
         glow.opacity = 1
         ring.borderWidth = 1
+        attentionLens.install(in: attention)
         applyRingGlow()
     }
 
@@ -191,6 +198,8 @@ final class PaneOverlayView: NSView {
         glow.shadowPath = Self.ringOutline(size: rect.size, radius: ringRadius, width: focusRing.width)
         attention.borderWidth = attentionSettings.width
         attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
+        attentionLens.layout(size: rect.size, radius: radius, width: attentionSettings.width,
+                             look: lensLook.effective(reduceTransparency: lensReducesTransparency))
         CATransaction.commit()
     }
 
@@ -236,7 +245,12 @@ final class PaneOverlayView: NSView {
         self.focusRing = focusRing
         self.ringAlphaOverride = ringAlphaOverride
         self.attentionSettings = attentionSettings
-        if shapeChanged { layoutLayers() }
+        // The lens draws solid under Reduce Transparency (read here, as the overlay updates) and
+        // follows its Debug choice (read with the look).
+        attentionLook = observedAttentionLook()
+        lensReducesTransparency = ReduceTransparency.shared.isEnabled
+        let lensChanged = attentionLens.look != lensLook.effective(reduceTransparency: lensReducesTransparency)
+        if shapeChanged || lensChanged { layoutLayers() }
         if glowChanged {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -297,7 +311,8 @@ final class PaneOverlayView: NSView {
         guard !observesAttentionLook else { return attentionLook }
         observesAttentionLook = true
         return withObservationTracking {
-            AttentionHighlightLook.tunable.value
+            lensLook = AttentionLensLook.tunable.value
+            return AttentionHighlightLook.tunable.value
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.attentionLookChanged() }
         }
@@ -305,7 +320,9 @@ final class PaneOverlayView: NSView {
 
     private func attentionLookChanged() {
         observesAttentionLook = false
+        let lens = lensLook
         attentionLook = observedAttentionLook()
+        if lensLook != lens { layoutLayers() }
         if attentionMark != nil, attentionSettings.drawsRing {
             Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
@@ -372,8 +389,10 @@ final class PaneOverlayView: NSView {
             // A `shadowPath` shadow is opaque where the border's alpha shaded it before: carry that alpha in the color.
             glow.shadowColor = ringColor.withAlphaComponent(ringColor.alphaComponent * glowAlpha).cgColor
             let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
-            attention.borderColor = attentionColor.cgColor
+            // Glass is translucent: the lens's stroke lets the pane show through (`AttentionLensLook.strokeAlpha`).
+            attention.borderColor = attentionColor.withAlphaComponent(attentionColor.alphaComponent * attentionLens.look.strokeAlpha).cgColor
             attention.shadowColor = attentionColor.cgColor
+            attentionLens.applyColors(attentionColor)
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
             // In glass windows the root backdrop owns the ground. An opaque
             // inactive-pane veil would hide the painting and reintroduce the

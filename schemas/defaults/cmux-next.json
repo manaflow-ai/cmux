@@ -7110,6 +7110,7 @@
     "tunable.newTab.picksFollowLinks": false,
     "tunable.newTab.privateChatLists": false,
     "tunable.newTab.widgets": false,
+    "tunable.notifications.attention.lens": "fisheye",
     "tunable.notifications.attention.look": "subtle",
     "tunable.palette.itemActions": "menu",
     "tunable.palette.scopeChip": "token",
