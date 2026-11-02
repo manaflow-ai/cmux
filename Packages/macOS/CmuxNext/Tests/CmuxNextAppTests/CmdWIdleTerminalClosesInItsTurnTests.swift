@@ -241,7 +241,7 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
                 let text = (try? await t.connection.request(ReadScreenRequest(surface: tab.surface), timeout: .seconds(5)))?.text ?? "?"
                 screens.append("\(tab.id): \(text.suffix(120))")
             }
-            Issue.record("DIAG atQuestion: \(atQuestion)\nDIAG afterCancel: \(afterCancel)\nDIAG late: holding \(coordinator.isHolding(in: window)) end \(String(describing: coordinator.lastHoldEnd(in: window)))\nDIAG ids t \(t.tab.id) neighbour \(neighbour.id) running \(running.id)\nDIAG screens \(screens)")
+            Issue.record("DIAG atQuestion: \(atQuestion)\nDIAG afterCancel: \(afterCancel)\nDIAG late: holding \(coordinator.isHolding(in: window)) end \(String(describing: coordinator.lastHoldEnd(in: window)))\nDIAG ids t \(t.tab.id) neighbour \(neighbour.id) running \(running.id)\nDIAG screens \(screens)\nDIAG replays \(Self.replays)")
             let typed = try? await t.connection.request(WaitForTextRequest(surface: neighbour.surface, pattern: before + after, timeoutMs: 10_000),
                                                         timeout: .seconds(15))
             let screen = (try? await t.connection.request(ReadScreenRequest(surface: running.surface), timeout: .seconds(5)))?.text ?? ""
@@ -260,6 +260,8 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         return try #require(t.store.tab(surface: surface))
     }
 
+    static var replays: [String] = []
+
     private struct Terminal {
         let services: AppServices
         let connection: DaemonConnection
@@ -271,7 +273,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// A focused live terminal in a pane that keeps another tab, its shell started.
     private static func withFocusedTerminal(_ body: (Terminal) async throws -> Void) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
-            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+            let taken = router.interceptKeyDown(event, in: window)
+            let responder = window.firstResponder
+            let tab = router.services?.cache.terminals.first { $0.value.session.surfaceView === responder }?.key ?? "none"
+            Self.replays.append("\(event.characters ?? "?") taken=\(taken) responderTab=\(tab)")
+            if !taken { window.sendEvent(event) }
         }) { services, connection in
             let store = services.daemon.store
             let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
