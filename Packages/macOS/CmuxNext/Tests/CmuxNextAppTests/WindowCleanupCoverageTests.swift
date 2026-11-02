@@ -65,6 +65,24 @@ struct WindowCleanupCoverageTests {
         #expect(Self.uncheckedSuites(in: quiet).isEmpty)
     }
 
+    /// MainPaneGutterSuites' pattern: tests in `extension Parent { struct Child { ... } }` run under
+    /// Parent, so Parent's declaration, here or in another file, must carry the trait.
+    @Test func theScanFindsTestsInAnExtensionOfATypeWithoutTheTrait() {
+        let opens = """
+        import AppKit
+        extension Unchecked {
+            @MainActor struct Child {
+                @Test func a() { let w = NSWindow(); w.close() }
+            }
+        }
+        extension Elsewhere: Sendable { @Test func b() {} }
+        extension Checked.Nested { @Test func c() {} }
+        @Suite(.closesItsWindows) struct Checked { struct Nested {} }
+        extension NSWindow { func helper() {} }
+        """
+        #expect(Self.uncheckedSuites(in: opens).map(\.name) == ["extension Unchecked", "extension Elsewhere"])
+    }
+
     // MARK: Scanner
 
     struct Suite: Equatable {
