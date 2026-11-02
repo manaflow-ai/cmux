@@ -14,8 +14,13 @@ import Testing
 struct CloseTeardownAfterLandingTests {
     final class Panes: LayoutPaneContentProvider {
         var released: [PaneID] = []
-        func makeContentView(for pane: PaneID) -> NSView { NSView() }
-        func releaseContentView(_ view: NSView, for pane: PaneID) { released.append(pane) }
+        /// The panes the provider counts as shown: made, minus retired or released, plus taken back.
+        var shown: Set<PaneID> = []
+        func makeContentView(for pane: PaneID) -> NSView { shown.insert(pane); return NSView() }
+        func releaseContentView(_ view: NSView, for pane: PaneID) { released.append(pane); shown.remove(pane) }
+        func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {
+            if retired { shown.remove(pane) } else { shown.insert(pane) }
+        }
     }
 
     final class Strip {
@@ -63,6 +68,9 @@ struct CloseTeardownAfterLandingTests {
         #expect(strip.provider.released.isEmpty, "the close's own turn released the closed content: \(strip.provider.released)")
         #expect(closed.superview === strip.screen, "the close's own turn took the closed host's layers out of the tree")
         #expect(closed.isHidden && closed.chrome.isHidden, "the closed host and its ring are hidden from the close's first frame")
+        // The provider's shown panes lose it in the close's own turn (the App's `content.panes`: a key, a focus or a
+        // lookup there never finds the closed pane, ClosedPendingSplitFocusTests); only the teardown waits.
+        #expect(strip.provider.shown == ["p1", "p3"], "the close's own turn left the closed pane shown: \(strip.provider.shown)")
 
         var frames = 0
         while strip.root.advanceFrame(1.0 / 120), frames < 600 {
@@ -86,6 +94,7 @@ struct CloseTeardownAfterLandingTests {
 
         strip.show(["p1", "p2", "p3"], focus: "p2")
         #expect(strip.root.context.hosts["p2"] === closed, "the pane that came back has its own host again")
+        #expect(strip.provider.shown == ["p1", "p2", "p3"], "the pane taken back is not shown again: \(strip.provider.shown)")
         #expect(!closed.isHidden && closed.superview === strip.screen)
         for _ in 0..<600 where strip.root.advanceFrame(1.0 / 120) {}
         #expect(strip.provider.released.isEmpty, "the pane that came back was released: \(strip.provider.released)")

@@ -139,3 +139,45 @@ fn a_committed_read_during_an_open_write_transaction_sees_only_committed_data() 
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// TUL-F7 (TYPING UNDER LOAD, STATUS 6453): under L6 a terminal's
+/// progress reports (OSC 9;4 from the TUI panes, 8,964 in 187 s) held the
+/// session lock across their registry commit: 18 s of session lock hold,
+/// max 198 ms. A progress report reads the session only for its terminal's
+/// runtime; a key's session lookup must not wait for its registry write.
+#[test]
+fn a_progress_report_frees_the_session_lock_while_it_writes_the_registry() {
+    use std::sync::mpsc::sync_channel;
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (entered, entered_receiver) = sync_channel::<()>(1);
+    let (release, release_receiver) = sync_channel::<()>(1);
+    let release_receiver = Mutex::new(release_receiver);
+    mux.set_state_commit_after_apply_hook_for_test(Some(Arc::new(move || {
+        entered.send(()).unwrap();
+        let _ = release_receiver.lock().unwrap().recv_timeout(Duration::from_secs(10));
+    })));
+    let publishing = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.publish_terminal_progress(&surface, "terminal.progress.test")
+                .map_err(|error| error.to_string())
+        })
+    };
+    entered_receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+    let (looked_up, looked_up_receiver) = sync_channel::<()>(1);
+    let key = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.with_state(|state| state.surfaces.len());
+            looked_up.send(()).unwrap();
+        })
+    };
+    let waited = looked_up_receiver.recv_timeout(Duration::from_secs(2));
+    release.send(()).unwrap();
+    let published = publishing.join().unwrap();
+    key.join().unwrap();
+    mux.set_state_commit_after_apply_hook_for_test(None);
+    assert!(waited.is_ok(), "a key's session lookup waited for a progress report's registry write");
+    published.unwrap();
+}

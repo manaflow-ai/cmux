@@ -229,3 +229,40 @@ fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
     assert_eq!(locks, 0, "with a workspace size default the person's key took the session lock");
     mux.shutdown();
 }
+
+/// TYPING FIX 2 (follow-up C of #31940): `send-key` (a named key such as Return or Ctrl-C from an attached view) goes
+/// to the same kept terminal as `send`, under the same route rules, so it takes no session lock either. Before, it
+/// looked its terminal up through the session lock on every call.
+#[cfg(unix)]
+#[test]
+fn a_named_key_reaches_its_terminal_without_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    let named = |keys: &[&str]| Command::SendKey {
+        surface: typing.id,
+        keys: keys.iter().map(|key| (*key).to_string()).collect(),
+    };
+    handle_command(&mux, client, named(&["enter"]), &writer).unwrap();
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, named(&["ctrl+c"]), &writer));
+    sent.unwrap();
+    assert_eq!(locks, 0, "a named key from an attached view took the session lock");
+
+    // The same route rule as `send`: after a respawn the next named key reaches the new shell.
+    let (new_sent, new_input) = mpsc::channel();
+    let removed =
+        mux.remove_surface_runtime_for_test(typing.id).expect("the placement had a runtime");
+    let respawned =
+        crate::Surface::spawn_for_test(typing.id, SurfaceOptions::default(), Weak::new()).unwrap();
+    respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
+    mux.insert_surface_runtime_for_test(respawned);
+    handle_command(&mux, client, named(&["enter"]), &writer).unwrap();
+    assert_eq!(
+        new_input.try_recv().ok(),
+        Some(b"\r".to_vec()),
+        "the named key after the respawn did not reach the new shell"
+    );
+    drop(removed);
+    mux.shutdown();
+}

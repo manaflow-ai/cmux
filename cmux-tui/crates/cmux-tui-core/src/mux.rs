@@ -599,6 +599,10 @@ pub struct Mux {
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a state mutation after its apply step, inside its open
+    /// registry transaction (a test stands in for a slow write there).
+    #[cfg(test)]
+    state_commit_after_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

@@ -126,11 +126,7 @@ struct ClassicUpgradeSimulationTests {
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        // Open (#28425): on a loaded runner the first window's rows came out in exactly reversed order
-        // (run 41442453215), as if each `.bottom` slot placement was dropped and the daemon's after-current
-        // default stood. Lost, extra, grouped and pinned workspaces are still checked.
-        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"),
-                       orderKnownIssue: "multiWindow order flakes on a loaded runner, https://github.com/manaflow-ai/cmux/issues/28425")
+        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
         await sim.shutdown()
     }
 
