@@ -552,6 +552,10 @@ def step_hid_inject_check(j, step):
     script = {"start_delay_ms": 150, "rate_floor": 0.95,
               "steps": [{"do": "drag", "from": a, "to": b, "duration_ms": 500, "hz": int(step.get("hz", 120))}]}
     out = {"problems": H.validate_script(script)}
+    import subprocess
+    exe = os.path.join(_hid_inject_app(j), "Contents", "MacOS", "hid_inject")
+    stamp = subprocess.run([exe, "stampcheck"], capture_output=True, text=True, timeout=60)
+    out["stampcheck"] = {"exit": stamp.returncode, "said": (stamp.stdout + stamp.stderr).strip()[-300:]}
     code, log, err = run_hid_inject(j, script, mode="plan", via_open=False)
     out["plan"] = {"exit": code, "steps": (log or {}).get("steps"), "err": err[-200:]}
     for via in ("open", "direct"):
