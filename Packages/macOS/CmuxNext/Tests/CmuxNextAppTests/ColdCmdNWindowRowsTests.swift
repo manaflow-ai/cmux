@@ -26,8 +26,8 @@ import Testing
         var value = false
     }
 
-    /// An active document store, made `services`' document for `body` when given; `show` false leaves it a
-    /// projection behind (cold).
+    /// An active document store, made `services`' document for `body` when given (a window's placements read their
+    /// app's document); `show` false leaves it a projection behind (cold).
     static func withDocument(shown: Bool, services: AppServices? = nil, _ body: (SidebarDocStore) async throws -> Void) async throws {
         let store = SidebarDocStore(remote: Remote())
         store.refresh()
@@ -123,7 +123,7 @@ import Testing
         defer { controller.teardown(); controller.window?.close() }
         controller.sidebar.resync()
         let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
-        try await Self.withDocument(shown: false) { _ in
+        try await Self.withDocument(shown: false, services: services) { _ in
             let ran = Ran()
             NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
                                           then: { _, _ in ran.value = true }, windows: windows)
@@ -152,7 +152,7 @@ import Testing
         defer { controller.teardown(); controller.window?.close() }
         controller.sidebar.resync()
         let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
-        try await Self.withDocument(shown: false) { _ in
+        try await Self.withDocument(shown: false, services: services) { _ in
             let ran = Ran()
             NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
                                           then: { _, _ in ran.value = true }, windows: windows)
