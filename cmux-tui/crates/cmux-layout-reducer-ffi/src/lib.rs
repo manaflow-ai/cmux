@@ -3,6 +3,9 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
+//! `cmux-cloud-start-core`'s Cloud start harness login decision
+//! (`cloud_harness_login`, `cloud_harness_login_provider`,
+//! `cloud_guest_kind`, `cloud_guest_kind_probe`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -156,6 +159,37 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"cloud_harness_login" => {
+                use cmux_cloud_start_core::harness_login;
+                let request: harness_login::Inputs =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_harness_login_provider" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    harness: Option<String>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let provider = cmux_cloud_start_core::harness_login::login_provider(
+                    request.harness.as_deref(),
+                );
+                serde_json::to_vec(&serde_json::json!({ "provider": provider }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_guest_kind" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    stdout: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let kind = cmux_cloud_start_core::harness_login::guest_kind(&request.stdout);
+                serde_json::to_vec(&serde_json::json!({ "kind": kind })).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_guest_kind_probe" => serde_json::to_vec(&serde_json::json!({
+                "probe": cmux_cloud_start_core::harness_login::GUEST_KIND_PROBE
+            }))
+            .map_err(|_| ERR_INVALID)?,
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;

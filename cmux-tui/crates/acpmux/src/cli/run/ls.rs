@@ -73,6 +73,13 @@ pub struct LsArgs {
     /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
+    /// Only the leaders: each live session other live sessions report to (their tag
+    /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
+    /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
+    #[arg(long, conflicts_with_all = [
+        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+    ])]
+    leads: bool,
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
@@ -91,7 +98,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         host,
         all,
         wide,
+        leads,
     } = args;
+    // The leaders need every live row: the sessions that report are read with them.
+    let live = live || leads;
     patterns.extend(name_patterns);
     let named = !patterns.is_empty();
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
@@ -205,7 +215,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             );
         }
     }
-    if selected {
+    if leads {
+        sessions = super::ls_leads::leaders(&sessions);
+    }
+    if selected && !leads {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -248,6 +261,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                     .join("\t")
             );
         }
+        return Ok(());
+    }
+    if leads {
+        print!("{}", super::ls_leads::render(&sessions));
         return Ok(());
     }
     let peers = match peers {

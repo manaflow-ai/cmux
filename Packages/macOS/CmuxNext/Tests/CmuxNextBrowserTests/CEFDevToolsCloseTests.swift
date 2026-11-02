@@ -96,6 +96,76 @@ import Testing
         #expect(ShimLog.calls == ["panel \(Rig.browser) network"])
     }
 
+    // MARK: Wrong target (#32032 review findings 3 and the base case, lead 10:15Z)
+
+    /// Console and Inspect Element run Chromium's own commands on the pane's active Chromium tab. A console that waited
+    /// for the close, run after the person switched to another tab of the pane, opened DevTools on that other page. It
+    /// must reach its own page: the console panel of this tab's DevTools (the shim's panel open targets the browser).
+    @Test func aConsoleThatWaitedForTheCloseOpensOnItsOwnPageAfterATabSwitch() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.right)
+        tab.performDevTools(.close)
+        tab.performDevTools(.console)  // waits for DEVTOOLS_CLOSED
+        tab.container.isHidden = true  // another tab of the pane shows (PaneContentView parks this one)
+        ShimLog.calls = []
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!ShimLog.calls.contains("command \(Rig.browser) console"), "no Chromium console command: it acts on the shown tab")
+        #expect(ShimLog.calls == ["panel \(Rig.browser) console"], "this page's DevTools opens on its console")
+    }
+
+    /// The same for a console or Inspect asked directly on a parked tab (a script, the CLI): never the shown tab's page.
+    @Test(arguments: [(BrowserDevToolsCommand.console, "console"), (.inspectElement, "elements")])
+    func consoleOrInspectOnAParkedTabTargetsItsOwnPage(command: BrowserDevToolsCommand, panel: String) throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.bottom))
+        tab.container.isHidden = true
+        ShimLog.calls = []
+        tab.performDevTools(command)
+        #expect(ShimLog.calls == ["panel \(Rig.browser) \(panel)"])
+    }
+
+    /// The older DevTools' DEVTOOLS_CLOSED can arrive after Chromium began a new DevTools (WILL_OPEN) and before its
+    /// OPENED: it must not remove the views the new DevTools was just placed over.
+    @Test func anOldCloseEventBetweenANewWillOpenAndOpenedKeepsTheNewViews() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.right)
+        tab.performDevTools(.close)
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        let host = try #require(tab.devToolsController.views?.host)
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one, late
+        #expect(tab.devToolsController.views?.host === host, "the new DevTools' host view stays")
+        #expect(host.superview === tab.container)
+        rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools + 1, docked: true))
+        #expect(tab.devTools.isOpen)
+        #expect(tab.devToolsController.reservesRoom)
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools + 1))
+        #expect(!tab.devTools.isOpen, "the new DevTools' own close still closes")
+        #expect(tab.devToolsController.views == nil)
+    }
+
+    /// Re-review nit at 0b8e75eb1a2: close, the toggle again (an open waits), then Chromium opens DevTools itself: that
+    /// DevTools is the open the person asked for. When it later closes by its own X, DevTools must not open again.
+    @Test func aChromiumOpenDuringTheCloseTakesThePendingOpen() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.bottom)
+        tab.performDevTools(.close)
+        tab.performDevTools(.toggle)  // waits for DEVTOOLS_CLOSED
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools + 1, docked: true))
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one
+        ShimLog.calls = []
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools + 1))  // its own X
+        for _ in 0..<20 { await Task.yield() }
+        #expect(ShimLog.calls.isEmpty, "nothing opens again")
+        #expect(!tab.devTools.isOpen)
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -128,6 +198,21 @@ import Testing
             runtime.handle(.devToolsOpened(browser: Self.browser, devTools: Self.devTools, docked: true))
             try #require(tab.devTools.isOpen)
             try #require(tab.devToolsController.reservesRoom)
+            ShimLog.calls = []
+            return tab
+        }
+
+        /// A shown tab in the pane's window, DevTools closed.
+        func attachedTab() throws -> CEFTab {
+            let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+            let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(tab)
+            host.ensureCreated(tab)
+            let request = try #require(runtime.pendingWindows.keys.first)
+            runtime.handle(.afterCreated(browser: Self.browser, request: request, window: 1))
+            try #require(tab.browserID == Self.browser)
+            tab.container.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+            window.contentView?.addSubview(tab.container)
             ShimLog.calls = []
             return tab
         }

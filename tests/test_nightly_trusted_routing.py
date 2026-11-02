@@ -21,9 +21,9 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
-# They, their picker and the feed compare that picks the cmux NIGHTLY-identity signer's build
-# (legacy-identity-target, the signer route itself) have their own routes, outside the 16/32 runner-set rule.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target')
+# They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
+# build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
@@ -203,10 +203,12 @@ class NightlyTrustedRouting(unittest.TestCase):
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
         # The existing native routes use the nightly slot; the three secret-free Mac
         # jobs also read it for the bounded attempt-2 retry added in #29847. OwnedVerify in
-        # test_nightly_sign_runner.py checks that retry and its later overflow destinations.
-        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy',
+        # test_nightly_sign_runner.py checks that retry and its later overflow destinations. The cmux
+        # NIGHTLY-identity copy's release-signer image job and its verify take the legacy verify's route.
+        self.assertEqual(uses, ['generate-nightly-deltas', 'legacy-signer-dmg-image', 'sign-nightly-identity-legacy',
                                 'signer-dmg-image', 'verify-final-dmg-nightly',
-                                'verify-nightly-identity-legacy', 'verify-signed-nightly'])
+                                'verify-nightly-identity-legacy', 'verify-nightly-identity-legacy-pool',
+                                'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
@@ -314,7 +316,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build 7 s). Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner
         # pick, takes GitHub-hosted Ubuntu first". Attempt 1 takes GitHub-hosted Ubuntu, a re-run Blacksmith Linux
         # 4 vCPU, whatever LINUX_RUNNER, RUNNER_POOLS, the overflow switch or the sign pick's outputs hold.
-        for name in SIGNER_JOBS + ('legacy-identity-target',):
+        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg'):
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             self.assertNotIn('blacksmith-16vcpu', source)
             self.assertNotIn('blacksmith-32vcpu', source)
