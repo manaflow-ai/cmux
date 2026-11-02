@@ -801,6 +801,8 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// answer adds about it ([`pushed_fields`]), or the push's error code and
 /// message.
 pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
+/// Read-only proof that a cached chat directory still exists on the guest.
+pub(super) type CheckoutProbe<'a> = dyn Fn(&Path, &str) -> Result<bool, (String, String)> + 'a;
 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
@@ -936,8 +938,18 @@ impl StartCopy {
     /// over a chat's changes. An abandoned folder (its send never retried
     /// on that machine) stays on the machine; nothing cleans it up.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
+        self.run_with_probe(ledger, push, &super::sync_cli::chat_folder_exists)
+    }
+
+    /// Separate probe for deterministic regressions; production probes the guest through fs-v1.
+    pub(super) fn run_with_probe(
+        &self,
+        ledger: &Path,
+        push: &Push<'_>,
+        probe: &CheckoutProbe<'_>,
+    ) -> Value {
         let started_at = now_millis();
-        let mut answer = self.run_copy(ledger, push);
+        let mut answer = self.run_copy(ledger, push, probe);
         if let Some(done) = answer.as_object_mut().filter(|a| a.get("ok") == Some(&json!(true))) {
             done.insert("source_trusted".into(), json!(self.source_trusted()));
         }
@@ -960,10 +972,37 @@ impl StartCopy {
                 },
             )
         };
+        // This receipt describes the per-chat directory only. A warm snapshot or a
+        // completed copy provides no proof that dependencies were installed in it.
+        if let Some(fields) = answer.as_object_mut() {
+            let checkout = if fields.get("ok") == Some(&json!(true)) {
+                "directory_present"
+            } else if fields.get("error_code") == Some(&json!("checkout.missing")) {
+                "missing"
+            } else {
+                "unverified"
+            };
+            fields.insert("checkout_state".into(), json!(checkout));
+            fields.insert("dependencies_state".into(), json!("unverified"));
+        }
         copy_progress(answer, state, phase, started_at, now_millis())
     }
 
-    fn run_copy(&self, ledger: &Path, push: &Push<'_>) -> Value {
+    /// A missing cached checkout belongs to a previous finished chat. Reusing the old
+    /// path would open a new prompt in the wrong directory; recopying would overwrite
+    /// any changes that chat made. Leave the ledger intact and give a fresh-chat remedy.
+    fn cached_chat(&self, chat: String, probe: &CheckoutProbe<'_>) -> Value {
+        match probe(&self.socket, &chat) {
+            Ok(true) => json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(false) => refused(
+                "checkout.missing",
+                "The previous Cloud chat folder is missing or no longer a directory; start a new chat to copy this project again.",
+            ),
+            Err((code, message)) => refused(&code, message),
+        }
+    }
+
+    fn run_copy(&self, ledger: &Path, push: &Push<'_>, probe: &CheckoutProbe<'_>) -> Value {
         if too_broad(&self.local, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
             return refused(
                 "folder_too_broad",
@@ -978,7 +1017,7 @@ impl StartCopy {
             pins.copied_chat(&send, &self.machine)
                 .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
         }) {
-            Ok(Ok(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Ok(chat)) => return self.cached_chat(chat, probe),
             Ok(Err(place)) => place,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         };
@@ -1005,7 +1044,7 @@ impl StartCopy {
             }
             finished
         }) {
-            Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Some(chat)) => return self.cached_chat(chat, probe),
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
