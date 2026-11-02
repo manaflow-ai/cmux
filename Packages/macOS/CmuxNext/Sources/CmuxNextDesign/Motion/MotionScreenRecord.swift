@@ -57,6 +57,9 @@ final class MotionScreenRecord {
 
     private func start(_ params: [String: Any], windows: [NSWindow]) -> [String: Any] {
         guard recording == nil else { return ["error": "a recording is running"] }
+        if let last, last.counts()["written"] as? Bool != true {
+            return ["error": "the last recording is still being written (read until written)"]
+        }
         let index = params["window"] as? Int ?? 0
         guard windows.indices.contains(index) else { return ["error": "no such window"] }
         let window = windows[index]
@@ -80,7 +83,7 @@ final class MotionScreenRecord {
         }
         let options = ScreenRecording.Options(
             url: URL(fileURLWithPath: path), width: width, height: height, prores: params["codec"] as? String == "prores",
-            bitsPerSecond: Int(((params["mbps"] as? NSNumber)?.doubleValue ?? 300) * 1_000_000),
+            bitsPerSecond: Int(min(2_000, max(1, (params["mbps"] as? NSNumber)?.doubleValue ?? 300)) * 1_000_000),
             rows: lines("rows", windowHeight, height), columns: lines("columns", windowWidth, width),
             seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)), scale: Double(scale),
             display: useDisplay ? display.map { CGDirectDisplayID($0) } : nil, sourceRect: source)
@@ -158,6 +161,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         var stoppedBy: String?
         /// Sample callbacks of any kind (any at all proves the stream delivers).
         var callbacks = 0
+        /// Complete frames with no scan record (past ``maxScanBytes``).
+        var scanDropped = 0
+        /// Why the movie writer or a side file failed, if one did.
+        var writeError: String?
     }
 
     /// Seconds any one ScreenCaptureKit call may take (a disconnected replayd never answers; the animation pixel
@@ -170,8 +177,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    /// The scan file's bytes, written whole at the end (no file handle stays open while frames come).
+    /// The scan file's bytes, written whole at the end (no file handle stays open while frames come), at most
+    /// ``maxScanBytes``: frames past it keep their movie frame and their frames.json entry but no scan record.
     private var scan = Data()
+    static let maxScanBytes = 256 << 20
     // concurrency-allow: the counts are touched by ScreenCaptureKit's queue and the main actor; each hold copies or
     // appends a value and never waits on I/O, a call out or an await.
     private let state = Mutex(State())
@@ -222,12 +231,15 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         let _: Bool = try await deadline("start the capture") { done in
             stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
         }
-        // A stop asked while the stream started: stop it at once.
-        guard !state.withLock({ $0.ending }) else {
-            _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
+        // Store first, then look at `ending`: a finish() that ran in between found no stream, so this side takes it
+        // back and stops it; a finish() after the store takes it itself. Exactly one side stops the stream.
+        streamSlot.withLock { $0 = Handed(stream) }
+        if state.withLock({ $0.ending }) {
+            if let mine = streamSlot.withLock({ slot -> Handed<SCStream>? in defer { slot = nil }; return slot }) {
+                _ = try? await deadline("stop the capture") { done in mine.value.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
+            }
             return
         }
-        streamSlot.withLock { $0 = Handed(stream) }
         state.withLock { $0.capturing = true }
         limit.schedule(after: .seconds(options.seconds)) { [weak self] in self?.finish() }
     }
@@ -269,13 +281,17 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     /// On `queue`: the side files, then the movie.
     private func close() {
-        try? scan.blockingWrite(to: options.url.appendingPathExtension("scan"))
+        do { try scan.blockingWrite(to: options.url.appendingPathExtension("scan")) } catch {
+            state.withLock { $0.writeError = "scan: \(error)" }
+        }
         let snapshot = state.withLock { $0 }
         let frames = snapshot.frames.map { [$0.time, $0.status, $0.inMovie] as [Any] }
         let index: [String: Any] = ["frames": frames, "rows": options.rows, "columns": options.columns,
                                     "width": options.width, "height": options.height]
         if let data = try? JSONSerialization.data(withJSONObject: index) {
-            try? data.blockingWrite(to: options.url.appendingPathExtension("frames.json"))
+            do { try data.blockingWrite(to: options.url.appendingPathExtension("frames.json")) } catch {
+                state.withLock { $0.writeError = "frames.json: \(error)" }
+            }
         }
         guard let writer, let input, writer.status == .writing else {
             let status = "not written: \(writer.map { "\($0.status.rawValue) \(String(describing: $0.error))" } ?? "no frame came")"
@@ -295,7 +311,8 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
                 "path": options.url.path, "frames": state.frames.count, "complete": state.complete, "idle": state.idle,
                 "encoder_not_ready": state.notReady, "first_t": state.frames.first?.time ?? 0,
                 "last_t": state.frames.last?.time ?? 0, "stopped_by": state.stoppedBy ?? "", "callbacks": state.callbacks,
-                "filter": options.display == nil ? "window" : "display"]
+                "filter": options.display == nil ? "window" : "display", "scan_dropped": state.scanDropped,
+                "write_error": state.writeError ?? ""]
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -344,15 +361,25 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
                 AVVideoMaxKeyFrameIntervalKey: 120, AVVideoAllowFrameReorderingKey: false,
             ] as [String: Any]
         }
-        guard let writer = try? AVAssetWriter(outputURL: options.url, fileType: .mov) else { return }
+        let writer: AVAssetWriter
+        do { writer = try AVAssetWriter(outputURL: options.url, fileType: .mov) } catch {
+            state.withLock { $0.writeError = "movie writer: \(error)" }
+            return
+        }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
-        guard writer.canAdd(input) else { return }
+        guard writer.canAdd(input) else {
+            state.withLock { $0.writeError = "movie writer refused the input (\(width)x\(height))" }
+            return
+        }
         writer.add(input)
         // The adaptor must exist before startWriting: AVFoundation raises an Objective-C exception for an adaptor
         // made on an input that already started, and the process aborts (cmux18 and cmux24, 2026-11-02 02:15Z).
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
-        guard writer.startWriting() else { return }
+        guard writer.startWriting() else {
+            state.withLock { $0.writeError = "movie writer did not start: \(String(describing: writer.error))" }
+            return
+        }
         writer.startSession(atSourceTime: .zero)
         self.writer = writer
         self.input = input
@@ -381,6 +408,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
             var line = [UInt32](repeating: 0, count: max(0, options.height))
             if x < width { for y in 0..<height { line[y] = base.load(fromByteOffset: y * stride + x * 4, as: UInt32.self) } }
             line.withUnsafeBytes { record.append(contentsOf: $0) }
+        }
+        guard scan.count + record.count <= Self.maxScanBytes else {
+            state.withLock { $0.scanDropped += 1 }
+            return
         }
         scan.append(record)
     }
