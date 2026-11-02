@@ -109,3 +109,53 @@ fn a_network_listen_with_the_opt_in_is_bound() {
     assert!(ready["listen"].as_str().is_some_and(|l| l.starts_with("0.0.0.0:")), "{ready}");
     let _ = std::fs::remove_dir_all(&h);
 }
+
+/// A refused network listen is told where a person sees it, not only in the daemon log: on the
+/// readiness line (the app's agent pane shows its `refused` text in the daemon-start failure
+/// notice), and in `acpmux daemon status` and `daemon start`, which name the opt-in.
+#[test]
+fn a_refused_network_listen_names_the_opt_in_where_a_person_sees_it() {
+    let h = home("seen", Some(json!({"listen": "0.0.0.0:0", "token": "t".repeat(32)})));
+    // The readiness line the app reads.
+    let mut child = spawn(&h, &[]);
+    let mut stdout = String::new();
+    child.stdout.take().unwrap().read_to_string(&mut stdout).unwrap();
+    let status = child.wait().unwrap();
+    assert!(!status.success());
+    let line: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("no readiness line ({e}): {stdout:?}"));
+    assert_eq!(line["ready"], false, "{line}");
+    let refused = line["refused"].as_str().unwrap_or_else(|| panic!("no refusal: {line}"));
+    assert!(refused.contains("websocket.allowInsecureNetwork"), "{refused}");
+    assert!(refused.contains("--insecure-network-listen"), "{refused}");
+
+    let cli = |args: &[&str]| {
+        daemon_env::acpmux(&h)
+            .args(args)
+            .env("ACPMUX_HOME", &h)
+            .env("ACPMUX_SOCKET", h.join("s.sock"))
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    // `daemon status` with no daemon says why none runs.
+    let out = cli(&["daemon", "status"]);
+    let shown =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(shown.contains("websocket.allowInsecureNetwork"), "{shown}");
+    let out = cli(&["--json", "daemon", "status"]);
+    let json: Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)));
+    assert_eq!(json["running"], false, "{json}");
+    assert!(
+        json["refused"].as_str().is_some_and(|r| r.contains("websocket.allowInsecureNetwork")),
+        "{json}"
+    );
+    // `daemon start` fails with the reason, not "see daemon.log".
+    let out = cli(&["daemon", "start"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("websocket.allowInsecureNetwork"), "{err}");
+    let _ = std::fs::remove_dir_all(&h);
+}
