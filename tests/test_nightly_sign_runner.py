@@ -355,7 +355,7 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
 
     def test_an_unverified_pick_skips_a_dead_variable_label(self) -> None:
-        """pick() is the overflow pick of dev_landing_place.py (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py:
+        """pick() is the overflow pick of nightly_build_runner.py:
         a snapshot too old for the stall rule still shows the label dead."""
         label, why = picker.pick(LARGE, observed(age_minutes=38), NOW)
         self.assertEqual(label, SMALL, why)

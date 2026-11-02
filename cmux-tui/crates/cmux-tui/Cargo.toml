@@ -90,6 +90,7 @@ base64.workspace = true
 getrandom.workspace = true
 glob.workspace = true
 libc.workspace = true
+fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
 terminput.workspace = true

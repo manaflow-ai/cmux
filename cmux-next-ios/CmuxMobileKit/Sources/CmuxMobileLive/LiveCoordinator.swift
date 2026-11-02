@@ -238,7 +238,9 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: summary)
+            var scoped = summary
+            scoped.accountID = self.userID
+            return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()

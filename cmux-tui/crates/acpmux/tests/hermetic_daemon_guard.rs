@@ -64,6 +64,8 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         // Linked into a fake app bundle; that copy starts only after `apply`.
         ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
+        // Reads the binary's bytes; starts nothing.
+        ("binary_build_stamp.rs", "std::fs::read(daemon_env::bin())"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

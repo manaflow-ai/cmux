@@ -102,6 +102,7 @@ export const L = {
   createSize: "create.size",
   createSnapshot: "create.snapshot",
   createBaseImage: "create.baseImage",
+  createSnapshotsFailed: "create.snapshotsFailed",
   createSubmit: "create.submit",
   createSubmitting: "create.submitting",
   planRequired: "error.planRequired",

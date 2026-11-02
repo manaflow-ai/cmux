@@ -244,8 +244,8 @@ impl Hub {
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            let delays = hub.config.read().await.auto_resume_delays_ms.clone();
-            let delays = delays
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = Some(super::auto_resume::effective_delays(configured))
                 .filter(|d| !d.is_empty())
                 .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
             let delay = delays[retries.min(delays.len() - 1)];

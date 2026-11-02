@@ -8,13 +8,24 @@
    (SidebarCardSlotMotion), so no list row sits behind it. In the sidebar the host draws the glass
    natively (CardSurfaceView under the page, surface.css) and this paints nothing; the glass here is
    the gallery's and any page that shows the card itself. */
+/* The card follows the sidebar's density (Lawrence 2026-11-01: "the card must reflect my compactness
+   level"): the host sends the rows' tokens for it as --cmux-sidebar-card-* (WebTheme,
+   SidebarRowTokens.card in Swift): the rows' inset and text sizes, a title line's room as a row
+   gives its text, a button one row tall less the rows' gap, nested corners. The fallbacks are the
+   Compact values, for a page shown outside the app (the gallery). */
 .wn-card {
+  --wn-pad-x: var(--cmux-sidebar-card-padding-x, calc(var(--ds-space-1) * 1.5));
+  --wn-pad-y: var(--cmux-sidebar-card-padding-y, var(--ds-space-1));
+  --wn-gap: var(--cmux-sidebar-card-gap, 2px);
+  --wn-title: var(--cmux-sidebar-card-title, 12px);
+  --wn-note: var(--cmux-sidebar-card-note, 10.5px);
+  --wn-close: var(--cmux-sidebar-card-close, var(--ds-space-4));
   position: relative;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: var(--wn-pad-y) var(--wn-pad-x);
+  border-radius: var(--cmux-sidebar-card-radius, 10px);
   color: var(--page-text);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+  font-size: var(--wn-title);
+  line-height: 1.3;
   letter-spacing: var(--text-body--letter-spacing);
 }
 /* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
@@ -44,7 +55,8 @@
 }
 /* Short (2026-10-31, "too much text"): the title in the text color, room for the x at its end. */
 .wn-card-title {
-  padding-right: 20px;
+  /* Room for the host's x on the title line. */
+  padding-right: calc(var(--wn-close) + var(--wn-gap));
   color: var(--page-text);
   font-weight: 600;
 }
@@ -102,10 +114,10 @@
    secondary color. It wraps instead of being cut with an ellipsis, so it reads and selects whole
    (u4466); a long one stops at two lines. */
 .wn-card-note {
-  margin: 3px 0 0;
+  margin: var(--wn-gap) 0 0;
   color: var(--page-text-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
+  font-size: var(--wn-note);
+  line-height: 1.3;
   letter-spacing: var(--text-detail--letter-spacing);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -115,17 +127,18 @@
 .wn-card-area { font-weight: 600; color: var(--page-text); }
 /* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
    sidebar, cx-7rone). */
-.wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); margin-top: calc(var(--wn-gap) * 2); }
 .wn-card-actions .wn-card-primary { margin-left: auto; flex: none; }
 /* Self-contained: the sidebar's surface document loads this file, not the page's styles.css. */
 .wn-card-primary {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 7px;
+  height: var(--cmux-sidebar-card-button, 20px);
+  padding-block: 0;
+  padding-inline: var(--cmux-sidebar-card-button-padding-x, var(--wn-pad-x));
+  border-radius: var(--cmux-sidebar-card-button-radius, 6px);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   color: var(--page-text);
-  font-size: var(--text-detail);
+  font-size: var(--wn-note);
   font-weight: 500;
   white-space: nowrap;
   max-width: 100%;

@@ -66,7 +66,7 @@ test("each machine's projects carry that machine's own colored computer; this Ma
   root = createRoot(host);
   const projects = [
     { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
-    { cwd: "/home/you/src/relay", label: "relay", peer: "big-red", host: "big-red" },
+    { cwd: "/home/you/src/relay", label: "relay", peer: "my-vm", host: "my-vm" },
     { cwd: "/home/you/src/ml-train", label: "ml-train", peer: "gpu-box", host: "gpu-box" },
   ];
   await act(async () =>
@@ -74,11 +74,11 @@ test("each machine's projects carry that machine's own colored computer; this Ma
   );
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   const tags = [...document.querySelectorAll<HTMLElement>(".acpmux-project-host")];
-  expect(tags.map((tag) => tag.textContent)).toEqual(["big-red", "gpu-box"]);
+  expect(tags.map((tag) => tag.textContent)).toEqual(["my-vm", "gpu-box"]);
   const colors = tags.map((tag) => tag.querySelector<SVGElement>("svg")!.style.color);
   expect(colors).not.toContain("");
   expect(new Set(colors).size).toBe(2);
-  expect(machineColor("big-red")).not.toBe(machineColor("gpu-box"));
+  expect(machineColor("my-vm")).not.toBe(machineColor("gpu-box"));
   const local = [...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.includes("atlas-web"));
   expect(local?.querySelector(".acpmux-project-host")).toBeNull();
 });

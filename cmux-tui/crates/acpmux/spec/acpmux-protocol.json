@@ -636,6 +636,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/detach_parent",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true

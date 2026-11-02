@@ -447,7 +447,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        " || fromJSON(vars.RUNNER_POOLS).linux }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -541,12 +541,14 @@ def test_routing_policy_and_build_helpers_still_run_macos() -> None:
         "scripts/ci/detect_ci_change_areas.py",
         "scripts/ci/detect_linux_guard_changes.py",
         "scripts/ci/workflow_guard_groups.py",
-        # Reached from a macOS job through the cache-restore composite action
-        # and through run_python_test_lane.py respectively.
-        "scripts/ci/cache_restore_receipt.py",
+        # Reached from a macOS job through run_python_test_lane.py.
         "scripts/ci/test_execution_registry.py",
     ):
         assert_areas([path], macos=True, web=True, agent_session_web=True)
+    # Reached from ci-macos.yml's jobs through the cache-restore composite
+    # action, the only routed workflow that uses it: macOS and Release.
+    actual = module.classify_files(["scripts/ci/cache_restore_receipt.py"])
+    assert actual.macos is True and actual.release_build is True, actual
 
 
 def test_contributor_prose_skips_expensive_areas() -> None:
@@ -822,7 +824,8 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    assert "LINUX_RUNNER" in admission["runs-on"]
+    # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
+    assert "fromJSON(vars.RUNNER_POOLS).linux" in admission["runs-on"]
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -3172,13 +3175,28 @@ def test_every_setup_bun_step_declares_a_version() -> None:
             versions = [
                 match.group(1)
                 for candidate in tail
-                if (match := re.match(r'^\s+bun-version:\s*"?([^"\s#]*)"?', candidate))
+                if (match := re.match(r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?', candidate))
             ]
             assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,
                 "setup-bun must declare an explicit bun-version",
             )
+            derived = re.fullmatch(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.version\s*\}\}", versions[0])
+            if derived:
+                # A step that reads the pin from devEngines at run time
+                # (fast-checks.yml, #29757) installs exactly it too.
+                step_id = derived.group(1)
+                reader = "\n".join(lines[:index])
+                start = reader.rfind(f"id: {step_id}")
+                assert start >= 0, (workflow_path.relative_to(ROOT), index + 1, f"no step {step_id}")
+                body = reader[start:]
+                assert "webviews/package.json" in body and "devEngines" in body, (
+                    workflow_path.relative_to(ROOT),
+                    index + 1,
+                    f"step {step_id} must read the bun pin from webviews/package.json devEngines",
+                )
+                continue
             assert versions[0] == pin, (
                 workflow_path.relative_to(ROOT),
                 index + 1,

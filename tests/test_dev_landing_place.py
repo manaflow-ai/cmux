@@ -3,7 +3,7 @@
 
 scripts/ci/dev_landing_place.py picks the runner for cmux-next.yml's dev-landing-compile: a free
 owned root runner on the host whose holder record (cmux-next-dev-cas-holder-<host>) names the
-nearest commit, else any free owned runner, else Blacksmith after about two minutes. These pin
+nearest commit, else any free owned runner, else no compile after about two minutes. These pin
 the picker's rules against fake runner listings and a real git history, and the holder
 record script (dev-cas-holder.sh). tests/test_cmux_next_dev_landing_workflow.py pins the
 workflow's wiring.
@@ -125,45 +125,12 @@ class PickerTests(unittest.TestCase):
             runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-26.6")], SIDE)
         self.assertEqual((roots, sides), ([], []))
 
-    def test_no_free_owned_mac_for_two_minutes_overflows_to_blacksmith(self):
+    def test_no_free_owned_mac_for_two_minutes_compiles_nothing(self):
+        # Never Blacksmith macOS: a landing compile only warms a host tree, which a VM does not keep.
         result, reads = self.run_place([root_runner("cmux14-glaeda-1", busy=True)])
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), ("blacksmith-12vcpu-macos-26", "blacksmith"))
+        self.assertEqual((result["runs_on"], result["runner_label"], result["pool"]), ("", "", "none"))
         self.assertEqual(reads, 5, "looks at t=0,30,60,90,120 and no later")
-
-    def test_the_overflow_skips_a_stalled_blacksmith_label(self):
-        # 2026-10-28: blacksmith-12vcpu-macos-26 started nothing from about 02:11Z; landings kept overflowing onto it.
-        now = place.dt.datetime(2026, 10, 28, 15, 40, tzinfo=place.dt.timezone.utc)
-
-        def snap(waits):
-            return {"generated_at": "2026-10-28T15:39:00Z",
-                    "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait}
-                              for label, wait in waits.items()}}
-
-        large, small = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
-        cases = ((snap({large: 926}), small), (snap({large: 2}), large), (None, large))
-        for snapshot, expected in cases:
-            with self.subTest(snapshot=snapshot):
-                now_reads = [0.0]
-                result = place.place(self.env(), lambda: [], lambda host: [], sleep=lambda s: now_reads.__setitem__(0, now_reads[0] + s),
-                                     clock=lambda: now_reads[0], read_snapshot=lambda: snapshot, now=now)
-                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (expected, "blacksmith"))
-        # An unreadable snapshot keeps the configured label; a non-Blacksmith label is never re-picked.
-        def broken():
-            raise OSError("rate limit")
-        self.assertEqual(place.overflow_label(large, broken, now)[0], large)
-        self.assertEqual(place.overflow_label("macos-26", lambda: snap({}), now), ("macos-26", ""))
-
-    def test_the_overflow_skips_a_dead_label_a_stale_snapshot_shows(self):
-        # 2026-10-30: blacksmith-12vcpu-macos-26 started nothing for about a day; the janitor's snapshot is
-        # often older than the stall rule's 15 minutes, and the overflow then took OVERFLOW_LABEL unchecked.
-        now = place.dt.datetime(2026, 10, 30, 19, 0, tzinfo=place.dt.timezone.utc)
-        large, small = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
-        stale = {"generated_at": "2026-10-30T18:22:00Z",
-                 "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 5}},
-                 "label_started": {small: "2026-10-30T18:21:00Z"}}
-        self.assertEqual(place.overflow_label(large, lambda: stale, now)[0], small)
-        older = {key: value for key, value in stale.items() if key != "label_started"}
-        self.assertEqual(place.overflow_label(large, lambda: older, now)[0], large)
+        self.assertFalse(hasattr(place, "overflow_label"))
 
     def test_a_mac_freed_during_the_wait_is_taken(self):
         def runners(read):
@@ -171,12 +138,11 @@ class PickerTests(unittest.TestCase):
         result, reads = self.run_place(runners)
         self.assertEqual((json.loads(result["runs_on"]), reads), (SIDE, 3))
 
-    def test_unreadable_runners_and_owned_off_overflow_at_once(self):
+    def test_unreadable_runners_and_owned_off_compile_nothing_at_once(self):
         result, reads = self.run_place(RuntimeError("HTTP 403"))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"], reads),
-                         ("blacksmith-12vcpu-macos-26", "blacksmith", 1))
+        self.assertEqual((result["runs_on"], result["pool"], reads), ("", "none", 1))
         result, reads = self.run_place([], SIDE_LABEL="blacksmith-6vcpu-macos-26")
-        self.assertEqual((result["pool"], reads), ("blacksmith", 0))
+        self.assertEqual((result["runs_on"], result["pool"], reads), ("", "none", 0))
 
     def test_other_landings_in_flight_are_not_placed_on_again(self):
         now = place.dt.datetime(2026, 10, 26, 12, tzinfo=place.dt.timezone.utc)

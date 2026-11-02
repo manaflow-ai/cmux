@@ -17,18 +17,22 @@ The order (the rulebook's routing order):
    have none, so a side runner cannot be pinned to a host);
 2. otherwise any free owned runner: the side label when a side runner is free, else a free root
    runner (that host is cold for this tree and warms from now on);
-3. otherwise, after looking again every POLL_SECONDS for WAIT_SECONDS (about two minutes), the
-   Blacksmith overflow label (OVERFLOW_LABEL, or the other Blacksmith macOS 26 size while the queue
-   janitor's snapshot sees it stalled: overflow_label()). Runners that cannot be read (no token, an API error) overflow at
-   once: a landing never waits on a queue nobody saw free.
+3. otherwise, after looking again every POLL_SECONDS for WAIT_SECONDS (about two minutes), no compile:
+   runs_on= is empty and dev-landing-compile is skipped (skipped()). The same at once when owned pools are
+   off or the runners cannot be read (no token, an API error). A landing compile only warms a host
+   tree for the next landing, and a Blacksmith macOS VM keeps no tree, so it never overflows there:
+   the DEV run compiles that commit on its own route (Leo, 2026-10-26, on DEV compiles sitting over an
+   hour on Blacksmith's 12 vCPU Macs: "but we have the fleet we have linux blacksmith... why are we
+   STILL TALKING ABOUT BLACKSMITH MACOS"). Until then it overflowed to blacksmith-12vcpu-macos-26,
+   which started nothing for about a day on 2026-10-28 and again on 2026-10-30.
 
 Placement reserves nothing, so the landings in flight are read once (in_flight()): a root runner
 another landing's queued compile is pinned to is not free, and a host where one is compiling holds
 its host lock (this compile would fall back to a per-runner tree), so it is not pinned either.
 
-`place` (default) prints runs_on= (JSON for fromJSON), runner_label=, pool= (owned|blacksmith),
+`place` (default) prints runs_on= (JSON for fromJSON, or empty: no compile), runner_label=, pool= (owned|none),
 host=, holder_sha=, gap= and reason= for $GITHUB_OUTPUT. Env: ROUTE_TOKEN, GITHUB_REPOSITORY,
-GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, OVERFLOW_LABEL, WAIT_SECONDS, POLL_SECONDS,
+GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, WAIT_SECONDS, POLL_SECONDS,
 GAP_REPO and GAP_REMOTE (a bare repository and the remote to fetch commits into it).
 `gap FROM TO` prints the commits between two commits (either direction), or nothing; every fetch
 has a deadline, so a stalled network never holds the job.
@@ -213,51 +217,20 @@ def choose(roots: Sequence[str], sides: Sequence[str], side_label: str,
     return None
 
 
-def overflow_label(configured: str, read_snapshot: Callable[[], Mapping[str, Any] | None],
-                   now: dt.datetime | None = None) -> tuple[str, str]:
-    """The Blacksmith macOS label the compile overflows to, and why: OVERFLOW_LABEL while its queue moves.
-
-    blacksmith-12vcpu-macos-26 started nothing from about 02:11Z on 2026-10-28 while landings kept overflowing
-    onto it. The nightly signing jobs' pick (nightly_sign_runner.py, the one Blacksmith stall rule) skips a label
-    the queue janitor's snapshot saw stalled. No snapshot, or an unreadable one, keeps OVERFLOW_LABEL.
-    """
-    try:
-        import nightly_sign_runner  # noqa: PLC0415 - scripts/ci, next to this file
-    except Exception as error:  # noqa: BLE001 - placement never fails the job
-        print(f"dev_landing_place: stall rule unavailable: {error}", file=sys.stderr)
-        return configured, ""
-    if not nightly_sign_runner.BLACKSMITH_MACOS.fullmatch(configured):
-        return configured, ""
-    try:
-        snapshot = read_snapshot()
-    except Exception as error:  # noqa: BLE001 - the configured label keeps its say
-        print(f"dev_landing_place: pool snapshot unreadable: {error}", file=sys.stderr)
-        snapshot = None
-    try:
-        label, why = nightly_sign_runner.pick(configured, snapshot, now or dt.datetime.now(dt.timezone.utc))
-    except Exception as error:  # noqa: BLE001 - placement never fails the job; the configured label stands
-        print(f"dev_landing_place: stall pick failed: {error}", file=sys.stderr)
-        return configured, ""
-    return label, f"; Blacksmith overflow {why}"
-
-
 def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[str, Any]]],
           read_holders: Callable[[str], Sequence[Mapping[str, Any]]],
           read_in_flight: Callable[[], tuple[set[str], set[str]]] = lambda: (set(), set()),
-          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-          read_snapshot: Callable[[], Mapping[str, Any] | None] = lambda: None,
-          now: dt.datetime | None = None) -> dict[str, str]:
+          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> dict[str, str]:
     side_label = env.get("SIDE_LABEL", "")
-    def overflowed(reason: str) -> dict[str, str]:
-        label, why = overflow_label(env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26", read_snapshot, now)
-        return {"runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
-                "host": "", "holder_sha": "", "gap": "", "reason": reason + why}
+    def skipped(reason: str) -> dict[str, str]:
+        return {"runs_on": "", "runner_label": "", "pool": "none", "host": "", "holder_sha": "", "gap": "",
+                "reason": reason + "; no landing compile (the DEV run compiles this commit)"}
 
     fresh_label = (env.get("FRESH_LABEL") or "").strip()
     if not side_label.startswith("glaeda-side-"):
         if fresh_label:  # a DEV daily keeps the route its run already has
             return {**DAILY_KEEP, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
-        return overflowed(f"owned pools are off for this run (side route {side_label or 'unset'})")
+        return skipped(f"owned pools are off for this run (side route {side_label or 'unset'})")
     head, repo_id = env.get("SHA", ""), env.get("GITHUB_REPOSITORY_ID", "")
     gap_repo, gap_remote = env.get("GAP_REPO", ""), env.get("GAP_REMOTE", "")
     wait, poll = float(env.get("WAIT_SECONDS") or 120), max(1.0, float(env.get("POLL_SECONDS") or 30))
@@ -287,12 +260,12 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         try:
             roots, sides = free_runners(read_runners(), side_label, taken)
         except Exception as error:  # noqa: BLE001 - nobody saw an owned runner free
-            return overflowed(f"owned runners unreadable ({error}); overflow at once")
+            return skipped(f"owned runners unreadable ({error})")
         picked = choose(roots, sides, side_label, distance_of, busy_hosts)
         if picked:
             return picked
         if clock() - started + poll > wait:
-            return overflowed(f"no owned runner was free in {reads} looks over {int(clock() - started)}s")
+            return skipped(f"no owned runner was free in {reads} looks over {int(clock() - started)}s")
         sleep(poll)
 
 
@@ -386,11 +359,7 @@ def main(argv: Sequence[str]) -> int:
         return in_flight(runs, lambda run_id: api.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
                          .get("jobs") or [], env.get("GITHUB_RUN_ID", ""), dt.datetime.now(dt.timezone.utc))
 
-    def read_snapshot() -> Mapping[str, Any] | None:
-        # The queue janitor's pool snapshot (an artifact; the routing token has actions: read).
-        return api.snapshot(now=dt.datetime.now(dt.timezone.utc)) if api is not None else None
-
-    outputs = place(env, read_runners, read_holders, read_in_flight, read_snapshot=read_snapshot)
+    outputs = place(env, read_runners, read_holders, read_in_flight)
     print(f"::notice title=DEV landing placement::{outputs['reason']}", file=sys.stderr)
     for key in ("runs_on", "runner_label", "pool", "host", "holder_sha", "gap", "reason"):
         print(f"{key}={' '.join(str(outputs.get(key, '')).split())}")

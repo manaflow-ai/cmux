@@ -835,9 +835,8 @@ class BuilderReadDeadline(unittest.TestCase):
                    "NIGHTLY_ONLY_BUILDER_LABEL": picker.NIGHTLY_ONLY_BUILDER_LABEL,
                    "ROUTE_TOKEN": "token", "GITHUB_OUTPUT": str(out)}
             with mock.patch.object(picker, "BUILDER_READ_SECONDS", 0.2):
-                started = _time.monotonic()
+                # `slow` would return the idle builder after 5 s; the plain label proves the deadline cut it off.
                 self.assertEqual(picker.main(env, read_runners=slow), 0)
-                self.assertLess(_time.monotonic() - started, 2)
             self.assertIn(f"owned={picker.NIGHTLY_ONLY_LABEL}\n", out.read_text())
 
 

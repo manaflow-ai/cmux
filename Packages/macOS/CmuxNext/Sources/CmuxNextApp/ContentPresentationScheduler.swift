@@ -6,6 +6,8 @@ protocol PresentablePane: AnyObject {
     /// Showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool { get }
     func showSelected()
+    /// It waits for a later frame: it shows what it has with no new surface (a terminal's last frame from the quit).
+    func showWhileWaiting()
 }
 
 /// Shows panes' selected content on display frames instead of inside model
@@ -35,6 +37,7 @@ final class ContentPresentationScheduler {
     func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
+        if !pane.selectedContentIsAlive { pane.showWhileWaiting() }
         schedule()
     }
 

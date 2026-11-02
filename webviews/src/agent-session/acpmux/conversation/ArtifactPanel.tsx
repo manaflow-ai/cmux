@@ -21,7 +21,7 @@ import {
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
-import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Close, Copy, Pin, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 import {
@@ -61,6 +61,9 @@ export function ArtifactPanel({
   versions = [opened],
   onClose,
   onSave,
+  pinned = false,
+  onPinChange,
+  sourceTitle,
 }: {
   artifact: Artifact;
   /// The document's versions in the chat (cx-ncc.64, `artifactVersions`), with the opened one: the
@@ -69,6 +72,11 @@ export function ArtifactPanel({
   onClose(): void;
   /// Unset where the page has no host save panel (a gallery, a test): no Save.
   onSave?: SaveDocument;
+  /** Pin keeps this exact source chat's preview visible while browsing other chats in this pane. */
+  pinned?: boolean;
+  onPinChange?(pinned: boolean): void;
+  /** Original conversation's title, supplied by the host rather than the document. */
+  sourceTitle?: string;
 }) {
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
@@ -124,6 +132,12 @@ export function ArtifactPanel({
     >
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
+        {pinned && (
+          <span className="acpmux-artifact-source" title={sourceTitle}>
+            {t("sidebar.pinned")}
+            {sourceTitle ? ` · ${sourceTitle}` : ""}
+          </span>
+        )}
         {list.length > 1 && (
           <span className="acpmux-artifact-versions">
             <button
@@ -170,6 +184,18 @@ export function ArtifactPanel({
           </span>
         )}
         <span className="acpmux-artifact-actions">
+          {onPinChange && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t(pinned ? "chatMenu.unpin" : "chatMenu.pin")}
+              title={t(pinned ? "chatMenu.unpin" : "chatMenu.pin")}
+              aria-pressed={pinned}
+              onClick={() => onPinChange(!pinned)}
+            >
+              <Pin filled={pinned} size={14} />
+            </button>
+          )}
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"

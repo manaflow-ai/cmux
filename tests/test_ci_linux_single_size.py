@@ -200,7 +200,6 @@ FIXED_PAIR: dict[str, int] = {
     "cmux-cloud-cli.yml": 1,
     "cmux-mobile-ffi.yml": 2,
     "cmux-next-car-guards.yml": 1,
-    "cmux-next-fast-gates.yml": 1,
     "cmux-next-guards.yml": 1,
     "cmux-next-shim-cpp.yml": 1,
     "cmux-next-source-archive.yml": 1,
