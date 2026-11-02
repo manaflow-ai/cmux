@@ -163,7 +163,7 @@ final class CreationInputCoordinator {
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
         if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
-           let awaited = Self.awaitedContent(controller), buffers[shell.windowNumber]?.awaitedTab != awaited.tab {
+           let awaited = Self.awaitedContent(controller), buffers[shell.windowNumber]?.awaitedTab != awaited.tab, awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitContent(awaited, machine: controller.content?.daemon.machineID)
         }
         guard let buffer = buffers[shell.windowNumber] else { return false }
@@ -183,7 +183,7 @@ final class CreationInputCoordinator {
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
         // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.
-        guard kind == .content, controller != nil, (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        guard kind == .content, let focused = controller, (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: focused.focus.currentState(), facts: router.facts(in: shell, controller: focused)))?.command.rawValue)) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event, focusedTab: controller?.focus.state.typingTab)
@@ -317,7 +317,7 @@ final class CreationInputCoordinator {
             if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return }
         }
         buffers[window.windowNumber] = nil
-        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.

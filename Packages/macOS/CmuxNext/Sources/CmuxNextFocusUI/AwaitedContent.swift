@@ -48,6 +48,13 @@ public struct AwaitedContent: Equatable, Sendable {
         return AwaitedContent(tab: tab, kind: kind)
     }
 
-    /// Whether a page hold keeps a key (commit 2 of the fix: every key; the rule follows).
-    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool { true }
+    /// The app actions that need the focused page itself (its address bar): they wait for it in a page hold.
+    public static let pageActions: Set<String> = ["focusLocation", "focusBrowserAddressBar", "browser.focusSearch"]
+
+    /// Whether a page hold keeps a key: every key once one is held (the order stays), a plain key and a chord no app
+    /// binding takes (the page's own keys), and a page action (``pageActions``). An app shortcut that does not need the
+    /// page (Ctrl-Tab, Cmd-T, Cmd-1) acts at once while the hold is empty: a cold tab passed on the way never delays it.
+    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool {
+        !holdIsEmpty || !isChord || command.map(pageActions.contains) ?? true
+    }
 }
