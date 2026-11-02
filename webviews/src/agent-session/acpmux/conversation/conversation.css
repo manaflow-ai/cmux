@@ -2851,8 +2851,9 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
-/* A quiet guide outside the shared columns makes the opened run's extent visible without
-   indenting its child rows. The comparison gallery's card/tree/zebra looks keep their own rules. */
+/* A quiet guide between the icon and text columns marks the opened run without indenting it.
+   Keep it inside the transcript row: paint containment clips any outside guide. The comparison
+   gallery's card/tree/zebra looks keep their own rules. */
 :root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }
@@ -2860,7 +2861,7 @@ button.cv-video-frames__frame:focus-visible {
   content: "";
   position: absolute;
   inset-block: 0;
-  inset-inline-start: calc(-1 * var(--grid-gap));
+  inset-inline-start: calc(var(--cv-row-icon) + var(--cv-row-icon-gap) / 2);
   width: 1px;
   background: var(--cv-rule);
   pointer-events: none;

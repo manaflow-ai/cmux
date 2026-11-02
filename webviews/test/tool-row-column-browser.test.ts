@@ -95,10 +95,20 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               guide: (() => {
                 const group = document.querySelector(".cv-tool-group.is-flat.cv-steps")!;
                 const style = getComputedStyle(group, "::before");
+                const bounds = group.getBoundingClientRect();
+                const row = group.closest(".acpmux-row")!;
+                const clip = row.getBoundingClientRect();
+                const icon = group.querySelector(".cv-tool__icon")!.getBoundingClientRect();
+                const words = group.querySelector(".cv-command__text")!.getBoundingClientRect();
+                const left = bounds.left + parseFloat(style.left);
+                const right = left + parseFloat(style.width);
                 return {
                   content: style.content,
                   width: parseFloat(style.width),
-                  left: parseFloat(style.left),
+                  contain: getComputedStyle(row).contain,
+                  insidePaintBounds:
+                    left >= clip.left && right <= clip.right && bounds.top >= clip.top && bounds.bottom <= clip.bottom,
+                  insideColumnGap: left > icon.right && right < words.left,
                   color: style.backgroundColor,
                 };
               })(),
@@ -112,7 +122,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           expect(errors).toEqual([]);
           expect(m.guide.content).toBe('""');
           expect(m.guide.width).toBe(1);
-          expect(m.guide.left).toBeLessThan(0);
+          expect(m.guide.contain).toContain("paint");
+          expect(m.guide.insidePaintBounds).toBe(true);
+          expect(m.guide.insideColumnGap).toBe(true);
           expect(m.guide.color).not.toBe("rgba(0, 0, 0, 0)");
           // The lone read, the group line, its three steps, the lone failed command, the lone block.
           expect(m.rows.length).toBe(7);

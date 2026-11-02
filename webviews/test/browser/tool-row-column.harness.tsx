@@ -83,11 +83,13 @@ function App() {
         } as CSSProperties
       }
     >
-      <div className="cv-tools" data-fixture-column>
-        <ToolRow item={lone} />
-        <ToolGroupRow kind="commands" items={[blocked, failed, background]} disclosureKey="fixture-group" />
-        <CommandRow item={loneFailed} />
-        <CommandRow item={{ ...blocked, tool: { ...blocked.tool!, id: "blocked-lone", description: undefined } }} />
+      <div className="acpmux-row" style={{ position: "relative", left: 0, right: 0, width: "100%" }}>
+        <div className="cv-tools" data-fixture-column>
+          <ToolRow item={lone} />
+          <ToolGroupRow kind="commands" items={[blocked, failed, background]} disclosureKey="fixture-group" />
+          <CommandRow item={loneFailed} />
+          <CommandRow item={{ ...blocked, tool: { ...blocked.tool!, id: "blocked-lone", description: undefined } }} />
+        </div>
       </div>
     </main>
   );
