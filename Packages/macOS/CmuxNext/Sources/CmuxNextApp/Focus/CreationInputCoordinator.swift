@@ -161,9 +161,9 @@ final class CreationInputCoordinator {
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
-        // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4).
-        if buffers[shell.windowNumber] == nil, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
-           let lane = Self.awaitedSurface(controller) {
+        // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
+        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+           let lane = Self.awaitedSurface(controller), buffers[shell.windowNumber]?.awaitedTab != lane.tab {
             buffer(in: shell).awaitSurface(of: lane)
         }
         guard let buffer = buffers[shell.windowNumber] else { return false }
@@ -181,8 +181,8 @@ final class CreationInputCoordinator {
         // keep waiting (flushed, they ran into the closing terminal).
         if closes, let tab = controller?.focus.state.terminalTab, buffer.isClosing(tab: tab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
-        // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
-        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
+        guard kind == .content, controller != nil, (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event, focusedTab: controller?.focus.state.typingTab)

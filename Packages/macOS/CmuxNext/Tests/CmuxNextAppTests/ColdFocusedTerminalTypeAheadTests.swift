@@ -29,6 +29,17 @@ struct ColdFocusedTerminalTypeAheadTests {
     }
 
     @Test func aLineTypedAsAColdWorkspaceShowsReachesItsFocusedTerminalInOrder() async throws {
+        try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: false)
+    }
+
+    /// The first key is a terminal chord (Ctrl-L, which no app shortcut takes): it waits with the line and clears the
+    /// screen before it runs (it was let through an empty hold and reached no view, review of #31707).
+    @Test func aTerminalChordTypedFirstAsAColdWorkspaceShowsWaitsForItsTerminalToo() async throws {
+        try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: true)
+    }
+
+    /// `clearingFirst`: Ctrl-L before the line.
+    private static func typeAsTheWorkspaceShowsCold(clearingFirst: Bool) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -64,7 +75,7 @@ struct ColdFocusedTerminalTypeAheadTests {
             let frames = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
             let ordered = terminals().sorted { frames[$0.pane, default: 0] < frames[$1.pane, default: 0] }
             let left = ordered[0], right = ordered[1]
-            PaneHandlers.focus(LayoutPaneID(right.pane), in: content)
+            PaneHandlers.focus(try #require(content.paneController(key: right.pane)).layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: right.pane, tab: right.tab)
                     && (window.firstResponder as? NSView)?.isDescendant(of: content.paneController(key: right.pane)?.view ?? NSView()) == true },
                 report: { "waiting for the keyboard on the right terminal: \(describe())" })
@@ -95,6 +106,13 @@ struct ColdFocusedTerminalTypeAheadTests {
             #expect(controller.focus.currentState().resolved == .terminal(pane: right.pane, tab: right.tab),
                     "the cold workspace's focus is not its remembered terminal: \(controller.focus.state.resolved)")
             #expect(!services.cache.hasContent(for: right.tab), "the focused terminal's surface already shows: the test types too late")
+            if clearingFirst {
+                let control = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.control],
+                                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                            context: nil, characters: "\u{0C}", charactersIgnoringModifiers: "l",
+                                                            isARepeat: false, keyCode: 37))
+                if !services.keyRouter.interceptKeyDown(control, in: window) { window.sendEvent(control) }
+            }
             for character in "echo f4\(nonce)x$((6*7))\r" {
                 let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
@@ -110,6 +128,9 @@ struct ColdFocusedTerminalTypeAheadTests {
             #expect(ran?.matched == true, "the line typed as the workspace showed never ran whole in its focused terminal: \(rightScreen)\n\(describe())")
             #expect(rightScreen.contains("echo f4\(nonce)x$((6*7))"), "the focused terminal's line is not the typed line, in order: \(rightScreen)")
             #expect(!leftScreen.contains("f4\(nonce)"), "keys typed for the focused terminal reached the other one: \(leftScreen)")
+            if clearingFirst {
+                #expect(!rightScreen.contains("ready9"), "the Ctrl-L typed first never reached the focused terminal (its screen was not cleared): \(rightScreen)")
+            }
         }
     }
 }
