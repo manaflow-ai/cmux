@@ -2,16 +2,9 @@
 // chat's harness loaded with its state; a failed one has Reconnect where acpmux reconnects one.
 import type { AcpmuxSnapshot } from "../../model";
 import type { Translate } from "../../i18n";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-  NativeInfoTone,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 
-type McpServer = NonNullable<
-  NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]
->[number];
+type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
 
 export const CONNECTORS_SYMBOL = "puzzlepiece.extension";
 
@@ -39,9 +32,7 @@ export function connectorsSection(
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
   if (servers.length === 0) return undefined;
-  const reconnect = servers.filter(
-    (server) => server.status === "failed",
-  ).length;
+  const reconnect = servers.filter((server) => server.status === "failed").length;
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -63,9 +54,7 @@ export function connectorsSection(
                   : "sessionInfo.connectors.reconnectAction",
             ),
             disabled: state === "reconnecting",
-            action: actions.add(`connectors.reconnect:${server.name}`, () =>
-              onReconnect(server.name),
-            ),
+            action: actions.add(`connectors.reconnect:${server.name}`, () => onReconnect(server.name)),
           },
         ],
       };
@@ -91,8 +80,7 @@ export function connectorsSection(
       reconnect > 0
         ? t("sessionInfo.connectors.reconnect", { count: reconnect })
         : t("rail.connected", {
-            count: servers.filter((server) => server.status === "connected")
-              .length,
+            count: servers.filter((server) => server.status === "connected").length,
           }),
     open: input.open,
     foldable: true,

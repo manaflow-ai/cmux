@@ -2,23 +2,13 @@
 // The page formats and orders values; the App only draws rows and forwards actions.
 import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
-import {
-  byUsage,
-  type SessionUsageStats,
-  UNKNOWN,
-  usageCost,
-  usageTokens,
-} from "../../usageStats";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import { byUsage, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const USAGE_SYMBOL = "waveform.path";
 export const USAGE_SHOWN = 5;
 
-type OwnAction = "compact" | "subagents";
+type OwnAction = "compact" | "subagents" | "cap";
 
 const known = <T>(value: T | undefined, format: (value: T) => string) =>
   value === undefined ? UNKNOWN : format(value);
@@ -32,11 +22,7 @@ function ownRows(
   onShowSubagents?: () => void,
 ): NativeInfoRow[] {
   const tokens = (value: number) => usageTokens(value, locale);
-  const subagents = [
-    stats.subagentsLive,
-    stats.subagents1h,
-    stats.subagents24h,
-  ];
+  const subagents = [stats.subagentsLive, stats.subagents1h, stats.subagents24h];
   const rows: Array<{
     id: string;
     name: string;
@@ -71,6 +57,7 @@ function ownRows(
           : stats.autocompact === "capped"
             ? known(stats.autocompactCap, tokens)
             : UNKNOWN,
+      ...(stats.autocompact === "none" ? { action: "cap" as const } : {}),
     },
     {
       id: "compactions",
@@ -120,12 +107,28 @@ function ownRows(
           ],
         }
       : {}),
+    ...(action === "cap"
+      ? {
+          buttons: [
+            {
+              label: t("sessionInfo.usage.restartWithCap"),
+              action: actions.add("usage.restartWithCap", () => undefined),
+              disabled: true,
+            },
+          ],
+          help: t("sessionInfo.usage.restartWithCapSoon"),
+        }
+      : {}),
   }));
 }
 
 export type UsageInput = {
   own?: SessionUsageStats;
   sessions: readonly AcpmuxSessionEntry[];
+  /// Parent may provide a memoized ranking; when absent, ranking only happens while open.
+  ranked?: readonly AcpmuxSessionEntry[];
+  /// Parent's memoized existence check keeps a folded section visible without sorting its rows.
+  hasSessionUsage?: boolean;
   chatId?: string;
   onOpen?: (sessionId: string) => void;
   onCompact?: () => void;
@@ -143,60 +146,44 @@ export function usageSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const ranked = byUsage(input.sessions, input.sort ?? "cost");
-  if (!input.own && ranked.length === 0) return undefined;
+  const hasSessionUsage = input.hasSessionUsage ?? input.sessions.some((entry) => Boolean(entry.usageStats));
+  if (!input.own && !hasSessionUsage) return undefined;
+  const ranked = input.ranked ?? (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
   const expanded = input.expanded === true;
   const sort = input.sort ?? "cost";
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const rows: NativeInfoRow[] = [];
-  if (input.onSortChange) {
+  if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
+  if (ranked.length && input.onSortChange) {
     rows.push({
       id: "sort",
-      title: t("sessionInfo.usage.sortBy"),
+      title: t("sessionInfo.usage.allSessions"),
       buttons: [
         {
           label: t("sessionInfo.usage.sortCost"),
-          action: actions.add("usage.sort:cost", () =>
-            input.onSortChange!("cost"),
-          ),
+          action: actions.add("usage.sort:cost", () => input.onSortChange!("cost")),
           disabled: sort === "cost",
         },
         {
           label: t("sessionInfo.usage.sortContext"),
-          action: actions.add("usage.sort:context", () =>
-            input.onSortChange!("context"),
-          ),
+          action: actions.add("usage.sort:context", () => input.onSortChange!("context")),
           disabled: sort === "context",
         },
       ],
     });
   }
-  if (input.own)
-    rows.push(
-      ...ownRows(
-        input.own,
-        t,
-        input.locale,
-        actions,
-        input.onCompact,
-        input.onShowSubagents,
-      ),
-    );
   for (const entry of shown) {
     const stats = entry.usageStats;
     if (!stats) continue;
     const place = entry.peer ?? entry.host;
-    const named =
-      entry.displayTitle || entry.title || entry.name || entry.sessionId;
-    const title =
-      entry.peer && named.startsWith(`${entry.peer}/`)
-        ? named.slice(entry.peer.length + 1)
-        : named;
+    const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+    const title = entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
     const value = sort === "context" ? stats.contextTokens : stats.costUsd24h;
     rows.push({
       id: `session:${entry.sessionId}`,
       symbol: "bubble.left",
+      ...(entry.harness ? { harness: entry.harness } : {}),
       title,
       ...(place ? { detail: place } : {}),
       trailing:
@@ -207,9 +194,7 @@ export function usageSection(
             : usageCost(value, input.locale),
       ...(entry.sessionId !== input.chatId && input.onOpen
         ? {
-            action: actions.add(`usage.open:${entry.sessionId}`, () =>
-              input.onOpen!(entry.sessionId),
-            ),
+            action: actions.add(`usage.open:${entry.sessionId}`, () => input.onOpen!(entry.sessionId)),
           }
         : {}),
     });
@@ -220,12 +205,15 @@ export function usageSection(
     title: t("sessionInfo.usage"),
     symbol: USAGE_SYMBOL,
     meta: input.own
-      ? t("sessionInfo.usage.cost24hValue", {
-          cost:
-            input.own.costUsd24h === undefined
-              ? UNKNOWN
-              : usageCost(input.own.costUsd24h, input.locale),
-        })
+      ? input.own.costUsd24h !== undefined
+        ? t("sessionInfo.usage.cost24hValue", {
+            cost: usageCost(input.own.costUsd24h, input.locale),
+          })
+        : input.own.tokens24h !== undefined
+          ? t("sessionInfo.usage.tokens24hValue", {
+              tokens: usageTokens(input.own.tokens24h, input.locale),
+            })
+          : undefined
       : undefined,
     open: input.open,
     foldable: true,
@@ -234,12 +222,8 @@ export function usageSection(
     ...(folds && input.onExpandedChange
       ? {
           more: {
-            label: expanded
-              ? t("summary.showFewer")
-              : t("summary.viewAll", { n: ranked.length }),
-            action: actions.add("usage.more", () =>
-              input.onExpandedChange!(!expanded),
-            ),
+            label: expanded ? t("summary.showFewer") : t("summary.viewAll", { n: ranked.length }),
+            action: actions.add("usage.more", () => input.onExpandedChange!(!expanded)),
           },
         }
       : {}),

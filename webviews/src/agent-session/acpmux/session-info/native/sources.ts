@@ -1,16 +1,9 @@
 // Session Info's Sources, drawn by the App (SourcesSection.tsx): what the chat read, five then View
 // all N. A file in the chat's folder opens in a tab; a link opens beside the chat.
 import type { Translate } from "../../i18n";
-import type {
-  SummarySource,
-  SummarySourceKind,
-} from "../../summary/sessionSummary";
+import type { SummarySource, SummarySourceKind } from "../../summary/sessionSummary";
 import { SOURCES_SHOWN, scopedPath } from "../SourcesSection";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 const SYMBOLS: Record<SummarySourceKind, string> = {
   file: "doc.text",
@@ -27,7 +20,7 @@ export type SourcesInput = {
   onOpenFile?: (path: string) => unknown;
   onOpenBeside?: (url: string) => void;
   failures?: Readonly<Record<string, string>>;
-  /// Every source shows (`inspectorState.sourcesAll`).
+  /// Every source shows (`sessionInfoState.sourcesAll`).
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   /// The section is unfolded (`sections.sources`).
@@ -39,24 +32,20 @@ export function sourcesSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange } =
-    input;
+  const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange } = input;
   if (sources.length === 0) return undefined;
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
   const rows = shown.map((source): NativeInfoRow => {
-    const path =
-      source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
+    const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
     const failure = path ? input.failures?.[path] : undefined;
     const row: NativeInfoRow = {
       id: `${source.kind}:${source.url ?? source.label}`,
       symbol: SYMBOLS[source.kind ?? "url"],
       title: source.label,
-      ...(failure
-        ? { subtitle: failure, tone: "failed" as const, help: failure }
-        : {}),
+      ...(failure ? { subtitle: failure, tone: "failed" as const, help: failure } : {}),
     };
-    if (path && onOpenFile)
+    if (path && onOpenFile && !failure)
       return {
         ...row,
         ...(failure ? {} : { help: path }),
@@ -69,9 +58,7 @@ export function sourcesSection(
         help: url,
         ...(onOpenBeside
           ? {
-              action: actions.add(`sources.open:${url}`, () =>
-                onOpenBeside(url),
-              ),
+              action: actions.add(`sources.open:${url}`, () => onOpenBeside(url)),
             }
           : {}),
       };
@@ -89,12 +76,8 @@ export function sourcesSection(
     ...(folds
       ? {
           more: {
-            label: expanded
-              ? t("summary.showFewer")
-              : t("summary.viewAll", { n: sources.length }),
-            action: actions.add("sources.more", () =>
-              onExpandedChange(!expanded),
-            ),
+            label: expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length }),
+            action: actions.add("sources.more", () => onExpandedChange(!expanded)),
           },
         }
       : {}),

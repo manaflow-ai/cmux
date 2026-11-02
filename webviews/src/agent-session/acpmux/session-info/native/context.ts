@@ -1,4 +1,4 @@
-// Session Info's Context, drawn by the App (ChatInspector's `context`, ContextSection.tsx): the share
+// Session Info's Context, drawn by the App (SessionInfo's `context`, ContextSection.tsx): the share
 // of the window used beside the title with its meter, then the window's total and a row per part
 // (Claude Code's /context breakdown when acpmux kept one, else used and free). A subagent's panel
 // with no usage shows what it has spent (subagentProgress) as the title's value alone.
@@ -6,11 +6,7 @@ import type { PaneLanguage, Translate } from "../../i18n";
 import type { Subagent } from "../../subagents/subagentFold";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { contextBreakdown, contextParts } from "../ContextSection";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const CONTEXT_SYMBOL = "gauge.with.dots.needle.33percent";
 
@@ -50,9 +46,7 @@ export function contextSection(
     symbol: CONTEXT_SYMBOL,
   } as const;
   if (usage === undefined || usage.size <= 0) {
-    const progress = input.agent
-      ? subagentProgress(t, input.language, input.agent)
-      : [];
+    const progress = input.agent ? subagentProgress(t, input.language, input.agent) : [];
     if (progress.length === 0) return undefined;
     return {
       ...base,
@@ -94,26 +88,20 @@ export function contextSection(
   let segments: { share: number; color: string }[] | undefined;
   if (breakdown) {
     segments = breakdown.rows
-      .filter(
-        (row) =>
-          (row.kind === "used" || row.kind === "buffer") &&
-          (row.share ?? 0) > 0,
-      )
+      .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
       .map((row) => ({
         share: row.share ?? 0,
         color: row.kind === "buffer" ? "buffer" : `context${row.tone ?? 0}`,
       }));
     breakdown.rows.forEach((row, index) => {
-      const drawn =
-        (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0;
+      const drawn = (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0;
       rows.push({
         id: `category:${index}:${row.name}`,
+        symbol: "square.fill",
         title: row.name,
         trailing: `${tokens.format(row.tokens)} · ${row.share === undefined ? "—" : share.format(row.share)}`,
         tone: row.kind === "used" ? undefined : "muted",
-        ...(row.kind === "used" && row.tone !== undefined
-          ? { symbolColor: `context${row.tone}` }
-          : {}),
+        symbolColor: row.kind === "used" ? `context${row.tone ?? 0}` : row.kind === "buffer" ? "buffer" : "free",
         ...(drawn ? { meter: row.share } : {}),
       });
     });
@@ -127,9 +115,7 @@ export function contextSection(
         trailing: String(list.items.length),
         ...(toggle
           ? {
-              action: actions.add(`context.toggle:${list.id}`, () =>
-                toggle(list.id),
-              ),
+              action: actions.add(`context.toggle:${list.id}`, () => toggle(list.id)),
             }
           : {}),
       });
@@ -154,15 +140,11 @@ export function contextSection(
     for (const part of contextParts(usage))
       rows.push({
         id: part.id,
-        title: t(
-          part.id === "used"
-            ? "sessionInfo.context.used"
-            : "sessionInfo.context.free",
-        ),
+        symbol: "square.fill",
+        symbolColor: part.id === "used" ? "accent" : "free",
+        title: t(part.id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free"),
         trailing: `${tokens.format(part.tokens)} · ${share.format(part.share)}`,
-        ...(part.id === "used"
-          ? { meter: part.share }
-          : { tone: "muted" as const }),
+        ...(part.id === "used" ? { meter: part.share } : { tone: "muted" as const }),
       });
   }
   return {

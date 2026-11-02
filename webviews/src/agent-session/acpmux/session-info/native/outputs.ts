@@ -3,16 +3,8 @@
 import type { Translate } from "../../i18n";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
-import {
-  OUTPUTS_SHOWN,
-  type OutputArtifact,
-  type OutputLink,
-} from "../OutputsSection";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import { OUTPUTS_SHOWN, type OutputArtifact, type OutputLink } from "../OutputsSection";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export type OutputsInput = {
   files: readonly TurnFile[];
@@ -37,39 +29,18 @@ export function outputsSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const {
-    files,
-    links,
-    artifacts,
-    documents = [],
-    onOpenFile,
-    onOpenArtifacts,
-    onOpenDocument,
-    onOpenUrl,
-  } = input;
-  // As ChatInspector shows it: any file, link, gallery item, or document it can open.
-  if (
-    files.length +
-      links.length +
-      artifacts +
-      (onOpenDocument ? documents.length : 0) ===
-    0
-  )
-    return undefined;
+  const { files, links, artifacts, documents = [], onOpenFile, onOpenArtifacts, onOpenDocument, onOpenUrl } = input;
+  // As SessionInfo shows it: any file, link, gallery item, or document it can open.
+  if (files.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) === 0) return undefined;
   const rows: NativeInfoRow[] = [];
   if (onOpenDocument)
     for (const document of documents)
       rows.push({
         id: `document:${document.key}`,
-        symbol:
-          document.artifact.kind === "markdown"
-            ? "doc.text"
-            : "chevron.left.forwardslash.chevron.right",
+        symbol: document.artifact.kind === "markdown" ? "doc.text" : "chevron.left.forwardslash.chevron.right",
         title: document.title ?? t("render.untitled"),
         trailing: t("sessionInfo.outputs.artifact"),
-        action: actions.add(`outputs.openDocument:${document.key}`, () =>
-          onOpenDocument(document.artifact),
-        ),
+        action: actions.add(`outputs.openDocument:${document.key}`, () => onOpenDocument(document.artifact)),
       });
   if (artifacts > 0 && onOpenArtifacts)
     rows.push({
@@ -87,15 +58,11 @@ export function outputsSection(
       symbol: file.created ? "doc.badge.plus" : "doc.text",
       title: cut >= 0 ? file.displayPath.slice(cut + 1) : file.displayPath,
       ...(folder ? { detail: folder } : {}),
-      ...(file.binary
-        ? {}
-        : { trailing: `+${file.additions} -${file.deletions}` }),
+      ...(file.binary ? {} : { trailing: `+${file.additions} -${file.deletions}` }),
       help: file.path,
       ...(onOpenFile
         ? {
-            action: actions.add(`outputs.openFile:${file.path}`, () =>
-              onOpenFile(file.path),
-            ),
+            action: actions.add(`outputs.openFile:${file.path}`, () => onOpenFile(file.path)),
           }
         : {}),
     });
@@ -109,9 +76,7 @@ export function outputsSection(
       help: link.url,
       ...(onOpenUrl
         ? {
-            action: actions.add(`outputs.openLink:${link.url}`, () =>
-              onOpenUrl(link.url),
-            ),
+            action: actions.add(`outputs.openLink:${link.url}`, () => onOpenUrl(link.url)),
           }
         : {}),
     });
@@ -129,12 +94,8 @@ export function outputsSection(
     ...(folds && input.onExpandedChange
       ? {
           more: {
-            label: expanded
-              ? t("summary.showFewer")
-              : t("summary.viewAll", { n: rows.length }),
-            action: actions.add("outputs.more", () =>
-              input.onExpandedChange!(!expanded),
-            ),
+            label: expanded ? t("summary.showFewer") : t("summary.viewAll", { n: rows.length }),
+            action: actions.add("outputs.more", () => input.onExpandedChange!(!expanded)),
           },
         }
       : {}),

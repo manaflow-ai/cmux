@@ -4,19 +4,9 @@
 // the end; its state the glyph and tone alone. A click opens it beside the chat.
 import type { StringKey, Translate } from "../../i18n";
 import type { SummaryPullRequest } from "../../summary/sessionSummary";
-import {
-  CHANGES_SHOWN,
-  changesOrder,
-  glyphState,
-  type SessionInfoPullRequestStatus,
-} from "../ChangesSection";
+import { CHANGES_SHOWN, changesOrder, glyphState, type SessionInfoPullRequestStatus } from "../ChangesSection";
 import type { PullRequestGlyphState } from "../PullRequestGlyph";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-  NativeInfoTone,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 
 const SYMBOLS: Record<PullRequestGlyphState, string> = {
   open: "arrow.triangle.pull",
@@ -32,6 +22,13 @@ const TONES: Record<PullRequestGlyphState, NativeInfoTone> = {
   merged: "accent",
   closed: "muted",
 };
+const SYMBOL_COLORS: Record<PullRequestGlyphState, string> = {
+  open: "green",
+  merged: "purple",
+  draft: "yellow",
+  closed: "red",
+  conflicting: "red",
+};
 /// The state glyph's label (ChangesSection's screen-reader label): the row's tooltip here.
 const STATE_LABELS: Record<PullRequestGlyphState, StringKey> = {
   open: "sessionInfo.changes.open",
@@ -46,7 +43,7 @@ const CHECK_LABELS: Record<string, StringKey> = {
 };
 
 export type ChangesInput = {
-  /// The pull requests Changes lists (ChatInspector's `visibleChanges`), in any order.
+  /// The pull requests Changes lists (SessionInfo's `visibleChanges`), in any order.
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// Opens a pull request in the browser beside the chat.
@@ -77,38 +74,25 @@ export function changesSection(
     const ended = state === "merged" || state === "closed";
     const repoName = pr.repo.split("/").pop() ?? pr.repo;
     const checks = ended ? undefined : live.checks;
-    const failing = ended
-      ? 0
-      : (live.failing ?? (checks === "failing" ? -1 : 0));
-    const onBase = Math.min(
-      Math.max(0, live.failingOnBase ?? 0),
-      Math.max(0, failing),
-    );
+    const failing = ended ? 0 : (live.failing ?? (checks === "failing" ? -1 : 0));
+    const onBase = Math.min(Math.max(0, live.failingOnBase ?? 0), Math.max(0, failing));
     const comments = live.comments ?? 0;
     const line = [`${repoName} #${pr.number}`];
     if (live.additions !== undefined && live.deletions !== undefined)
       line.push(`+${live.additions} -${live.deletions}`);
-    if (comments > 0)
-      line.push(t("sessionInfo.changes.comments", { count: comments }));
+    if (comments > 0) line.push(t("sessionInfo.changes.comments", { count: comments }));
     let trailing: string | undefined;
     if (failing !== 0) {
-      trailing =
-        failing > 0
-          ? t("sessionInfo.changes.failing", { count: failing })
-          : t("rail.checksFailing");
-      if (onBase > 0)
-        trailing += ` ${t("sessionInfo.changes.failingOnBase", { count: onBase })}`;
-    } else if (checks && CHECK_LABELS[checks])
-      trailing = t(CHECK_LABELS[checks]!);
+      trailing = failing > 0 ? t("sessionInfo.changes.failing", { count: failing }) : t("rail.checksFailing");
+      if (onBase > 0) trailing += ` ${t("sessionInfo.changes.failingOnBase", { count: onBase })}`;
+    } else if (checks && CHECK_LABELS[checks]) trailing = t(CHECK_LABELS[checks]!);
     const reference = `${pr.repo}#${pr.number}`;
     const menu = [
       ...(onOpenBeside
         ? [
             {
               label: t("sessionInfo.changes.openBeside"),
-              action: actions.add(`changes.openMenu:${pr.url}`, () =>
-                onOpenBeside(pr.url),
-              ),
+              action: actions.add(`changes.openMenu:${pr.url}`, () => onOpenBeside(pr.url)),
             },
           ]
         : []),
@@ -116,15 +100,11 @@ export function changesSection(
         ? [
             {
               label: t("sessionInfo.changes.copyLink"),
-              action: actions.add(`changes.copyLink:${pr.url}`, () =>
-                input.onCopyText!(pr.url),
-              ),
+              action: actions.add(`changes.copyLink:${pr.url}`, () => input.onCopyText!(pr.url)),
             },
             {
               label: t("sessionInfo.changes.copyReference"),
-              action: actions.add(`changes.copyReference:${pr.url}`, () =>
-                input.onCopyText!(reference),
-              ),
+              action: actions.add(`changes.copyReference:${pr.url}`, () => input.onCopyText!(reference)),
             },
           ]
         : []),
@@ -132,9 +112,7 @@ export function changesSection(
         ? [
             {
               label: t("prDock.dismiss", { number: pr.number }),
-              action: actions.add(`changes.dismiss:${pr.url}`, () =>
-                input.onDismiss!(pr.url),
-              ),
+              action: actions.add(`changes.dismiss:${pr.url}`, () => input.onDismiss!(pr.url)),
             },
           ]
         : []),
@@ -156,11 +134,7 @@ export function changesSection(
       subtitle: line.join("  "),
       ...(trailing ? { trailing } : {}),
       tone: failing !== 0 ? "failed" : TONES[state],
-      ...(state === "conflicting"
-        ? { symbolColor: "red" }
-        : state === "merged"
-          ? { symbolColor: "green" }
-          : {}),
+      symbolColor: SYMBOL_COLORS[state],
       help: `${t(STATE_LABELS[state])} · ${pr.url}`,
       hover: {
         title: (live.title ?? pr.title) || `#${pr.number}`,
@@ -168,12 +142,10 @@ export function changesSection(
       },
       ...(onOpenBeside
         ? {
-            action: actions.add(`changes.open:${pr.url}`, () =>
-              onOpenBeside(pr.url),
-            ),
+            action: actions.add(`changes.open:${pr.url}`, () => onOpenBeside(pr.url)),
           }
         : {}),
-      ...(menu.length ? { menu } : {}),
+      ...(menu.length ? { menu, menuLabel: t("sessionInfo.changes.more", { reference }) } : {}),
     };
   });
   return {
@@ -188,14 +160,8 @@ export function changesSection(
     ...(folds && onExpandedChange
       ? {
           more: {
-            label: t(
-              expanded
-                ? "sessionInfo.changes.showLess"
-                : "sessionInfo.changes.showMore",
-            ),
-            action: actions.add("changes.more", () =>
-              onExpandedChange(!expanded),
-            ),
+            label: t(expanded ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore"),
+            action: actions.add("changes.more", () => onExpandedChange(!expanded)),
           },
         }
       : {}),

@@ -7,16 +7,9 @@ import { homePath } from "../../sessionList";
 import { chatProject } from "../chatFolders";
 import { machineHue } from "../../machineColor";
 import { machineOf, type ProjectRowLook } from "../EnvironmentSection";
-import type {
-  AttachedCloudRepo,
-  PendingCloudRepo,
-} from "../CloudRepositoryPicker";
+import type { AttachedCloudRepo, PendingCloudRepo } from "../CloudRepositoryPicker";
 import type { NativeInfoRect } from "./model";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -50,21 +43,11 @@ export function environmentSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const {
-    summary,
-    repository,
-    remoteControl,
-    onOpenFolder,
-    onOpenUrl,
-    projectLook = "name",
-    grants = [],
-  } = input;
+  const { summary, repository, remoteControl, onOpenFolder, onOpenUrl, projectLook = "name", grants = [] } = input;
   const machine = machineOf(summary, input.machineName, input.peerKinds);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
-  const repositoryUrl = repository
-    ? `https://github.com/${repository}`
-    : undefined;
+  const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
   const branchUrl =
     repositoryUrl && branch
       ? `${repositoryUrl}/tree/${branch.split("/").map(encodeURIComponent).join("/")}`
@@ -75,15 +58,9 @@ export function environmentSection(
     symbol: MACHINE_SYMBOLS[machine.kind],
     title: machine.name ?? "—",
     trailing: t(
-      machine.kind === "local"
-        ? "composer.envLocal"
-        : machine.kind === "ssh"
-          ? "composer.envSSH"
-          : "composer.cloud",
+      machine.kind === "local" ? "composer.envLocal" : machine.kind === "ssh" ? "composer.envSSH" : "composer.cloud",
     ),
-    ...(machine.kind !== "local" && machine.name
-      ? { symbolColor: machineHue(machine.name) }
-      : {}),
+    ...(machine.kind !== "local" && machine.name ? { symbolColor: machineHue(machine.name) } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
   if (cloudSession && input.cloudRepositoryAvailable) {
@@ -93,10 +70,7 @@ export function environmentSection(
       title: t("cloudRepository.default"),
       ...(input.onOpenCloudEnvironment
         ? {
-            action: actions.add(
-              "environment.cloudSettings",
-              input.onOpenCloudEnvironment,
-            ),
+            action: actions.add("environment.cloudSettings", input.onOpenCloudEnvironment),
           }
         : {}),
     });
@@ -105,10 +79,7 @@ export function environmentSection(
         id: "cloud-add-repository",
         symbol: "folder.badge.plus",
         title: t("cloudRepository.add"),
-        action: actions.add(
-          "environment.cloudAddRepository",
-          input.onAddCloudRepository,
-        ),
+        action: actions.add("environment.cloudAddRepository", input.onAddCloudRepository),
       });
     }
     for (const repo of input.attachedCloudRepos ?? []) {
@@ -136,15 +107,9 @@ export function environmentSection(
     }
   }
   if (project) {
-    const parent = homePath(
-      project.path.slice(0, project.path.lastIndexOf("/")) || "/",
-    );
+    const parent = homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
     const detail =
-      projectLook === "parent" && parent
-        ? parent
-        : projectLook === "branch" && branch
-          ? branch
-          : undefined;
+      projectLook === "parent" && parent ? parent : projectLook === "branch" && branch ? branch : undefined;
     rows.push({
       id: "project",
       symbol: project.worktree ? "rectangle.stack" : "folder",
@@ -153,9 +118,7 @@ export function environmentSection(
       help: project.path,
       ...(onOpenFolder
         ? {
-            action: actions.add("environment.openFolder", () =>
-              onOpenFolder(project.path),
-            ),
+            action: actions.add("environment.openFolder", () => onOpenFolder(project.path)),
           }
         : {}),
     });
@@ -167,9 +130,7 @@ export function environmentSection(
       title: repository,
       ...(onOpenUrl && repositoryUrl
         ? {
-            action: actions.add("environment.openRepository", () =>
-              onOpenUrl(repositoryUrl),
-            ),
+            action: actions.add("environment.openRepository", () => onOpenUrl(repositoryUrl)),
           }
         : {}),
     });
@@ -180,18 +141,14 @@ export function environmentSection(
       title: branch,
       ...(onOpenUrl && branchUrl
         ? {
-            action: actions.add("environment.openBranch", () =>
-              onOpenUrl(branchUrl),
-            ),
+            action: actions.add("environment.openBranch", () => onOpenUrl(branchUrl)),
           }
         : {}),
     });
   if (remoteControl) {
     const label = t("sessionInfo.environment.remoteControl");
     // The web's switch: a checkbox button that flips it.
-    const toggle = actions.add("environment.remoteControl", () =>
-      remoteControl.set(!remoteControl.on),
-    );
+    const toggle = actions.add("environment.remoteControl", () => remoteControl.set(!remoteControl.on));
     rows.push({
       id: "remoteControl",
       symbol: "cursorarrow.click",
@@ -202,10 +159,7 @@ export function environmentSection(
     });
   }
   for (const grant of grants) {
-    const revoke = actions.add(
-      `environment.revoke:${grant.id}`,
-      grant.onRemove,
-    );
+    const revoke = actions.add(`environment.revoke:${grant.id}`, grant.onRemove);
     rows.push({
       id: `grant:${grant.id}`,
       symbol: "lock",
