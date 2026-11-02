@@ -178,9 +178,8 @@ final class CreationInputCoordinator {
         return parked
     }
 
-    /// The close ran: its keys (`parked` first) go to the terminal focused now, once it has the keyboard. The person
-    /// cancelled it (`stays`): its parked keys go to the terminal that stays now, by that terminal, wherever the focus is.
-    /// A close that ends while another close's question is up waits for that answer; a gone window takes its keys with it.
+    /// The close ran: its keys (`parked` first) go to the terminal focused now, once it has the keyboard. The person cancelled it (`stays`): its parked keys go to the terminal that stays now, by that terminal, wherever the focus is.
+    /// A close that ends while another close's question is up waits for that answer, as the hold's keys do (``flush(in:force:end:)``), which go on after it; a gone window takes its keys with it.
     func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
         guard let window else { return }
         let number = window.windowNumber
@@ -189,6 +188,7 @@ final class CreationInputCoordinator {
             return
         }
         let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking.removeValue(forKey: number) ?? []), closing: $0.closing, machine: $0.machine) }
+        defer { if parked != nil { scheduleFlush(in: window) } } // the question is answered: the keys the hold kept meanwhile go on
         if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty {
             let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)
             return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
@@ -358,7 +358,7 @@ final class CreationInputCoordinator {
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
     /// `end`: why a forced end happened (``CreationHoldLog/end(in:forced:)``).
     private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
-        guard let buffer = buffers[window.windowNumber] else { return }
+        guard let buffer = buffers[window.windowNumber], asking[window.windowNumber] == nil else { return } // a close's question is up: the keys wait for its answer, never typed into it (a Return would press Close)
         guard force || buffer.isResolved else {
             // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
             if let lane = router?.focus(for: window).0.flatMap({ Self.keyboardTerminal($0, window).flatMap(buffer.earlyLane(tab:)) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
