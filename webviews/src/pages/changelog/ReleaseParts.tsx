@@ -361,6 +361,7 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
           {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
+          {c.description && <span className="cl-row-summary"> — {c.description}</span>}
         </li>
       ))}
     </ul>

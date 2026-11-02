@@ -15,6 +15,16 @@ public import CmuxNextDaemon
 public struct CloudMachineWorkspace {
     public init() {}
 
+    public static func targetAnchor(_ paneID: String, in store: DaemonStore) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        for workspace in store.workspaces {
+            guard let key = workspace.key else { continue }
+            if let pane = workspace.screens.flatMap(\.panes).first(where: { $0.resourceID?.rawValue == paneID }) {
+                return (workspace.id, key, pane)
+            }
+        }
+        return nil
+    }
+
     /// The first workspace `store` lists that no other tree lists, nil when it has none. A daemon's
     /// connection is up before its first tree is applied (right after a resume), and the list then is
     /// the last connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`),
