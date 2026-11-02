@@ -43,6 +43,7 @@ def run_wrapper(
     inherited_path_reorders_path: bool = False,
     managed_shim_available: bool = True,
     inherited_other_agent: bool = False,
+    sibling_shim_available: bool = True,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -56,7 +57,13 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
-        (wrapper_dir / "codex").symlink_to(wrapper)
+        shim = wrapper_dir / "codex"
+        if not sibling_shim_available:
+            # A bundled wrapper has no adjacent codex entrypoint; the managed
+            # shim lives separately, as it does in a real cmux terminal.
+            shim = tmp / "cmux-cli-shims" / "surface with spaces" / "codex"
+            shim.parent.mkdir(parents=True)
+        shim.symlink_to(wrapper)
         launcher_script = tmp / "launcher with spaces"
         make_executable(launcher_script, '#!/bin/sh\nexec codex "$@"\n')
 
@@ -151,8 +158,12 @@ exit 1
             # ahead of cmux's shim while an interactive login shell starts.
             env["FAKE_TEST_PATH"] = f"{real_dir}:{wrapper_dir}:/usr/bin:/bin"
         env.pop("CMUX_CODEX_WRAPPER_SHIM_ROOT", None)
+        if not sibling_shim_available:
+            env["CMUX_CODEX_WRAPPER_SHIM_ROOT"] = str(shim.parent)
+            env["PATH"] += f":{shim.parent}"
+            env["FAKE_TEST_PATH"] = env["PATH"]
         if managed_shim_available:
-            env["CMUX_CODEX_WRAPPER_SHIM"] = str(wrapper_dir / "codex")
+            env["CMUX_CODEX_WRAPPER_SHIM"] = str(shim)
         else:
             env.pop("CMUX_CODEX_WRAPPER_SHIM", None)
         if inherited_other_agent:
@@ -213,7 +224,7 @@ exit 1
 
         try:
             proc = subprocess.run(
-                [str(wrapper_dir / "codex"), *argv],
+                [str(shim if sibling_shim_available else wrapper), *argv],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -341,12 +352,15 @@ def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
 def test_executable_launcher_inherited_path(failures: list[str]) -> None:
     argv = ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write",
             "", "two words", "literal $(false); 'quoted'", "line1\nline2"]
-    for managed_shim, reordered_path in ((True, True), (False, False), (False, True)):
-        label = f"executable-launcher/managed-shim={managed_shim}/reordered-path={reordered_path}"
+    for managed_shim, reordered_path, sibling_shim in (
+        (True, True, True), (False, False, True), (False, True, True), (False, True, False)
+    ):
+        label = f"executable-launcher/managed-shim={managed_shim}/reordered-path={reordered_path}/sibling={sibling_shim}"
         code, actual, calls, env, stderr = run_wrapper(
             socket_state="missing", argv=argv, launch_command="__script__",
             inherited_path_reorders_path=reordered_path,
             managed_shim_available=managed_shim, inherited_other_agent=True,
+            sibling_shim_available=sibling_shim,
         )
         expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
         expect(actual[-len(argv):] == argv,

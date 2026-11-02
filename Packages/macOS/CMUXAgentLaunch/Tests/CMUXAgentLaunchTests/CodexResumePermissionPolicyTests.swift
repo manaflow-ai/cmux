@@ -59,6 +59,29 @@ struct CodexResumePermissionPolicyTests {
         #expect(repaired.arguments.suffix(4) == ["-a", "never", "-s", "workspace-write"])
     }
 
+    @Test("A table without a network key still recovers recorded networking", arguments: [
+        "{}", "{writable_roots=['/tmp/network_access']}",
+        "{writable_roots=[\"/tmp/a,b=network_access\"]}",
+        "{writable_roots=[], other={network_access=false}}"
+    ])
+    func parentTableWithoutNetwork(value: String) {
+        let arguments = ["codex", "-c", "sandbox_workspace_write=\(value)"]
+        let launch = AgentLaunchCommand(launcher: "codex", arguments: arguments)
+        let repaired = policy.repairing(launch, with: evidence)
+        #expect(repaired.arguments.prefix(arguments.count) == arguments[...])
+        #expect(repaired.arguments.contains("sandbox_workspace_write.network_access=true"))
+    }
+
+    @Test("Declared or unparseable table networking remains authoritative", arguments: [
+        "{writable_roots=[], network_access=false}", "{'network_access'=false}",
+        "{\"network_access\"=false}", "{\"network\\u005faccess\"=false}",
+        "{writable_roots=['unterminated}"
+    ])
+    func explicitTableNetwork(value: String) {
+        let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex", "-c", "sandbox_workspace_write=\(value)"])
+        #expect(!policy.repairing(launch, with: evidence).arguments.contains("sandbox_workspace_write.network_access=true"))
+    }
+
     @Test("Options in a prompt after the separator are not explicit permissions")
     func optionTerminator() {
         let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex", "--", "--yolo"])
