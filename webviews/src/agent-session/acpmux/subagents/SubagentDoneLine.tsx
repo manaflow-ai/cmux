@@ -30,7 +30,7 @@ import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { useSubsessionInfo } from "./subsessions";
+import { subagentDisplayName, useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -78,7 +78,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
+  const name = subagentDisplayName(t, agent);
+  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
@@ -89,7 +90,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       ? restartSubagent
       : undefined;
   const head = waiting
-    ? [agent.name, retryLabel(t, waiting)]
+    ? [name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
@@ -151,7 +152,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
           <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
             {!waiting && before}
-            <AgentTag name={agent.name} />
+            <AgentTag name={name} />
             {!waiting && after}
             {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
           </span>

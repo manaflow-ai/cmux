@@ -56,6 +56,14 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
     : session.name;
 }
 
+/// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
+/// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
+/// and the line shows as the localized "Subagent" instead (Leo, 2026-10-22, on "Subagent finished:
+/// 01a15779-…/toolu_01H9…": "this needs to be rendered better").
+export function subagentDisplayName(t: Translate, agent: { id: string; name: string }): string {
+  return agent.name === agent.id || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name) ? t("tray.kind.subagent") : agent.name;
+}
+
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
 /// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
 /// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.
