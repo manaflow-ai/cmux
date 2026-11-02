@@ -488,3 +488,29 @@ test("a new chat's prompt cancelled mid-start by a pick comes back held and is t
   expect(taken.map((entry) => entry.text)).toEqual(["first", "second"]);
   expect(acpmux.sent).toHaveLength(1);
 });
+
+test("a pick that lands before its cancelled start settles takes that prompt too, and it never comes back", async () => {
+  const acpmux = standIn();
+  const at = "/Users/you/picked";
+  await act(async () => root.render(<Probe key="s" acpmux={acpmux} holds chat={undefined} cwd={at} />));
+  await act(async () => shown!.hold("first", []));
+  await act(async () => shown!.hold("second", []));
+  await act(async () => root.render(<Probe key="s" acpmux={acpmux} holds={false} chat={undefined} cwd={at} />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first"]);
+  // The pick lands while "first" is still going (cmux#32298 review at dffb7d9).
+  let resume = () => {};
+  await act(async () => void (resume = shown!.pauseNewChat()));
+  let taken: { text: string }[] = [];
+  await act(async () => {
+    taken = shown!.takeNewChat();
+    resume();
+  });
+  expect(taken.map((entry) => entry.text)).toEqual(["first", "second"]);
+  // Its cancelled start settles after: nothing comes back, is given back or goes again.
+  acpmux.sent[0]!.refuse(movedOn());
+  await settle();
+  expect(shown!.holdsAny()).toBe(false);
+  expect(acpmux.putBack).toEqual([]);
+  expect(acpmux.sent).toHaveLength(1);
+});
