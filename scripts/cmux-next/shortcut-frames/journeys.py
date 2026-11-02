@@ -24,24 +24,29 @@ import re
 import sys
 
 PRE_RECORD_S = 1.5      # the judge's --pre-ms: frames before the first press (its busy-block mask)
+SETTLE_S = 1.0
+REQUIRE_HZ = None       # 120 for pacing evidence (KIT.md section 2); None records at the display's rate and writes it down
 TUIKIT = "${tuikit}"
 LOAD_PROGRAMS = ("gradient", "sigwinch", "top", "flood", "gradient", "mouse",
                  "agent-stream", "gradient", "vim-scroll", "top", "gradient", "flood")
 
 
 # -- the HARNESS kit's steps (KIT.md). One place to change. --------------------------------------------
-def kit_record_start(name: str, seconds: float) -> dict:
-    return {"do": "video_start", "name": name, "seconds": seconds, "trace": True,
-            "title": f"start the 120 Hz recording ({name})"}
+def kit_record_start(name: str, seconds: float, require_hz: int | None = None) -> dict:
+    step = {"do": "video_start", "name": name, "seconds": min(120.0, seconds), "lead": PRE_RECORD_S,
+            "title": f"start the recording ({name}); its first {PRE_RECORD_S} s are the judge's frames before the press"}
+    if require_hz:
+        step["require_hz"] = require_hz
+    return step
 
 
 def kit_record_stop(name: str) -> dict:
-    return {"do": "video_stop", "name": name, "title": f"stop the recording ({name}); its files go to the result"}
+    return {"do": "video_stop", "name": name, "tail": 0.6, "title": f"stop the recording ({name}); its files go to the result"}
 
 
 def kit_key(stroke: str, mark: str) -> dict:
     key, mods = parse_stroke(stroke)
-    return {"do": "real_key", "key": key, "modifiers": mods, "mark": mark, "title": f"the measured press {stroke} ({mark})"}
+    return {"do": "hid_key", "key": key, "modifiers": mods, "mark": mark, "title": f"the measured press {stroke} ({mark})"}
 
 
 # -- keys -----------------------------------------------------------------------------------------------
@@ -88,9 +93,9 @@ def load_steps(load: str) -> list[dict]:
                   {"do": "type", "text": f"python3 {TUIKIT} {program} --seed {2000 + i}{extra}", "enter": True,
                    "title": f"set-up: {program} in load pane {i + 1}"}]
     if count:
-        steps.append({"do": "use", "name": "p0", "title": "set-up: back to the quiet pane p0"})
-        steps.append({"do": "rpc", "method": "debug.focus_terminal", "params": {"name": "p0"},
-                      "title": "set-up: focus p0 (the press acts on it)"})
+        steps.append({"do": "key", "key": "1", "modifiers": ["control", "cmd"],
+                      "title": "set-up: Focus Pane 1 (the quiet pane p0, first in the layout; the press acts on it)"})
+        steps.append({"do": "use", "name": "p0", "title": "set-up: the driver's current terminal is p0 again"})
     return steps
 
 
@@ -125,44 +130,57 @@ def undo_steps(case: dict) -> list[dict]:
     return []
 
 
-def journey(case: dict) -> dict:
-    slug = re.sub(r"[^a-z0-9]+", "-", case["name"].lower()).strip("-")
-    jid = f"sf-{slug}"[:120]
-    animations = case["animations"] == "on"
-    steps = [{"do": "new_terminal", "via": "key", "name": "p0"}, {"do": "neutral_prompt"},
-             settings(case["theme"], animations)] + load_steps(case["load"]) + context_steps(case)
+def slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def press_block(case: dict, video: str, presses: int) -> list[dict]:
+    """One recording of PRESSES presses of the case's key, each with its settle, its run read and its undo."""
+    steps = [kit_record_start(video, PRE_RECORD_S + presses * 3.0 + 3, REQUIRE_HZ)]
+    for i in range(presses):
+        steps.append(kit_key(case["stroke"], f"{case['name']}/{i + 1}"))
+        steps.append(wait(SETTLE_S, "settle: content that loads later fills in"))
+        steps.append(budget_read())
+        steps += undo_steps(case)
+        steps.append(wait(1.0, "the undo settles before the next press"))
+    steps.append(kit_record_stop(video))
+    return steps
+
+
+def round_journey(group: list[dict], presses: int) -> dict:
+    """One lease's journey: the cases of one condition (load, theme, animations, build, arm), one recording each."""
+    first = group[0]
+    cond = f"{first['arm']}-{first['load']}-{first['theme']}-anim-{first['animations']}"
+    jid = f"sf-{slug('-'.join(c['action'] for c in group))[:60]}-{cond}"
+    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
+             {"do": "new_terminal", "via": "key", "name": "p0"}, {"do": "neutral_prompt"},
+             settings(first["theme"], first["animations"] == "on")] + load_steps(first["load"])
     steps.append(wait(1.0, "the layout and the load settle (nothing observable to wait on)"))
-    presses = 20 if case["arm"] == "warm" else 5
-    per_press = 1.0 + 1.0 + 0.5
-    if case["arm"] == "warm":
-        steps.append(kit_record_start(jid, PRE_RECORD_S + presses * per_press + 5))
-        steps.append(wait(PRE_RECORD_S, "frames before the first press (the judge's mask of busy blocks)"))
-        for i in range(presses):
-            steps.append(kit_key(case["stroke"], f"{case['name']}/{i + 1}"))
-            steps.append(wait(1.0, "settle: content that loads later fills in"))
-            steps.append(budget_read())
-            steps += undo_steps(case)
-            steps.append(wait(1.0, "the undo settles before the next press"))
-        steps.append(kit_record_stop(jid))
-    else:
-        for i in range(presses):
-            steps.append({"do": "relaunch", "how": "quit", "title": "cold: quit and open again; the next press is the first after launch"})
-            steps.append({"do": "use", "name": "p0"})
-            steps.append(kit_record_start(f"{jid}-{i + 1}", PRE_RECORD_S + 6))
-            steps.append(wait(PRE_RECORD_S, "frames before the press"))
-            steps.append(kit_key(case["stroke"], f"{case['name']}/{i + 1}"))
-            steps.append(wait(1.5, "settle"))
-            steps.append(budget_read())
-            steps.append(kit_record_stop(f"{jid}-{i + 1}"))
-            steps += undo_steps(case)
-    steps.append({"do": "expect", "all": [{"app_prompt": True}, {"daemon_prompt": True}, {"frame_text": "J>"}],
-                  "timeout": 10, "title": "the quiet pane p0 is back with its prompt (the journey's own evidence; the "
-                                          "frames are judged by judge.py)"})
-    return {"id": jid, "priority": "P1", "title": f"SHORTCUT FRAMES {case['name']}", "suite": "shortcut-frames",
-            "case": {k: case[k] for k in ("name", "stroke", "action", "effect", "context", "arm", "load", "theme",
-                                         "animations", "build")},
-            "judge": case["judge"], "run_args": ["--hog-swap-gb", "15"] if case["load"] == "hog15g" else [],
-            "budget_seconds": 600, "steps": steps}
+    for case in group:
+        steps += context_steps(case)
+        video = f"sf-{slug(case['action'])}-{cond}"
+        if first["arm"] == "warm":
+            steps += press_block(case, video, presses)
+        else:
+            for i in range(presses):
+                steps.append({"do": "relaunch", "how": "quit", "title": "cold: quit and open again; the next press is the first after launch"})
+                steps.append({"do": "use", "name": "p0"})
+                steps += press_block(case, f"{video}-{i + 1}", 1)
+    steps.append({"do": "type", "text": "echo sf-done-${nonce}", "enter": True, "mark": "done"})
+    steps.append({"do": "expect", "since": "done", "timeout": 15,
+                  "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+                  "all": [{"app_text_contains": "sf-done-${nonce}"}, {"daemon_prompt": True},
+                          {"pane_frame_text": "sf-done-${nonce}"}]})
+    return {"id": jid, "priority": "P0",
+            "title": f"SHORTCUT FRAMES: {', '.join(c['stroke'] for c in group)} ({cond}), real HID keys, recorded every frame",
+            "why": "Lawrence 2026-11-02: cmd+t and cmd shift l, literally all the keyboard shortcuts, open the new tab "
+                   "instantly, the frame of; videos, pixel perfect. The judge (scripts/cmux-next/shortcut-frames/judge.py) "
+                   "counts display refreshes from each HID key-down to the first changed frame and checks the frames after it.",
+            "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+            "budget_seconds": min(540, 60 + len(group) * presses * 4), "options": {"key_path": "real"},
+            "cases": [{k: c[k] for k in ("name", "stroke", "action", "effect", "context", "arm", "load", "theme",
+                                        "animations", "build")} for c in group],
+            "steps": steps}
 
 
 def main() -> int:
@@ -170,27 +188,33 @@ def main() -> int:
     p.add_argument("--cases", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--wave", type=int, action="append")
-    p.add_argument("--only", action="append", default=[])
-    p.add_argument("--build")
+    p.add_argument("--only", action="append", default=[], help="a substring of the case name (repeatable)")
+    p.add_argument("--build", default="feat-tip", help="the plan's build label; journeys do not depend on it")
+    p.add_argument("--presses", type=int, default=10)
     a = p.parse_args()
     cases = json.load(open(a.cases, encoding="utf-8"))["cases"]
     os.makedirs(a.out, exist_ok=True)
-    n = skipped = 0
+    groups: dict[tuple, list[dict]] = {}
+    skipped = 0
     for case in cases:
         if a.wave and case["wave"] not in a.wave:
             continue
-        if a.build and case["build"] != a.build:
+        if case["build"] != a.build:
             continue
         if a.only and not any(s in case["name"] for s in a.only):
             continue
         if case["setup"] == "todo":
             skipped += 1
             continue
-        j = journey(case)
+        groups.setdefault((case["arm"], case["load"], case["theme"], case["animations"]), []).append(case)
+    ids = []
+    for group in groups.values():
+        j = round_journey(group, a.presses)
         with open(os.path.join(a.out, j["id"] + ".json"), "w", encoding="utf-8") as f:
             json.dump(j, f, indent=1)
-        n += 1
-    print(json.dumps({"journeys": n, "skipped_setup_todo": skipped, "out": a.out}))
+            f.write("\n")
+        ids.append(j["id"])
+    print(json.dumps({"journeys": ids, "skipped_setup_todo": skipped, "out": a.out}, indent=1))
     return 0
 
 
