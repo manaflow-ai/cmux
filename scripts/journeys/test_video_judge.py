@@ -8,6 +8,7 @@ Each case is a 400x200 px window at scale 2 (200x100 pt): two terminal panes wit
 then it rests. The trace holds the model of every tick; the frame displayed at refresh k shows the model sample of
 refresh k-1 (the committed one), so a clean case has lag 0. Variants damage exactly one thing.
 """
+import base64
 import json
 import shutil
 import struct
@@ -44,6 +45,21 @@ def shown_pos(k):
     return model_pos(max(k - 1, 0))
 
 
+LIGHT = (255, 255, 254)   # the light theme of feat-steady-8a804e1-after-r1: the divider has the panes' color at rest
+LIGHT_INK = (74, 74, 74)
+
+
+def draw_light(pos):
+    """A light-theme frame: the divider is not visible (its color is the panes' background), and every scan row
+    crosses "words" (4 px ink, gaps of 10 px), laid out from each pane's left edge, so the gaps move with the drag."""
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = LIGHT
+    for left, right in ((0, pos), (pos + 2, W)):
+        for x in range(left + 6, right - 6, 14):
+            img[:, x:x + 4] = LIGHT_INK
+    return img
+
+
 def draw(pos, blank_right=False, right_bg=BG):
     """One frame, RGB (H, W, 3): left pane, 2 px divider at pos, right pane."""
     img = np.zeros((H, W, 3), np.uint8)
@@ -69,6 +85,8 @@ def build_case(root, name, variant="clean"):
             continue
         img = draw(shown_pos(k), blank_right=(variant == "blank" and k == 30),
                    right_bg=(110, 110, 120) if variant == "flash" and k == 30 else BG)
+        if variant == "light":
+            img = draw_light(shown_pos(k))
         if variant == "jumpback" and k == 25:
             img = draw(shown_pos(24) - 4)
         if variant == "blend" and k in (20, 21, 22):
@@ -181,7 +199,7 @@ class VideoJudgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="video-judge-")
-        names = ["clean", "blend", "jumpback", "gap", "dropped", "blank", "encoder", "flash", "stale"]
+        names = ["clean", "blend", "jumpback", "gap", "dropped", "blank", "encoder", "flash", "stale", "light"]
         cls.reports = {}
         from concurrent.futures import ThreadPoolExecutor
 
@@ -205,6 +223,33 @@ class VideoJudgeTests(unittest.TestCase):
         self.assertEqual(r["model_lag"], {"0": 30})
         self.assertGreater(r["tracked_dividers"], 0)
         self.assertEqual(r["build"], "build-x")
+
+    def test_an_invisible_divider_is_not_tracked_on_the_gaps_between_words(self):
+        # STATUS 5795 (feat-steady-8a804e1-after-r1, col-drag-fast): in the light theme the divider has the panes' color,
+        # and the judge took a 15 px gap between words for it: "shown 538 px, model 459 px", a "-81 px jump" and
+        # "half-pixel blends" that were text, while the app's drag hairline was at the model every frame.
+        r = self.reports["light"]
+        self.assertEqual(checks(r, "defect"), [], json.dumps(r["findings"], indent=1))
+        self.assertEqual(r["tracked_dividers"], 0)
+        self.assertTrue(any("not visible at rest" in n for n in r["notes"]), r["notes"])
+
+    def test_the_real_light_frame_has_no_visible_divider_at_the_model(self):
+        # The exact BGRA of rows 240, 481 and 722 of frame 156 (at rest) of that film: the model divider is at
+        # x 455-463; the run there is the panes' white, between words.
+        doc = json.loads((HERE / "fixture-video-judge-light-divider-8a804e1-r1.json").read_text())
+        frame = doc["frames"]["156"]
+        x0, (_, x, _, w, _) = doc["x0"], frame["model_divider"]
+        for y, b64 in frame["rows"].items():
+            row = np.frombuffer(base64.b64decode(b64), np.uint8).reshape(-1, 4).astype(np.int16)
+            center = int(x + w / 2) - x0
+            r0, r1 = vj._run_around(row, center, vj.COLOR_TOL)
+            self.assertFalse(vj.divider_visible(row, r0, r1), f"row {y}: run {x0 + r0}-{x0 + r1}")
+
+    def test_a_dark_divider_between_panes_is_visible(self):
+        row = _bgra(draw(200))[100].astype(np.int16)
+        r0, r1 = vj._run_around(row, 200, vj.COLOR_TOL)
+        self.assertEqual((r0, r1), (200, 202))
+        self.assertTrue(vj.divider_visible(row, r0, r1))
 
     def test_half_pixel_blend_found(self):
         r = self.reports["blend"]
