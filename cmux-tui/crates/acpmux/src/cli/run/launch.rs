@@ -810,7 +810,7 @@ mod tests {
         let log = dir.join("calls");
         crate::test_exec::write_executable(
             &cli,
-            &format!(
+            format!(
                 "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$*\" in *--default-name*) echo \"agent.openSessionWorkspace has no argument 'defaultName'\" >&2; exit 1;; esac\n",
                 log.display()
             ),
