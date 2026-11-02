@@ -12,8 +12,9 @@ name: nightly-next launch smoke
 #   pass        nothing happens.
 #   cannot-run  nothing happens (no Mac, no GUI session, a download, harness or
 #               infrastructure error before the app launched); a notice says so.
-#   crash       the app exited, wrote a crash report, or never rendered Home, on
-#               both attempts. The feed rolls back through nightly-next-rollback.yml
+#   crash       the app exited or wrote a crash report/uncaught exception, on both
+#               attempts. A live app that never renders Home is a failed smoke but
+#               does not trigger rollback. The feed rolls back through nightly-next-rollback.yml
 #               (bad_build = this build), which serves the earlier Nightly build the
 #               feed keeps (publish-nightly-next-r2.py keeps two), and one issue
 #               per build gets the evidence. A rollback is asked for only of a build
