@@ -21,8 +21,11 @@ def validate_script(script):
         kind = step.get("do") if isinstance(step, dict) else None
         if kind not in KINDS:
             problems.append(f"step {i}: unknown do {kind!r}")
-        elif kind == "key" and not isinstance(step.get("key_code"), int):
+        elif kind == "key" and (isinstance(step.get("key_code"), bool) or not isinstance(step.get("key_code"), int)):
             problems.append(f"step {i}: key needs an integer key_code")
+        elif kind in ("move", "click") and not all(isinstance(step.get(k), (int, float)) and not isinstance(step.get(k), bool)
+                                                   for k in ("x", "y")):
+            problems.append(f"step {i}: {kind} needs numbers x and y")
         elif kind == "drag":
             if not (_point(step.get("from")) and _point(step.get("to"))):
                 problems.append(f"step {i}: drag needs from and to as [x, y]")

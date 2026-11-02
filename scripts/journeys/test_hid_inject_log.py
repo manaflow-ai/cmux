@@ -16,6 +16,10 @@ class ValidateScript(unittest.TestCase):
                                               {"do": "drag", "from": [1], "to": [2, 2], "hz": 5000}]})
         self.assertEqual(len(problems), 4)
 
+    def test_key_code_bool_and_missing_point(self):
+        problems = validate_script({"steps": [{"do": "key", "key_code": True}, {"do": "click", "x": 1}]})
+        self.assertEqual(len(problems), 2)
+
     def test_rate_floor(self):
         self.assertIn("rate_floor must be in (0, 1]", validate_script({"steps": [{"do": "wait"}], "rate_floor": 1.5}))
 

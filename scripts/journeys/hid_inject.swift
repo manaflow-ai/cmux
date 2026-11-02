@@ -3,11 +3,15 @@
 //   hid_inject run SCRIPT.json LOG.json      posts the script's events, writes the log, exit 0 (ran), 2 (bad script),
 //                                            3 (no PostEvent grant), 4 (ran, but below the rate floor: NOT RUN)
 //   hid_inject plan SCRIPT.json LOG.json     no events: the same schedule and log with "posted": false (self-check)
+//   hid_inject stampcheck                    no events: an event stamped as `run` stamps it must read back through
+//                                            NSEvent within 5 ms of CLOCK_UPTIME_RAW (exit 0), else exit 5
 //
 // Python makes no timestamp on a timed path (cmux-ad 2026-11-02 03:40Z). This compiled tool posts each event with
 // CGEventPost at the HID tap at a mach_absolute_time deadline, sets the event's own timestamp to the moment it is
 // posted, and logs that timestamp: the clock of NSEvent.timestamp, CACurrentMediaTime and ScreenCaptureKit's
-// displayTime. The app's input journal and the recorder's frames use the same clock, so a judge lines them up after
+// displayTime. A CGEvent timestamp counts mach ticks, not nanoseconds (125/3 ns a tick on Apple silicon; the app's
+// DebugKeySequence notes the same, #30257): the event gets mach_absolute_time(), the log gets the same instant in ns.
+// The app's input journal and the recorder's frames use the same clock, so a judge lines them up after
 // the run. CuaDriver's call takes 260-290 ms and its drag reached the app at about 12 events/s: not for timed paths.
 //
 // SCRIPT: {"start_delay_ms": 200, "rate_floor": 0.95, "steps": [STEP, ...]}, coordinates in global points from the
@@ -21,12 +25,21 @@
 // LOG: {"clock": "mach_absolute_time ns", "start_ns", "steps": [{"do", "events": N, "target_hz"?, "achieved_hz"?}],
 //       "events": [[t_ns, type, x, y, key_code]], "rate_floor", "rate_ok": bool, "posted": bool}. A drag's
 //       achieved rate is (drag events - 1) / (last - first drag timestamp); a late wake of this process lowers it.
+import AppKit
 import CoreGraphics
 import Foundation
 
 struct Fail: Error { let code: Int32; let message: String }
 
 func machNow() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+
+let timebase: mach_timebase_info_data_t = { var info = mach_timebase_info_data_t(); mach_timebase_info(&info); return info }()
+
+/// Mach ticks to nanoseconds (the same clock as CLOCK_UPTIME_RAW).
+func nanoseconds(_ ticks: UInt64) -> UInt64 { ticks / UInt64(timebase.denom) * UInt64(timebase.numer) + ticks % UInt64(timebase.denom) * UInt64(timebase.numer) / UInt64(timebase.denom) }
+
+/// The largest time any script value may name: an hour (larger values would overflow the sleep math).
+let maxMilliseconds = 3_600_000.0
 
 /// Sleeps until `deadline` (mach ns): a coarse sleep, then a short spin, so each event leaves within ~50 µs of its time.
 func wait(until deadline: UInt64) {
@@ -61,12 +74,12 @@ final class Injector {
     /// Posts one event at `deadline` with its own timestamp set to the posting moment; logs it.
     func emit(_ make: () -> CGEvent?, at deadline: UInt64, type: String, x: Double = 0, y: Double = 0, key: Int = -1) {
         wait(until: deadline)
-        let now = machNow()
+        let ticks = mach_absolute_time()
         if post, let event = make() {
-            event.timestamp = CGEventTimestamp(now)
+            event.timestamp = CGEventTimestamp(ticks)
             event.post(tap: .cghidEventTap)
         }
-        events.append([now, type, x, y, key])
+        events.append([nanoseconds(ticks), type, x, y, key])
     }
 
     func mouse(_ type: CGEventType, _ p: CGPoint, _ button: CGMouseButton = .left, mods: CGEventFlags, clicks: Int64 = 1,
@@ -81,6 +94,13 @@ final class Injector {
 }
 
 func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+
+/// A time in ms from the script, refused past ``maxMilliseconds``.
+func millis(_ v: Any?, default value: Double) throws -> Double {
+    let ms = max(0, number(v) ?? value)
+    guard ms <= maxMilliseconds else { throw Fail(code: 2, message: "a time over an hour (\(ms) ms)") }
+    return ms
+}
 
 func point(_ v: Any?) throws -> CGPoint {
     guard let a = v as? [Any], a.count == 2, let x = number(a[0]), let y = number(a[1]) else {
@@ -101,13 +121,13 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
         var summary: [String: Any] = ["do": kind]
         switch kind {
         case "wait":
-            t += UInt64(max(0, number(step["ms"]) ?? 0) * 1e6)
+            t += UInt64(try millis(step["ms"], default: 0) * 1e6)
         case "move":
             let p = CGPoint(x: number(step["x"]) ?? 0, y: number(step["y"]) ?? 0)
             inj.mouse(.mouseMoved, p, mods: mods, at: t, name: "move")
         case "key":
             guard let code = number(step["key_code"]).map({ CGKeyCode($0) }) else { throw Fail(code: 2, message: "key needs key_code") }
-            let hold = UInt64(max(0, number(step["hold_ms"]) ?? 40) * 1e6)
+            let hold = UInt64(try millis(step["hold_ms"], default: 40) * 1e6)
             inj.emit({ let e = CGEvent(keyboardEventSource: inj.source, virtualKey: code, keyDown: true); e?.flags = mods; return e },
                      at: t, type: "key_down", key: Int(code))
             t += hold
@@ -115,8 +135,8 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
                      at: t, type: "key_up", key: Int(code))
         case "click":
             let p = CGPoint(x: number(step["x"]) ?? 0, y: number(step["y"]) ?? 0)
-            let hold = UInt64(max(0, number(step["hold_ms"]) ?? 40) * 1e6)
-            for n in 1...max(1, Int(number(step["count"]) ?? 1)) {
+            let hold = UInt64(try millis(step["hold_ms"], default: 40) * 1e6)
+            for n in 1...max(1, min(10, Int(number(step["count"]) ?? 1))) {
                 inj.mouse(.leftMouseDown, p, mods: mods, clicks: Int64(n), at: t, name: "down")
                 t += hold
                 inj.mouse(.leftMouseUp, p, mods: mods, clicks: Int64(n), at: t, name: "up")
@@ -124,9 +144,9 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
             }
         case "drag":
             let a = try point(step["from"]), b = try point(step["to"])
-            let duration = max(0, number(step["duration_ms"]) ?? 0) / 1000
+            let duration = try millis(step["duration_ms"], default: 0) / 1000
             let hz = max(1, min(1000, number(step["hz"]) ?? 120))
-            let hold = UInt64(max(0, number(step["hold_ms"]) ?? 60) * 1e6)
+            let hold = UInt64(try millis(step["hold_ms"], default: 60) * 1e6)
             inj.mouse(.mouseMoved, a, mods: mods, at: t, name: "move")
             t += 20_000_000
             inj.mouse(.leftMouseDown, a, mods: mods, at: t, name: "down")
@@ -155,8 +175,24 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
     return out
 }
 
+/// An event stamped exactly as `run` stamps one must read back through AppKit on the clock of CLOCK_UPTIME_RAW.
+func stampCheck() -> Int32 {
+    let ticks = mach_absolute_time()
+    guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left) else {
+        FileHandle.standardError.write(Data("hid_inject: no event to stamp\n".utf8))
+        return 5
+    }
+    event.timestamp = CGEventTimestamp(ticks)
+    let expected = Double(nanoseconds(ticks)) / 1e9
+    let read = NSEvent(cgEvent: event)?.timestamp ?? -1
+    let off = abs(read - expected)
+    print("stampcheck: NSEvent.timestamp \(read) s, CLOCK_UPTIME_RAW \(expected) s, off \(off * 1000) ms")
+    return off < 0.005 ? 0 : 5
+}
+
 func main() -> Int32 {
     let args = CommandLine.arguments
+    if args.count == 2, args[1] == "stampcheck" { return stampCheck() }
     guard args.count == 4, ["run", "plan"].contains(args[1]) else {
         FileHandle.standardError.write(Data("usage: hid_inject run|plan SCRIPT.json LOG.json\n".utf8))
         return 2
@@ -171,7 +207,7 @@ func main() -> Int32 {
             throw Fail(code: 3, message: "no PostEvent (Accessibility) grant for this process: NOT RUN")
         }
         let inj = Injector(post: post)
-        let start = machNow() + UInt64(max(0, number(script["start_delay_ms"]) ?? 200) * 1e6)
+        let start = machNow() + UInt64(try millis(script["start_delay_ms"], default: 200) * 1e6)
         let steps = try play(script, inj, start: start)
         let floor = number(script["rate_floor"]) ?? 0.95
         let rateOK = steps.allSatisfy { s in

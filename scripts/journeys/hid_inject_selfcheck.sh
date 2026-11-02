@@ -14,6 +14,8 @@ cat > "$work/script.json" <<'JSON'
  {"do": "wait", "ms": 50},
  {"do": "drag", "from": [420, 100], "to": [100, 100], "duration_ms": 1000, "hz": 240}]}
 JSON
+# The posted events' timestamps must read back on the frame clock (a CGEvent timestamp counts mach ticks).
+"$work/hid_inject" stampcheck
 status=0
 "$work/hid_inject" plan "$work/script.json" "$work/log.json" || status=$?
 /usr/bin/python3 - "$work/log.json" "$status" <<'PY'
