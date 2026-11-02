@@ -179,7 +179,7 @@ public final class ArtifactsPageProvider: PageProvider {
 
     /// Artifact replies carry account data. Keep them out of shared URLSession caches and cookies,
     /// and never follow a redirect that could move the bearer to another origin.
-    private static func noStoreSession() -> URLSession {
+    private nonisolated static func noStoreSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
