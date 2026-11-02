@@ -61,7 +61,7 @@ import Testing
         return condition()
     }
 
-    @Test(arguments: 0..<8) func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt(trial: Int) async throws {
+    @Test(arguments: 0..<24) func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt(trial: Int) async throws {
         let shown = try await Shown()
         defer { shown.close() }
         let state = FileManager.default.temporaryDirectory.appending(path: "keeper-\(UUID().uuidString)")
@@ -72,6 +72,7 @@ import Testing
         frames.keep("tab_kept", session: shown.session, work: Self.work)
         let written = try await Self.eventually { !Self.files("tab_kept", in: directory).isEmpty }
         #expect(written, "no frame on disk while the app runs: a kill now leaves the next launch nothing to show")
+        let seenAtRead = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
 
         // The next launch reads it like a quit's frame and shows it over the new session.
         let next = TerminalLaunchFrames(directory: directory)
@@ -89,7 +90,7 @@ import Testing
         let shownAhead = next.showAhead("tab_kept", in: content, reveal: reveal)
         let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
         #expect(shownAhead, """
-            the kept frame did not show at the next launch: \(next.launchPanes["tab_kept"]?.missed ?? "nil"); files \(files); \
+            the kept frame did not show at the next launch: \(next.launchPanes["tab_kept"]?.missed ?? "nil"); files \(files); at read \(seenAtRead); \
             content \(content.bounds.size), surface \(shown.session.surfaceView.bounds.size), kept size \(String(describing: frames.keepSavedSize("tab_kept"))), \
             window scale \(window.backingScaleFactor), shown window scale \(shown.window.backingScaleFactor)
             """)
