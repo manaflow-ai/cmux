@@ -116,11 +116,18 @@ class Client:
         self._runs, self._jobs, self._fail = runs, jobs, set(fail)
         self.calls = 0
 
-    def runs(self, status):
+    def request(self, method, path):
+        # GET /actions/runs?status=S&per_page=100&created=A..B, newest first, one page.
+        import urllib.parse
         self.calls += 1
         if "runs" in self._fail:
             raise RuntimeError("GET /actions/runs failed (403)")
-        return [run for run in self._runs if run["status"] == status]
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query))
+        start, end = (spill.parse_time(part) for part in query["created"].split(".."))
+        found = [run for run in self._runs if run["status"] == query["status"]
+                 and start <= spill.parse_time(run["created_at"]) <= end]
+        found.sort(key=lambda run: run["created_at"], reverse=True)
+        return {"workflow_runs": found[:int(query["per_page"])]}
 
     def jobs(self, run_id):
         self.calls += 1
@@ -148,7 +155,8 @@ class SampleLoad(unittest.TestCase):
                                 SIXTEEN: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True})
 
     def test_a_capped_or_partly_unread_sample_is_incomplete_and_an_unread_listing_is_none(self):
-        self.assertFalse(spill.sample_load(Client(self.RUNS, self.JOBS), now=NOW, max_runs=1)[spill.COMPLETE])
+        crowded = self.RUNS + [{"id": 9, "status": "in_progress", "created_at": ago(15)}]
+        self.assertFalse(spill.sample_load(Client(crowded, self.JOBS), now=NOW, max_runs=3)[spill.COMPLETE])
         load = spill.sample_load(Client(self.RUNS, self.JOBS, fail={2}), now=NOW)
         self.assertFalse(load[spill.COMPLETE])
         self.assertEqual(load[FOUR]["queued"], 2)
@@ -163,7 +171,7 @@ class SampleLoad(unittest.TestCase):
         client = Client(young + [old], jobs)
         load = spill.sample_load(client, now=NOW)
         self.assertEqual(load[FOUR], {"queued": 20, "running": 0, "waited": 20})
-        self.assertEqual(client.calls, 3)
+        self.assertEqual(client.calls, 6 + 1)
 
     def test_a_full_page_of_jobs_is_an_incomplete_sample(self):
         # Review of #31884: 100 completed jobs could hide queued ones on the next page.
@@ -172,10 +180,26 @@ class SampleLoad(unittest.TestCase):
         self.assertFalse(load[spill.COMPLETE])
 
     def test_the_sample_is_bounded(self):
-        runs = [{"id": i, "status": "in_progress", "created_at": ago(10)} for i in range(500)]
+        runs = [{"id": i, "status": "in_progress", "created_at": ago(3 + i * 87 / 500)} for i in range(500)]
         client = Client(runs, {})
         self.assertFalse(spill.sample_load(client, now=NOW)[spill.COMPLETE])
-        self.assertEqual(client.calls, 2 + spill.MAX_RUNS)
+        self.assertLessEqual(client.calls, 6 + spill.MAX_RUNS)
+
+    def test_old_backed_up_runs_are_seen_beside_many_new_ones(self):
+        # 2026-11-02 07:43Z: 44 4 vCPU jobs had waited over 10 minutes in runs about 45 minutes old, while the
+        # newest runs (all a sample of the newest saw) had none queued.
+        # 90 old runs, 30 of them (spread at random) with a waited 4 vCPU job: an even sample of 20 sees about 7
+        # and scales them back to about 30.
+        import random
+        BACKED = set(random.Random(7).sample(range(90), 30))
+        old = [{"id": i, "status": "in_progress", "created_at": ago(40 + i / 10)} for i in range(90)]
+        new = [{"id": 1000 + i, "status": "in_progress", "created_at": ago(3.5 + i / 40)} for i in range(200)]
+        jobs = {run["id"]: [{"status": "queued", "labels": [FOUR], "created_at": run["created_at"]}]
+                for run in old if run["id"] in BACKED}
+        load = spill.sample_load(Client(old + new, jobs), now=NOW)
+        self.assertGreaterEqual(load[FOUR]["waited"], spill.SPILL_WAITED)
+        self.assertLessEqual(abs(load[FOUR]["waited"] - 30), 12)
+        self.assertFalse(load[spill.COMPLETE])
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to a main checkout")

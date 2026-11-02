@@ -13,8 +13,8 @@ Each pass it
 
 - runs main's runner_pools.main() unchanged, with a switch that records its writes instead of making them, so the
   dead-member rule, the probe and janitor evidence and the --check schema stay main's;
-- samples the Linux queue itself (sample_load()): the newest MAX_RUNS queued and in-progress runs at least
-  WAITED_MINUTES old (a younger run's jobs cannot have waited), their jobs read with
+- samples the Linux queue itself (sample_load()): queued and in-progress runs created WAITED_MINUTES to
+  SAMPLE_WINDOW ago, listed in age slices and spread evenly over each (at most MAX_RUNS), their jobs read with
   the job's own GITHUB_TOKEN (actions: read), counted per Blacksmith Linux label as queued, running and `waited`
   (queued WAITED_MINUTES or more, the stall-aware failover's bound). The counts are a lower bound;
 - applies spill_choice() to the linux pool: when SPILL_WAITED or more sampled jobs on the pool's live member have
@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -54,11 +55,13 @@ QUEUE_AWARE_POOLS = ("linux",)
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
-# The sample: the newest runs in flight, created within RUN_WINDOW (older queued runs are ghosts or held).
+# The sample: runs in flight created WAITED_MINUTES to SAMPLE_WINDOW ago, at most MAX_RUNS of them.
 MAX_RUNS = 60
 # The client reads one page of each run's jobs (cloud_overflow_switch.GitHub.jobs(): per_page=100).
 JOB_PAGE = 100
-RUN_WINDOW = dt.timedelta(hours=6)
+SAMPLE_WINDOW = dt.timedelta(minutes=90)
+# The window is listed in slices between these ages (oldest first), WAITED_MINUTES to SAMPLE_WINDOW.
+SLICE_EDGES = (dt.timedelta(minutes=30), dt.timedelta(minutes=10))
 SPILL_WAITED = 15
 SPILL_ROOM_WAITED = 3
 SPILL_MIN_HOLD = dt.timedelta(minutes=20)
@@ -83,27 +86,54 @@ def parse_time(value: object) -> dt.datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
+def list_runs(client: Any, status: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
+    """One page (100) of `status` runs created between start and end, newest first."""
+    query = urllib.parse.urlencode({"status": status, "per_page": 100, "created": f"{iso(start)}..{iso(end)}"})
+    return list(client.request("GET", f"/actions/runs?{query}").get("workflow_runs") or [])
+
+
 def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> dict[str, Any] | None:
     """Blacksmith Linux label -> {queued, running, waited} over the newest in-flight runs; None when unreadable.
 
-    COMPLETE says whether every in-flight run in RUN_WINDOW was read: only then can the sample prove a drain."""
-    try:
-        listed = {run["id"]: run for status in ("queued", "in_progress") for run in client.runs(status)
+    COMPLETE says whether every in-flight run created WAITED_MINUTES to SAMPLE_WINDOW ago was read: only then can the
+    sample prove a drain."""
+    # Runs created between WAITED_MINUTES and SAMPLE_WINDOW ago: a younger run's jobs cannot have waited yet, and a
+    # backed-up label's waiting jobs sit in the older runs. The first live passes (2026-11-02 07:13Z, 07:34Z, 07:43Z)
+    # read the newest runs only (the unfiltered listing's first page, then the newest at least 3 minutes old) and saw
+    # 0 waited 4 vCPU jobs while 44 had waited over 10 minutes in runs about 45 minutes old.
+    # Each slice is listed on its own (a listing page holds the newest 100 runs), so a busy hour's newest runs never
+    # hide the older ones; each slice gives an evenly spread share of MAX_RUNS.
+    edges = [now - SAMPLE_WINDOW, *(now - age for age in SLICE_EDGES), now - dt.timedelta(minutes=WAITED_MINUTES)]
+    recent: list[Mapping[str, Any]] = []
+    # Each sampled run stands for this many runs of its slice: the counts are scaled up by it, so a backlog spread
+    # thinly over a busy slice still shows (a lower bound still, since a full listing page hides more runs).
+    weight: dict[int, float] = {}
+    complete = True
+    share = max(1, max_runs // (len(edges) - 1))
+    for start, end in zip(edges, edges[1:]):
+        try:
+            pages = [list_runs(client, status, start, end) for status in ("queued", "in_progress")]
+        except Exception as error:  # noqa: BLE001 - an unread listing is no evidence
+            print(f"::warning title=Linux pool spill::could not list runs ({error}); no queue sample")
+            return None
+        listed = {run["id"]: run for page in pages for run in page
                   if isinstance(run, Mapping) and isinstance(run.get("id"), int)}
-    except Exception as error:  # noqa: BLE001 - an unread listing is no evidence
-        print(f"::warning title=Linux pool spill::could not list runs ({error}); no queue sample")
-        return None
-    # Only runs at least WAITED_MINUTES old: a younger run's jobs cannot have waited yet. The first live pass
-    # (2026-11-02 07:13Z) sampled the 60 newest runs, all minutes old, and read 84 queued 4 vCPU jobs and 0 waited
-    # while the oldest 4 vCPU job had waited about 40 minutes.
-    recent = [run for run in listed.values()
-              if (created := parse_time(run.get("created_at"))) is not None
-              and dt.timedelta(minutes=WAITED_MINUTES) <= now - created <= RUN_WINDOW]
-    recent.sort(key=lambda run: (str(run.get("created_at")), run["id"]), reverse=True)
-    # A listing page holds 100 runs; a full page may have hidden more.
-    complete = len(recent) <= max_runs and len(listed) < 100
-    load: dict[str, Any] = {}
-    for run in recent[:max_runs]:
+        taken = {run["id"] for run in recent}
+        found = sorted((run for run in listed.values() if run["id"] not in taken
+                        and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end),
+                       key=lambda run: (str(run.get("created_at")), run["id"]))
+        # A full page may have hidden more runs; a slice over its share is only partly read.
+        if any(len(page) >= 100 for page in pages) or len(found) > share:
+            complete = False
+        population = len(found)
+        if len(found) > share:
+            step = len(found) / share
+            found = [found[int(index * step)] for index in range(share)]
+        for run in found:
+            weight[run["id"]] = population / len(found)
+        recent += found
+    counts: dict[str, dict[str, float]] = {}
+    for run in recent:
         try:
             jobs = client.jobs(run["id"])
         except Exception:  # noqa: BLE001 - one unread run only makes the sample partial
@@ -119,14 +149,15 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             label = next((str(label) for label in job.get("labels") or () if LINUX_LABEL.match(str(label))), None)
             if label is None:
                 continue
-            entry = load.setdefault(label, dict(ZERO))
+            entry = counts.setdefault(label, {key: 0.0 for key in ZERO})
             if status == "in_progress":
-                entry["running"] += 1
+                entry["running"] += weight[run["id"]]
                 continue
-            entry["queued"] += 1
+            entry["queued"] += weight[run["id"]]
             created = parse_time(job.get("created_at"))
             if created is not None and now - created >= dt.timedelta(minutes=WAITED_MINUTES):
-                entry["waited"] += 1
+                entry["waited"] += weight[run["id"]]
+    load: dict[str, Any] = {label: {key: round(value) for key, value in entry.items()} for label, entry in counts.items()}
     load[COMPLETE] = complete
     return load
 
