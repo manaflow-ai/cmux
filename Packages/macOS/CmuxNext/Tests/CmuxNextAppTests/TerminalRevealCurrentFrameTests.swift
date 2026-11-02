@@ -152,8 +152,7 @@ import Testing
         session.view.isHidden = true
         let held = try #require(session.surfaceView.presentedFrame, "no presented frame while hidden")
         // The system takes the volatile pages (memory pressure, or the GPU's own eviction).
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(held, IOSurface.purgeableEmpty, &old)
+        _ = held.setPurgeable(.empty, oldState: nil)
         try await Task.sleep(for: .milliseconds(100))
 
         // Shown again by the switch, in one turn (WindowRootView.show unhides the workspace view).
