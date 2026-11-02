@@ -13,6 +13,7 @@ import type { SubsessionLimits } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../subsessionLimits";
 import "./SubagentLimitStepper.css";
+import { nextSubagentLimitAsk, type SubagentLimitAsk } from "./native/limit";
 
 /// How long a refused change says so.
 const REFUSAL_MS = 4_000;
@@ -41,6 +42,7 @@ export type SubagentLimitController = {
   reset(): void;
 };
 
+
 /**
  * Keeps the running-limit interaction optimistic while preserving out-of-order replies.
  *
@@ -57,7 +59,8 @@ export function useSubagentLimitController({
   limits?: SubsessionLimits;
   onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
 }): SubagentLimitController {
-  const [asked, setAsked] = useState<{ chat?: string; over: readonly number[]; value: number }>();
+  const [asked, setAsked] = useState<SubagentLimitAsk>();
+  const askedRef = useRef<SubagentLimitAsk>();
   const [refused, setRefused] = useState<{ chat?: string; at: number }>();
   const [inFlightCount, setInFlightCount] = useState(0);
   const inFlight = useRef(0);
@@ -71,20 +74,26 @@ export function useSubagentLimitController({
   const standing = asked !== undefined && asked.chat === chatId && asked.over.includes(current);
   const pendingMax = standing ? asked?.value : undefined;
   const max = pendingMax ?? current;
+  const latestMax = useRef(max);
+  latestMax.current = max;
   const set = (value: number | null, from?: number) => {
     if (!onSet || !limits) return;
     const chat = chatId;
     setRefused(undefined);
     if (value !== null) {
-      const over = standing && asked ? [...asked.over, asked.value] : [current];
-      setAsked({ chat, over, value });
+      const next = nextSubagentLimitAsk(askedRef.current, chat, current, value);
+      askedRef.current = next;
+      setAsked(next);
     }
     inFlight.current += 1;
     setInFlightCount(inFlight.current);
     const answered = () => {
       inFlight.current = Math.max(0, inFlight.current - 1);
       setInFlightCount(inFlight.current);
-      if (inFlight.current === 0) setAsked(undefined);
+      if (inFlight.current === 0) {
+        askedRef.current = undefined;
+        setAsked(undefined);
+      }
     };
     Promise.resolve()
       .then(() => onSet(value, from))
@@ -96,9 +105,18 @@ export function useSubagentLimitController({
   return {
     max,
     ...(pendingMax !== undefined ? { pendingMax } : {}),
-    ...(refused?.chat === chatId ? { state: "failed" as const } : inFlightCount > 0 ? { state: "pending" as const } : {}),
+    ...(refused !== undefined && refused.chat === chatId
+      ? { state: "failed" as const }
+      : inFlightCount > 0
+        ? { state: "pending" as const }
+        : {}),
     set,
-    step: (by) => set(clampRunning(max + by), max),
+    step: (by) => {
+      const from = latestMax.current;
+      const value = clampRunning(from + by);
+      latestMax.current = value;
+      set(value, from);
+    },
     reset: () => set(null),
   };
 }

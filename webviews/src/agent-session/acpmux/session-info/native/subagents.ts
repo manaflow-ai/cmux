@@ -41,6 +41,8 @@ export type SubagentsSectionInput = {
   /// The ended lines show under their row; `onEndedOpen` flips it.
   endedOpen?: boolean;
   onEndedOpen?: (open: boolean) => void;
+  /// Optional controller step keeps rapid native clicks on the latest optimistic value.
+  onStep?: (by: number) => void;
   /// Optimistic limit state owned by the page while acpmux answers a limit change.
   limitState?: "pending" | "failed";
   pendingMax?: number;
@@ -67,7 +69,7 @@ export function subagentsSection(
   const limitSet = limits?.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   if (agents.length + sessions.length === 0 && !limitSet) return undefined;
   const rows: NativeInfoRow[] = [];
-  if (limits) rows.push(limitRow(limits, sessions, input.onSet, actions, t, input.limitState, input.pendingMax));
+  if (limits) rows.push(limitRow(limits, sessions, input.onSet, actions, t, input.limitState, input.pendingMax, input.onStep));
   type SubagentLine = {
     key: string;
     identity: string;
@@ -164,7 +166,7 @@ export function subagentsSection(
     rows.push({
       id: "ended",
       symbol: endedOpen ? "chevron.down" : "chevron.right",
-      title: endedCounts(t, ended),
+      title: endedCounts(ended),
       ...(onEndedOpen ? { action: actions.add("subagents.ended", () => onEndedOpen(!endedOpen)) } : {}),
     });
     if (endedOpen) rows.push(...ended.map(line));
@@ -191,6 +193,7 @@ function limitRow(
   t: Translate,
   state?: "pending" | "failed",
   pendingMax?: number,
+  onStep?: (by: number) => void,
 ): NativeInfoRow {
   const max = pendingMax ?? limits.maxRunning;
   const { running, queued } = slotCounts(limits, sessions);
@@ -208,13 +211,13 @@ function limitRow(
       {
         label: t("sessionInfo.subagents.limit.lower", { n: lower }),
         symbol: "minus",
-        action: actions.add("subagents.limitLower", () => onSet(lower, max)),
+        action: actions.add("subagents.limitLower", () => onStep ? onStep(-1) : onSet(lower, max)),
         ...(max <= MAX_RUNNING.min ? { disabled: true } : {}),
       },
       {
         label: t("sessionInfo.subagents.limit.raise", { n: raise }),
         symbol: "plus",
-        action: actions.add("subagents.limitRaise", () => onSet(raise, max)),
+        action: actions.add("subagents.limitRaise", () => onStep ? onStep(1) : onSet(raise, max)),
         ...(max >= MAX_RUNNING.max ? { disabled: true } : {}),
       },
     );
