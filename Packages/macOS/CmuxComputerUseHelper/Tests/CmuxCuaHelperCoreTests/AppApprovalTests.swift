@@ -226,6 +226,18 @@ import Testing
         #expect(fixture.broker.allowedApps("s1").isEmpty)
     }
 
+    /// The production deadlines (Task.sleep), shortened.
+    @Test(.timeLimit(.minutes(1))) func theDefaultDeadlineTimesOut() async throws {
+        let host = FakeHost()
+        let broker = AppApprovalBroker(client: "c", machine: "m",
+                                       timing: .init(wait: .milliseconds(20), answerable: .milliseconds(40)))
+        _ = host.attach(to: broker)
+        broker.openSession("s1")
+        let call = Task { await broker.ask(session: "s1", app: Self.textEdit, tool: "click", risk: "R1") }
+        #expect(try await host.next()["type"] as? String == "app_approval")
+        #expect(await call.value == .timeout)
+    }
+
     @Test func noCollectorFailsClosed() async throws {
         let broker = AppApprovalBroker(client: "c", machine: "m")
         broker.openSession("s1")

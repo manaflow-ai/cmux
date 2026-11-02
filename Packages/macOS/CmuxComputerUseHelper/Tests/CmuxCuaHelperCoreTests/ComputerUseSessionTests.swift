@@ -293,6 +293,7 @@ final class SessionFixture: Sendable {
     let link: UInt64
     let sessions: ComputerUseSessions
     let store: ManifestStore
+    let scheduler: AppApprovalBrokerTests.ManualScheduler
 
     init(mode: ComputerUseMode) throws {
         let store = try Self.store()
@@ -300,7 +301,10 @@ final class SessionFixture: Sendable {
         let host = AppApprovalBrokerTests.FakeHost()
         let consent = MachineConsentTests.ScriptedAuthority()
         let uptime = OSAllocatedUnfairLock<TimeInterval>(initialState: 1000)
-        let broker = AppApprovalBroker(client: "com.cmuxterm.app.debug.cu1", machine: "mac-1")
+        let scheduler = AppApprovalBrokerTests.ManualScheduler()
+        let broker = AppApprovalBroker(client: "com.cmuxterm.app.debug.cu1", machine: "mac-1",
+                                       schedule: { scheduler.add($0, $1) })
+        self.scheduler = scheduler
         consent.set(MachineConsentStatus(consentRequired: false, screen: false, control: false))
         self.store = store
         self.driver = driver
