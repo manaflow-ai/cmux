@@ -52,7 +52,7 @@ nonisolated enum AppearanceSettingsSchema {
                                         "Themes starred in a theme picker. The picker lists them first."),
                 kind: .stringList, default: .array([]),
                 keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
-            ),
+            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
             SettingDescriptor(
                 ThemeFavoritesSetting().rotationPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),

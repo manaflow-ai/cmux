@@ -21145,13 +21145,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:appearance.favoriteThemes"
+          "reason" : "a theme picker's stars edit it: a list of theme names",
+          "row" : null
         },
         "socket" : {
           "aliases" : [

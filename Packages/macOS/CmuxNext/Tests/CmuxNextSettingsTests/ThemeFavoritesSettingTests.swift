@@ -47,6 +47,10 @@ import Testing
     @Test func aLightAndDarkPairIsLeftAlone() {
         let pair = root(theme: "light:Rose Pine Dawn,dark:Rose Pine", favorites: [.string("Nord"), .string("Dracula")], rotate: "launch")
         #expect(setting.rotated(pair, today: "2026-10-20", lastDay: nil) == nil)
+        for spec in ["light:Nord,dark:Nord", "dark:Nord"] {
+            let same = root(theme: spec, favorites: [.string("Nord"), .string("Dracula")], rotate: "launch")
+            #expect(setting.rotated(same, today: "2026-10-20", lastDay: nil) == nil)
+        }
     }
 
     @Test func dayIsTheLocalCalendarDay() {

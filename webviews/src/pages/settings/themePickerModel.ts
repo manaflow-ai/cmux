@@ -14,7 +14,7 @@ export type PickerRowsInput = {
   query: string;
   /** Whether the list has the null choice (the light and dark sides of the app theme have none). */
   nullChoice: boolean;
-  /** The starred theme names (appearance.favoriteThemes); listed first, in the list's order. */
+  /** The starred theme names (appearance.favoriteThemes); listed first, in the order they were starred. */
   favorites?: readonly string[];
 };
 
@@ -28,8 +28,9 @@ export function matchesQuery(name: string, query: string): boolean {
  * holds the starred themes that match, then every matching theme follows. */
 export function pickerRows({ names, query, nullChoice, favorites = [] }: PickerRowsInput): string[] {
   const matched = names.filter((name) => matchesQuery(name, query));
-  const starred = new Set(favorites);
-  const group = matched.filter((name) => starred.has(name)).map((name) => STARRED_ROW + name);
+  // The order they were starred, as launch rotation turns through them; a star with no theme drops.
+  const shown = new Set(matched);
+  const group = [...new Set(favorites)].filter((name) => shown.has(name)).map((name) => STARRED_ROW + name);
   const rows = [...group, ...matched];
   return nullChoice && query.trim() === "" ? [CONFIG_ROW, ...rows] : rows;
 }

@@ -46,7 +46,8 @@ public nonisolated struct ThemeFavoritesSetting: Sendable {
 
     /// The theme launch writes to `appearance.theme`, or nil to leave it. `today` and `lastDay` are
     /// local days (`day(_:calendar:)`); Daily turns only when they differ. A light/dark pair
-    /// (Match System Appearance) is left alone: one starred theme would replace both sides.
+    /// (Match System Appearance) is left alone, even one naming the same theme twice or one side
+    /// only: one starred theme would replace both sides and turn Match System Appearance off.
     public func rotated(_ root: JSONValue, today: String, lastDay: String?) -> String? {
         switch rotation(root) {
         case .off: return nil
@@ -54,7 +55,7 @@ public nonisolated struct ThemeFavoritesSetting: Sendable {
         case .launch, .daily: break
         }
         let current = root.value(at: AppThemeSetting().configPath)?.stringValue
-        if let current, let spec = ThemeSpec(current), spec.light != spec.dark { return nil }
+        if let current, ThemeSpec(current)?.isPair ?? false { return nil }
         return Self.next(after: current, in: favorites(root))
     }
 

@@ -34,9 +34,9 @@ test("matchesQuery is a trimmed, case-insensitive substring test", () => {
   expect(matchesQuery("Catppuccin Mocha", "latte")).toBe(false);
 });
 
-test("starred themes list first, in the list's order, under their own heading, then every theme", () => {
+test("starred themes list first, in the order they were starred, under their own heading, then every theme", () => {
   const rows = pickerRows({ names, query: "", nullChoice: true, favorites: ["Tokyo Night", "Rose Pine", "Gone"] });
-  expect(rows.map(rowTheme)).toEqual([CONFIG_ROW, "Rose Pine", "Tokyo Night", ...names]);
+  expect(rows.map(rowTheme)).toEqual([CONFIG_ROW, "Tokyo Night", "Rose Pine", ...names]);
   // Every row value is unique, so the starred copy and the full list's row are different rows.
   expect(new Set(rows).size).toBe(rows.length);
   expect(rows.map(isStarredRow)).toEqual([false, true, true, false, false, false, false, false]);
