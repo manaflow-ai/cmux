@@ -57,6 +57,18 @@ struct CLIDifficultyAssessmentHookTests {
         #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
     }
 
+    // MARK: - Pane ownership
+
+    /// Another session takes the pane while the rating runs, as `/clear` starts a new one: the
+    /// finished session's verdict is dropped, not set on the workspace the new session now runs in.
+    @Test func dropsTheVerdictWhenAnotherSessionTookThePaneDuringTheRating() throws {
+        let run = try Fixture(probe: Probe(), answer: "Hard.", paneTakenDuringRatingBy: "next-session")
+        defer { run.cleanup() }
+        try run.stop()
+        #expect(run.classifierPrompts().count == 1, "the rating must have run")
+        #expect(run.priorityParams().isEmpty, "saw \(run.priorityParams())")
+    }
+
     // MARK: - The call and what it sends
 
     @Test func sendsAutoDifficultyOnAParsableAnswer() throws {

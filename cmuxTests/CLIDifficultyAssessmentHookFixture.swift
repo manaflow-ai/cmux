@@ -51,6 +51,9 @@ struct DifficultyHookFixture {
     /// - Parameter duringNaming: lines the fake `claude` appends while it answers auto-naming's
     ///   prompt, as the user sends the next prompt during that call. `replaceDuringNaming`
     ///   instead replaces the whole transcript with these lines, as a truncated or rotated file.
+    /// - Parameter paneTakenDuringRatingBy: a session id the fake `claude` makes the pane's
+    ///   current session while it answers the rating prompt, as `/clear` starts a new session in
+    ///   the pane during the call.
     init(
         probe: Probe,
         answer: String,
@@ -58,7 +61,8 @@ struct DifficultyHookFixture {
         transcript lines: [String] = DifficultyHookFixture.sixExchanges,
         lateReply: String? = nil,
         duringNaming: [String] = [],
-        replaceDuringNaming: [String] = []
+        replaceDuringNaming: [String] = [],
+        paneTakenDuringRatingBy nextSessionId: String? = nil
     ) throws {
         context = try Harness.makeContext(name: "difficulty-hook")
         self.paneEffort = paneEffort
@@ -74,6 +78,10 @@ struct DifficultyHookFixture {
         if !replaceDuringNaming.isEmpty {
             try (replaceDuringNaming.joined(separator: "\n") + "\n").write(to: replacement, atomically: true, encoding: .utf8)
         }
+        let takenStore = context.root.appendingPathComponent("store-pane-taken.json")
+        if let nextSessionId {
+            try Self.writeStore(to: takenStore, paneOwner: nextSessionId, cwd: context.root.path)
+        }
 
         // Answers the rating prompt with `answer`, logging the prompt and the effort it ran at;
         // answers auto-naming's prompt with a title.
@@ -87,6 +95,7 @@ struct DifficultyHookFixture {
           *"Classify how demanding"*)
             printf '%s\\n' "${CLAUDE_CODE_EFFORT_LEVEL:-unset}" >> '\(effortLog.path)'
             printf '%s\\n%s\\n' "$input" '\(Self.promptSeparator)' >> '\(promptLog.path)'
+            [ -f '\(takenStore.path)' ] && cp '\(takenStore.path)' '\(context.storeURL.path)'
             printf '%s\\n' '\(answer)'
             ;;
           *)
@@ -265,6 +274,24 @@ struct DifficultyHookFixture {
             surfaceId: Self.surfaceId,
             cwd: context.root.path
         )
+    }
+
+    /// A hook session store in which `paneOwner` holds the pane's surface slot next to the
+    /// rated session's record, the shape a new session's `SessionStart` in the pane leaves.
+    private static func writeStore(to url: URL, paneOwner: String, cwd: String) throws {
+        let now = Date().timeIntervalSince1970
+        func record(_ id: String) -> [String: Any] {
+            [
+                "sessionId": id, "workspaceId": workspaceId, "surfaceId": surfaceId, "cwd": cwd,
+                "isRestorable": true, "startedAt": now, "updatedAt": now,
+            ]
+        }
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: record(sessionId), paneOwner: record(paneOwner)],
+            "activeSessionsBySurface": [surfaceId: ["sessionId": paneOwner, "updatedAt": now]],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys]).write(to: url)
     }
 
     private static func respond(to line: String, probe: Probe) -> String {
