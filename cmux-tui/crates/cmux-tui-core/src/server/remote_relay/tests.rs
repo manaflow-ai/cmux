@@ -78,10 +78,7 @@ fn remote(fixture: &Fixture, install: &str, user: &str) -> u64 {
 fn cloud_mobile(fixture: &Fixture, install: &str, user: &str) -> u64 {
     fixture.mux.record_remote_check(install).unwrap();
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture
-        .mux
-        .bind_remote_peer_checked(client, &peer(install, user), true)
-        .unwrap();
+    fixture.mux.bind_remote_peer_checked(client, &peer(install, user), true).unwrap();
     fixture
         .mux
         .control_clients
@@ -124,7 +121,10 @@ fn cloud_mobile_frame_path_is_exact_and_owner_scoped() {
 
     let teammate = cloud_mobile(&fixture, "inst_teammate", "7");
     assert!(!fixture.mux.cloud_mobile_client(teammate));
-    assert_eq!(send(&fixture.mux, teammate, json!({"id": 4, "cmd": "list-workspaces"}))["error_code"], "remote_denied");
+    assert_eq!(
+        send(&fixture.mux, teammate, json!({"id": 4, "cmd": "list-workspaces"}))["error_code"],
+        "remote_denied"
+    );
 }
 
 /// One frame through the remote frame path (`handle_frame`, the path the

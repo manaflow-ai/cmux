@@ -958,9 +958,8 @@ fn attach(
     pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
-    let cloud_mobile = mux
-        .control_clients
-        .supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
+    let cloud_mobile =
+        mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
         if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {

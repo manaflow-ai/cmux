@@ -169,7 +169,10 @@ impl Mux {
         }
         self.bind_conversation_principal(client, remote_participant(&peer.install))?;
         let mut cloud_clients = if cloud_token {
-            Some(lock_checked(&relay.cloud_token_clients, RelayLock::Peers).map_err(BindRefused::from)?)
+            Some(
+                lock_checked(&relay.cloud_token_clients, RelayLock::Peers)
+                    .map_err(BindRefused::from)?,
+            )
         } else {
             None
         };
@@ -200,10 +203,9 @@ impl Mux {
 
     #[cfg(unix)]
     pub(super) fn forget_cloud_token_client(&self, client: u64) {
-        if let Ok(mut clients) = lock_checked(
-            &self.remote_relay().cloud_token_clients,
-            RelayLock::Peers,
-        ) {
+        if let Ok(mut clients) =
+            lock_checked(&self.remote_relay().cloud_token_clients, RelayLock::Peers)
+        {
             clients.remove(&client);
         }
     }
@@ -361,7 +363,9 @@ pub(super) fn handle_frame(
             )
         );
         if allowed {
-            if let Some(keep_open) = super::agent_session_attach::try_handle(mux, client, message, writer) {
+            if let Some(keep_open) =
+                super::agent_session_attach::try_handle(mux, client, message, writer)
+            {
                 return keep_open;
             }
             return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
