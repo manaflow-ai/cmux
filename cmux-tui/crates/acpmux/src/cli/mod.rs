@@ -13,6 +13,8 @@ pub mod cloud_join;
 pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
+pub mod command_new;
+pub mod detach;
 pub mod entry;
 pub mod errors;
 pub mod forum;

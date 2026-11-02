@@ -254,6 +254,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SIDE, Request),
         untyped(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
+        untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
