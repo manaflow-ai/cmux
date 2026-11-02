@@ -32,10 +32,11 @@ import subprocess
 import time
 
 D = None
-# Samplers started and not stopped yet. A journey that fails between video_start and video_stop leaves its sampler
-# running (bounded by its `seconds`); the next start() and the driver's exit end it, so two never sample at once.
+# Samplers started and not stopped yet, each with its owner (the journey that started it). A journey that fails between
+# video_start and video_stop leaves its sampler running (bounded by its `seconds`); the next start() of ANOTHER journey
+# and the driver's exit end it. Samplers of the same journey (tiers_start "a" and "b", or tiers_start and a film) run on.
 _LIVE = []
-START_TIMEOUT = 20.0  # s for the sampler's first reading (its sysctl and ps calls have 5 s each)
+START_TIMEOUT = 40.0  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
 
 SAMPLER = r'''
 import ctypes, json, os, subprocess, sys, time
@@ -87,22 +88,24 @@ def install(driver):
     D = driver
 
 
-def reap():
-    """Ends every sampler that was started and not stopped (a failed journey's); their files are not written."""
-    while _LIVE:
-        proc = _LIVE.pop()["proc"]
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
+def reap(keep_owner=None):
+    """Ends every sampler that was started and not stopped, except KEEP_OWNER's (a failed journey's: its file is not
+    written)."""
+    for handle in [h for h in _LIVE if keep_owner is None or h.get("owner") is not keep_owner]:
+        _LIVE.remove(handle)
+        if handle["proc"].poll() is None:
+            handle["proc"].kill()
+            handle["proc"].wait()
 
 
-atexit.register(reap)
+atexit.register(lambda: reap())
 
 
-def start(pid, path, seconds=120.0, interval_ms=1.0, sampler=None, timeout=None):
+def start(pid, path, seconds=120.0, interval_ms=1.0, sampler=None, timeout=None, owner=None):
     """Starts the sampler on PID's main thread; returns its handle once the first reading is in (OSError if not, also
-    after START_TIMEOUT s). SAMPLER replaces the sampler's code (tests)."""
-    reap()
+    after START_TIMEOUT s). OWNER: the journey that starts it (other journeys' samplers are ended first; with no owner,
+    every live sampler is). SAMPLER replaces the sampler's code (tests)."""
+    reap(keep_owner=owner) if owner is not None else reap()
     path = str(path)
     stop_path = path + ".stop"
     for p in (path, stop_path):
@@ -121,7 +124,7 @@ def start(pid, path, seconds=120.0, interval_ms=1.0, sampler=None, timeout=None)
         proc.kill()
         proc.wait()
         raise OSError(f"tiers sampler did not start on pid {pid}: {(line + (proc.stdout.read() or ''))[-300:]}")
-    handle = {"proc": proc, "path": path, "stop": stop_path, "seconds": float(seconds)}
+    handle = {"proc": proc, "path": path, "stop": stop_path, "seconds": float(seconds), "owner": owner}
     _LIVE.append(handle)
     return handle
 
@@ -194,7 +197,7 @@ def step_tiers_start(j, step):
     if not name.isalpha() or not name.islower():
         raise D.StepError(f"tiers_start: name {name!r} must be lowercase letters (diag-<name>.json)")
     try:
-        handle = start(j.app.pid, j.out / f"diag-{name}.json", step.get("seconds", 120), step.get("interval_ms", 1))
+        handle = start(j.app.pid, j.out / f"diag-{name}.json", step.get("seconds", 120), step.get("interval_ms", 1), owner=j)
     except OSError as error:
         raise D.StepError(str(error))
     handle["t"] = D.now()

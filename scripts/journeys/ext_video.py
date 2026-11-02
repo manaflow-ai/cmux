@@ -198,7 +198,7 @@ def step_video_start(j, step):
     # Efficiency cores costs about 2x one that starts on Super (STATUS 7767), so each turn's frame numbers carry
     # its start tier. A sampler that does not start never fails the film; meta.json says why.
     try:
-        j.video["tiers"] = T.start(j.app.pid, _vdir(j) / f"{name}.tiers.json", float(params["seconds"]) + 60)
+        j.video["tiers"] = T.start(j.app.pid, _vdir(j) / f"{name}.tiers.json", float(params["seconds"]) + 60, owner=j)
     except OSError as error:
         j.video["tiers_error"] = str(error)[-300:]
     return {"path": str(path), "start": started, "trace_views": trace.get("views"), "refresh_ms": refresh,

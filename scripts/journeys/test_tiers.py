@@ -9,8 +9,8 @@ sampler writes: [uptime_ns, cpu_ms per tier..., cycles per tier...], cumulative)
 - turn_tiers names the start tier, the wall ms to the first Super interval and the E CPU ms before it; a turn that
   starts on Super has 0 ms to Super; a time the sampler does not cover says so;
 - start/stop protocol (stand-in samplers): the stop file ends the sampler; no first reading in time is an OSError and
-  the sampler is killed; a sampler that exits non-zero is an OSError at stop; a failed journey's sampler ends at the
-  next start;
+  the sampler process is killed; a sampler that exits non-zero is an OSError at stop; a failed journey's sampler ends
+  at the next journey's start; two samplers of one journey both run to their stop;
 - video_start starts the sampler on the app's pid for the recording; a sampler that does not start never fails it;
 - video_stop writes "tiers" (each key-down and HID action) in the recording's meta.json; a sampler that failed to
   start or fails at stop leaves its error there and the film still completes;
@@ -114,9 +114,20 @@ class StartStopProtocolTest(unittest.TestCase):
         self.assertNotIn(handle, ext_tiers._LIVE)
 
     def test_no_first_reading_is_an_oserror_and_kills_the_sampler(self):
-        with self.assertRaises(OSError) as raised:
-            ext_tiers.start(1, self.path, sampler=SILENT_SAMPLER, timeout=0.5)
+        before = set(subprocess.run(["ps", "-A", "-o", "pid="], capture_output=True, text=True).stdout.split())
+        real_popen, made = subprocess.Popen, []
+        def popen(*a, **k):
+            made.append(real_popen(*a, **k))
+            return made[-1]
+        ext_tiers.subprocess.Popen = popen
+        try:
+            with self.assertRaises(OSError) as raised:
+                ext_tiers.start(1, self.path, sampler=SILENT_SAMPLER, timeout=0.5)
+        finally:
+            ext_tiers.subprocess.Popen = real_popen
         self.assertIn("no first reading", str(raised.exception))
+        self.assertEqual(len(made), 1)
+        self.assertIsNotNone(made[0].poll(), "the silent sampler still runs")
         self.assertEqual(ext_tiers._LIVE, [])
 
     def test_a_sampler_that_fails_is_an_oserror_at_stop(self):
@@ -124,12 +135,28 @@ class StartStopProtocolTest(unittest.TestCase):
         with self.assertRaises(OSError):
             ext_tiers.stop(handle)
 
-    def test_a_failed_journeys_sampler_ends_at_the_next_start(self):
-        stale = ext_tiers.start(1, self.path, seconds=20, sampler=FAKE_SAMPLER)
-        fresh = ext_tiers.start(1, Path(self.tmp.name) / "y.tiers.json", seconds=20, sampler=FAKE_SAMPLER)
+    def test_a_failed_journeys_sampler_ends_at_the_next_journeys_start(self):
+        first, second = object(), object()
+        stale = ext_tiers.start(1, self.path, seconds=20, sampler=FAKE_SAMPLER, owner=first)
+        fresh = ext_tiers.start(1, Path(self.tmp.name) / "y.tiers.json", seconds=20, sampler=FAKE_SAMPLER, owner=second)
         self.assertIsNotNone(stale["proc"].poll())
         self.assertEqual(ext_tiers._LIVE, [fresh])
         ext_tiers.stop(fresh)
+
+    def test_two_samplers_of_one_journey_both_run_to_their_stop(self):
+        journey = types.SimpleNamespace(out=Path(self.tmp.name), app=types.SimpleNamespace(pid=1))
+        ext_tiers.install(fake_driver())
+        saved = ext_tiers.SAMPLER
+        ext_tiers.SAMPLER = FAKE_SAMPLER
+        try:
+            ext_tiers.step_tiers_start(journey, {"name": "a", "seconds": 20})
+            ext_tiers.step_tiers_start(journey, {"name": "b", "seconds": 20})
+            a = ext_tiers.step_tiers_stop(journey, {"name": "a"})
+            b = ext_tiers.step_tiers_stop(journey, {"name": "b"})
+        finally:
+            ext_tiers.SAMPLER = saved
+        self.assertEqual((a["rows"], b["rows"]), (1, 1))
+        self.assertTrue(json.loads((Path(self.tmp.name) / "diag-a.json").read_text())["stopped_by_file"])
 
 
 class FakeProc:
@@ -161,19 +188,19 @@ class VideoStartTiersTest(unittest.TestCase):
         return types.SimpleNamespace(out=self.out, app=types.SimpleNamespace(pid=4242), video=None)
 
     def test_video_start_starts_the_sampler_on_the_app_for_the_recording(self):
-        def start(pid, path, seconds=120.0, interval_ms=1.0):
-            self.started.append((pid, str(path), seconds))
+        def start(pid, path, seconds=120.0, interval_ms=1.0, owner=None):
+            self.started.append((pid, str(path), seconds, owner))
             return {"proc": FakeProc()}
         self.v.T.start = start
         j = self.journey()
         reply = self.v.step_video_start(j, {"name": "case", "seconds": 30})
-        self.assertEqual(self.started, [(4242, str(self.out / "video" / "case.tiers.json"), 90.0)])
+        self.assertEqual(self.started, [(4242, str(self.out / "video" / "case.tiers.json"), 90.0, j)])
         self.assertEqual(reply["tiers"], "sampling")
         self.assertIn("tiers", j.video)
 
     def test_a_sampler_that_does_not_start_never_fails_video_start(self):
-        def start(pid, path, seconds=120.0, interval_ms=1.0):
-            raise OSError("tiers sampler gave no first reading on pid 4242 within 20.0 s")
+        def start(pid, path, seconds=120.0, interval_ms=1.0, owner=None):
+            raise OSError("tiers sampler gave no first reading on pid 4242 within 40.0 s")
         self.v.T.start = start
         j = self.journey()
         reply = self.v.step_video_start(j, {"name": "case"})
