@@ -171,8 +171,8 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
 
     def test_a_cargo_lock_change_stays_incremental(self):
-        # The Release build's only cargo phase (Build Diff Sidecar) reruns on its own lockfile inputs and builds
-        # a separate executable, so a Cargo.lock change leaves the kept Swift objects valid.
+        # The Release build's cargo phases rerun on their own lockfile inputs and build separate executables,
+        # so a Cargo.lock change leaves the kept Swift objects valid.
         self.build()
         self.commit({'cmux-tui/Cargo.lock': '# changed\n', 'Native/DiffSidecar/Cargo.lock': '# changed\n'})
         self.assertEqual(self.build()[0], 'mode=incremental')
