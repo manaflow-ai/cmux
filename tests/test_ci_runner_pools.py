@@ -57,6 +57,16 @@ class Declared(unittest.TestCase):
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
                          ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
+    def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
+        # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
+        # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
+        pools = runner_pools.load_pools()
+        for size, name in ((2, "linux_2"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
+                self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
+
     def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
         # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
         # sends its readers back to the stalled size when the pool steps onto it.
