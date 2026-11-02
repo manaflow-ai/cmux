@@ -221,6 +221,16 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `PWD` names the directory as the caller spelled it. A shell keeps an
+    // inherited `PWD` only when it names its working directory; otherwise
+    // it shows getcwd(3), the real path, so a terminal started in /tmp read
+    // /private/tmp on macOS (REOPEN-F3). A caller's own `PWD` wins.
+    if command.cwd_descriptor.is_none()
+        && let Some(cwd) = command.cwd.as_deref().filter(|cwd| cwd.is_absolute())
+        && !command.environment.contains_key("PWD")
+    {
+        process.env("PWD", cwd);
+    }
     process.env("SHELL", shell);
     // The child leads a new session and opens the slave by path as its 0 (1
     // and 2 are copies), which becomes its controlling terminal (TIOCSCTTY),

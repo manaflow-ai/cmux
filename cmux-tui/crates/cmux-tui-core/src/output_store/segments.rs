@@ -38,6 +38,9 @@ const SUFFIX: &str = "seg";
 /// A segment file is closed and a new one started past this size.
 const SEGMENT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const FRAME_HEADER_BYTES: usize = 16;
+/// The most raw bytes one flush writes as one frame: the threshold at which
+/// output wakes the writer at once, well under what a reader accepts.
+const MAX_FLUSH_FRAME_BYTES: usize = super::FULL_PENDING_WAKE_BYTES;
 /// Unchanged-content bytes a terminal holds before they are written anyway.
 const UNCHANGED_FLUSH_BYTES: usize = 1024 * 1024;
 /// The largest raw frame a reader accepts (a flush is at most a few MB).
@@ -90,15 +93,25 @@ fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, Pa
     files
 }
 
-/// Append the pending bytes of each log as one frame (content-changed logs
-/// only, `digests` from the snapshot writer), then apply the caps.
+/// What a flush leaves for the caller to schedule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct FlushOutcome {
+    /// A log still holds a frame's worth of bytes after its frame (a
+    /// flood): it is dirty again, and the next pass is due at once.
+    pub(super) flooded: bool,
+}
+
+/// Append the pending bytes of each log as one frame of at most
+/// [`MAX_FLUSH_FRAME_BYTES`] (content-changed logs only, `digests` from the
+/// snapshot writer), then apply the caps.
 pub(super) fn flush_logs(
     directory: &Path,
     logs: &[(Arc<TerminalLog>, Option<u64>)],
     policy: PersistencePolicy,
     quitting: bool,
-) {
+) -> FlushOutcome {
     let mut wrote = false;
+    let mut flooded = false;
     for (log, digest) in logs {
         let (generation, start, bytes) = {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -113,9 +126,21 @@ pub(super) fn flush_logs(
             if unchanged && !quitting && state.pending.len() < UNCHANGED_FLUSH_BYTES {
                 continue;
             }
-            let bytes = std::mem::take(&mut state.pending);
-            state.segment_digest = *digest;
-            (state.generation.clone(), state.pending_start, bytes)
+            // At most one frame's worth: a flood is written in frames a
+            // reader accepts, back to back (the caller runs the next pass at
+            // once), never as one frame of everything that came meanwhile.
+            let take = state.pending.len().min(MAX_FLUSH_FRAME_BYTES);
+            // The digest names the screen after every pending byte: only a
+            // flush of all of them may record it.
+            state.segment_digest = if take == state.pending.len() { *digest } else { None };
+            let start = state.pending_start;
+            let bytes = state.pending.drain(..take).collect::<Vec<u8>>();
+            state.pending_start = start + take as u64;
+            if state.pending.len() >= MAX_FLUSH_FRAME_BYTES {
+                state.dirty = true;
+                flooded = true;
+            }
+            (state.generation.clone(), start, bytes)
         };
         let terminal_directory = terminal_directory(directory, &log.terminal_id);
         match append_frame(&terminal_directory, &generation, start, &bytes) {
@@ -130,6 +155,7 @@ pub(super) fn flush_logs(
     if wrote {
         enforce_total_cap(directory, policy.max_total_bytes);
     }
+    FlushOutcome { flooded }
 }
 
 fn append_frame(
@@ -351,3 +377,7 @@ pub(super) fn remove_all(directory: &Path) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "segments_tests.rs"]
+mod tests;

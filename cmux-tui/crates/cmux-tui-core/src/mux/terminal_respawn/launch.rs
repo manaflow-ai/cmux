@@ -205,4 +205,22 @@ mod tests {
         ];
         assert_eq!(usable_env(&env), vec![("CMUX_TAG".to_string(), "dev".to_string())]);
     }
+
+    /// Failure-mode table, "unreplayable screen": a previous screen that ends
+    /// inside a control string (a Kitty upload the lost program never ended)
+    /// does not swallow the reset and the marker line. (Coverage: it held
+    /// before #31643 too; the parser leaves the string at the reset's ESC.)
+    #[test]
+    fn a_screen_that_ends_inside_a_control_string_keeps_the_marker_line() {
+        let seed =
+            respawn_seed(Some(b"text\r\n\x1b_Ga=t,f=100,m=1;AAAA".to_vec()), Some("restored"));
+        let (cols, rows) = (40, 5);
+        let mut term = ghostty_vt::Terminal::new(cols, rows, 1_000, Default::default()).unwrap();
+        term.vt_write(&seed);
+        let shown = (0..rows)
+            .map(|row| term.selection_text((0, row), (cols - 1, row)).unwrap_or_default())
+            .map(|text| text.trim_end().to_string())
+            .collect::<Vec<_>>();
+        assert!(shown.iter().any(|row| row == "restored"), "the marker was swallowed: {shown:?}");
+    }
 }
