@@ -3352,9 +3352,12 @@ button.cv-video-frames__frame:focus-visible {
   max-width: 100%;
 }
 /* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
-   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName).
+   Flex shrinks each item by its factor times its width, so 10 still cut the name beside a whole host
+   (session-chip-browser.test.ts); 1000 leaves the name under a hundredth of the overflow until the
+   host is gone. */
 .cv-received__host {
-  flex: 0 10 auto;
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
