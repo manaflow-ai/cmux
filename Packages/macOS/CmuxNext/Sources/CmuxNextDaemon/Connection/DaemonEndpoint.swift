@@ -273,9 +273,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
-    /// `subscribe` carries no `scroll-changed`: this app reads each terminal's scroll position on its attach
-    /// stream, and the store applies nothing for the event, so every hidden busy terminal woke the event pump and
-    /// asked for a main-thread frame about 15 times a second (SWITCH FRAMES SF-5).
+    /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
+    /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
+    /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
