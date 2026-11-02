@@ -109,10 +109,11 @@ import Testing
         #expect(FocusSpyShim.granted == [11])
     }
 
-    /// reopen-browser-plain-keys cycle B, second finding (REOPEN VIDEO 7660): the restored page's navigation starts after
-    /// Chromium created the browser, so keys sent on at the browser's creation reached the empty document the
-    /// navigation then replaced. The page is ready for keys once its first document committed (or failed to load).
-    @Test func aTabIsReadyForKeysOnceItsFirstDocumentCommitted() throws {
+    /// reopen-browser-plain-keys cycle B (REOPEN VIDEO 7660, 7710): keys sent on when the browser existed reached the
+    /// empty document the restore replaced; keys sent on at the restored document's commit reached a page whose
+    /// script had not run (its focused field and key listener did not exist yet). The page is ready for keys once a
+    /// real (not blank) document finished loading, or failed to load.
+    @Test func aTabIsReadyForKeysOnceARealDocumentLoaded() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
@@ -124,11 +125,16 @@ import Testing
         let request = try #require(runtime.pendingWindows.keys.first)
         runtime.handle(.afterCreated(browser: 16, request: request, window: 1))
         #expect(!tab.pageReady, "keys sent on when the browser exists reach the empty document the restore replaces")
-        #expect(reported == 0)
+        runtime.handle(.loadStart(browser: 16, url: "about:blank", fromPost: false))
+        runtime.handle(.loadEnd(browser: 16, httpStatus: 200))
+        #expect(!tab.pageReady, "a blank document's load is not the restored page")
         runtime.handle(.loadStart(browser: 16, url: "https://example.com/", fromPost: false))
+        #expect(!tab.pageReady, "keys sent on at the commit reach a page whose script has not run")
+        runtime.handle(.loadEnd(browser: 16, httpStatus: 200))
         #expect(tab.pageReady)
-        #expect(reported == 1, "the tab did not say its first document committed")
+        #expect(reported == 1, "the tab did not say its real document loaded")
         runtime.handle(.loadStart(browser: 16, url: "https://example.com/next", fromPost: false))
+        runtime.handle(.loadEnd(browser: 16, httpStatus: 200))
         #expect(reported == 1, "a later navigation ended a hold again")
     }
 
