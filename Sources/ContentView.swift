@@ -12185,10 +12185,22 @@ struct VerticalTabsSidebar: View, Equatable {
         // the live index, which is not observable; rebuild the rows it reports as changed.
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
+            // Built only when a full reload asks which account rows went stale.
+            var workspacesById: [UUID: Workspace]?
             for workspaceId in SidebarAgentProfileLabel.workspaceIdsToRefresh(
                 afterIndexChange: notification.userInfo,
                 allWorkspaceIds: renderContext.workspaceIds,
-                settings: renderContext.tabItemSettings
+                settings: renderContext.tabItemSettings,
+                accountRowIsStale: { workspaceId in
+                    if workspacesById == nil {
+                        workspacesById = Dictionary(renderContext.tabs.map { ($0.id, $0) }) { first, _ in first }
+                    }
+                    guard let workspace = workspacesById?[workspaceId] else { return false }
+                    return SidebarWorkspaceSnapshotFactory.claudeAccountRowIsStale(
+                        workspace: workspace,
+                        shownEntries: workspaceSnapshotCache.snapshotsById[workspaceId]?.metadataEntries
+                    )
+                }
             ) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }

@@ -8,7 +8,7 @@ extension SidebarWorkspaceSnapshotFactory {
         guard !labels.isEmpty else { return nil }
         let joined = labels.joined(separator: ", ")
         return SidebarStatusEntry(
-            key: "claude_account",
+            key: claudeAccountRowKey,
             value: String(
                 localized: "sidebar.claudeAccount.row",
                 defaultValue: "Claude account: \(joined)"
@@ -38,6 +38,27 @@ extension SidebarWorkspaceSnapshotFactory {
     /// learns it only once the resumed Claude starts, or never when no resume ran. Every other
     /// pane names the account of its live Claude agent in the index.
     func claudeAccountLabels(orderedPanelIds: [UUID]) -> [String] {
+        Self.claudeAccountLabels(workspace: workspace, orderedPanelIds: orderedPanelIds)
+    }
+
+    /// Whether `shownEntries`, a cached row's metadata entries (`nil` without a cached row), show
+    /// another Claude account row than `workspace`'s panes give now. A full index reload asks this
+    /// instead of rebuilding every row: it reads only each pane's account record and index entry.
+    @MainActor
+    static func claudeAccountRowIsStale(workspace: Workspace, shownEntries: [SidebarStatusEntry]?) -> Bool {
+        guard let shownEntries else { return true }
+        let current = claudeAccountRow(labels: claudeAccountLabels(
+            workspace: workspace,
+            orderedPanelIds: workspace.sidebarOrderedPanelIds()
+        ))
+        return shownEntries.first { $0.key == claudeAccountRowKey }?.value != current?.value
+    }
+
+    /// The status key of the Claude account row.
+    static let claudeAccountRowKey = "claude_account"
+
+    /// `claudeAccountLabels(orderedPanelIds:)` for `workspace`.
+    static func claudeAccountLabels(workspace: Workspace, orderedPanelIds: [UUID]) -> [String] {
         let index = SharedLiveAgentIndex.shared.index
         let agents: [(kind: RestorableAgentKind, environment: [String: String]?)] = orderedPanelIds.compactMap { panelId in
             if let account = workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment {
@@ -47,7 +68,7 @@ extension SidebarWorkspaceSnapshotFactory {
                 (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
             }
         }
-        return Self.claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
+        return claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
     }
 
     static func claudeAccountLabels(
