@@ -253,10 +253,19 @@ answer from any collector wins; the app then sends `cu_approval_done`.
 
 ## Mac app wire (worker configure, socket)
 
-- The app passes the mode to the worker in its `configure` line:
-  `"permission_mode": "ask" | "standard" | "bounded" | "unrestricted"`
-  (`computerUse.mode`). A mode change stops the worker's channel and opens a
-  new one (cmux Remote starts a new worker) with the new value.
+- The app passes the mode and its client to the worker in its `configure`
+  line: `"permission_mode": "ask" | "standard" | "bounded" | "unrestricted"`
+  (`computerUse.mode`) and `"client": "<this app's bundle id>"`, the value the
+  worker puts in each request's `client` (the app refuses a question for any
+  other client). A mode change stops the worker's channel and opens a new one
+  (cmux Remote starts a new worker) with the new value.
+- The app also refuses, without asking anyone, a question whose
+  `answerable_until_ms` is more than 11 minutes after `created_ms` or after its
+  own clock, and one whose target is cmux itself (its own bundle id or any
+  `com.cmuxterm.*`).
+- The card has no Return default and no Command key on an allow: Escape is
+  Deny, and an allow needs a click. A card panel takes the keyboard only after
+  the person clicked it.
 - App socket methods (Lane 3's CLI and MCP): `computer_use.approvals.list`
   → `{client, apps:[{bundle_id|executable, name, added_ms, via}]}`;
   `computer_use.approvals.revoke {app?: {bundle_id|executable}, all?: true}`

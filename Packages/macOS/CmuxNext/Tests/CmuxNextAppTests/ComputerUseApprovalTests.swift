@@ -17,13 +17,14 @@ struct ComputerUseApprovalTests {
 
     /// A request object as the worker sends it (digest over the canonical JSON).
     static func requestObject(client: String = client, bundleID: String = "com.apple.Safari", nonce: String = String(repeating: "a", count: 32),
+                              created: Int64 = nowMs, waitUntil: Int64 = nowMs + 120_000,
                               answerableUntil: Int64 = nowMs + 600_000) -> [String: Any] {
         var object: [String: Any] = [
             "v": 1, "nonce": nonce, "client": client, "machine": "mac-1", "session": "s-1",
             "agent": "Claude", "workspace": "api-server",
             "target": ["bundle_id": bundleID, "executable": NSNull(), "name": "Safari"] as [String: Any],
             "tool": "click", "risk": "R1",
-            "created_ms": nowMs, "wait_until_ms": nowMs + 120_000, "answerable_until_ms": answerableUntil,
+            "created_ms": created, "wait_until_ms": waitUntil, "answerable_until_ms": answerableUntil,
         ]
         object["digest"] = ComputerUseApprovalRequest.digest(of: ComputerUseCanonicalJSON(foundation: object)!)
         return object
@@ -33,7 +34,7 @@ struct ComputerUseApprovalTests {
         try #require(ComputerUseApprovalRequest(object))
     }
 
-    static func json(_ line: Data) throws -> [String: Any] {
+    nonisolated static func json(_ line: Data) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
     }
 
@@ -106,6 +107,15 @@ struct ComputerUseApprovalTests {
 
     // MARK: Store
 
+    /// File I/O off the main actor, as the store does it.
+    static func read(_ file: ComputerUseApprovalFile) async -> [ComputerUseSavedApproval] {
+        await Task.detached { file.read() }.value
+    }
+
+    static func write(_ file: ComputerUseApprovalFile, _ apps: [ComputerUseSavedApproval]) async {
+        await Task.detached { _ = file.write(apps) }.value
+    }
+
     @Test(.timeLimit(.minutes(1))) func savedApprovalsArePerClientAndPrivate() async throws {
         let file = Self.temporaryFile()
         let store = ComputerUseApprovalStore(file: file)
@@ -118,10 +128,10 @@ struct ComputerUseApprovalTests {
         var info = stat()
         #expect(stat(file.url.path, &info) == 0)
         #expect(info.st_mode & 0o777 == 0o600)
-        #expect(file.read().map(\.app.name) == ["Safari", "xterm"])
+        #expect(await Self.read(file).map(\.app.name) == ["Safari", "xterm"])
 
         // Another client (another build) at the same path reads nothing.
-        #expect(ComputerUseApprovalFile(url: file.url, client: "com.cmuxterm.app.nightly").read().isEmpty)
+        #expect(await Self.read(ComputerUseApprovalFile(url: file.url, client: "com.cmuxterm.app.nightly")).isEmpty)
         // A fresh store of the same client sees the list; one of another client does not.
         let again = ComputerUseApprovalStore(file: file)
         await again.load()
@@ -132,29 +142,29 @@ struct ComputerUseApprovalTests {
 
         #expect(again.revoke(.init(bundleID: "com.apple.Safari", executable: nil, name: "")) == 1)
         await again.flush()
-        #expect(file.read().map(\.app.name) == ["xterm"])
+        #expect(await Self.read(file).map(\.app.name) == ["xterm"])
         #expect(again.revoke(nil) == 1)
         await again.flush()
-        #expect(file.read().isEmpty)
+        #expect(await Self.read(file).isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1))) func aRevokeBeforeTheFirstReadIsKept() async throws {
         let file = Self.temporaryFile()
-        file.write([ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
+        await Self.write(file, [ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
         let store = ComputerUseApprovalStore(file: file)
         store.revoke(nil)
         await store.load()
         await store.flush()
         #expect(store.apps.isEmpty)
-        #expect(file.read().isEmpty)
+        #expect(await Self.read(file).isEmpty)
     }
 
-    @Test func aFileOthersCanReadCountsAsEmpty() throws {
+    @Test func aFileOthersCanReadCountsAsEmpty() async throws {
         let file = Self.temporaryFile()
-        file.write([ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
-        #expect(file.read().count == 1)
+        await Self.write(file, [ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
+        #expect(await Self.read(file).count == 1)
         chmod(file.url.path, 0o644)
-        #expect(file.read().isEmpty)
+        #expect(await Self.read(file).isEmpty)
     }
 
     // MARK: Broker
@@ -173,7 +183,7 @@ struct ComputerUseApprovalTests {
         func done(digest: String) { finished.append(digest) }
     }
 
-    struct Rig {
+    nonisolated struct Rig {
         let broker: ComputerUseApprovalBroker
         let presenter: FakePresenter
         let phone: FakePhone
@@ -181,7 +191,8 @@ struct ComputerUseApprovalTests {
         var lines: AsyncStream<Data>.AsyncIterator
 
         mutating func next() async throws -> [String: Any] {
-            try ComputerUseApprovalTests.json(try #require(await lines.next()))
+            let line = await lines.next()
+            return try ComputerUseApprovalTests.json(try #require(line))
         }
     }
 
@@ -247,12 +258,25 @@ struct ComputerUseApprovalTests {
         _ = try await rig.next()
         rig.broker.receive(.question(id: 2, request: try Self.request(Self.requestObject(client: "com.cmuxterm.app"))), link: rig.link)
         #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 2, "ok": false])
-        rig.broker.receive(.question(id: 3, request: try Self.request(Self.requestObject(answerableUntil: Self.nowMs - 1))), link: rig.link)
+        rig.broker.receive(.question(id: 3, request: try Self.request(Self.requestObject(created: Self.nowMs - 700_000, waitUntil: Self.nowMs - 600_000,
+                                                                                                answerableUntil: Self.nowMs - 1))), link: rig.link)
         #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 3, "ok": false])
         rig.broker.receive(.malformed(id: 4), link: rig.link)
         #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 4, "ok": false])
         #expect(rig.broker.pending.isEmpty)
         #expect(rig.presenter.shown.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cmuxItselfAndOverlongWindowsAreNeverAsked() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        rig.broker.receive(.question(id: 1, request: try Self.request(Self.requestObject(bundleID: Self.client))), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 1, "ok": false])
+        rig.broker.receive(.question(id: 2, request: try Self.request(Self.requestObject(bundleID: "com.cmuxterm.remote"))), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 2, "ok": false])
+        rig.broker.receive(.question(id: 3, request: try Self.request(Self.requestObject(answerableUntil: Self.nowMs + 86_400_000))), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 3, "ok": false])
+        #expect(rig.broker.pending.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1))) func expiryAndCancelWithdrawWithoutADecision() async throws {
@@ -374,10 +398,13 @@ struct ComputerUseApprovalTests {
         #expect(spec.icon == Data([1, 2]))
         #expect(spec.buttons.map(\.id) == ["deny", "always", "session", "once"])
         #expect(spec.cancelButton?.id == "deny")
-        #expect(spec.defaultButton?.id == "once")
+        #expect(spec.lines.contains("com.apple.Safari"))
+        // No key grants: Return presses nothing, no allow has a Command key.
+        #expect(spec.defaultButton == nil)
+        #expect(spec.buttons.compactMap(\.key).isEmpty)
         #expect(spec.buttons.first { $0.id == "always" }?.title.contains("Safari") == true)
-        #expect(spec.buttons.compactMap(\.key) == ["a", "s"])
         #expect(CmuxDialogKeys.action(for: .escape, modifiers: [], in: spec) == .press("deny"))
+        #expect(CmuxDialogKeys.action(for: .return, modifiers: [], in: spec) == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func aPressOnTheCardDecidesThroughTheBroker() async throws {

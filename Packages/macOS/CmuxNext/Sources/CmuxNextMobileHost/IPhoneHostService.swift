@@ -383,6 +383,7 @@ public final class IPhoneHostService {
         followingAccount?.cancel()
         applying?.cancel()
         pairingWatch?.cancel()
+        computerUseWatch?.cancel()
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()

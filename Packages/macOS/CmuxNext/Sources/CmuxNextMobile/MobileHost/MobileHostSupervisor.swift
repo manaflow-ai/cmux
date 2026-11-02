@@ -115,6 +115,8 @@ public actor MobileHostSupervisor {
     /// arrives while this one waits for the old run to end wins.
     public func start(_ inputs: Inputs) async {
         generation &+= 1
+        // Another account's phones never get this one's Computer Use questions; the app asks again.
+        computerUseAsks.removeAll()
         let mine = generation
         await halt()
         guard generation == mine else { return }

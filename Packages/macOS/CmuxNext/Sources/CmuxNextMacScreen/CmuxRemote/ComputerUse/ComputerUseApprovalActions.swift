@@ -88,6 +88,7 @@ enum ComputerUseApprovalActions {
             },
             .mainActor("computer_use.status") { _ in
                 .value(["mode": .string(service.mode.rawValue), "phone_always_allow": .bool(service.phoneAlwaysAllow),
+                        "worker": .string(service.workerState),
                         "saved": .array(service.store.apps.map(savedValue)), "pending": .array(service.broker.pending.map(pendingValue))])
             },
             .mainActor("computer_use.mode.set") { call in
@@ -100,7 +101,7 @@ enum ComputerUseApprovalActions {
                 let shown = window()
                 return .followUp {
                     if raise {
-                        guard await CmuxRemoteActions.confirm(title: title, body: body, in: shown) else { return ["ok": false, "declined": true] }
+                        guard await confirmRaise(title: title, body: body, in: shown) else { return ["ok": false, "declined": true] }
                     }
                     // A lower mode narrows what agents may do and needs no one's confirmation; a
                     // higher one counts only after the person confirmed it just now.
@@ -109,6 +110,15 @@ enum ComputerUseApprovalActions {
                 }
             }.withDeadline(.fixed(.seconds(130))),
         ]
+    }
+
+    /// The person's answer to raising the mode. No button is Return's default: a raise an agent
+    /// asked for counts only after a click on Change, never after a key typed for something else.
+    static func confirmRaise(title: String, body: String, in window: NSWindow?) async -> Bool {
+        let spec = CmuxDialogSpec(title: title, lines: [body],
+                                  buttons: [.cancel(), CmuxDialogButton(id: "change", title: ComputerUseApprovalStrings.change, role: .normal)],
+                                  identifier: "cmux.dialog.computerUse.confirmMode")
+        return await CmuxDialogCenter.shared.present(spec, in: scope(window)).button == "change"
     }
 
     static func list(_ service: ComputerUseApprovalService) -> JSONValue {

@@ -101,13 +101,15 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
         return CmuxDialogSpec(
             title: ComputerUseApprovalStrings.title(agent: request.agent, app: app),
             lines: [ComputerUseApprovalStrings.asker(agent: request.agent, workspace: request.workspace),
+                    request.target.bundleID ?? request.target.executable ?? "",
                     ComputerUseApprovalStrings.client(request.client),
                     ComputerUseApprovalStrings.expires(until)],
             buttons: [
                 CmuxDialogButton(id: ComputerUseApprovalDecision.deny.rawValue, title: ComputerUseApprovalStrings.deny, role: .cancel),
-                CmuxDialogButton(id: ComputerUseApprovalDecision.always.rawValue, title: ComputerUseApprovalStrings.allowAlways(app), role: .normal, key: "a"),
-                CmuxDialogButton(id: ComputerUseApprovalDecision.session.rawValue, title: ComputerUseApprovalStrings.allowSession, role: .normal, key: "s"),
-                CmuxDialogButton(id: ComputerUseApprovalDecision.once.rawValue, title: ComputerUseApprovalStrings.allowOnce, role: .default),
+                // No Return default and no Command key on an allow: a stray key never grants.
+                CmuxDialogButton(id: ComputerUseApprovalDecision.always.rawValue, title: ComputerUseApprovalStrings.allowAlways(app), role: .normal),
+                CmuxDialogButton(id: ComputerUseApprovalDecision.session.rawValue, title: ComputerUseApprovalStrings.allowSession, role: .normal),
+                CmuxDialogButton(id: ComputerUseApprovalDecision.once.rawValue, title: ComputerUseApprovalStrings.allowOnce, role: .normal),
             ],
             icon: icon,
             identifier: "cmux.dialog.computerUse.approval")
@@ -139,12 +141,19 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
     }
 }
 
-/// A card's panel: floating over every app and Space, non-activating. It becomes key only when
-/// the person clicks it (so the card's keys work then), never on its own.
+/// A card's panel: floating over every app and Space, non-activating. It may become key only
+/// after the person clicked in it (so its keys work then): a card never takes the keyboard on its
+/// own, also not when another card closes and AppKit picks the next key window.
 @MainActor
 final class ComputerUseApprovalCardPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    private var clicked = false
+    override var canBecomeKey: Bool { clicked }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown { clicked = true }
+        super.sendEvent(event)
+    }
 
     static func make() -> ComputerUseApprovalCardPanel {
         let panel = ComputerUseApprovalCardPanel(contentRect: CGRect(x: 0, y: 0, width: 420, height: 200),

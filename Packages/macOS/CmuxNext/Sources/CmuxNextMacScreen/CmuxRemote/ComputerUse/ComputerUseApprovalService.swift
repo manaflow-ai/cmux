@@ -17,6 +17,7 @@ public final class ComputerUseApprovalService {
     private var phone: ComputerUseApprovalPhoneSink?
     private var settings: SettingsController?
     private var following: Task<Void, Never>?
+    private weak var helper: ComputerUseHelperV2?
 
     /// `client`: this app's bundle id (each build keeps its own saved list).
     public init(client: String, file: ComputerUseApprovalFile? = nil, cards: ComputerUseApprovalCards = ComputerUseApprovalCards()) {
@@ -30,6 +31,7 @@ public final class ComputerUseApprovalService {
     /// the worker, which reads the new mode at start) and `computerUse.phoneAlwaysAllow`.
     public func start(helper: ComputerUseHelperV2, settings: SettingsController, phone: (any ComputerUsePhoneHost)?) {
         self.settings = settings
+        self.helper = helper
         if let phone { connectPhone(phone) }
         // task-owner: one read of the saved list, off the main actor.
         Task { await store.load() }
@@ -78,6 +80,7 @@ public final class ComputerUseApprovalService {
                                                                    expiresAt: expiresAt, signature: signature))
     }
 
+    var workerState: String { helper?.stateName ?? "off" }
     var mode: ComputerUseMode { settings?.snapshot.computerUse.mode ?? .ask }
     var phoneAlwaysAllow: Bool { settings?.snapshot.computerUse.phoneAlwaysAllow ?? false }
     var settingsController: SettingsController? { settings }

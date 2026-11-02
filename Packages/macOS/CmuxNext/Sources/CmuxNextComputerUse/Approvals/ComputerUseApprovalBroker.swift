@@ -86,10 +86,23 @@ public final class ComputerUseApprovalBroker {
         }
     }
 
+    /// The contract's answerable window (10 minutes) plus a minute of clock skew: a longer one is refused.
+    static let maximumWindowMs: Int64 = 660_000
+
+    /// Whether this app may ask a person about `request` at `now`: this client's question, inside
+    /// the contract's window, and never about cmux itself (the worker refuses those too).
+    func admits(_ request: ComputerUseApprovalRequest, now: Int64) -> Bool {
+        let target = request.target.bundleID ?? ""
+        return request.client == store.client && request.isAnswerable(nowMs: now)
+            && request.answerableUntilMs - request.createdMs <= Self.maximumWindowMs
+            && request.answerableUntilMs <= now + Self.maximumWindowMs
+            && target != store.client && !target.hasPrefix("com.cmuxterm.")
+    }
+
     private func ask(_ request: ComputerUseApprovalRequest, id: Int, link: Int) {
         let now = nowMs()
         // Saved lists are per client: a question for another client is not this app's to answer.
-        guard request.client == store.client, request.isAnswerable(nowMs: now),
+        guard admits(request, now: now),
               !pending.contains(where: { $0.request.digest == request.digest }) else {
             if !pending.contains(where: { $0.request.digest == request.digest }) {
                 send(ComputerUseApprovalWire.unanswered(id: id), to: link)

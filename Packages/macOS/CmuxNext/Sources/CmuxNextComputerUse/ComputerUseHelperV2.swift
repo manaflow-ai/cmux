@@ -70,6 +70,8 @@ public final class ComputerUseHelperV2 {
     public var approvals: ComputerUseApprovalBroker?
     /// `computerUse.mode`, read at each start (the `configure` line's `permission_mode`).
     public var permissionMode: @MainActor () -> ComputerUseMode = { .ask }
+    /// The mode the running worker was configured with.
+    var configuredMode: ComputerUseMode?
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
     private let exitGrace: Duration
@@ -259,11 +261,14 @@ public final class ComputerUseHelperV2 {
         let admission: (hashes: [String], requirement: String?) = acpmux.map {
             Self.acpmuxAdmission(executable: $0.executable)
         } ?? (hashes: [], requirement: nil)
+        let mode = permissionMode()
+        configuredMode = mode
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
                                 "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
                                 "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull(),
-                                "permission_mode": permissionMode().rawValue]))
+                                "permission_mode": mode.rawValue,
+                                "client": approvals?.store.client ?? Bundle.main.bundleIdentifier ?? ""]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -325,6 +330,8 @@ public final class ComputerUseHelperV2 {
         helperV2Logger.notice("cmux Computer Use helper v2 started pid=\(spawned.pid, privacy: .public)")
         // An acpmux daemon that already runs (it outlives the app) is registered now.
         if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
+        // The mode changed while this worker started: it restarts with the new one.
+        if mode != permissionMode() { await restartForModeChange() }
     }
 
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
