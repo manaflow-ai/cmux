@@ -164,7 +164,16 @@ import Testing
     /// 12 tabs fill the bar: the plus rests muted in its kept room instead of leaving an empty strip,
     /// and revealing it moves no tab, so the rightmost tab stays where the pointer finds it.
     @Test func aCrowdedStripsPlusShowsAtRestAndItsRevealMovesNoTab() throws {
+        let previousPlusButton = DesignSettings.shared.plusButton
+        let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        // This checks the reveal's end states, not the fade's progress on the display clock: on a
+        // window with a screen the hover fade animates and the plus still reads its resting alpha.
+        DesignSettings.shared.animationSpeed = .off
         DesignSettings.shared.plusButton = .hover
+        defer {
+            DesignSettings.shared.plusButton = previousPlusButton
+            DesignSettings.shared.animationSpeed = previousAnimationSpeed
+        }
         let (strip, window) = Self.strip(tabs: 12)
         defer { window.closeAfterTest() }
         #expect(strip.isCrowded, "12 tabs in 900 points are narrower than their widest")

@@ -3,12 +3,12 @@ import Foundation
 import Testing
 
 /// A guest link's owner token comes from the API of the room the daemon makes the link in
-/// (cmux-tui share_room.rs): a DEV build's room is development's, while it signs in to staging's Worker.
+/// (cmux-tui share_room.rs): a DEV build's room is development's, and its owner API is the development Worker too.
 @Suite
 struct CloudShareAPITests {
     @Test func aDebugBuildMintsShareTokensFromTheDevelopmentWorker() {
         let configuration = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.walk", bundled: [:], process: [:], isDebugBuild: true)
-        #expect(configuration.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cloud-api-staging.cmux.dev")
+        #expect(configuration.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cmux-api-development.debussy.workers.dev")
         #expect(configuration.shareAPIBaseURL(environment: [:]).absoluteString == "https://cmux-api-development.debussy.workers.dev")
     }
 
