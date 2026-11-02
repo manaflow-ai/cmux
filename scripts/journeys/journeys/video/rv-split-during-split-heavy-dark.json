@@ -42,7 +42,7 @@
   },
   {
    "do": "name_pane",
-   "as": "p0"
+   "as": "home"
   },
   {
    "do": "window_place",
@@ -53,6 +53,18 @@
     0.9,
     0.9
    ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
   },
   {
    "do": "file",
