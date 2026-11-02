@@ -281,7 +281,7 @@ public final class TerminalLaunchFrames {
         if bounds != .zero {
             let width = TerminalHostView.surfaceWidth(hostWidth: bounds.width)
             guard abs(frame.size.width - width) < 1, abs(frame.size.height - bounds.height) < 1 else {
-                noteMissed(key, "size")
+                noteMissed(key, "size frame \(Int(frame.size.width))x\(Int(frame.size.height)) pane \(Int(width))x\(Int(bounds.height)) ahead")
                 return false
             }
         }
@@ -378,7 +378,9 @@ public final class TerminalLaunchFrames {
             session.view.layoutSubtreeIfNeeded()
         }
         let size = session.surfaceView.bounds.size
-        guard !laidOut || (abs(frame.size.width - size.width) < 1 && abs(frame.size.height - size.height) < 1) else { return "size" }
+        guard !laidOut || (abs(frame.size.width - size.width) < 1 && abs(frame.size.height - size.height) < 1) else {
+            return "size frame \(Int(frame.size.width))x\(Int(frame.size.height)) pane \(Int(size.width))x\(Int(size.height)) surface"
+        }
         // The held frame draws at the window's scale: one saved on a screen of another scale would not fit.
         guard content.window.map({ abs(CGFloat(frame.scale) - $0.backingScaleFactor) < 0.01 }) ?? true else { return "scale" }
         guard TerminalLaunchFrame(frame.image).show(on: session) else { return "live" }
