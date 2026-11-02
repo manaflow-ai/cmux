@@ -346,6 +346,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         moved_to: None,
         claude_profile: None,
         last_turn: None,
+        auth_change: None,
         harness_failures: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,

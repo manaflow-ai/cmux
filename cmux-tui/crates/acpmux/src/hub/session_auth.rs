@@ -11,9 +11,9 @@
 //!    `unknown` say nothing about the sign-in and fall through.
 //! 3. The chat's newest turn ([`turn_evidence`]): a sign-in failure (`auth.signed_out`,
 //!    `auth.expired`) or a completed turn. A target (a chat with no session yet) takes the
-//!    newest such turn of a chat here with the same harness, account home and route.
+//!    newest such turn of a chat here with the same harness, project directory, account home and route.
 //! 4. With `refresh`, the harness's own check that reads no keychain
-//!    (`harness_health::fresh_auth`).
+//!    (`harness_health::fresh_auth_in`).
 //! 5. Else `unknown`, never signed out. A connection error is never a sign-in state.
 //!
 //! Never the saved harness health (checked every six hours), and never the login keychain.
@@ -67,6 +67,69 @@ pub(crate) fn turn_evidence(last: &Value) -> Option<TurnEvidence> {
     Some(TurnEvidence { state, at, detail })
 }
 
+fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
+    let last = meta.last_turn.as_ref();
+    if let Some(change) = &meta.auth_change
+        && last.and_then(|v| v.get("turnId")).and_then(Value::as_str) == change.turn_id.as_deref()
+        && last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64) == change.ended_at
+    {
+        return Some(TurnEvidence {
+            state: State::Unknown,
+            at: change.at,
+            detail: "credentials changed; the next turn will check the new sign-in".into(),
+        });
+    }
+    last.and_then(turn_evidence)
+}
+
+/// Terminal logins do not call agent_login/finish. A dedicated credential file written after
+/// the failed turn is evidence of a replacement, never evidence that the replacement works.
+/// Read metadata only; settings files and the keychain are deliberately not probed here.
+fn credential_file_changed(
+    family: &str,
+    env: &BTreeMap<String, String>,
+    home: Option<&Path>,
+    after: u64,
+) -> Option<u64> {
+    let file = match family {
+        "claude" => ".credentials.json",
+        "codex" => "auth.json",
+        _ => return None,
+    };
+    let home = home.map(PathBuf::from).or_else(|| account_home(family, env))?;
+    let modified = std::fs::metadata(home.join(file))
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    let modified = u64::try_from(modified).ok()?;
+    // A future timestamp is not evidence of a login since this turn.
+    (modified > after && modified <= now_ms()).then_some(modified)
+}
+
+fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    let var = route_account::home_var(family)?;
+    let effective = crate::login_env::effective_for(Some(family), env);
+    effective.get(var).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
+        effective
+            .get("HOME")
+            .map(PathBuf::from)
+            .or_else(dirs::home_dir)
+            .map(|p| p.join(format!(".{family}")))
+    })
+}
+
+fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
+    let last = meta.last_turn.as_ref();
+    meta.auth_change = Some(crate::store::AuthChange {
+        at,
+        turn_id: last.and_then(|v| v.get("turnId")).and_then(Value::as_str).map(str::to_owned),
+        ended_at: last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64),
+    });
+}
+
 /// The evidence one answer is decided from, in the module's order.
 #[derive(Debug, Default)]
 pub(crate) struct Facts {
@@ -85,7 +148,8 @@ pub(crate) struct Facts {
 impl Facts {
     /// Whether the evidence before the harness check already answers.
     fn settled(&self) -> bool {
-        self.route_state().is_some() || self.turn.is_some()
+        self.route_state().is_some()
+            || self.turn.as_ref().is_some_and(|(_, t)| t.state != State::Ready)
     }
 
     fn route_state(&self) -> Option<State> {
@@ -139,13 +203,21 @@ impl Facts {
             }
             return out;
         }
-        if let Some((from, turn)) = self.turn {
+        // A fresh conclusive refusal can supersede an old successful turn. Mere local
+        // credential presence never supersedes a failed turn, and network errors prove neither.
+        let newer_refusal = self.turn.as_ref().is_some_and(|(_, turn)| {
+            turn.state == State::Ready
+                && self.check.as_ref().is_some_and(|(at, check)| {
+                    *at >= turn.at && matches!(check, Ok((Auth::SignedOut | Auth::Expired, _)))
+                })
+        });
+        if let Some((from, turn)) = self.turn.filter(|_| !newer_refusal) {
             out.state = turn.state;
-            out.source = Source::Turn;
-            out.evidence_at = Some(turn.at);
+            out.source = if turn.state == State::Unknown { Source::None } else { Source::Turn };
+            out.evidence_at = (turn.state != State::Unknown).then_some(turn.at);
             out.detail = turn.detail;
-            out.from_session_id = Some(from);
-            if turn.state != State::Ready {
+            out.from_session_id = (turn.state != State::Unknown).then_some(from);
+            if matches!(turn.state, State::SignedOut | State::Expired) {
                 out.login = Some(terminal(&self.login));
             }
             return out;
@@ -207,6 +279,78 @@ pub(crate) fn one_sentence(text: &str) -> String {
 const DETAIL_CHARS: usize = 200;
 
 impl Hub {
+    /// Resolve login in the same profile, preset, recorded account home and route as the chat.
+    /// The caller supplies only a session id and agent family, never a path or environment.
+    pub(crate) async fn login_profile(
+        &self,
+        session: &Session,
+        family: &str,
+    ) -> Result<(crate::config::HarnessProfile, Option<String>), RpcError> {
+        let meta = session.meta();
+        let cfg = self.config.read().await;
+        let mut profile = cfg.harnesses.get(&meta.harness).cloned().ok_or_else(|| {
+            RpcError::invalid_params("the chat's harness is no longer configured")
+        })?;
+        if crate::config::derive_family(&meta.harness, &profile) != family {
+            return Err(RpcError::invalid_params(
+                "the login agent does not match the chat's harness",
+            ));
+        }
+        let defaults = cfg.defaults_for(&meta.harness).env;
+        let (dir, state) = routes::places(&cfg);
+        drop(cfg);
+        let bindings = routes::bindings(&state);
+        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
+        {
+            return Err(RpcError::invalid_params(
+                "this chat uses a provider route; sign in to that route",
+            ));
+        }
+        let picked = route.as_ref().map(|(r, scope)| (r, *scope));
+        let home = self.home_of(&meta, family, &defaults, picked).await;
+        profile.env = route_account::spawn_env(
+            &meta,
+            with_defaults(&defaults, self.harness_env(&meta).await.1),
+        );
+        if let (Some(var), Some(home)) = (route_account::home_var(family), home) {
+            // Pinning the default Claude home would move its .claude.json, so leave it unset.
+            profile.env.insert(var.into(), home.display().to_string());
+        }
+        Ok((profile, route.map(|(r, _)| r.id)))
+    }
+
+    /// Credential writes invalidate only this account on this route. Keep the old turn in
+    /// history and suppress its auth claim until another turn actually uses the new credential.
+    pub(crate) async fn login_changed(
+        self: &Arc<Self>,
+        family: &str,
+        home: &Path,
+        route: Option<&str>,
+    ) -> Result<(), RpcError> {
+        if route_account::home_var(family).is_none() {
+            return Ok(());
+        }
+        for session in self.sessions() {
+            let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
+                continue;
+            };
+            if account_home(family, &profile.env).as_deref() != Some(home)
+                || current_route.as_deref() != route
+            {
+                continue;
+            }
+            self.session_log(&session).await;
+            {
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                mark_credentials_changed(&mut meta, now_ms());
+            }
+            self.save_meta_answered(&session)?;
+        }
+        Ok(())
+    }
+
     /// `_acpmux/session/auth` for this daemon's chat `session`, or for `target` (a chat with
     /// no session yet, on this daemon). `refresh`: probe the route and run the harness's own
     /// check when nothing newer answers.
@@ -221,6 +365,20 @@ impl Hub {
             self.session_log(session).await;
         }
         let meta = session.map(|s| s.meta());
+        // Validate on the destination daemon, after peer forwarding. Never substitute this
+        // daemon's own cwd for an omitted target directory.
+        let cwd = match (&meta, target.and_then(|t| t.cwd.as_ref())) {
+            (Some(meta), _) => Some(meta.cwd.clone()),
+            (None, Some(cwd)) => {
+                if !cwd.is_absolute() || !tokio::fs::metadata(cwd).await.is_ok_and(|m| m.is_dir()) {
+                    return Err(RpcError::invalid_params(
+                        "target.cwd must be an absolute existing directory on the destination",
+                    ));
+                }
+                Some(cwd.clone())
+            }
+            (None, None) => None,
+        };
         let harness = match (&meta, target) {
             (Some(meta), _) => meta.harness.clone(),
             (None, Some(t)) => t.harness.clone(),
@@ -244,22 +402,34 @@ impl Hub {
             .map(|p| crate::config::derive_family(&harness, p))
             .unwrap_or_else(|| harness.clone());
         let bindings = routes::bindings(&state);
-        let no_env = BTreeMap::new();
-        let env = profile.as_ref().map_or(&no_env, |p| &p.env);
+        let env = match &meta {
+            Some(meta) => route_account::spawn_env(
+                meta,
+                with_defaults(&defaults, self.harness_env(meta).await.1),
+            ),
+            None => with_defaults(
+                &defaults,
+                profile.as_ref().map(|p| p.env.clone()).unwrap_or_default(),
+            ),
+        };
+        let profile_env = profile.as_ref().map(|p| p.env.clone()).unwrap_or_default();
         // The route and the scope that chose it, as the spawn picks them. A chat whose route
         // is gone is reported on none (its next spawn says so); a target's is an error.
         let route = match (&meta, target) {
             (Some(meta), _) => {
-                route_of(&bindings, dir.as_deref(), meta, &family, env).ok().flatten()
+                route_of(&bindings, dir.as_deref(), meta, &family, &profile_env).ok().flatten()
             }
-            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, env)?,
+            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, &profile_env)?,
             (None, None) => None,
         };
+        let own_login = route
+            .as_ref()
+            .is_none_or(|(r, _)| r.file.kind == routes::RouteKind::DirectSubscription);
         let route_id = route.as_ref().map(|(r, _)| r.id.clone());
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = match &meta {
             Some(meta) => self.home_of(meta, &family, &defaults, picked).await,
-            None => target_home(&with_defaults(&defaults, env.clone()), &family, picked),
+            None => target_home(&env, &family, picked, cwd.as_deref()),
         };
         let var = route_account::home_var(&family);
         let mut facts = Facts {
@@ -285,39 +455,83 @@ impl Hub {
             };
         }
         facts.turn = match (session, &meta) {
-            (Some(s), Some(meta)) => {
-                meta.last_turn.as_ref().and_then(turn_evidence).map(|t| (s.id.clone(), t))
-            }
+            (Some(s), Some(meta)) => session_evidence(meta).map(|t| (s.id.clone(), t)),
             _ => {
                 let siblings = Siblings {
                     bindings: &bindings,
                     family: &family,
-                    env,
                     defaults: &defaults,
                     route: &route_id,
+                    cwd: cwd.as_deref(),
                 };
                 self.sibling_turn(&harness, &siblings, &home).await
             }
         };
+        if refresh
+            && own_login
+            && let Some((_, previous)) = &facts.turn
+            && matches!(previous.state, State::SignedOut | State::Expired)
+        {
+            let after = previous.at;
+            let family = family.clone();
+            let env = env.clone();
+            let home = home.clone();
+            let changed = tokio::task::spawn_blocking(move || {
+                credential_file_changed(&family, &env, home.as_deref(), after)
+            })
+            .await
+            .unwrap_or(None);
+            if let (Some(at), Some((id, evidence))) = (changed, facts.turn.as_mut()) {
+                if let Ok(changed_session) = self.resolve(id) {
+                    let current = {
+                        let mut meta =
+                            changed_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        // The file probe awaited off-thread: do not invalidate a newer turn,
+                        // including in this response, if one finished while the file was read.
+                        if meta
+                            .last_turn
+                            .as_ref()
+                            .and_then(turn_evidence)
+                            .is_some_and(|t| t.at == after)
+                        {
+                            mark_credentials_changed(&mut meta, at);
+                        }
+                        session_evidence(&meta)
+                    };
+                    self.save_meta_answered(&changed_session)?;
+                    if let Some(current) = current {
+                        *evidence = current;
+                    }
+                } else {
+                    *evidence = TurnEvidence {
+                        state: State::Unknown,
+                        at,
+                        detail:
+                            "the credential file changed; the next turn will check the new sign-in"
+                                .into(),
+                    };
+                }
+            }
+        }
+        // A provider route does not use the CLI's own subscription login. Its probe/turn
+        // evidence answers for it; a local file token expiring cannot block that route.
         if !facts.settled()
             && refresh
+            && own_login
             && let Some(mut profile) = profile
         {
             // A chat's own env as its spawn builds it (`route_account::spawn_env`); a target's
             // is the profile's; either over the defaults' env.
-            profile.env = match &meta {
-                Some(meta) => {
-                    let harness_env = with_defaults(&defaults, self.harness_env(meta).await.1);
-                    route_account::spawn_env(meta, harness_env)
-                }
-                None => with_defaults(&defaults, std::mem::take(&mut profile.env)),
-            };
+            profile.env = env;
             if let (Some(var), Some(home)) = (var, &home) {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
             let id = harness.clone();
-            let check = tokio::task::spawn_blocking(move || {
-                crate::harness_health::fresh_auth(&id, &profile, notes.as_ref())
+            let check = tokio::task::spawn_blocking(move || match cwd.as_deref() {
+                Some(cwd) => {
+                    crate::harness_health::fresh_auth_in(&id, &profile, notes.as_ref(), Some(cwd))
+                }
+                None => crate::harness_health::fresh_auth(&id, &profile, notes.as_ref()),
             })
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
@@ -359,17 +573,26 @@ impl Hub {
         let dir = routes::places(&*self.config.read().await).0;
         let mut best: Option<(String, TurnEvidence)> = None;
         for s in self.sessions() {
-            if s.meta().harness != harness {
+            if s.meta().harness != harness || like.cwd != Some(s.meta().cwd.as_path()) {
                 continue;
             }
             // A chat whose log is not read yet (a deferred start) has only its summary.
             self.session_log(&s).await;
             let meta = s.meta();
-            let Some(turn) = meta.last_turn.as_ref().and_then(turn_evidence) else { continue };
+            let Some(turn) = session_evidence(&meta) else { continue };
             if best.as_ref().is_some_and(|(_, b)| b.at >= turn.at) {
                 continue;
             }
-            let Ok(route) = route_of(like.bindings, dir.as_deref(), &meta, like.family, like.env)
+            let profile_env = self
+                .config
+                .read()
+                .await
+                .harnesses
+                .get(&meta.harness)
+                .map(|p| p.env.clone())
+                .unwrap_or_default();
+            let Ok(route) =
+                route_of(like.bindings, dir.as_deref(), &meta, like.family, &profile_env)
             else {
                 continue;
             };
@@ -389,12 +612,12 @@ impl Hub {
 struct Siblings<'a> {
     bindings: &'a routes::Bindings,
     family: &'a str,
-    /// The harness profile's env, which may name its own route.
-    env: &'a BTreeMap<String, String>,
     /// The harness's `defaults` env, under every chat's own.
     defaults: &'a BTreeMap<String, String>,
     /// The target's route id.
     route: &'a Option<String>,
+    /// An omitted project directory cannot borrow another project's evidence.
+    cwd: Option<&'a Path>,
 }
 
 /// The route a spawn takes, given the route id and scope it chose (`routes::spawn_route`): an
@@ -469,13 +692,19 @@ fn target_home(
     env: &BTreeMap<String, String>,
     family: &str,
     route: Option<(&routes::Route, &str)>,
+    cwd: Option<&Path>,
 ) -> Option<PathBuf> {
-    let pinned = route_account::home_var(family).and_then(|var| env.get(var)).map(|value| {
+    let configured = route_account::home_var(family).and_then(|var| env.get(var));
+    let pinned = configured.and_then(|value| {
+        // No target model or directory means these variables cannot select a known account.
+        if value.contains("${model}") || (cwd.is_none() && value.contains("${cwd}")) {
+            return None;
+        }
         let user = dirs::home_dir().unwrap_or_default();
-        PathBuf::from(super::expand_env_value(value, &user, &user, ""))
+        Some(PathBuf::from(super::expand_env_value(value, cwd.unwrap_or(&user), &user, "")))
     });
     let picked =
-        route.filter(|(_, scope)| pinned.is_none() || matches!(*scope, "chat" | "profile"));
+        route.filter(|(_, scope)| configured.is_none() || matches!(*scope, "chat" | "profile"));
     picked.and_then(|(r, _)| r.file.account_home.as_ref().map(PathBuf::from)).or(pinned)
 }
 
@@ -553,6 +782,45 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_new_refusal_supersedes_an_old_success_but_presence_does_not_clear_a_failure() {
+        for auth in [Auth::Expired, Auth::SignedOut] {
+            let f = facts(None, Some(turn("completed", None, "", 7)), Some(Ok(auth)));
+            assert!(!f.settled(), "an old success permits an explicit fresh check");
+            let out = f.decide();
+            assert_eq!(out.source, Source::AuthCheck);
+            assert!(matches!(out.state, State::Expired | State::SignedOut));
+        }
+        for check in [Ok(Auth::SignedIn), Ok(Auth::Unknown), Err("network error")] {
+            let out =
+                facts(None, Some(turn("failed", Some("auth.expired"), "expired", 7)), Some(check))
+                    .decide();
+            assert_eq!((out.state, out.source), (State::Expired, Source::Turn));
+        }
+        let out =
+            facts(None, Some(turn("completed", None, "", 7)), Some(Err("network error"))).decide();
+        assert_eq!((out.state, out.source), (State::Ready, Source::Turn));
+    }
+
+    #[test]
+    fn credential_change_survives_metadata_reload_without_changing_turn_history() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        assert!(meta.auth_change.is_none(), "older metadata remains readable");
+        let history = turn("failed", Some("auth.expired"), "expired", 7);
+        meta.last_turn = Some(history.clone());
+        mark_credentials_changed(&mut meta, 9);
+        let encoded = serde_json::to_value(&meta).unwrap();
+        let mut restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored.last_turn, Some(history));
+        assert_eq!(session_evidence(&restored).unwrap().state, State::Unknown);
+        restored.last_turn = Some(turn("failed", Some("auth.expired"), "still expired", 10));
+        assert_eq!(session_evidence(&restored).unwrap().state, State::Expired);
+    }
+
     /// No evidence, a check that could not answer, a connection error or a cancel: unknown,
     /// never signed out.
     #[test]
@@ -624,12 +892,18 @@ mod tests {
         let pinned = at("/accounts/A");
         let plain = BTreeMap::new();
         let b = route("/accounts/B");
-        let home = |env: &BTreeMap<_, _>, scope| target_home(env, "codex", Some((&b, scope)));
+        let home = |env: &BTreeMap<_, _>, scope| target_home(env, "codex", Some((&b, scope)), None);
         assert_eq!(home(&pinned, "global"), Some(PathBuf::from("/accounts/A")));
         assert_eq!(home(&pinned, "family"), Some(PathBuf::from("/accounts/A")));
         assert_eq!(home(&pinned, "chat"), Some(PathBuf::from("/accounts/B")));
         assert_eq!(home(&plain, "global"), Some(PathBuf::from("/accounts/B")));
-        assert_eq!(target_home(&pinned, "codex", None), Some(PathBuf::from("/accounts/A")));
+        assert_eq!(target_home(&pinned, "codex", None, None), Some(PathBuf::from("/accounts/A")));
+        let templated = BTreeMap::from([("CODEX_HOME".into(), "${cwd}/.codex".into())]);
+        assert_eq!(target_home(&templated, "codex", None, None), None);
+        assert_eq!(
+            target_home(&templated, "codex", None, Some(Path::new("/project"))),
+            Some(PathBuf::from("/project/.codex"))
+        );
         // A home the defaults pin holds as the profile's does, and the profile's wins over it.
         let defaulted = with_defaults(&at("/accounts/A"), BTreeMap::new());
         assert_eq!(home(&defaulted, "global"), Some(PathBuf::from("/accounts/A")));

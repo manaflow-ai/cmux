@@ -291,6 +291,10 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// An explicit login replaced this account's credentials after this turn. Kept separately
+    /// from history so replay and daemon upgrades do not revive an obsolete auth refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_change: Option<AuthChange>,
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
@@ -405,6 +409,15 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+}
+
+/// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
+/// not that the new credential works; the next turn supplies that evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthChange {
+    pub at: u64,
+    pub turn_id: Option<String>,
+    pub ended_at: Option<u64>,
 }
 
 /// Where a session sits in the tree of sessions that started each other

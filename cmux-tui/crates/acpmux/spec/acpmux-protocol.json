@@ -4009,6 +4009,13 @@
     "SessionAuthTarget": {
       "description": "The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:\nthis daemon) and the route the picker selected (absent: the harness's default route, as at\nspawn).",
       "properties": {
+        "cwd": {
+          "description": "Absolute project directory on the destination daemon. Absent: project auth is unknown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harness": {
           "type": "string"
         },

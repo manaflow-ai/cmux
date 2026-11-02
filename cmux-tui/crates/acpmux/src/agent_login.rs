@@ -151,7 +151,12 @@ pub struct Cli {
 impl Cli {
     /// A variable as the CLI sees it: the profile's, else this daemon's.
     fn var(&self, key: &str) -> Option<String> {
-        self.env.get(key).cloned().or_else(|| std::env::var(key).ok()).filter(|v| !v.is_empty())
+        self.env
+            .get(key)
+            .cloned()
+            .or_else(|| crate::login_env::var(key))
+            .or_else(|| std::env::var(key).ok())
+            .filter(|v| !v.is_empty())
     }
 
     fn home(&self) -> PathBuf {
@@ -373,10 +378,12 @@ pub struct Started {
 
 /// How `finish` ended: signed in or not, and which agent (for the caller's
 /// next steps).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Finished {
     pub agent: Agent,
     pub signed_in: bool,
+    /// The account whose login actually finished, retained from start rather than the caller.
+    pub store: PathBuf,
 }
 
 /// A private temp folder the CLI runs in, removed with the sign-in.
@@ -685,7 +692,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
     // never reads (`claude_auth.rs`); its exit says it.
     let signed_in =
         signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude);
-    Ok(Finished { agent, signed_in })
+    Ok(Finished { agent, signed_in, store })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.
