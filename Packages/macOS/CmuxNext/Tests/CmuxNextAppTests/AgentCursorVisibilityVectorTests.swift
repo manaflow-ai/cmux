@@ -6,7 +6,7 @@ import Testing
 
 /// Replays schemas/agent-cursor-visibility/vectors.json through the Swift
 /// resolver, which encodes the snapshot, calls the Rust rules over the app
-/// FFI (`agent_cursor_visibility`) and decodes the answer. The rules
+/// FFI (`agent_cursor_visibility`, cmux-focus-core) and decodes the answer. The rules
 /// themselves are proved in cmux-focus-core's own replay of the same file;
 /// this proves the wire between the two in both directions.
 struct AgentCursorVisibilityVectorTests {
@@ -74,6 +74,35 @@ struct AgentCursorVisibilityVectorTests {
         snapshot.windows[0].panes[0].page?.scale = nil
         #expect(AgentCursorVisibilityResolver.resolve(target: base.target, in: snapshot)
             == .visible(window: "w1", viewport: viewport, clip: viewport, zoom: 1, scale: 1))
+    }
+
+    /// Non-finite numbers (a converted `CGRect.null`, an infinite scale) keep the result the Swift
+    /// rules gave them before the move: they cross the wire as strings, which JSON allows.
+    @Test func nonFiniteNumbersKeepTheirResult() throws {
+        let cases = try Self.vectors().cases
+        func named(_ name: String) throws -> Case { try #require(cases.first(where: { $0.name == name })) }
+        func resolve(_ item: Case) -> AgentCursorVisibility {
+            AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot)
+        }
+        let null = AgentCursorRect(x: .infinity, y: .infinity, w: 0, h: 0)
+
+        var chip = try named("background_tab_points_at_its_chip")
+        chip.snapshot.windows[0].panes[0].chips["tab-a"] = null
+        #expect(resolve(chip) == .hidden(window: "w1", anchor: .tabStrip, rect: CGRect(x: 0, y: 0, width: 500, height: 36)))
+
+        var row = try named("other_workspace_same_window_points_at_sidebar_row")
+        row.snapshot.windows[0].sidebarRows["ws1"] = null
+        #expect(resolve(row) == .hidden(window: "w1", anchor: .workspaceRow, rect: null.cgRect))
+
+        var edge = try named("target_pane_missing_points_at_window_edge")
+        edge.snapshot.windows[0].overlay = null
+        #expect(resolve(edge) == .hidden(window: "w1", anchor: .windowEdge,
+                                         rect: CGRect(x: CGFloat.infinity, y: .infinity, width: 4, height: 0)))
+
+        var page = try named("selected_tab_visible")
+        page.snapshot.windows[0].panes[0].page?.scale = .infinity
+        let viewport = CGRect(x: 0, y: 72, width: 500, height: 628)
+        #expect(resolve(page) == .visible(window: "w1", viewport: viewport, clip: viewport, zoom: 1, scale: .infinity))
     }
 
     @Test(arguments: [AgentCursorAnchor.tabChip, .tabStrip, .columnEdge(.leading), .columnEdge(.trailing),

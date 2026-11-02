@@ -1,5 +1,6 @@
 public import CoreGraphics
 import CmuxNextFocus
+import Foundation
 
 /// The visibility of an agent cursor target (a browser tab). The rules live
 /// in Rust (cmux-focus-core `agent_cursor_visibility`, shared vectors
@@ -9,10 +10,30 @@ public nonisolated struct AgentCursorVisibilityResolver {
     public nonisolated init() {}
 
     public static func resolve(target: String, in snapshot: AgentCursorVisibilitySnapshot) -> AgentCursorVisibility {
-        let answer = FocusReducer.call("agent_cursor_visibility", Request(target: target, snapshot: snapshot), as: Answer.self)
-        assert(answer?.visibility != nil, "agent_cursor_visibility refused")
-        // A refused call (a snapshot that does not encode) draws nothing.
-        return answer?.visibility ?? .notDrawn(.tabClosed)
+        let request = try? encoder().encode(Request(target: target, snapshot: snapshot))
+        let reply = request.flatMap { FocusReducer.call("agent_cursor_visibility", json: $0) }
+        let answer = reply.flatMap { try? decoder().decode(Answer.self, from: $0) }?.visibility
+        assert(answer != nil, "agent_cursor_visibility refused")
+        // A refused call draws nothing.
+        return answer ?? .notDrawn(.tabClosed)
+    }
+
+    /// JSON has no non-finite numbers; a converted `CGRect.null` has infinite
+    /// x and y. Both sides write them as these strings, so the rules see them.
+    private static let nonFinite = (positive: "inf", negative: "-inf", nan: "nan")
+
+    private static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: nonFinite.positive, negativeInfinity: nonFinite.negative, nan: nonFinite.nan)
+        return encoder
+    }
+
+    private static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: nonFinite.positive, negativeInfinity: nonFinite.negative, nan: nonFinite.nan)
+        return decoder
     }
 
     private nonisolated struct Request: Encodable {

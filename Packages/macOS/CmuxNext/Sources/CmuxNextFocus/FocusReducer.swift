@@ -13,7 +13,13 @@ public nonisolated struct FocusReducer {
 
     public static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request,
                                                              as: Response.Type) -> Response? {
-        guard let data = try? JSONEncoder().encode(request) else { return nil }
+        guard let data = try? JSONEncoder().encode(request), let reply = call(operation, json: data) else { return nil }
+        return try? JSONDecoder().decode(Response.self, from: reply)
+    }
+
+    /// One call with the request's JSON bytes as they are; the reply's JSON
+    /// bytes, or nil when the operation refused the request.
+    public static func call(_ operation: String, json data: Data) -> Data? {
         var capacity = initialCapacity
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity)
@@ -33,7 +39,7 @@ public nonisolated struct FocusReducer {
                 continue
             }
             guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
+            return Data(output.prefix(outputLength))
         }
         return nil
     }
