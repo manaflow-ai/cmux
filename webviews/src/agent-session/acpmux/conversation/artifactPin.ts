@@ -14,7 +14,10 @@ export type OpenedArtifact = Artifact & {
 };
 
 /** An unpinned document closes when the active session changes. */
-export function visibleArtifact(opened: OpenedArtifact | undefined, sessionId: string | undefined): OpenedArtifact | undefined {
+export function visibleArtifact(
+  opened: OpenedArtifact | undefined,
+  sessionId: string | undefined,
+): OpenedArtifact | undefined {
   return opened && (opened.sessionId === sessionId || opened.pinned) ? opened : undefined;
 }
 
