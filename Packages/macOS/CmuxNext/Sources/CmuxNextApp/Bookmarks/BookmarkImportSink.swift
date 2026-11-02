@@ -24,15 +24,13 @@ extension BookmarkService {
     /// One source's bookmarks replace its folder; none removes it from the stored tree (never an unread one).
     func replaceImport(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) async throws {
         guard !items.isEmpty else {
-            guard let folder = try await storedTree(profile).folder(sourceKey: sourceKey) else { return }
-            try apply(.delete(id: folder.id), profile: profile)
+            if let folder = try await storedTree(profile).folder(sourceKey: sourceKey) { try apply(.delete(id: folder.id), profile: profile) }
             return
         }
         try apply(BookmarkImportPlan.source(title: title, sourceKey: sourceKey, items: items), profile: profile)
     }
 
-    /// Browser imports saved before bookmarks existed become bookmarks once
-    /// (a marker file, unless the home daemon refused, so a deleted folder stays deleted).
+    /// Browser imports saved before bookmarks existed become bookmarks once (a marker file, unless the daemon refused).
     func migrateLegacyImports() async {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")

@@ -2,6 +2,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Observation
 import os
@@ -107,10 +108,11 @@ final class BookmarkService {
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
 
-    /// `profile`'s tree as the daemon stored it (after its first read), else ``unavailable``, the gate's refusal.
+    /// `profile`'s tree after its first daemon read (an owned fetch, the request deadline), else a refusal, never "out of date".
     func storedTree(_ profile: String) async throws -> BookmarkTree {
         if usesDaemon, !isLoaded(profile) { _ = tree(profile); await fetching[profile]?.value }
-        if isLoaded(profile), let stored = trees[profile] { return stored } else { throw unavailable }
+        if isLoaded(profile), let stored = trees[profile] { return stored }
+        throw usesDaemon ? BookmarkError.unavailable(message: RefusalStrings.daemonConnecting) : unavailable
     }
 
     var unavailable: BookmarkError { .unavailable(message: services.machines.local.missingCapabilityMessage(DaemonCapability.bookmarks.rawValue)) }
