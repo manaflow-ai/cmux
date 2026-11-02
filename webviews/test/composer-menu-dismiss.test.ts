@@ -137,8 +137,13 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           .map(([name]) => name),
       names.map((name) => [name, chip(name)] as const),
     );
-  /** Waits for each requested chip's actual popup and for every menu to stop moving (a
-   *  closed one has faded out and left), then returns the chips whose menu is open. */
+  /** Waits for the requested menu state to be visible and interactive.
+   *
+   * A popup that is closing remains mounted while its opacity transition runs.  Waiting for every
+   * animation in the document made this assertion depend on WebKit's animation bookkeeping under
+   * load (and could include a stale, already non-interactive popup).  The state that matters for
+   * the pointer checks is the live popup and its geometry; closing popups are filtered explicitly.
+   */
   const settle = async (page: Page, names: string[], want: string[]) => {
     await page.waitForFunction(
       ([pairs, want]) => {
@@ -149,25 +154,29 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           })
           .map(([name]) => name);
         if (open.join("\n") !== want.join("\n")) return false;
-        const popups = [...document.querySelectorAll(".ui-popup")];
-        if (want.length === 0 ? popups.length > 0 : popups.length === 0) return false;
+        const popups = [...document.querySelectorAll<HTMLElement>(".ui-popup")];
+        const livePopups = popups.filter((popup) => !popup.hasAttribute("data-ending-style"));
+        if (want.length === 0 ? livePopups.length > 0 : livePopups.length === 0) return false;
         for (const name of want) {
           const button = document.querySelector(pairs.find(([label]) => label === name)![1])!;
           const controls = button.getAttribute("aria-controls");
           const controlled = controls ? document.getElementById(controls) : null;
           const popup =
             controlled?.closest(".ui-popup") ??
-            popups.find(
+            livePopups.find(
               (popup) =>
                 popup.getAttribute("aria-label") === name ||
                 (button.id && popup.getAttribute("aria-labelledby") === button.id),
             );
-          if (!popup || popup.getBoundingClientRect().height === 0 || getComputedStyle(popup).opacity !== "1")
+          if (
+            !popup ||
+            popup.hasAttribute("data-ending-style") ||
+            popup.getBoundingClientRect().height === 0 ||
+            getComputedStyle(popup).opacity !== "1"
+          )
             return false;
         }
-        return popups.every((popup) =>
-          popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
-        );
+        return true;
       },
       [names.map((name) => [name, chip(name)] as const), want] as const,
       { timeout: 5_000 },
