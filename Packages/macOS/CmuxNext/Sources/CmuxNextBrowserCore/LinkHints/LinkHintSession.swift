@@ -34,8 +34,9 @@ public nonisolated struct LinkHintTarget: Hashable, Sendable, Decodable {
 
 /// The keys of one link-hint session (`f`, or `F` to open in a new split):
 /// letters narrow the labels until one is typed in full; a letter no label
-/// continues with is ignored; Backspace undoes a letter. Keys typed before
-/// the labels arrive are kept and checked when they do.
+/// continues with is ignored; Backspace undoes a letter. The session takes no
+/// key before its labels show (``takesKeys``): until then the page gets every
+/// key as typed, since a text field of the page may have the keyboard.
 public nonisolated struct LinkHintSession: Equatable, Sendable {
     public enum Mode: Equatable, Sendable {
         /// Click the element in the page.
@@ -64,6 +65,9 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
     public init(mode: Mode) {
         self.mode = mode
     }
+
+    /// Whether the session takes keys: only once its labels show.
+    public var takesKeys: Bool { hints != nil }
 
     /// The labels for `targets` (links only in `.newSplit`); `.cancel` when
     /// there is nothing to label, else what the keys typed so far mean.
