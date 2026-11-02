@@ -31,15 +31,15 @@
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
   /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
      shell/tokens.css and conversation.css). The transcript, the composer and everything between
-     them share one column: 720px, widening with a wide pane to an 800px cap as Codex and Claude
-     desktop do, centered, never nearer the pane's sides than the page edge (--page-edge, #20121).
+     them share one column: the pane's width up to an 800px cap (Settings' Chat Text Width default,
+     chatDisplay.ts; #31510), at least 720px, centered, never nearer the pane's sides than the page edge (--page-edge, #20121).
      model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
   /* CSS px grow with the page zoom. Divide the caps by the effective zoom so the column's
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
@@ -132,10 +132,10 @@
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
    prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
 :root[data-chat-width="wide"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(960px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(960px / var(--cv-ui-scale)));
 }
 :root[data-chat-width="wideBlocks"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 70%, calc(1120px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(1120px / var(--cv-ui-scale)));
   --cv-prose: calc(800px / var(--cv-ui-scale));
 }
 .cv-md > .cv-p,

@@ -52,8 +52,8 @@ test("an Interface Scale change places the rail again", async () => {
     root = createRoot(dom!.window.document.getElementById("root")!);
     root.render(<Probe />);
   });
-  // Standard column at scale 1 on a 1000px pane: 720px wide, so the text starts 140px in.
-  expect(placements.at(-1)).toBe(140);
+  // Standard column at scale 1 on a 1000px pane: 800px wide (#31510), so the text starts 100px in.
+  expect(placements.at(-1)).toBe(100);
 
   await act(async () => {
     dom!.window.document.documentElement.style.setProperty("--cmux-ui-scale", "2");

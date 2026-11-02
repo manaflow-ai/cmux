@@ -1266,8 +1266,8 @@ const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
+/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): the
+/// pane's width, at least 720px, up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
 /// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.

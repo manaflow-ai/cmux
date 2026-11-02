@@ -150,7 +150,7 @@ test("a composer that grows over the view, or a tray that opens in the stack, le
 });
 
 test("the rail's inset is the same at every pane width that leaves its gutter room (the sidebar toggle)", () => {
-  const insets = [900, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
+  const insets = [920, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
   expect(new Set(insets)).toEqual(new Set([16]));
   // Only a gutter too short for the widest step shrinks it.
   expect(railPlacement(800).left).toBe(8);
