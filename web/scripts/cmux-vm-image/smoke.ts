@@ -86,13 +86,23 @@ export function secretScanCommand(skip: readonly string[] = []): string {
 }
 
 /** One login-shell run per command name as the work user; prints `name exit path :: output`. */
+/**
+ * Sets `p` to the path lookup for `command` (type -P: not an alias or function the login shell
+ * defines). A user-local alias that resolves to the very file the current profile's entry resolves
+ * to reports as that entry: the canonical acpmux user unit needs ~/.local/bin/acpmux, and Ubuntu's
+ * ~/.profile puts ~/.local/bin first, yet the alias runs the store's binary.
+ */
+export function storeCommandPathSnippet(command: string, currentBin = CURRENT_BIN): string {
+  const entry = `${currentBin}/${command}`;
+  return `p=$(type -P ${command}); if [ -n "$p" ] && [ "$p" != ${sq(entry)} ] && [ -e ${sq(entry)} ] && real=$(readlink -f "$p") && [ -n "$real" ] && [ "$real" = "$(readlink -f ${sq(entry)})" ]; then p=${sq(entry)}; fi`;
+}
+
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
   for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const invoke = p.versionArgs.length > 0 ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
-      // type -P: the path lookup, not an alias or function the login shell defines.
-      const script = `cd; p=$(type -P ${command}); out=$(${invoke}); rc=$?; echo "${command} $rc $p :: $(printf '%s' "$out" | head -2 | tr '\\n' ' ')"`;
+      const script = `cd; ${storeCommandPathSnippet(command)}; out=$(${invoke}); rc=$?; echo "${command} $rc $p :: $(printf '%s' "$out" | head -2 | tr '\\n' ' ')"`;
       rows.push(`sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`);
     }
   }
