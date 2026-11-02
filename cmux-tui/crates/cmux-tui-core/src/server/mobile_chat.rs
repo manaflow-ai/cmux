@@ -249,15 +249,16 @@ fn workspace_key_forms(id: &str) -> Vec<String> {
     let mut forms = vec![id.to_owned(), id.to_ascii_lowercase()];
     let hex = crate::state::agent_message_policy::workspace_key(id);
     if hex.len() == 32 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        forms.push(format!(
-            "{}-{}-{}-{}-{}",
-            &hex[..8],
-            &hex[8..12],
-            &hex[12..16],
-            &hex[16..20],
-            &hex[20..]
-        ));
+        let mut dashed = String::with_capacity(36);
+        for (index, digit) in hex.chars().enumerate() {
+            if matches!(index, 8 | 12 | 16 | 20) {
+                dashed.push('-');
+            }
+            dashed.push(digit);
+        }
+        forms.push(dashed);
     }
+    forms.sort();
     forms.dedup();
     forms
 }
