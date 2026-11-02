@@ -342,7 +342,7 @@ fn kill_all_heavy_load_disk_writes_per_pane() {
         .map(|metadata| metadata.len())
         .sum::<u64>();
     let written = before.zip(after).map(|(before, after)| after.saturating_sub(before));
-    eprintln!(
+    panic!(
         "kill-all-heavy: {}",
         serde_json::json!({
             "panes": PANES,
