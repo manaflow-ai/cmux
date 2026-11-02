@@ -20,6 +20,7 @@ use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
 use crate::backoff::Backoff;
+use cmux_json::JsonSet as _;
 
 /// A host that stays up this long after `ready` counts as healthy: its next
 /// crash starts the backoff over.
@@ -160,7 +161,7 @@ impl Supervisor {
         payload.as_object_mut().expect("object").remove("gesture");
         if user && !host_key.preview {
             let token = inner.gestures.mint(&host_key.app, Instant::now());
-            payload["gesture"] = Value::String(token);
+            payload.set("gesture", Value::String(token));
         }
         let running = inner
             .hosts
@@ -447,7 +448,7 @@ impl Supervisor {
                 let mut event =
                     json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
                 if std::mem::take(&mut record.reset) {
-                    event["reset"] = Value::Bool(true);
+                    event.set("reset", Value::Bool(true));
                 }
                 vec![Out::Client(mount_key.client, event)]
             }

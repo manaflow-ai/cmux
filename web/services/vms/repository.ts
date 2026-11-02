@@ -42,7 +42,8 @@ import {
   type SnapshotRequestBegin,
 } from "./snapshotRequests";
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
-import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { VM_RESOURCE_PEAK_KEY, VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { AUTOSIZE_METADATA_KEY, type AutosizeTag } from "./autosize";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_OBSERVATION_KEY,
@@ -221,6 +222,7 @@ export type BillingGrantClaim =
   | { readonly kind: "already_claimed" };
 
 export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
+  readonly countSavedUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<number, VmDatabaseError>;
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -420,6 +422,12 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly observation: VmIdleObservation | null;
     readonly probedAt: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Advance scheduling only; preserve the idle observation and lifecycle timestamp. */
+  readonly recordIdleCheck?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly probedAt: number;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
   readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
@@ -432,13 +440,31 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly providerVmId: string;
     readonly at: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
-  /** Atomically coalesce advisory samples; false also covers a replaced VM. */
+  /** Atomically coalesce advisory samples and the run's peaks; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
     readonly providerVmId: string;
     readonly usage: VmResourceUsage;
     readonly receivedAt: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Marks the owner's VM as an auto-sized run of a repo and task kind (autosize.ts AutosizeTag). */
+  readonly tagAutosizeRun?: (input: {
+    readonly userId: string;
+    readonly provider: string;
+    readonly providerVmId: string;
+    readonly tag: AutosizeTag;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * The metadata of the owner's newest tagged runs of a repo and task kind that
+   * recorded peaks and have ended (paused or destroyed): a running VM's peaks
+   * so far may be its idle start, not what its task needs.
+   */
+  readonly listAutosizeRuns?: (input: {
+    readonly userId: string;
+    readonly repoKey: string;
+    readonly taskKind: string;
+    readonly limit: number;
+  }) => Effect.Effect<readonly Readonly<Record<string, unknown>>[], VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -1229,13 +1255,13 @@ function assertCreateReservationFitsPlan(input: {
 const ACTIVE_LIMIT_NAMED_MACHINES = 20;
 
 /**
- * The refusal for a full active-VM allowance, naming the machines the count
- * saw. Clients list every non-destroyed machine, including paused ones that
- * do not count, so the names are what lets a person see which slots are used.
+ * The refusal for a full machine allowance, naming the machines the count
+ * saw. New allocations include paused machines; a resume only checks active
+ * compute admission because its saved machine already occupies a slot.
  */
 async function activeLimitExceededInTx(
   tx: CloudDbTransaction,
-  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number },
+  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number; readonly includesPaused?: boolean },
 ): Promise<VmLimitExceededError> {
   const rows = await tx
     .select({
@@ -1246,7 +1272,7 @@ async function activeLimitExceededInTx(
       status: cloudVms.status,
     })
     .from(cloudVms)
-    .where(and(inArray(cloudVms.status, ["provisioning", "running"]), input.scope))
+    .where(and(inArray(cloudVms.status, input.includesPaused === false ? ["provisioning", "running"] : LIVE_VM_RESOURCE_STATUSES), input.scope))
     .orderBy(asc(cloudVms.createdAt))
     .limit(ACTIVE_LIMIT_NAMED_MACHINES);
   return new VmLimitExceededError({
@@ -1258,7 +1284,7 @@ async function activeLimitExceededInTx(
       return {
         id,
         name: row.displayName?.trim() || row.slug?.trim() || id,
-        status: row.status === "running" ? "running" as const : "provisioning" as const,
+        status: row.status === "paused" ? "paused" as const : row.status === "running" ? "running" as const : "provisioning" as const,
       };
     }),
   });
@@ -2101,6 +2127,17 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .returning({ id: cloudVms.id });
       return rows.length > 0;
     }),
+  recordIdleCheck: (input) =>
+    dbEffect("recordIdleCheck", async () => {
+      await cloudDb().update(cloudVms).set({
+        providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+          || jsonb_build_object(${VM_IDLE_PROBED_AT_KEY}::text, greatest(${metadataMillis(VM_IDLE_PROBED_AT_KEY)}, ${input.probedAt}::bigint))`,
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        eq(cloudVms.status, "running"),
+      ));
+    }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()
       .select()
@@ -2151,7 +2188,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const patch = { [VM_RESOURCE_USAGE_KEY]: { ...input.usage, receivedAt: input.receivedAt, providerVmId: input.providerVmId } };
       const rows = await cloudDb().update(cloudVms).set({
         // Samples have their own timestamp; they are not lifecycle mutations.
-        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb`,
+        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb
+          || jsonb_build_object(${VM_RESOURCE_PEAK_KEY}::text, ${resourcePeakSql(input.providerVmId, input.usage)})`,
       }).where(and(
         eq(cloudVms.id, input.id),
         eq(cloudVms.providerVmId, input.providerVmId),
@@ -2163,6 +2201,43 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       )).returning({ id: cloudVms.id });
       return rows.length > 0;
     }),
+
+  tagAutosizeRun: (input) =>
+    dbEffect("tagAutosizeRun", async () => {
+      const rows = await cloudDb().update(cloudVms).set({
+        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify({ [AUTOSIZE_METADATA_KEY]: input.tag })}::jsonb`,
+      }).where(and(
+        eq(cloudVms.userId, input.userId),
+        eq(cloudVms.provider, input.provider as CloudVmRow["provider"]),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        ne(cloudVms.status, "destroyed"),
+      )).returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+
+  listAutosizeRuns: (input) =>
+    dbEffect("listAutosizeRuns", async () => {
+      const tag = sql`${cloudVms.providerMetadata} -> ${AUTOSIZE_METADATA_KEY}::text`;
+      const rows = await cloudDb()
+        .select({ providerMetadata: cloudVms.providerMetadata })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.userId, input.userId),
+          sql`${tag} ->> 'repoKey' = ${input.repoKey}`,
+          sql`${tag} ->> 'taskKind' = ${input.taskKind}`,
+          sql`(${cloudVms.providerMetadata} -> ${VM_RESOURCE_PEAK_KEY}::text) is not null`,
+          inArray(cloudVms.status, ["paused", "destroyed"]),
+        ))
+        .orderBy(desc(cloudVms.createdAt))
+        .limit(input.limit);
+      return rows.map((row) => row.providerMetadata);
+    }),
+
+  countSavedUserVms: (userId, billingTeamId) => dbEffect("countSavedUserVms", async () => {
+    const [row] = await cloudDb().select({ total: count() }).from(cloudVms)
+      .where(and(billingTeamId ? eq(cloudVms.billingTeamId, billingTeamId) : eq(cloudVms.userId, userId), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+    return Number(row?.total ?? 0);
+  }),
 
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
@@ -2300,7 +2375,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running"]),
+                  inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                   eq(cloudVms.billingTeamId, input.billingTeamId),
                 ),
               );
@@ -2445,7 +2520,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .select({ total: count() })
               .from(cloudVms)
               .where(and(
-                inArray(cloudVms.status, ["provisioning", "running"]),
+                inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                 eq(cloudVms.billingTeamId, input.billingTeamId),
               ));
             const activeCount = Number(active?.total ?? 0);
@@ -2665,7 +2740,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
-            inArray(cloudVms.status, ["provisioning", "running"]),
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
             eq(cloudVms.billingTeamId, input.billingTeamId),
           ];
           const [active] = await tx
@@ -3127,6 +3202,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               scope: teamScope,
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
+              includesPaused: false,
             });
           }
           if (input.resourcePool) {
@@ -4754,4 +4830,23 @@ function tunnelActivitySql(table: {
   readonly createdAt: AnyPgColumn;
 }): SQL {
   return sql`greatest(${table.updatedAt}, coalesce(${table.lastConfigIssuedAt}, ${table.createdAt}))`;
+}
+
+/**
+ * The run's peaks after one accepted sample (resourceUsage.ts
+ * VM_RESOURCE_PEAK_KEY): the larger of the stored peak and the sample, and the
+ * CPU sum and count. A new provider VM starts over.
+ */
+function resourcePeakSql(providerVmId: string, usage: VmResourceUsage): SQL {
+  const peak = sql`${cloudVms.providerMetadata} -> ${VM_RESOURCE_PEAK_KEY}::text`;
+  const prior = (field: string) => sql`case when (${peak} ->> 'providerVmId') = ${providerVmId}
+    and jsonb_typeof(${peak} -> ${field}::text) = 'number' then (${peak} ->> ${field}::text)::numeric end`;
+  const value = (v: number | undefined) => (v === undefined ? sql`null::numeric` : sql`${v}::numeric`);
+  return sql`jsonb_strip_nulls(jsonb_build_object(
+    'providerVmId', ${providerVmId}::text,
+    'memoryUsedMb', greatest(${prior("memoryUsedMb")}, ${value(usage.memoryUsedMb)}),
+    'diskUsedMb', greatest(${prior("diskUsedMb")}, ${value(usage.diskUsedMb)}),
+    'cpuPercentSum', coalesce(${prior("cpuPercentSum")}, 0) + ${value(usage.cpuPercent ?? 0)},
+    'cpuSamples', coalesce(${prior("cpuSamples")}, 0) + ${value(usage.cpuPercent === undefined ? 0 : 1)}
+  ))`;
 }

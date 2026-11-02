@@ -56,8 +56,17 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// `app.reorderOnNotification`). Off by default: the sidebar keeps the
     /// order the user made and shows attention as a badge (Leo 2026-10-20).
     public var movesToTop = false
+    /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
+    /// looking at moves its workspace to the top, as `movesToTop` does for every
+    /// notification (`notifications.attention.moveToTopOnAgentFinish`, cmux#31513).
+    /// Off by default, like `movesToTop`.
+    public var movesToTopOnAgentFinish = false
 
     public init() {}
+
+    /// Whether a notification moves its workspace to the top: every one with `movesToTop`,
+    /// an agent's finished turn (`finishedTurn`) with `movesToTopOnAgentFinish` too.
+    public func movesToTop(finishedTurn: Bool) -> Bool { movesToTop || finishedTurn && movesToTopOnAgentFinish }
 
     /// Whether the pane being drawn shows a ring: its look and the arrival style are not none.
     public var drawsRing: Bool { style != .none && ringStyle != .none }
@@ -82,7 +91,8 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
 public nonisolated struct AttentionMark: Hashable, Sendable {
     /// Per-source color override; nil uses `AttentionSettings.color`.
     public var color: ThemeRGB?
-    /// Changes with every new notification, so the animation restarts.
+    /// The newest event's id. A ring that already shows stays as it is when it changes: attention
+    /// is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662).
     public var generation: UInt64
     /// The pane shows an agent chat: it draws with `AttentionSettings.surface(agentChat: true)`.
     public var agentChat: Bool

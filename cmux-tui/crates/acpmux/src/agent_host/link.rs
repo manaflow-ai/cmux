@@ -18,30 +18,40 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
         Ok(Self { exe: this.exe, prefix: this.prefix })
     }
+
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
+    /// every new chat failed with "start PATH (deleted): No such file or
+    /// directory" (the app's `agent_session.refused`).
+    fn program(&self) -> PathBuf {
+        crate::self_command::program(&self.exe)
+    }
 }
 
-/// Start a host for `spec` and return its record once the harness runs, or
-/// fail with [`HostTimeout`] after [`BOOTSTRAP_BUDGET`].
-pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
-    spawn_within(launcher, spec, BOOTSTRAP_BUDGET).await
-}
-
-/// [`spawn`] with the bootstrap deadline given by the caller.
+/// Start a host for `spec` and return its record once the harness runs.
+///
+/// The start has no time budget (P-AUSTIN B10). It ends on a signal from the
+/// host: its answer on the bootstrap pipe, or the pipe's end, which only the
+/// host's exit closes before it answers; or when the caller drops it, which
+/// ends the host (it is still this process's child). A busy Mac makes a host
+/// slow, never wrong, so time alone never ends it; a caller with a deadline
+/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
 #[cfg(unix)]
-pub async fn spawn_within(
-    launcher: &HostLauncher,
-    spec: &SpawnSpec,
-    budget: std::time::Duration,
-) -> Result<HostRecord> {
+pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let mut cmd = tokio::process::Command::new(&launcher.exe);
-    cmd.args(&launcher.prefix)
+    let mut cmd = tokio::process::Command::new(launcher.program());
+    cmd.arg0(&launcher.exe)
+        .args(&launcher.prefix)
         .arg(HOST_ARG)
         // The host itself is inspectable by its same-uid harness child on
         // some platforms. It needs only OS identity/locale; the complete
@@ -72,49 +82,109 @@ pub async fn spawn_within(
             Ok(())
         });
     }
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
-    let mut stdin = child.stdin.take().context("host stdin")?;
-    let mut stdout = child.stdout.take().context("host stdout")?;
+    // Until it answers, the host is ended with this start: a caller that
+    // stops waiting leaves no host behind.
+    let mut host = Bootstrapping::new(child)?;
     // The host moves into its own scope before the spec: it starts its
     // harness only once it has it, so the harness starts there too
     // (`scope.rs`).
-    let pid = child.id();
-    // A host that never reports ready must not hold the session's spawn.
-    let bootstrap = within("start", budget, async {
-        if let Some(pid) = pid {
-            super::scope::place(pid).await;
-        }
-        write_frame(&mut stdin, spec).await?;
-        read_frame::<_, BootstrapReply>(&mut stdout).await
-    })
-    .await;
-    if bootstrap.is_err() {
-        // Not ready in time: it is still this process's child, so end it.
-        let _ = child.start_kill();
+    if let Some(pid) = host.pid() {
+        super::scope::place(pid).await;
     }
+    let bootstrap = async {
+        let (stdin, stdout) = host.pipes();
+        write_frame(stdin, spec).await?;
+        read_frame::<_, BootstrapReply>(stdout).await
+    }
+    .await;
+    let reply = match bootstrap {
+        Ok(Some(reply)) => reply,
+        // The pipe ended without an answer: only the host's exit closes it
+        // before it answers. Say how it ended.
+        Ok(None) => {
+            let status = host.exited().await;
+            return Err(match status {
+                Some(status) => anyhow!("agent host exited before it was ready ({status})"),
+                None => anyhow!("agent host exited before it was ready"),
+            });
+        }
+        // A broken pipe or an unreadable answer: end the host with it.
+        Err(e) => return Err(e.context("agent host start")),
+    };
     // The host is not this process's child for long: reap it in the
     // background so it never lingers as a zombie of the controller.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    let reply = bootstrap??;
+    if let Some(mut host) = host.answered() {
+        tokio::spawn(async move {
+            let _ = host.wait().await;
+        });
+    }
     match reply {
-        Some(BootstrapReply::Ready { record }) => Ok(record),
-        Some(BootstrapReply::SpawnFailed { message }) => Err(anyhow!(message)),
-        None => Err(anyhow!("agent host exited before it was ready")),
+        BootstrapReply::Ready { record } => Ok(record),
+        BootstrapReply::SpawnFailed { message } => Err(anyhow!(message)),
     }
 }
 /// Windows port: agent hosts start through CreateProcess there (a later
 /// landing).
 #[cfg(not(unix))]
-pub async fn spawn_within(
-    _launcher: &HostLauncher,
-    _spec: &SpawnSpec,
-    _budget: std::time::Duration,
-) -> Result<HostRecord> {
+pub async fn spawn(_launcher: &HostLauncher, _spec: &SpawnSpec) -> Result<HostRecord> {
     Err(crate::platform::unsupported("agent hosts"))
+}
+
+/// A host that has not answered its bootstrap yet, with its bootstrap pipes.
+/// Dropped, it ends the host (SIGKILL; it is still this process's unreaped
+/// child, so its pid is ours) before its pipes close, so the host never sees
+/// its start given up and runs on; tokio reaps it in the background.
+#[cfg(unix)]
+struct Bootstrapping {
+    child: Option<tokio::process::Child>,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::process::ChildStdout,
+}
+
+#[cfg(unix)]
+impl Bootstrapping {
+    fn new(mut child: tokio::process::Child) -> Result<Self> {
+        let pipes = child.stdin.take().zip(child.stdout.take());
+        let Some((stdin, stdout)) = pipes else {
+            let _ = child.start_kill();
+            bail!("agent host started without its bootstrap pipes");
+        };
+        Ok(Self { child: Some(child), stdin, stdout })
+    }
+
+    fn pid(&self) -> Option<u32> {
+        self.child.as_ref().and_then(tokio::process::Child::id)
+    }
+
+    fn pipes(&mut self) -> (&mut tokio::process::ChildStdin, &mut tokio::process::ChildStdout) {
+        (&mut self.stdin, &mut self.stdout)
+    }
+
+    /// The host closed its pipe without an answer: its exit status, once it
+    /// is reaped (it closes the pipe only by exiting).
+    /// The guard keeps the host while it waits, so a caller drop meanwhile
+    /// still ends it.
+    async fn exited(mut self) -> Option<std::process::ExitStatus> {
+        self.child.as_mut()?.wait().await.ok()
+    }
+
+    /// The host answered: it is no longer ended with this start.
+    fn answered(mut self) -> Option<tokio::process::Child> {
+        self.child.take()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Bootstrapping {
+    fn drop(&mut self) {
+        // Runs before the fields drop: the kill comes before the pipes close.
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.start_kill();
+        }
+    }
 }
 
 /// What the host said when it was adopted.
@@ -170,10 +240,29 @@ static NEXT_RECEIPT: std::sync::LazyLock<std::sync::atomic::AtomicU64> =
         std::sync::atomic::AtomicU64::new(u64::from(u32::from_le_bytes(high)) << 32)
     });
 
+/// The receipts that came while no fence waited for them (a previous daemon's, or one settled
+/// another way), newest last, at most [`UNCLAIMED_CAP`]: a line held again at adoption
+/// (`adopt_receipt`) whose receipt came between the log's read and its hold is settled by it.
+/// Locked only under `RECEIPTS`.
+static UNCLAIMED: std::sync::LazyLock<std::sync::Mutex<std::collections::VecDeque<(u64, bool)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+const UNCLAIMED_CAP: usize = 4096;
+
 /// A host's receipt (`WRITTEN_METHOD`) for the line it names: written, or never (`written`
-/// false: its harness's stdin closed). An unknown one (a previous daemon's) is ignored.
+/// false: its harness's stdin closed). An unknown one (a previous daemon's) is kept for an
+/// adoption that holds its line again (`adopt_receipt`).
 pub fn settle_receipt(receipt: u64, written: bool) {
-    let fence = RECEIPTS.lock_or_recover().remove(&receipt).map(|(_, f)| f);
+    let mut receipts = RECEIPTS.lock_or_recover();
+    let fence = receipts.remove(&receipt).map(|(_, f)| f);
+    if fence.is_none() {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        if unclaimed.len() >= UNCLAIMED_CAP {
+            unclaimed.pop_front();
+        }
+        unclaimed.push_back((receipt, written));
+    }
+    drop(receipts);
     match fence {
         Some(f) if written => f.written(),
         Some(f) => f.failed(),
@@ -185,16 +274,67 @@ pub fn settle_receipt(receipt: u64, written: bool) {
 /// receipt.
 fn await_receipt(host: &HostRecord, fence: &crate::agent::Fence) -> u64 {
     let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, fence);
+    receipt
+}
+
+/// `fence` waits in `RECEIPTS` for `receipt`, or for its host's end, which is watched.
+fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
     let mut receipts = RECEIPTS.lock_or_recover();
     // Settled ones another way (an answered request) go.
     receipts.retain(|_, (_, f)| !f.is_settled());
     receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
     drop(receipts);
+    watch_end(host);
+}
+
+/// Watches `host`'s end once, from its first held line.
+fn watch_end(host: &HostRecord) {
     if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
         // task-owner: ends with the host, or when its lock can not be watched.
         tokio::spawn(watch_host_end(host.clone()));
     }
-    receipt
+}
+
+/// A fenced line a previous daemon sent `host` under `receipt` whose receipt its log does not
+/// have (`QUEUED_METHOD` with no `WRITTEN_METHOD`): its harness may not have it yet, so it is
+/// held again until that receipt or its host's end settles it, and a cut ends its host
+/// (`Fence::held_by_host`). A receipt that came before this hold settles it at once; a line
+/// this daemon sent itself (a later adoption of the same host) keeps the fence it has.
+pub fn adopt_receipt(host: &HostRecord, receipt: u64) -> crate::agent::Fence {
+    // One lock across the look and the hold: its receipt is either kept already or finds it.
+    let mut receipts = RECEIPTS.lock_or_recover();
+    if let Some((_, own)) = receipts.get(&receipt) {
+        return own.clone();
+    }
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    let came = {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        let at = unclaimed.iter().position(|(r, _)| *r == receipt);
+        at.and_then(|at| unclaimed.remove(at)).map(|(_, written)| written)
+    };
+    if came.is_none() {
+        receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    }
+    drop(receipts);
+    match came {
+        Some(true) => fence.written(),
+        Some(false) => fence.failed(),
+        None => watch_end(host),
+    }
+    fence
+}
+
+/// What `host`'s log can not tell apart (a host older than protocol 3 logs no
+/// `QUEUED_METHOD`): a line a previous daemon fenced that its harness may not have yet. Held
+/// until `host` ends, as a line to a host that gives no receipt is (fail closed); a cut ends
+/// `host`.
+pub fn adopt_untold(host: &HostRecord) -> crate::agent::Fence {
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    // A receipt of this daemon's that `host` was never sent: only its end settles it.
+    let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, &fence);
+    fence
 }
 
 /// The host incarnations whose end is watched (`watch_host_end`), one watch each.
@@ -261,10 +401,58 @@ pub struct Link {
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
     // A wedged host must not hold up the daemon: the handshake is bounded.
-    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
+    let budget = hello_budget();
+    // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not a sure
+    // miss (its timer fires on the next millisecond tick, after a fast local hello).
+    if budget.is_zero() {
+        return Err(anyhow::Error::new(HelloUnanswered(budget)));
+    }
+    tokio::time::timeout(budget, connect_inner(record, resume_after))
         .await
-        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+        .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+}
+
+/// How long a host has to answer `Hello` ([`connect`]) outside a [`with_hello_budget`] scope.
+pub const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The bound of a hello to a host that runs and was adopted before: its adoption at the daemon's
+/// start missed [`HELLO_BUDGET`], or a prompt reaches it again. On a loaded Mac (load 118 on 15
+/// cores, 85 hosts adopted at once, 2026-10-31) a live host answered later than 5 s; ending it
+/// then, or leaving it unowned with its whole agent and MCP servers, is worse than waiting.
+pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+tokio::task_local! {
+    static HELLO_BUDGET_SCOPE: std::time::Duration;
+}
+
+/// Runs `work` with every [`connect`] in it bounded by `budget` instead of [`HELLO_BUDGET`].
+pub async fn with_hello_budget<F: std::future::Future>(
+    budget: std::time::Duration,
+    work: F,
+) -> F::Output {
+    HELLO_BUDGET_SCOPE.scope(budget, work).await
+}
+
+fn hello_budget() -> std::time::Duration {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(HELLO_BUDGET)
+}
+
+/// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only
+/// slow on a loaded machine.
+#[derive(Debug, Clone, Copy)]
+pub struct HelloUnanswered(pub std::time::Duration);
+
+impl std::fmt::Display for HelloUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent host did not answer hello within {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelloUnanswered {}
+
+/// Whether `error` is (or wraps) a [`HelloUnanswered`].
+pub fn missed_hello(error: &anyhow::Error) -> bool {
+    error.chain().any(|c| c.downcast_ref::<HelloUnanswered>().is_some())
 }
 
 /// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
@@ -275,6 +463,16 @@ pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -
 
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // Debug builds only: `ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX` makes this daemon speak at most that
+    // protocol, so a host it finds can refuse it (`0`: every host does), as a host of a build it
+    // cannot speak to does. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(max) = std::env::var("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+    {
+        return connect_inner_max(record, resume_after, max).await;
+    }
     connect_inner_max(record, resume_after, PROTOCOL_MAX).await
 }
 
@@ -295,7 +493,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::hub::build().to_owned(),
         },
     )
     .await?;
@@ -571,5 +769,29 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::HostLauncher;
+    use std::path::PathBuf;
+
+    /// A daemon whose binary an update replaced still starts agent hosts: on
+    /// Linux its own binary is exec'd from the open inode, never `PATH
+    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
+    /// acpmux by it). Another binary is exec'd as given.
+    #[test]
+    fn the_host_starts_from_the_open_inode_on_linux() {
+        let launcher = HostLauncher::current().expect("launcher");
+        let exe = std::env::current_exe().expect("current exe");
+        assert_eq!(launcher.exe, exe);
+        if cfg!(target_os = "linux") {
+            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
+        } else {
+            assert_eq!(launcher.program(), exe);
+        }
+        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
+        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
     }
 }

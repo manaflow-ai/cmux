@@ -18,6 +18,9 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "CmuxVNCWebRTC", targets: ["CmuxVNCWebRTC"]),
+        // libwebrtc itself, for an app that also talks WebRTC on its own (cmux-next iOS's
+        // Chief calls), so the app links one WebRTC.framework.
+        .library(name: "WebRTC", targets: ["WebRTC"]),
         .executable(name: "cmux-vnc-host", targets: ["cmux-vnc-host"]),
     ],
     dependencies: [

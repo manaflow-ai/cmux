@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -22,6 +23,8 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
+        /// Test harnesses: the spawned owner ends with this pid (`local_owner::exit_with`).
+        exit_with_pid: Option<crate::local_owner::ExitWith>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
@@ -118,6 +121,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let socket_output = socket.to_string_lossy().into_owned();
     if let ServerAction::Ensure {
         terminal_reap_grace,
+        exit_with_pid,
         install_key_stdin,
         progress,
         websocket,
@@ -134,7 +138,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         };
         return run_ensure(
             expected_session,
-            terminal_reap_grace,
+            (terminal_reap_grace, exit_with_pid),
             install_key,
             (socket, socket_is_derived),
             (progress, replace_unresponsive),
@@ -272,6 +276,20 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match plan.action {
         ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
             unreachable!("ensure and compact-registry return before the lifecycle exchange")
+        }
+        // A wedged owner answers identify, but serves no workspace change: the
+        // app runs `server status` first and ensures only when it fails, so
+        // say it is not running and the app's ensure replaces it (#32621).
+        ServerAction::Status
+            if cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+                .is_ok_and(|stream| crate::local_owner::is_wedged(stream, None)) =>
+        {
+            local_error(
+                "server.wedged",
+                crate::localization::catalog().local_server.wedged,
+                global.output,
+                3,
+            )
         }
         ServerAction::Status => print_success(
             json!({
@@ -707,11 +725,12 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned. `socket` is the socket
-/// path and whether it was derived from the session name; the flag pair is
-/// `--restore-progress` and `--replace-unresponsive`.
+/// path and whether it was derived from the session name; the owner pair is
+/// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
+/// and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
-    terminal_reap_grace: Option<Duration>,
+    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
@@ -728,6 +747,7 @@ fn run_ensure(
         term: None,
         initial_host_colors: None,
         terminal_reap_grace,
+        exit_with_pid,
         install_key,
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
@@ -756,7 +776,10 @@ fn run_ensure(
             }
         }
     } else {
-        None
+        // A wedged owner answers `identify`, so the app never sees it stuck and
+        // never asks for the replace: every ensure replaces it (#32621). A
+        // replace that fails leaves the normal ensure to report the owner.
+        crate::local_owner::replace_if_wedged(&spec).ok().flatten().map(|replaced| replaced.pid)
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {
@@ -786,35 +809,25 @@ fn run_ensure(
                 "message":message,
             });
             if let Some(pid) = replaced {
-                result["replaced_pid"] = json!(pid);
+                result.set("replaced_pid", json!(pid));
             }
             print_success(result, output)
         }
         Err(error) => {
-            let (code, message, exit_code) = match error {
-                crate::local_owner::EnsureError::Spawn(_error) => {
-                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
-                }
-                crate::local_owner::EnsureError::NotReady => {
-                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::RestoreTimeout => {
-                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::WrongOwner => {
-                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
-                }
+            let message = messages.ensure_failed(&error);
+            let (code, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => ("server.spawn_failed", 3),
+                crate::local_owner::EnsureError::NotReady => ("server.unavailable", 3),
+                crate::local_owner::EnsureError::RestoreTimeout => ("server.restore_timeout", 3),
+                crate::local_owner::EnsureError::Busy => ("server.busy", 3),
+                crate::local_owner::EnsureError::WrongOwner => ("server.wrong_owner", 1),
                 crate::local_owner::EnsureError::DifferentSession => {
-                    ("server.different_session", messages.different_session.to_string(), 1)
+                    ("server.different_session", 1)
                 }
-                crate::local_owner::EnsureError::DifferentState => {
-                    ("server.different_state", messages.different_state.to_string(), 1)
-                }
-                crate::local_owner::EnsureError::InvalidIdentity => {
-                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
-                }
+                crate::local_owner::EnsureError::DifferentState => ("server.different_state", 1),
+                crate::local_owner::EnsureError::InvalidIdentity => ("server.invalid_identity", 3),
                 crate::local_owner::EnsureError::UnsupportedProtocol => {
-                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                    ("server.unsupported_protocol", 3)
                 }
             };
             // The app learns that the old owner is gone even when the new

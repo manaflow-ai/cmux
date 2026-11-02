@@ -43,7 +43,8 @@ pub fn exact(id: &str) -> Option<&'static str> {
     table::LOOKUP
         .binary_search_by(|(known, _)| (*known).cmp(id.as_str()))
         .ok()
-        .and_then(|index| table::LOOKUP[index].1)
+        .and_then(|index| table::LOOKUP.get(index))
+        .and_then(|entry| entry.1)
 }
 
 fn candidates(raw: &str) -> Vec<String> {

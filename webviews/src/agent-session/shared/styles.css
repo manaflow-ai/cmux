@@ -97,12 +97,12 @@ textarea {
       var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
     ) !important;
   }
-  /* A solid fill in the text or accent color (a ready Send, Stop, a primary action) swallows that
-     text-colored wash, so keyboard focus there takes the control's hover step instead: the base at
-     12% over the fill, which paints `color-mix(fill 88%, base)` as `.acpmux-send-ready:hover` does. */
+  /* A solid fill in the text or accent color (the prompt editor's Send, a primary action) swallows
+     that text-colored wash, so keyboard focus there takes the control's hover step instead: the
+     base at 12% over the fill, which paints `color-mix(fill 88%, base)`. The composer's Send and
+     Stop are plain glyphs since #23763 (no disc): their focus is their own hover pill
+     (acpmux/composerStates.css). */
   :root :focus-visible:where(
-      .acpmux-send-ready,
-      .acpmux-cancel,
       .cv-user__edit-button--send,
       .acpmux-question-submit,
       .nt-player-play,

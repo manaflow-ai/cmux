@@ -1,0 +1,132 @@
+[
+  {
+    "description": "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole. With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "n": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "zoom"
+  },
+  {
+    "description": "The date and time of message id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "date"
+  },
+  {
+    "description": "Ask Chief to sign you in when a page needs a password, passkey, 2FA code or security key, or an OAuth sign-in you cannot pass. Chief opens the page in Home's right pane, fills what it may, starts the passkey or security-key step so macOS shows Touch ID, and asks the user to touch the sensor; it tells you when the site is signed in. Never wait on a login tab and never read or type a password or code. Call it once per site.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "password, passkey, 2fa (a code or security key after the password) or oauth (a Sign in with ... page).",
+          "enum": [
+            "password",
+            "passkey",
+            "2fa",
+            "oauth"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "description": "One line: what you need the sign-in for.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "site": {
+          "description": "The site's host name, for example npmjs.com.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "description": "The http(s) page where the sign-in starts.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "site",
+        "url",
+        "reason",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "name": "escalate_auth"
+  },
+  {
+    "description": "List the other subagents of Chief: id, title, state and workspace. Tell one with `tell`.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "peers"
+  },
+  {
+    "description": "Send a message to another subagent (an id from `peers`); it reads it between its tool calls (or after its current turn: a peer never interrupts it), and the message says it is from you. For Chief, write it in your report instead.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "key": {
+          "description": "Optional idempotency key: a repeat with the same key is not sent again.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "tell"
+  },
+  {
+    "description": "Which cmux and Chief you run, read-only: the cmux CLI and the app its socket reaches (version with the nightly build, channel, build sha, bundle id and path, pid), whether the CLI is the app's own, the update state (phase, ready on quit, last check), the bundled acpmux and helper stamps, macOS, and this Chief host's version and engine (each role's harness CLI and its version).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "version"
+  }
+]

@@ -11,13 +11,21 @@ const triage: StartedSession = {
   title: "Triage the 10 failing Swift tests at the tip",
   named: true,
   state: "idle",
+  harness: "claude",
 };
 const freeze: StartedSession = {
   sessionId: "child-2",
   title: "Switch gh-merge-green to merge-freeze issues",
   named: true,
   state: "running",
-  pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
+  pullRequests: {
+    count: 2,
+    tone: "failing",
+    number: 22092,
+    repo: "cmux",
+    others: [{ number: 22093, repo: "cmux" }],
+  },
+  harness: "codex",
 };
 
 /// The cards and a reply naming them, as a chat that started two chats draws them.
@@ -81,6 +89,18 @@ export default componentEntry<Props>({
         ],
       },
       height: 200,
+    },
+    harnesses: {
+      note: "Each row leads with its harness's mark (Claude, Codex), and a chat on a harness with no mark of its own its chat icon in a tone stable for its id, as Session Info's child chat rows draw them.",
+      props: {
+        started: [
+          { sessionId: "h-1", title: "Review the queue change", state: "idle", harness: "claude" },
+          { sessionId: "h-2", title: "Port the retry test to Linux", state: "running", harness: "codex" },
+          { sessionId: "h-3", title: "Audit the cache keys", state: "idle" },
+          { sessionId: "h-4", title: "Bench the transcript rows", state: "idle" },
+        ],
+      },
+      height: 220,
     },
   },
 });

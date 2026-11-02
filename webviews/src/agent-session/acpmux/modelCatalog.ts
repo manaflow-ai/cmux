@@ -20,11 +20,20 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
   if (!Array.isArray(entries)) return catalog;
   const byHarness = new Map<string, Catalog[number]["models"]>();
   const refused = new Map<string, string>();
-  for (const entry of entries as { harness?: unknown; models?: unknown; probeError?: unknown; peer?: unknown }[]) {
+  const topModels = new Map<string, string[]>();
+  for (const entry of entries as {
+    harness?: unknown;
+    models?: unknown;
+    topModels?: unknown;
+    probeError?: unknown;
+    peer?: unknown;
+  }[]) {
     if (entry?.peer != null && entry.peer !== "") continue;
     const reason = harnessRefusal({ probeError: entry?.probeError });
     if (typeof entry?.harness === "string" && reason) refused.set(entry.harness, reason);
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
+    if (Array.isArray(entry.topModels) && entry.topModels.every((id) => typeof id === "string"))
+      topModels.set(entry.harness, entry.topModels as string[]);
     byHarness.set(
       entry.harness,
       (entry.models as unknown[]).map((model) => catalogModel(model)),
@@ -36,7 +45,11 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
     return reason ? { ...harness, unavailable: reason, probeFailed: true } : harness;
   };
   const merged = catalog.map((harness) =>
-    withReason(harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] }),
+    withReason({
+      ...harness,
+      models: harness.models.length > 0 ? harness.models : (byHarness.get(harness.id) ?? []),
+      ...(topModels.has(harness.id) ? { topModels: topModels.get(harness.id) } : {}),
+    }),
   );
   return merged;
 }

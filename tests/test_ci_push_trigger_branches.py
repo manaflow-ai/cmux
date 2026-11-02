@@ -2,7 +2,7 @@
 """A push trigger names the branches it needs; arbitrary branch pushes start nothing.
 
 On 2026-10-27 about 1,357 Actions runs sat queued behind a push flood: 974
-cp/* patch refs, none with a pull request, each started every push workflow
+cp/* patch refs, most with no pull request, each started every push workflow
 whose filter matched any branch. A branch that needs CI gets it from its pull
 request (pull_request, pull_request_target); push triggers are for the base
 branches and the named branch families a workflow serves (preview deploys,
@@ -30,15 +30,16 @@ ARBITRARY_BRANCHES = (
     "codex/some-lane",
     "claude/some-lane",
     "feat/some-lane",
+    "cp/10-p12-perf-process-013",
 )
-# The cp/ patch refs never open a pull request. No workflow runs on them.
-PATCH_REFS = ("cp/0", "cp/10-p12-perf-process-013", "cp/a/b")
 
 # workflow -> why its push trigger may still match an arbitrary branch.
 ARBITRARY_BRANCH_PUSH = {
     "cmux-tui-artifacts.yml": (
         "a same-repository pull request's checks fetch the cmux-tui tree its branch push "
-        "published (cx-r2is); tree-preflight skips a push whose tree is already published"
+        "published (cx-r2is), cp/ heads included now that they open pull requests; tree-preflight "
+        "skips a push whose tree is already published, and a cp/, lane/ or perf/ head no open "
+        "pull request has"
     ),
 }
 
@@ -118,12 +119,6 @@ class PushTriggerBranchesTest(unittest.TestCase):
         self.assertFalse(push_matches({"branches": ["cp/0?"]}, "cp/00"))
         self.assertTrue(push_matches({"branches": ["cp/0+"]}, "cp/000"))
         self.assertTrue(push_matches({"branches": ["cp/[0-9]?"]}, "cp/0"))
-
-    def test_no_push_trigger_runs_on_patch_refs(self) -> None:
-        for name, push in push_triggers().items():
-            for branch in PATCH_REFS:
-                with self.subTest(workflow=name, branch=branch):
-                    self.assertFalse(push_matches(push, branch), f"{name}: a push of {branch} starts it")
 
     def test_push_triggers_name_their_branches(self) -> None:
         triggers = push_triggers()

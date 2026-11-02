@@ -176,6 +176,13 @@ SECTIONS = [
         "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
     },
     {
+        "source": "schemas/settings/source/agent-retry.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
+        "type": "AgentRetrySettingsSchema",
+        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
@@ -195,6 +202,13 @@ SECTIONS = [
         "type": "AutoArchiveSettingsSchema",
         "lists": {"autoArchive": ("descriptors", "AutoArchiveSettings")},
         "enums": {"workspaces.autoArchive.style": "AutoArchiveStyle"},
+    },
+    {
+        "source": "schemas/settings/source/workspace-hibernation.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
+        "type": "WorkspaceHibernationSettingsSchema",
+        "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
+        "enums": {},
     },
     {
         "source": "schemas/settings/source/feed.json",

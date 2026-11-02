@@ -68,6 +68,10 @@ pub struct HomeInboxInput<'a> {
     pub typing: HashMap<String, Vec<String>>,
     /// Authors of agent runs that run now (not stale), by conversation id.
     pub running: HashMap<String, Vec<String>>,
+    /// Deleted Chiefs (the registry's tombstones): a deleted Chief's direct
+    /// conversation leaves the list, on every device that reads it, as Delete
+    /// Chief promises.
+    pub deleted_chiefs: BTreeSet<String>,
 }
 
 /// One row of the Home list.
@@ -116,6 +120,17 @@ fn is_chief(summary: &Summary, id: &str, input: &HomeInboxInput<'_>) -> bool {
             && (participant.agent_class == Some(AgentClass::Mux)
                 || input.chief_names.contains_key(id))
     })
+}
+
+/// A deleted Chief's direct conversation (the one Delete Chief says leaves the
+/// list): not in the list. Its channels and groups stay, with their history.
+fn is_deleted_chiefs_direct(
+    summary: &Summary,
+    input: &HomeInboxInput<'_>,
+    channels: &BTreeSet<&str>,
+) -> bool {
+    matches!(others(summary, input.me).as_slice(), [one] if input.deleted_chiefs.contains(*one))
+        && !channels.contains(summary.id.as_str())
 }
 
 /// The ids of the participants other than the person.
@@ -190,6 +205,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
     }
     let mut rows: Vec<HomeRow> = summaries
         .iter()
+        .filter(|summary| !is_deleted_chiefs_direct(summary, input, &channels))
         .map(|summary| {
             let others = others(summary, me);
             let direct = others.len() == 1 && !channels.contains(summary.id.as_str());

@@ -50,6 +50,13 @@ Default picked: keep the `pricing-DESIGN.md` §4 numbers. One unit everywhere: *
 | Cloud VMs at once / largest | 1 / 2 vCPU 4 GB | 5 / 8 vCPU 16 GB | 20 / 32 vCPU 64 GB | 5 / 8 vCPU 16 GB |
 | Own API key or own Claude/Codex sign-in | free, unmetered | same | same | same |
 
+Free DeepSeek fallback (user, 2026-10-27): a signed-out Mac that passes App Attest gets DeepSeek V4 Flash
+through our Vercel AI Gateway route only (`freeProviders: ["vercel"]`, `inference/catalog.ts`). Free quota
+defaults: 300,000 tokens a day and 20 requests a minute per device (`INFERENCE_FREE_DAILY_TOKENS`,
+`INFERENCE_FREE_PER_MINUTE`); a spent quota answers 429 `free.quota` ("sign in to continue").
+Paid DeepSeek price: **PLACEHOLDER, not set (the user decides)**. Until then the paid path is the plan and
+credits table above.
+
 Prepaid credits are open to everyone, with or without a plan (this change). A prepaid charge is never
 a billable fact, so a call is never paid twice.
 

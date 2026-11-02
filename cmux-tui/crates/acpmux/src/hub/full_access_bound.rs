@@ -218,10 +218,10 @@ pub(super) type WriteSeam = std::sync::Mutex<
 /// How long an MDM off push waits for the family messages and answers checked under the old
 /// bound to be written before it cuts them (`hold_until_written`).
 #[cfg(not(test))]
-const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+pub(super) const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 /// Tests: short, so a test sees a push cut and try again in a few seconds.
 #[cfg(test)]
-const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+pub(super) const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// MDM's bound as one operation reads it, once, at its entry (`Hub::mdm_snapshot`): every check
 /// of that operation ranks under it, so no two of them read different pushes (review 86 of
@@ -235,9 +235,9 @@ pub(super) struct MdmSnapshot {
 /// The family gate held for one message or answer (`Hub::family_gate`), the bound read once it
 /// was taken, and the off pushes' cuts since.
 pub(super) struct FamilyHold {
-    gate: tokio::sync::OwnedRwLockReadGuard<()>,
+    pub(super) gate: tokio::sync::OwnedRwLockReadGuard<()>,
     pub(super) bound: MdmSnapshot,
-    cut: tokio::sync::watch::Receiver<u64>,
+    pub(super) cut: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Hub {
@@ -297,23 +297,7 @@ impl Hub {
         hold: FamilyHold,
     ) -> crate::agent::Fence {
         let fence = crate::agent::Fence::default();
-        let FamilyHold { gate, bound, mut cut } = hold;
-        let (held, id) = (fence.clone(), session.id.clone());
-        // task-owner: ends once the message settles (every carrier settles it) or is cut; each
-        // try to end its writer below is bounded.
-        tokio::spawn(async move {
-            tokio::select! {
-                biased;
-                () = held.settled() => {}
-                _ = cut.changed() => {
-                    while !held.cut_or_end(FAMILY_WRITE_BUDGET).await {
-                        tracing::warn!(session = %id, checked_at = bound.generation, "an MDM off push cut a family message whose agent did not end in time; trying again");
-                        tokio::time::sleep(FAMILY_WRITE_BUDGET).await;
-                    }
-                }
-            }
-            drop(gate);
-        });
+        Self::hold_fences(&session.id, hold, vec![fence.clone()]);
         fence
     }
 
@@ -424,6 +408,9 @@ impl Hub {
     /// It runs at every push of the off, as one may follow an agent that entered full access
     /// since. `changed`: this push turned it off; the pool drains only then.
     pub(super) async fn full_access_turned_off(&self, changed: bool) {
+        // A restart's adoption holds again the fenced lines its hosts may not have written
+        // (`hosts.rs` `hold_unwritten`): the push waits until it ran, so it waits for those too.
+        let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
         while tokio::time::timeout(FAMILY_WRITE_BUDGET, self.family_gate.write()).await.is_err() {
             self.family_cut.send_modify(|n| *n += 1);
         }
@@ -470,10 +457,15 @@ impl Hub {
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
     /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
     /// because the host records cannot be read while this daemon hears no agent of it
-    /// (`host_unknown`), or because this daemon no longer hears its host (`host_unheard`, review
+    /// (`host_unknown`), because its left host cannot speak to this build (`unjudged_host`,
+    /// #26337), or because this daemon no longer hears its host (`host_unheard`, review
     /// 64).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        let unjudged = session.floor.unjudged_host.load(Ordering::SeqCst);
+        if unjudged && !Self::host_record_gone(&session.id) {
             return true;
         }
         if Self::host_replaying(session).await {
@@ -853,6 +845,7 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         // What its agent reported and nothing applied goes with it; a report it still sends is
         // not counted (its tap's epoch is gone, review 4 of #26052).
         {
@@ -903,6 +896,24 @@ pub(super) fn merge_asked_option(options: &mut Vec<Value>, asked: Value) {
     match options.iter_mut().find(|o| o.get("id") == asked.get("id")) {
         Some(o) => o["currentValue"] = asked["currentValue"].clone(),
         None => options.push(asked),
+    }
+}
+
+/// Records a `set_config_option` answer `res` to the request that asked `asked`
+/// (`asked_option`), from a client's switch (`turns.rs`) or the replay of a chat's options on a
+/// new agent (`replay_config`). A bare answer (no options, or null ones) took the value asked:
+/// the full-access bound reads it (reviews 60 and 61 of #23322). An answer with its options says
+/// what each holds now. Kept in answer order: the harness's own option reports never clear it, as
+/// one sent before this answer may be applied after it (review 1 of #26058).
+pub(super) fn record_option_answer(session: &Session, res: &Value, asked: Option<Value>) {
+    let mut kept = session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner());
+    match res.get("configOptions").and_then(Value::as_array) {
+        Some(reported) => kept.retain(|o| !reported.iter().any(|r| r.get("id") == o.get("id"))),
+        None => {
+            if let Some(asked) = asked {
+                merge_asked_option(&mut kept, asked);
+            }
+        }
     }
 }
 

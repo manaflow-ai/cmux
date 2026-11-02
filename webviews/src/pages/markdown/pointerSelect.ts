@@ -18,6 +18,11 @@ export function pointerChanged(tr: { getMeta(key: PluginKey): unknown }): boolea
   return tr.getMeta(pointerKey) !== undefined;
 }
 
+/** Marks the button down for a press the editor never saw (one in the page's padding, paddingSelect.ts). */
+export function markPointerDown(view: EditorView): void {
+  set(view, true);
+}
+
 function set(view: EditorView, down: boolean): void {
   if (view.isDestroyed || isPointerSelecting(view.state) === down) return;
   view.dispatch(view.state.tr.setMeta(pointerKey, down).setMeta("addToHistory", false));

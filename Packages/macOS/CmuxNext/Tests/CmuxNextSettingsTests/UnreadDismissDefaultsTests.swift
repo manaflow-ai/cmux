@@ -1,34 +1,36 @@
 import CmuxNextSettings
 import Testing
 
-/// The unread ring stays until the person clicks into its pane or types in it (Austin, 2026-10-20:
-/// "the blue ring should persist until I go in and click on that specific pane"; Lawrence,
-/// 2026-10-19, u2414: "you click and it gets dismissed"). The 2026-10-19 default, `focus`, also
-/// read a pane when it merely took focus (a workspace switch, a keyboard move, the palette), so a
-/// ring cleared before the person had looked at its pane. The default is now `click`.
+/// Attention is one on/off state per pane, cleared when the pane is selected, including by
+/// entering its workspace, as in cmux classic (https://github.com/manaflow-ai/cmux/issues/25662).
+/// The 2026-10-20 default, `click`, kept the ring through selection, and every later event on the
+/// pane the person was already looking at rang it again, so it came back several times before it
+/// cleared. The default is `focus`; `click` stays a choice in Settings.
 struct UnreadDismissDefaultsTests {
-    @Test func aNotificationClearsWhenItsPaneIsClickedByDefault() {
-        #expect(NotificationPreferences().dismissal == .click)
+    @Test func aNotificationClearsWhenItsPaneIsSelectedByDefault() {
+        #expect(NotificationPreferences().dismissal == .focus)
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
-        #expect(snapshot.notifications.dismissal == .click, "an empty cmux-next.json reads with the click rule")
-        #expect(SettingsSchema.descriptor(for: ["notifications", "dismissal"])?.defaultValue == .string("click"))
+        #expect(snapshot.notifications.dismissal == .focus, "an empty cmux-next.json reads with the focus rule")
+        #expect(SettingsSchema.descriptor(for: ["notifications", "dismissal"])?.defaultValue == .string("focus"))
     }
 
-    /// A click in the pane, a key typed in it and opening the notification read it by default.
-    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
-    func goingIntoThePaneReadsItByDefault(_ trigger: NotificationTrigger) {
+    /// Selecting the pane (entering its workspace, a keyboard move, a click), a key typed in it and
+    /// opening the notification read it by default.
+    @Test(arguments: [NotificationTrigger.focus, .click, .keystroke, .open])
+    func selectingThePaneReadsItByDefault(_ trigger: NotificationTrigger) {
         let policy = NotificationPolicy(prefs: NotificationPreferences())
         for source in NotificationSource.allCases {
             #expect(policy.clears(trigger, for: source), "\(trigger) leaves a \(source) notification unread")
         }
     }
 
-    /// Focus alone (a workspace switch, a keyboard move, Cmd+1-9, the palette) keeps the ring.
-    @Test func focusAloneKeepsTheRingByDefault() {
-        let policy = NotificationPolicy(prefs: NotificationPreferences())
-        for source in NotificationSource.allCases {
-            #expect(!policy.clears(.focus, for: source), "focus read a \(source) notification")
-        }
+    /// An event on the pane the person is looking at is read at once: no ring comes back.
+    @Test func anEventOnTheSelectedPaneSetsNoRingByDefault() {
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.paneIsViewed = true
+        arrival.appActive = true
+        let decision = NotificationPolicy(prefs: NotificationPreferences()).decide(arrival)
+        #expect(decision.acknowledge && !decision.attention, "an event on the selected pane rang it again")
     }
 
     @Test func aTimeoutStillNeedsTheTimeoutMode() {

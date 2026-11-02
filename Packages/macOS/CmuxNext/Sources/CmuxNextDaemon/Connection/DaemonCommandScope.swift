@@ -185,6 +185,8 @@ public final class DaemonCommandScope: Sendable {
         state.withLock { $0.closed = true }
     }
 
+    /// False once the action answered (``close()``): nobody reads what a later command records.
+    public var isOpen: Bool { state.withLock { !$0.closed } }
     public var failures: [Failure] { state.withLock { $0.failures } }
     public var created: [DaemonCreatedObject] { state.withLock { $0.created } }
     public var ticketCount: UInt64 { state.withLock { $0.nextTicket } }

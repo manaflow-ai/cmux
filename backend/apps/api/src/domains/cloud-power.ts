@@ -1,6 +1,7 @@
 import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/ownership"
 import { CloudMachinePause, CloudMachineResize, CloudMachineStart, planRequiredDetails, type CloudDriverResultParams } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
+import { AUTO_PAUSE_OFF } from "../auto-pause.ts"
 import { DEFAULT_SIZE, limitDetails, sizeLocked, teamPlan, type CloudConfig, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 import {
   countedRow,
@@ -24,7 +25,7 @@ import {
  * cloud.machine.pause and cloud.machine.start (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS: a
  * signed-in person, the team allowlist and plan, the environment's name prefix, ledger first, the
  * per-team rate limit). The intent commits its ledger row and the transient status (pausing,
- * starting); CloudDO runs the provider call (Freestyle POST /v5/vms/{id}/pause or /start) and commits
+ * starting); CloudDO runs the provider call (CloudProvider pause or start) and commits
  * the outcome. Pause frees an active slot when it lands; start takes one at once (quota at intent).
  * A final failure returns the machine to where it was, with the error.
  */
@@ -62,7 +63,7 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
 }
 
 /**
- * cloud.machine.resize: grow only on every axis (Freestyle grows vCPU and memory live or on resume,
+ * cloud.machine.resize: grow only on every axis (the provider grows vCPU and memory live or on resume,
  * the disk only on a running VM), within the plan. The answer carries the target size; the ledger
  * row keeps the old size, restored after a final failure. One resize at a time per machine.
  */
@@ -114,7 +115,11 @@ export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, mac
   // The VM is gone (review P3): the machine is failed (its VM install is revoked), never paused forever.
   const status = r.ok ? (l.op === "pause" ? "paused" : "running") : error?.code === "cloud.provider.vm_missing" ? "failed" : l.op === "pause" ? "running" : "paused"
   const rev = state.rev + 1
-  const row: MachineRow = { ...machine.row, status, error: error ? { ...error, at: ctx.now } : null, revision: String(rev) }
+  // A start that landed: the machine runs (and costs) from now, not from the request (running_since).
+  const runningAt = r.ok && l.op === "start" ? { running_at: ctx.now } : {}
+  // An automatic pause CloudDO dropped with CLOUD_IDLE_PAUSE off (auto-pause.ts): back to running as if it was never asked.
+  const dropped = error?.code === AUTO_PAUSE_OFF
+  const row: MachineRow = { ...machine.row, status, ...runningAt, error: error && !dropped ? { ...error, at: ctx.now } : null, ...(dropped ? { pause_reason: null } : {}), revision: String(rev) }
   writes.push(upsertMachine(row, machine.n))
   const active = state.active - countedRow(machine.row) + countedRow(row)
   return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }

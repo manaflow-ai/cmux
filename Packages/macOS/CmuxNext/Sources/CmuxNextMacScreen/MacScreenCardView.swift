@@ -150,8 +150,8 @@ final class MacScreenCardView: MacScreenThemedView {
         case .unsupported:
             glyph("link.badge.plus", ink: \.attention)
             title(L.t("macScreen.card.linksGoneTitle", "Pairing Links Are No Longer Supported"))
-            detail(L.t("macScreen.card.linksGoneBody", "Mac Screen now connects the Macs signed in to your cmux account. Open Mac Screen to see them."))
-            buttons([closeTab(id: "macScreen.card.closeTab"), primary(L.t("macScreen.card.openHome", "Open Mac Screen")) { $0.openHome() }])
+            detail(L.t("macScreen.card.linksGoneBody", "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them."))
+            buttons([closeTab(id: "macScreen.card.closeTab"), primary(L.t("macScreen.card.openHome", "Open Screen Sharing")) { $0.openHome() }])
         case let .connecting(reconnecting):
             spinner()
             title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
