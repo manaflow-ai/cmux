@@ -681,6 +681,11 @@ unset CMUX_AGENT_RESUME_LAUNCH
 if [[ "$IN_CMUX" == "1" && -n "$cmux_codex_launch_command" ]]; then
     export CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=1
     if [[ -f "$cmux_codex_launch_command" && -x "$cmux_codex_launch_command" ]]; then
+        # Restore can enter the shim by absolute path after the pane's shell
+        # put native Codex first. The launcher's child must re-enter the shim.
+        if [[ -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]]; then
+            export PATH="${CMUX_CODEX_WRAPPER_SHIM%/*}:$PATH"
+        fi
         exec "$cmux_codex_launch_command" "$@"
     else
         launch_shell="${SHELL:-/bin/zsh}"
