@@ -156,8 +156,10 @@ import {
   composerDraft,
   DRAFT_SETTLE_MS,
   notifyDraftActionsChanged,
+  readDurableDraft,
   readPersistedDraft,
   settleDraftWithin,
+  settlePendingDraftWrites,
   writePersistedDraft,
 } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1038,6 +1040,10 @@ function heldPromptParams(value: unknown): HeldSend | undefined {
   if (typeof held?.promptId !== "string") return undefined;
   return { promptId: held.promptId, ...(typeof held.ticket === "string" ? { ticket: held.ticket } : {}) };
 }
+
+/// `promise`'s value, or undefined once `until` (a Date.now() time) passes first.
+const settledBy = <T,>(promise: Promise<T>, until: number): Promise<T | undefined> =>
+  Promise.race([promise, new Promise<undefined>((settled) => setTimeout(settled, Math.max(0, until - Date.now())))]);
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
 const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
@@ -9101,8 +9107,12 @@ function AcpmuxPane() {
   const trustHeldCwd = snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft);
   /// Puts prompts the hold gives back where they were typed (set below).
   const giveBackTrustHeld = useRef(
-    async (_entries: readonly TrustHeldPrompt[], _behind?: boolean, _closing?: boolean): Promise<ComposerAttachment[]> =>
-      [],
+    async (
+      _entries: readonly TrustHeldPrompt[],
+      _behind?: boolean,
+      _closing?: boolean,
+      _until?: number,
+    ): Promise<ComposerAttachment[]> => [],
   );
   const trustHeld = useTrustHeldPrompts({
     chat: snapshot.sessionId,
@@ -9126,11 +9136,12 @@ function AcpmuxPane() {
   /// host's draft of that chat's tab (`chat.unsentDraft`), and their chips are answered (for the
   /// wake state, which carries them). `behind`: after what the composer or draft holds (sent after
   /// one already given back). `closing`: the page goes (its tab closed), its composer with it.
-  giveBackTrustHeld.current = async (entries, behind = false, closing = false) => {
+  giveBackTrustHeld.current = async (entries, behind = false, closing = false, until = Date.now() + DRAFT_SETTLE_MS) => {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
+    const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
     // behind what is there, the first goes first.
     for (const entry of behind ? where.composer : [...where.composer].reverse())
@@ -9141,12 +9152,15 @@ function AcpmuxPane() {
         ...where.later.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
       ];
       const text = where.later.map((entry) => entry.text).filter((part) => part.trim());
-      void postUnsentDraft([...text, lastUnsentDraft].filter((part) => part.trim()).join("\n\n"));
+      writes.push(postUnsentDraft([...text, lastUnsentDraft].filter((part) => part.trim()).join("\n\n")));
     }
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
         const text = list.map((entry) => entry.text).filter((part) => part.trim());
-        const draft = readPersistedDraft(chat) ?? "";
+        // The chat's draft as this page has it (the remount cache), else as acpmux keeps it: one
+        // saved from another client or the CLI is kept beside the held prompts, never replaced.
+        const draft =
+          readPersistedDraft(chat) ?? (await settledBy(readDurableDraft(chat).catch(() => undefined), until)) ?? "";
         writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(list.flatMap((entry) => entry.attachments));
         if (!chips.length) return;
@@ -9157,6 +9171,10 @@ function AcpmuxPane() {
           .catch(() => undefined);
       }),
     );
+    // The text reaches acpmux and the host before this answers: a closing page's bridge goes once
+    // it does (AgentPageRetirer), and a write still queued then would be lost. Bounded like the
+    // draft a quit settles (`until`, DRAFT_SETTLE_MS from the ask).
+    await settledBy(Promise.all([settlePendingDraftWrites(), ...writes]), until);
     return keptChips(where.later.flatMap((entry) => entry.attachments));
   };
   // A page that goes (its tab closed, the chat archived) puts its held prompts into their chats'
@@ -9515,18 +9533,25 @@ function AcpmuxPane() {
         if (typeof started === "string" && started) made = started;
       }
     }
+    // The session acpmux took it in, as the send reports it: never the chat shown by then, which
+    // may be another one picked meanwhile (a new chat's start without a picked folder makes its
+    // session inside the send). Unknown, it binds nothing: the hold gives the rest back.
+    let tookIn: string | undefined;
     let accept: (session: string | undefined) => void = () => undefined;
     const taken = new Promise<string | undefined>((resolve) => (accept = resolve));
     const turn = callNative("chat.send", {
       text: entry.text,
       attachments: entry.attachments,
-      accepted: () => accept(made ?? directClient.current?.shownSession()?.sessionId),
+      accepted: (session?: string) => {
+        tookIn = session ?? made;
+        accept(tookIn);
+      },
       fromTrust,
       // It goes only to its own chat: another one selected meanwhile ends the send unsent.
       ...(made ? { expectedSessionId: made } : {}),
     });
     try {
-      return await Promise.race([taken, turn.then(() => made ?? directClient.current?.shownSession()?.sessionId)]);
+      return await Promise.race([taken, turn.then(() => tookIn ?? made)]);
     } catch (error) {
       // Another chat showed before it went: unsent, its ticket unspent, it waits again; a new chat's
       // start that made its session binds its backlog there.
@@ -10496,7 +10521,8 @@ function AcpmuxPane() {
         const send = async (
           text: string,
           attachments: import("./attachments").ComposerAttachment[] = [],
-          accepted?: () => void,
+          // `sessionId`: the chat acpmux took it in, once known (a held prompt binds to it).
+          accepted?: (sessionId?: string) => void,
           steer = false,
           promptId?: string,
           expectedSessionId?: string,
@@ -10576,7 +10602,7 @@ function AcpmuxPane() {
         const sendThrough = async (
           text: string,
           attachments: import("./attachments").ComposerAttachment[],
-          accepted: (() => void) | undefined,
+          accepted: ((sessionId?: string) => void) | undefined,
           steer: boolean,
           promptId: string | undefined,
           handedOn: () => void,
@@ -10715,7 +10741,7 @@ function AcpmuxPane() {
           // A Quick Composer handoff can close this page only after acpmux takes the prompt.
           // Releasing a local queued row happens earlier, while its gesture may still be pending.
           const turn = client
-            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted, sendTicket, steer, () =>
+            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted && (() => accepted(sessionId)), sendTicket, steer, () =>
               promptLanded.current(),
             )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
@@ -10730,7 +10756,7 @@ function AcpmuxPane() {
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
-              typeof accepted === "function" ? (accepted as () => void) : undefined,
+              typeof accepted === "function" ? (accepted as (sessionId?: string) => void) : undefined,
               steer === true,
               undefined,
               typeof expectedSessionId === "string" ? expectedSessionId : undefined,
@@ -11258,11 +11284,13 @@ function AcpmuxPane() {
           // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async ({ quitting, closing }) => {
             const held = trustHeldNow.current;
+            // One wait for everything the page writes first, within the host's ask (wake-state.json).
+            const until = Date.now() + DRAFT_SETTLE_MS;
             // The tab closes (AgentPageRetirer, while the bridge still answers): held prompts go
             // into their chats' drafts and kept chips, never its composer, which goes with it.
             if (closing === true) {
               const all = held.release();
-              if (all.length) await giveBackTrustHeld.current(all, false, true);
+              if (all.length) await giveBackTrustHeld.current(all, false, true, until);
               return {};
             }
             // Prompts the folder's trust holds or sends keep a hidden page (AgentPageHibernation
@@ -11270,8 +11298,8 @@ function AcpmuxPane() {
             // a new chat's that no composer took give their chips to the wake state.
             if (quitting !== true && held.holdsAny()) return { holdsPrompts: true };
             const released = quitting === true ? held.release() : [];
-            const chips = released.length ? await giveBackTrustHeld.current(released) : [];
-            await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
+            const chips = released.length ? await giveBackTrustHeld.current(released, false, false, until) : [];
+            await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
