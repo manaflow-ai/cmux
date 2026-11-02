@@ -7,7 +7,7 @@ import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
-import { ChevronRight, Spinner, ToolGroup } from "./icons";
+import { ChevronRight, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
   cleanText,
@@ -76,7 +76,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} strokeWidth={1.2} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
@@ -101,7 +101,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   );
 }
 
-function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
+function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
   // Closed, or open in the Verbose transcript view.
@@ -147,7 +147,7 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running && !grouped ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} strokeWidth={1.2} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />

@@ -573,3 +573,88 @@ fn kill_all_restore_time_of_12_terminals() {
         serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
     );
 }
+
+/// Chrome's rule after a kill of everything: the terminals the person sees
+/// are restored first, and the respawns of hidden ones do not compete with
+/// them. A respawn replays a multi-MB seed twice (daemon mirror and host);
+/// all of them used to start at once, so the visible terminals waited behind
+/// the hidden ones for the CPU (STATUS 5931: 34-370 ms for 24 terminals).
+///
+/// 24 shells in 24 workspaces, the middle one selected, a kill of the
+/// daemon and every host, then a restart with each respawn held 1 s inside
+/// its turn (the existing CMUX_TUI_TEST_RESPAWN_DELAY_MS seam) and 4 slots:
+/// the visible terminal is in the first wave, and no wave has more than 4.
+#[test]
+fn a_kill_all_respawns_the_visible_workspace_first_in_bounded_waves() {
+    const TERMINALS: usize = 24;
+    const SLOTS: usize = 4;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-order");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("order-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let visible_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": visible_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let visible_name = tree["workspaces"][visible_index]["name"].as_str().unwrap().to_string();
+    let visible =
+        terminals[visible_name.trim_start_matches("order-").parse::<usize>().unwrap()].clone();
+    // The selection reaches the registry before the kill.
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), SLOTS.to_string()));
+    harness.restart();
+
+    // When each terminal respawned, from the loss log (one line per respawn).
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(60));
+    let respawned_at = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .filter_map(|event| {
+                Some((event["terminal_id"].as_str()?.to_string(), event["at_ms"].as_u64()?))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        if terminals.iter().all(|terminal| at.contains_key(terminal)) {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "only {} of {TERMINALS} terminals respawned", at.len());
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let first = respawned_at.values().copied().min().unwrap();
+    let first_wave = respawned_at
+        .iter()
+        .filter(|(_, at)| **at < first + HOLD_MS / 2)
+        .map(|(terminal, _)| terminal.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        first_wave.contains(&visible),
+        "the visible workspace's terminal was not in the first wave ({} of {TERMINALS})",
+        first_wave.len()
+    );
+    assert!(
+        first_wave.len() <= SLOTS,
+        "{} terminals respawned at once; the gate allows {SLOTS}",
+        first_wave.len()
+    );
+}

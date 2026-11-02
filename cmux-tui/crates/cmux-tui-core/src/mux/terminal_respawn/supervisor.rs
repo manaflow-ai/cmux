@@ -237,13 +237,19 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_snapshot();
-        let terminals = match snapshot {
+        let mut terminals = match snapshot {
             Ok(snapshot) => snapshot.terminals,
             Err(error) => {
                 eprintln!("cmux-tui: could not list terminals to respawn: {error:#}");
                 return;
             }
         };
+        // The workspace the person sees respawns first (the gate keeps the
+        // scheduling order), as its adoptions do (startup_adoption_gate.rs).
+        let visible = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        terminals.sort_by_key(|terminal| Some(&terminal.workspace_key) != visible.as_ref());
         let lost = terminals
             .into_iter()
             .filter(|terminal| {
