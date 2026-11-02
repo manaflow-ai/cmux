@@ -126,7 +126,7 @@ final class LayoutViewContext {
         // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
         if let entry = retired.removeValue(forKey: pane) {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
-            runClosingWork(of: pane, now: true)
+            runClosingWork(of: pane) // RED: after the commit
             entry.host.isHidden = false
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
