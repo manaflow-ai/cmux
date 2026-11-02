@@ -16,7 +16,7 @@ import Testing
 /// title or activity change runs) must still show the change; after it the change is gone and the refusal HUD
 /// says why. Group Delete only patched the model: the next recompute drew the group again until the daemon's
 /// delete came back, and a failed save went back without a word.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore)
+@MainActor @Suite(.serialized)
 struct SidebarOptimisticSaveTests {
     final class Notices {
         var shown: [String] = []

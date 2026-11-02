@@ -240,17 +240,13 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // The turn's first line (a run's, in this Claude chat) follows right under the prompt's action box.
     expect(measured.promptToWorked).toBeGreaterThanOrEqual(0);
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
-    // A reply's footer line is laid in the gap under the reply, so its 28 line may start 2 above
-    // the reply's box edge ((block 24 - 28) / 2).
-    expect(measured.replyToFooterText).toBeGreaterThanOrEqual(-3);
-    expect(measured.replyToFooterText).toBeLessThanOrEqual(10);
-    // The footer's 28 box sits inside the turn gap and never touches the next prompt.
-    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(0);
-    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(8);
-    // A footer's line is centred between the reply's last line and the next prompt (Leo, 2026-10-31:
-    // "padding after == padding before that kinda thing all around", #29860). The last footer instead
-    // rests the rest gap over the composer (below).
-    expect(Math.abs(measured.footerRoomAbove - measured.footerRoomBelow)).toBeLessThanOrEqual(1.5);
+    // A reply's footer is a row of its own, ChatGPT's 32 buttons 8 under the reply's box
+    // (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always say we can do
+    // it like chatgpt"); its time shares the buttons' line.
+    expect(Math.abs(measured.replyToFooterText - gridLength("gap-footer"))).toBeLessThanOrEqual(1);
+    // A prompt follows the footer at the turn gap, the footer's 32 box never in it.
+    expect(Math.abs(measured.footerToNextPrompt - gridLength("gap-turn"))).toBeLessThanOrEqual(1);
+    expect(Math.abs(measured.footerRoomBelow - gridLength("gap-turn"))).toBeLessThanOrEqual(1);
     // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
     // and a half body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every
     // state).

@@ -42,7 +42,7 @@ struct SidebarCmdNumberTwiceTests {
     /// draws as its former built-in, neither missing nor suppressed.
     static func topItemsSettled(_ window: WindowController, _ services: AppServices) -> Bool {
         if services.machines.local.supports(DaemonCapabilities.sidebarDoc) {
-            guard let doc = SidebarDocStore.current, doc.isActive, doc.shown != nil, doc.shownVersion == doc.version else { return false }
+            guard let doc = services.sidebarDoc.store, doc.isActive, doc.shown != nil, doc.shownVersion == doc.version else { return false }
         }
         let model = window.sidebar.model
         guard model.layout == SidebarRows.visibleLayout(services, window: window.state) else { return false }
@@ -61,7 +61,7 @@ struct SidebarCmdNumberTwiceTests {
     static func report(_ window: WindowController, _ services: AppServices, picked: SidebarItem?, orderAtPick: [SidebarItem]?) -> String {
         let model = window.sidebar.model, view = window.sidebar.container.sidebarView
         let top = model.layout.sections(in: .top, room: model.activeProfileID?.rawValue).flatMap(\.items).map(\.id.rawValue)
-        let doc = SidebarDocStore.current.map { "active \($0.isActive), version \($0.version), shown \($0.shownVersion)" } ?? "none"
+        let doc = services.sidebarDoc.store.map { "active \($0.isActive), version \($0.version), shown \($0.shownVersion)" } ?? "none"
         let pick = picked.map { String(describing: $0) } ?? "nil", atPick = orderAtPick.map { String(describing: $0) } ?? "not picked"
         let selection = "model selection \(String(describing: model.selectedItem)), drawn \(drawnSelection(view)), "
             + "window selection \(String(describing: SidebarNavigation.current(in: window, services))), "

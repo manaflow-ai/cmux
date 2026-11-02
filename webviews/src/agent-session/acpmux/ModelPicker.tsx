@@ -1,4 +1,4 @@
-import { authChipText, authText, canSessionLogin } from "./sessionAuth";
+import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
   useContext,
@@ -1518,7 +1518,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
                   <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
-                    {t("harness.logIn")}
+                    {authLoginText(props.sessionAuth, t)}
                   </button>
                 )}
                 {props.onSessionAuthRefresh && (
