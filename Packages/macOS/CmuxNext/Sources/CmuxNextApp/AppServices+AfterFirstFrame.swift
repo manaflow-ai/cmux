@@ -15,7 +15,6 @@ extension AppServices {
         let acpmux = QuitAgents.environment(self)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         chatsFeed?.keepCurrent()
-        projectsImport.start(feed: chatsFeed)
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         NewTabWeather.wire(agentTabs, services: self)

@@ -67,12 +67,14 @@ const MAX_BODY_CHARS: usize = 200;
 impl Mux {
     /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
     /// chats that posts their notifications for as long as the daemon runs,
-    /// and the agent message pump (`agent_message_pump.rs`), which the watch
-    /// wakes whenever it reaches acpmux.
+    /// and the agent message pump (`agent_message_pump.rs`) and the chat-index
+    /// project import (`project_chats.rs`), which the watch wakes whenever it
+    /// reaches acpmux.
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
+        self.start_project_chats(socket.clone());
         let mux = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("mux-agent-chat-notices".into())
@@ -368,8 +370,10 @@ fn connect_and_follow(
         if !live.hold_agent_chat_connection(&stream) {
             return Connection::Ended { stayed_up: false };
         }
-        // acpmux is back: what waited for it goes out now.
+        // acpmux is back: what waited for it goes out now, and the project
+        // import follows its chat index again.
         live.wake_agent_message_pump();
+        live.wake_project_chats();
     }
     let stayed_up = follow(mux, stream, chats).is_ok();
     if let Some(live) = mux.upgrade() {
