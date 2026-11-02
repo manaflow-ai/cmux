@@ -27,6 +27,7 @@
 //!    `https`, and single words search.
 
 use crate::chromium::{chromium_page_route, internal_url_with_scheme};
+use crate::text::split_before;
 use crate::uri::{file_url, parse_lenient, parse_strict};
 
 /// cmux's own pages that are no browser page, which the App opens instead of
@@ -49,8 +50,7 @@ pub struct TypedInput<'a> {
 pub fn contains_pairing_link(text: &str) -> bool {
     let lower = text.to_lowercase();
     let mut rest = lower.as_str();
-    while let Some(start) = rest.find("cmux-vnc:") {
-        let after = &rest[start + "cmux-vnc:".len()..];
+    while let Some((_, after)) = rest.split_once("cmux-vnc:") {
         if after.starts_with("pair") || after.starts_with("//pair") {
             return true;
         }
@@ -66,8 +66,7 @@ pub fn is_loopback_host(host: &str) -> bool {
         return true;
     }
     let octets: Vec<&str> = host.split('.').collect();
-    octets.len() == 4
-        && octets[0] == "127"
+    matches!(octets.as_slice(), ["127", _, _, _])
         && octets.iter().all(|octet| octet.parse::<u8>().is_ok())
 }
 
@@ -85,9 +84,11 @@ fn is_non_unique_host(host: &str) -> bool {
     }
     let labels: Vec<&str> = host.split('.').collect();
     let octets: Vec<u8> = labels.iter().filter_map(|label| label.parse::<u8>().ok()).collect();
-    if labels.len() == 4 && octets.len() == 4 {
+    if labels.len() == 4
+        && let [first, second, _, _] = octets.as_slice()
+    {
         return matches!(
-            (octets[0], octets[1]),
+            (*first, *second),
             (10, _) | (192, 168) | (169, 254) | (172, 16..=31) | (100, 64..=127)
         );
     }
@@ -120,11 +121,10 @@ fn is_non_unique_host(host: &str) -> bool {
 fn split_host_and_port(authority: &str) -> (String, bool) {
     let lower = authority.to_lowercase();
     if let Some(after_open) = lower.strip_prefix('[') {
-        let Some(close) = after_open.find(']') else {
+        let Some((host, rest)) = after_open.split_once(']') else {
             return (String::new(), false);
         };
-        let host = after_open[..close].to_string();
-        let rest = &after_open[close + 1..];
+        let host = host.to_string();
         if rest.is_empty() {
             return (host, false);
         }
@@ -202,7 +202,7 @@ impl TypedInput<'_> {
             return None;
         }
         let start = text.find("://")? + 3;
-        let authority_end = start + text[start..].find(is_authority_end)?;
+        let authority_end = start + text.get(start..)?.find(is_authority_end)?;
         let first_space = text.find(char::is_whitespace)?;
         if authority_end >= first_space || text.chars().any(|c| c.is_whitespace() && c != ' ') {
             return None;
@@ -273,7 +273,7 @@ fn removing_wrap_breaks(text: &str) -> Option<String> {
     if start > first_break {
         return None;
     }
-    let authority_end = start + text[start..].find(is_authority_end)?;
+    let authority_end = start + text.get(start..)?.find(is_authority_end)?;
     if authority_end >= first_break {
         return None;
     }
@@ -284,8 +284,7 @@ fn removing_wrap_breaks(text: &str) -> Option<String> {
 /// The lowercased scheme when the text starts with one. `localhost:3000` and
 /// `example.com:8080/x` are host-and-port, not schemes.
 fn explicit_scheme(text: &str) -> Option<String> {
-    let colon = text.find(':')?;
-    let candidate = &text[..colon];
+    let (candidate, after_colon) = text.split_once(':')?;
     let mut chars = candidate.chars();
     let first = chars.next()?;
     if !first.is_alphabetic()
@@ -293,13 +292,12 @@ fn explicit_scheme(text: &str) -> Option<String> {
     {
         return None;
     }
-    let after_colon = &text[colon + 1..];
-    let port_end = after_colon.find(|c: char| !c.is_numeric()).unwrap_or(after_colon.len());
-    if port_end > 0 && !after_colon.starts_with("//") {
-        let rest = &after_colon[port_end..];
-        if rest.chars().next().is_none_or(is_authority_end) {
-            return None;
-        }
+    let (port, rest) = split_before(after_colon, |c| !c.is_numeric());
+    if !port.is_empty()
+        && !after_colon.starts_with("//")
+        && rest.chars().next().is_none_or(is_authority_end)
+    {
+        return None;
     }
     Some(candidate.to_lowercase())
 }
@@ -323,8 +321,7 @@ fn cmux_app_page(text: &str) -> Option<String> {
 }
 
 fn scheme_less_url(text: &str) -> Option<String> {
-    let authority_end = text.find(is_authority_end).unwrap_or(text.len());
-    let authority = &text[..authority_end];
+    let (authority, after_authority) = split_before(text, is_authority_end);
     if authority.is_empty() || authority.contains('@') {
         return None;
     }
@@ -332,7 +329,7 @@ fn scheme_less_url(text: &str) -> Option<String> {
     if host.is_empty() {
         return None;
     }
-    let has_path = text[authority_end..].starts_with('/');
+    let has_path = after_authority.starts_with('/');
     let scheme = if is_loopback_host(&host) {
         "http"
     } else if is_non_unique_host(&host) {

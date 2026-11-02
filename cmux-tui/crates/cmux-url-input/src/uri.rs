@@ -15,6 +15,8 @@
 //! IDNA-encodes them in `URL(string:)`) are not modelled; the Swift side-by-side
 //! test of the app half compares them before the Swift copy goes.
 
+use crate::text::{push_percent_byte, split_before};
+
 /// The parts of a parsed URL the resolver reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Parts<'a> {
@@ -86,18 +88,18 @@ fn valid_ip_literal(literal: &str) -> bool {
 
 /// `host[:port]` of an authority; the host (brackets kept) when valid.
 fn valid_host_port(host_port: &str) -> Option<&str> {
-    let (host, port) = if host_port.starts_with('[') {
-        let close = host_port.find(']')?;
-        if !valid_ip_literal(&host_port[1..close]) {
+    let (host, port) = if let Some(after_open) = host_port.strip_prefix('[') {
+        let (literal, rest) = after_open.split_once(']')?;
+        if !valid_ip_literal(literal) {
             return None;
         }
-        let rest = &host_port[close + 1..];
         let port = match rest.strip_prefix(':') {
             Some(port) => port,
             None if rest.is_empty() => "",
             None => return None,
         };
-        (&host_port[..=close], port)
+        // The host with its brackets: `host_port` without the `rest` after `]`.
+        (host_port.strip_suffix(rest)?, port)
     } else {
         let (host, port) = host_port.split_once(':').unwrap_or((host_port, ""));
         if !valid_component(host, |c| is_unreserved(c) || is_sub_delim(c)) {
@@ -111,33 +113,27 @@ fn valid_host_port(host_port: &str) -> Option<&str> {
 /// `URLComponents(string:)` for an absolute URL; `None` when the text is not
 /// valid RFC 3986 (a space, `|`, a stray `%`, a non-ASCII character...).
 pub(crate) fn parse_strict(text: &str) -> Option<Parts<'_>> {
-    let colon = text.find(':')?;
-    let scheme = &text[..colon];
+    let (scheme, after) = text.split_once(':')?;
     if !valid_scheme(scheme) {
         return None;
     }
-    let after = &text[colon + 1..];
     let (host, rest) = if let Some(authority_and_rest) = after.strip_prefix("//") {
-        let end = authority_and_rest.find(['/', '?', '#']).unwrap_or(authority_and_rest.len());
-        let authority = &authority_and_rest[..end];
-        let host_port = match authority.rfind('@') {
-            Some(at) => {
-                let userinfo = &authority[..at];
+        let (authority, rest) = split_before(authority_and_rest, |c| matches!(c, '/' | '?' | '#'));
+        let host_port = match authority.rsplit_once('@') {
+            Some((userinfo, host_port)) => {
                 if !valid_component(userinfo, |c| is_unreserved(c) || is_sub_delim(c) || c == ':') {
                     return None;
                 }
-                &authority[at + 1..]
+                host_port
             }
             None => authority,
         };
-        (Some(valid_host_port(host_port)?), &authority_and_rest[end..])
+        (Some(valid_host_port(host_port)?), rest)
     } else {
         (None, after)
     };
-    let fragment_start = rest.find('#').unwrap_or(rest.len());
-    let (before_fragment, fragment) = rest.split_at(fragment_start);
-    let query_start = before_fragment.find('?').unwrap_or(before_fragment.len());
-    let (path, query) = before_fragment.split_at(query_start);
+    let (before_fragment, fragment) = split_before(rest, |c| c == '#');
+    let (path, query) = split_before(before_fragment, |c| c == '?');
     let query_or_fragment = |c: char| is_pchar(c) || matches!(c, '/' | '?');
     let valid = valid_component(path, |c| is_pchar(c) || c == '/')
         && valid_component(query.strip_prefix('?').unwrap_or(""), query_or_fragment)
@@ -146,12 +142,9 @@ pub(crate) fn parse_strict(text: &str) -> Option<Parts<'_>> {
 }
 
 fn push_percent_encoded(out: &mut String, c: char) {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut buffer = [0u8; 4];
     for byte in c.encode_utf8(&mut buffer).bytes() {
-        out.push('%');
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0F) as usize] as char);
+        push_percent_byte(out, byte);
     }
 }
 

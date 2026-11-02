@@ -14,6 +14,7 @@
 //! - Userinfo, a port, or a host with other characters than ASCII letters,
 //!   digits, `-`, `_` and `.` is not an internal page.
 
+use crate::text::split_before;
 use crate::uri::parse_strict;
 
 /// Where a Chromium internal page opens (spec decision CHROME-INTERNAL-PAGES):
@@ -49,13 +50,12 @@ fn is_host_character(c: char) -> bool {
 /// `ChromiumInternalURL(text, scheme:)`: `scheme` is the lowercased scheme of
 /// `text`. The canonical URL, or `None`.
 pub(crate) fn internal_url_with_scheme(text: &str, scheme: &str) -> Option<String> {
-    let colon = text.find(':')?;
-    let mut rest = &text[colon + 1..];
+    let (_, mut rest) = text.split_once(':')?;
     let canonical_scheme = match scheme {
         "chrome" | "chrome-extension" => scheme,
         "about" => {
-            let page_end = rest.find(['?', '#']).unwrap_or(rest.len());
-            let page = rest[..page_end].to_lowercase();
+            let (page, _) = split_before(rest, |c| matches!(c, '?' | '#'));
+            let page = page.to_lowercase();
             if page == "blank" || page == "srcdoc" {
                 return None;
             }
@@ -64,12 +64,11 @@ pub(crate) fn internal_url_with_scheme(text: &str, scheme: &str) -> Option<Strin
         _ => return None,
     };
     rest = rest.trim_start_matches('/');
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let host = rest[..authority_end].to_lowercase();
+    let (host, tail) = split_before(rest, |c| matches!(c, '/' | '?' | '#'));
+    let host = host.to_lowercase();
     if host.is_empty() || !host.chars().all(is_host_character) {
         return None;
     }
-    let tail = &rest[authority_end..];
     let slash = if tail.starts_with('/') { "" } else { "/" };
     let url = format!("{canonical_scheme}://{host}{slash}{tail}");
     let parts = parse_strict(&url)?;
@@ -80,8 +79,8 @@ pub(crate) fn internal_url_with_scheme(text: &str, scheme: &str) -> Option<Strin
 /// page, in canonical form; `None` for anything else (`about:blank` included:
 /// every engine has it).
 pub fn chromium_internal_url(text: &str) -> Option<String> {
-    let colon = text.find(':')?;
-    let scheme = text[..colon].to_lowercase();
+    let (scheme, _) = text.split_once(':')?;
+    let scheme = scheme.to_lowercase();
     if !matches!(scheme.as_str(), "chrome" | "chrome-extension" | "about") {
         return None;
     }
