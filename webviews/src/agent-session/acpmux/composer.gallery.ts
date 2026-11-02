@@ -1037,7 +1037,7 @@ export default agentPaneEntry({
       },
     },
     "file-saved-as-path": {
-      note: "Pasted files (a text file, a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path.",
+      note: 'Pasted files (a text file, a zip, a video) are saved by the chat\'s host; each file chip names the file and links the saved copy, and the video is the square tile with its play glyph (Leo, 2026-10-26: "Just do the square.").',
       snapshot: chat(finished),
       native: {
         "chat.upload": {
@@ -1064,14 +1064,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 3);
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2 &&
+            ctx.document.querySelector(".acpmux-attachment-video[title='repro.mov']"),
+        );
         const links = ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-link[data-saved]");
         const chips = [...links].map((chip) => ({
           name: chip.querySelector(".acpmux-attachment-link-name")?.textContent,
           note: chip.querySelector(".acpmux-attachment-link-note")?.textContent,
           path: chip.title,
         }));
-        for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
+        for (const name of ["notes.md", "build-logs.zip"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
           if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);

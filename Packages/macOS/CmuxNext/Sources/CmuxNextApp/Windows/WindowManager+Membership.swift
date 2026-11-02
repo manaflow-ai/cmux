@@ -77,7 +77,7 @@ extension WindowManager {
             var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room.
-            let waiting = pendingClaims.values.contains(window.id)
+            let waiting = claims.pending.values.contains(window.id)
             if visible.isEmpty, !waiting,
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
@@ -211,7 +211,7 @@ extension WindowManager {
         protectIfUnknown([workspaceID], window: state.id)
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
-        if !shows, pendingClaims[workspaceID] != nil { quietClaims.insert(workspaceID) }
+        if !shows, claims.pending[workspaceID] != nil { claims.quiet.insert(workspaceID) }
         if registry.value.owner(of: workspaceID) == state.id {
             if shows { select(workspaceID, in: state) }
             return
@@ -263,10 +263,10 @@ extension WindowManager {
         // Only the ids that resolve to this machine, as reconcile counts them: a key a clone shares
         // with another unopened machine resolves there, and filing it would open that machine.
         for workspace in daemon.store.workspaces where !value.isIncognito(windowID) && workspace.id != workspaceID && value.owner(of: workspace.id) == nil
-            && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self)
+            && claims.pending[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self)
             && services.machines.workspace(id: workspace.id)?.1 === daemon {
-            pendingClaims[workspace.id] = windowID
-            quietClaims.insert(workspace.id)
+            claims.pending[workspace.id] = windowID
+            claims.quiet.insert(workspace.id)
         }
         reconcileMembership()
     }
@@ -459,7 +459,7 @@ extension WindowManager {
                 cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
             }
         }
-        var placements = pendingClaims
+        var placements = claims.pending
         // A tab moved out of an incognito window into a new workspace (drag,
         // action, CLI) keeps its kind: that workspace goes back to the
         // incognito window it came from, never to a normal one.
@@ -472,10 +472,10 @@ extension WindowManager {
         }
         // Before the ephemeral placements: one there is not the person opening the machine, and an
         // unopened machine's ephemeral workspace opens no incognito window either.
-        backgroundClaims.formIntersection(pendingClaims.keys)
-        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !backgroundClaims.contains($0)) }
+        claims.background.formIntersection(claims.pending.keys)
+        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !claims.background.contains($0)) }
         // A background create's claim never places a held workspace (#28609): opening its machine does.
-        for id in unopened where backgroundClaims.remove(id) != nil { (pendingClaims[id], placements[id]) = (nil, nil); quietClaims.remove(id) }
+        for id in unopened where claims.background.remove(id) != nil { (claims.pending[id], placements[id]) = (nil, nil); claims.quiet.remove(id) }
         placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
@@ -485,15 +485,15 @@ extension WindowManager {
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
-        for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
+        for id in live where !held.contains(id) { claims.pending[id] = nil; claims.background.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value
         var preferred: [String: [String]] = [:]
         for id in live where before.owner(of: id) == nil && !held.contains(id) {
-            if let window = placements[id], !quietClaims.contains(id) { preferred[window, default: []].append(id) }
+            if let window = placements[id], !claims.quiet.contains(id) { preferred[window, default: []].append(id) }
         }
-        for id in live where !held.contains(id) { quietClaims.remove(id) }
+        for id in live where !held.contains(id) { claims.quiet.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
@@ -540,7 +540,7 @@ extension WindowManager {
     /// True when `id` is known gone: its machine is loaded and lacks it, or
     /// it was never seen and every machine that could hold it has loaded.
     func isDead(_ id: String) -> Bool {
-        if pendingClaims[id] != nil || services.machines.workspace(id: id) != nil { return false }
+        if claims.pending[id] != nil || services.machines.workspace(id: id) != nil { return false }
         if let machine = seenMachine[id] {
             // Its machine connected and loaded without it: gone. Connecting or paused: it waits.
             if let daemon = services.machines.daemon(machine: machine) { return daemon.store.isLoaded }
@@ -569,7 +569,7 @@ extension WindowManager {
     /// Workspaces the daemon has not reported yet stay alive (and land in
     /// `window` if reconcile sees them as orphans) until it does.
     private func protectIfUnknown(_ ids: [String], window: String) {
-        for id in ids where services.machines.workspace(id: id) == nil { pendingClaims[id] = window }
+        for id in ids where services.machines.workspace(id: id) == nil { claims.pending[id] = window }
     }
 
     /// The daemon's workspace ids in sidebar order, then any it lists

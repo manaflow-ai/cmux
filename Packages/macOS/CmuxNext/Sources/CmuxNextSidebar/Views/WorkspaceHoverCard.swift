@@ -230,6 +230,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
         bodyID = nil
         releaseCustom()
         updateTicker()
+        // The card the pointer rested on hid: a sidebar change held while it was read shows now,
+        // unless the pointer is back over the rows.
+        list?.releaseHeldModelChangeIfPointerLeft()
     }
 
     private func detailsChanged(_ id: HoverTargetID) {

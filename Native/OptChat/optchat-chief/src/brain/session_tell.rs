@@ -64,6 +64,28 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
     None
 }
 
+/// Refuse a tell when the current daemon cannot verify its target's identity.
+/// A name-to-id lookup and the subsequent info read are separate requests; the
+/// session may have ended or its peer may have gone away between them.
+fn checked_tell_target(
+    id: &str,
+    summary: Option<SessionSummary>,
+) -> Result<SessionSummary, String> {
+    let session = summary.ok_or_else(|| {
+        format!("tell: cannot verify acpmux session {id}; refresh control(action: \"sessions\")")
+    })?;
+    if session.session_id != id {
+        return Err(format!(
+            "tell: session identity changed (expected {id}, got {}); refresh sessions",
+            session.session_id
+        ));
+    }
+    if let Some(why) = refusal(&session) {
+        return Err(why);
+    }
+    Ok(session)
+}
+
 /// Whether a `session/prompt` answer ends the turn: a steer into a running
 /// turn is answered `steered` at once, and the turn's answer comes later
 /// (acpmux `steer_end::ends_turn`).
@@ -102,14 +124,38 @@ pub(super) fn reply_note(name: &str, text: &str) -> String {
     )
 }
 
-/// The `control sessions` rows: the sessions a tell may name.
-pub(super) fn sessions_list(sessions: &[SessionSummary]) -> String {
-    let rows: Vec<String> = sessions
+/// One bounded page of the eligible sessions, sorted by stable name and id.
+/// `n` in control(action: "sessions", n: N) is the zero-based offset.
+/// The daemon's census remains the owner; these are ephemeral read results.
+pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> String {
+    let mut eligible: Vec<&SessionSummary> = sessions
         .iter()
-        .filter(|s| refusal(s).is_none())
+        .filter(|session| refusal(session).is_none())
+        .collect();
+    eligible.sort_unstable_by(|a, b| (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id)));
+    let duplicates: std::collections::HashSet<String> = eligible
+        .windows(2)
+        .filter(|pair| pair[0].name == pair[1].name)
+        .map(|pair| pair[0].name.clone())
+        .collect();
+    let total = eligible.len();
+    if total == 0 {
+        return "outcome: done. No acpmux sessions to tell.".to_owned();
+    }
+    if offset >= total {
+        return format!(
+            "outcome: done. Session offset {offset} is past the {total} available sessions; restart at control(action: \"sessions\")"
+        );
+    }
+    let rows: Vec<String> = eligible
+        .into_iter()
+        .skip(offset)
         .take(LISTED)
         .map(|s| {
             let mut row = format!("- {PREFIX}{} ({}, {})", s.name, s.harness, status(s));
+            if duplicates.contains(s.name.as_str()) {
+                row.push_str(" [ambiguous name: rename one session before telling]");
+            }
             if let Some(line) = s
                 .last_message
                 .as_ref()
@@ -122,13 +168,19 @@ pub(super) fn sessions_list(sessions: &[SessionSummary]) -> String {
             row
         })
         .collect();
-    if rows.is_empty() {
-        return "outcome: done. No acpmux sessions to tell.".to_owned();
-    }
+    let end = offset + rows.len();
+    let next = if end < total {
+        format!("\nNext page: control(action: \"sessions\", n: {end}).")
+    } else {
+        "\nEnd of session list.".to_owned()
+    };
     format!(
         "outcome: done. acpmux sessions (tell(id: \"{PREFIX}NAME\", message) sends as the Chief; \
-         the answer comes back as a [{PREFIX}NAME] report):\n{}",
-        rows.join("\n")
+         the answer comes back as a [{PREFIX}NAME] report):\n{}\nShowing {}-{} of {}.{next}",
+        rows.join("\n"),
+        offset + 1,
+        end,
+        total,
     )
 }
 
@@ -153,11 +205,8 @@ impl Brain {
                 "tell: no acpmux session {name}; control(action: \"sessions\") lists them"
             ));
         };
-        let summary = agents.session(&session)?;
-        if let Some(why) = summary.as_ref().and_then(refusal) {
-            return Err(why);
-        }
-        let after = summary.as_ref().and_then(|s| s.last_seq).unwrap_or(0);
+        let summary = checked_tell_target(&session, agents.session(&session)?)?;
+        let after = summary.last_seq.unwrap_or(0);
         let prompt_id = format!(
             "{}{PREFIX}{name}:{}",
             crate::subagents::PROMPT_PREFIX,
@@ -225,8 +274,10 @@ impl Brain {
     }
 
     /// `control(action: "sessions")`: the acpmux sessions a tell may name.
-    pub(super) fn control_sessions(&self) -> Result<String, String> {
-        Ok(sessions_list(&self.agents.list_sessions()?))
+    pub(super) fn control_sessions(&self, offset: u64) -> Result<String, String> {
+        let offset = usize::try_from(offset)
+            .map_err(|_| "control sessions: page offset is too large".to_owned())?;
+        Ok(sessions_list(&self.agents.list_sessions()?, offset))
     }
 }
 
@@ -270,9 +321,84 @@ mod tests {
         assert!(ends_turn(&json!({"stopReason": "end_turn"})));
         let lane = summary("lane-a", json!({}));
         assert_eq!(refusal(&lane), None);
-        let list = sessions_list(&[turn, sub, lane]);
+        let list = sessions_list(&[turn, sub, lane], 0);
         assert!(list.contains("- session:lane-a (claude, idle)"), "{list}");
         assert!(!list.contains("optchat"), "{list}");
+    }
+
+    #[test]
+    fn sessions_page_through_three_hundred_and_explain_the_next_call() {
+        let sessions: Vec<SessionSummary> = (0..300)
+            .rev()
+            .map(|n| summary(&format!("lane-{n:03}"), json!({})))
+            .collect();
+        let first = sessions_list(&sessions, 0);
+        assert_eq!(first.matches("- session:").count(), 60);
+        assert!(first.contains("- session:lane-000"), "{first}");
+        assert!(first.contains("- session:lane-059"), "{first}");
+        assert!(!first.contains("- session:lane-060"), "{first}");
+        assert!(first.contains("Showing 1-60 of 300"), "{first}");
+        assert!(
+            first.contains("control(action: \"sessions\", n: 60)"),
+            "{first}"
+        );
+
+        let middle = sessions_list(&sessions, 120);
+        assert_eq!(middle.matches("- session:").count(), 60);
+        assert!(middle.contains("- session:lane-120"), "{middle}");
+        assert!(middle.contains("- session:lane-179"), "{middle}");
+        assert!(middle.contains("n: 180"), "{middle}");
+
+        let last = sessions_list(&sessions, 240);
+        assert_eq!(last.matches("- session:").count(), 60);
+        assert!(last.contains("- session:lane-299"), "{last}");
+        assert!(last.contains("Showing 241-300 of 300"), "{last}");
+        assert!(last.contains("End of session list"), "{last}");
+        assert!(!last.contains("Next page"), "{last}");
+
+        let past = sessions_list(&sessions, 300);
+        assert!(past.contains("offset 300 is past the 300"), "{past}");
+    }
+
+    #[test]
+    fn session_list_marks_duplicate_names_as_unsafe_to_tell() {
+        let mut first = summary("dup", json!({}));
+        first.session_id = "one".into();
+        let mut second = summary("dup", json!({}));
+        second.session_id = "two".into();
+        let independent = summary("unique", json!({}));
+        let list = sessions_list(&[first, second, independent], 0);
+        assert_eq!(list.matches("[ambiguous name:").count(), 2, "{list}");
+        assert!(list.contains("- session:unique (claude, idle)"), "{list}");
+        assert!(
+            !list.contains("session:unique (claude, idle) [ambiguous"),
+            "{list}"
+        );
+    }
+
+    #[test]
+    fn tell_refuses_a_missing_mismatched_or_chief_internal_target() {
+        let lane = summary("lane-a", json!({}));
+        assert!(
+            checked_tell_target("id-lane-a", None)
+                .unwrap_err()
+                .contains("cannot verify")
+        );
+        assert!(
+            checked_tell_target("id-another", Some(lane.clone()))
+                .unwrap_err()
+                .contains("identity changed")
+        );
+        assert_eq!(
+            checked_tell_target("id-lane-a", Some(lane)).unwrap().name,
+            "lane-a"
+        );
+        let chief = summary("turn-1", json!({crate::acpmux::CHIEF_TAG: "home"}));
+        assert!(
+            checked_tell_target("id-turn-1", Some(chief))
+                .unwrap_err()
+                .contains("Chief's own")
+        );
     }
 
     #[test]
