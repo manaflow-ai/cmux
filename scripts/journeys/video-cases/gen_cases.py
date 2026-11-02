@@ -114,6 +114,13 @@ def after_check():
                      {"frame_text": "rv-done-${nonce}"}]}]
 
 
+def after_check_hid():
+    """after_check with a REAL HID Ctrl-C (ext_video hid_key), for the "Ctrl-C taken by the Center menu item" check."""
+    steps = after_check()
+    steps[1] = kit_key("c", ["control"], "ctrlc", "after: a real HID Ctrl-C ends p0's load program")
+    return steps
+
+
 def settle(seconds=1.0):
     return {"do": "wait", "seconds": seconds, "title": "the layout and the load settle (nothing observable to wait on)"}
 
@@ -267,6 +274,13 @@ xtp_case("xtpa-zoom-12", "xctrace, app clock: zoom one of 12 panes, unzoom 1.2 s
          lambda h: columns(3, h, rows=4),
          [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
           {"do": "wait", "seconds": 1.2}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out")], 1.2)
+# Ctrl-C check (STATUS 6164): close-in-row with HEAVY load, then a real HID Ctrl-C into p0 (its TUI must end) and an echo.
+for n in range(1, 4):
+    jid = f"rv-ctrlc-hid-{n}"
+    steps = [theme(True)] + first_pane(jid, True) + splits_in_row(3, True) + close("p1", "close") + [settle(1.5)] + after_check_hid()
+    CASES.append({"id": jid, "priority": "P1", "title": f"Ctrl-C by real HID into a TUI pane after a close ({n})",
+                  "why": "On the tip build a debug.key Ctrl-C went to a menu item 'Center' in 2 of 5 runs (STATUS 6164).",
+                  "source": "RESIZE VIDEOS suite", "budget_seconds": 200, "options": {"key_path": "real"}, "steps": steps})
 # 2. Close a pane in a column (3 stacked): the other two grow.
 case("close-in-column", "Close the middle of 3 panes stacked in one column: the other two grow to fill",
      lambda h: splits_in_column(3, h), close("p1", "close"), variants=ALL)
