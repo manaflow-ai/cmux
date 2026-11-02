@@ -747,12 +747,22 @@ class ParallelLaunchSmoke(unittest.TestCase):
                                                "vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off'"), image["if"])
         self.assertTrue(steps["Launch smoke from a fresh home"]["if"].startswith("steps.final-image.outputs.image == '' && "))
         self.assertEqual(JOBS["verify-final-dmg-nightly"]["outputs"]["image"], "${{ steps.final-image.outputs.image }}")
+        self.assertEqual(steps["Launch smoke from a fresh home"]["id"], "own-smoke")
+        self.assertEqual(JOBS["verify-final-dmg-nightly"]["outputs"]["smoked_in_job"],
+                         "${{ steps.own-smoke.outcome == 'success' }}")
+        env = next(s for s in JOBS["publish-nightly"]["steps"] if s.get("name") == "Select the build to publish")["env"]
+        self.assertEqual(env["OWN_SMOKED_IN_JOB"], "${{ needs.verify-final-dmg-nightly.outputs.smoked_in_job }}")
+        self.assertEqual(env["PARALLEL_PATH"], "${{ needs.signer-dmg.result == 'success' && "
+                         "vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next' }}")
 
     def test_publish_needs_the_smoke_on_the_final_image(self):
         publish = JOBS["publish-nightly"]
         self.assertIn("launch-smoke-nightly", needs(publish))
-        self.assertIn("needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.image == '' || "
-                      "needs.launch-smoke-nightly.result == 'success' && "
+        self.assertIn("needs.verify-final-dmg-nightly.result == 'success' && "
+                      "(needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || "
+                      "!(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && "
+                      "needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || "
+                      "needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && "
                       "needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image))", publish["if"])
         select = next(s for s in publish["steps"] if s.get("name") == "Select the build to publish")
         own = dict(OWN_RESULT="success", OWN_PENDING="", OWN_VERIFIED="success", OWN_DMG_VERIFIED="success",
@@ -770,6 +780,18 @@ class ParallelLaunchSmoke(unittest.TestCase):
 
         self.assertEqual(source()[0], 0)
         self.assertEqual(source(OWN_SMOKE_IMAGE="i1", PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE="i1")[0], 0)
+        self.assertEqual(source(PARALLEL_PATH="false", OWN_SMOKED_IN_JOB="false")[0], 0)
+        self.assertEqual(source(PARALLEL_PATH="true", OWN_SMOKED_IN_JOB="true")[0], 0)
+        # The parallel path was in effect but the final DMG's image came through empty: verify skipped its own
+        # smoke, so only launch-smoke-nightly's pass on a matching non-empty image may publish it (#32378 review).
+        for env in (dict(PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE=""),
+                    dict(PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE="i1"),
+                    dict(PARALLEL_SMOKE="skipped", PARALLEL_SMOKE_IMAGE=""),
+                    dict(PARALLEL_SMOKE="failure", PARALLEL_SMOKE_IMAGE="")):
+            with self.subTest(empty_image=env):
+                code, out = source(PARALLEL_PATH="true", OWN_SMOKED_IN_JOB="false", OWN_SMOKE_IMAGE="", **env)
+                self.assertNotEqual(code, 0)
+                self.assertNotIn("source=own", out)
         for env in (dict(PARALLEL_SMOKE="failure", PARALLEL_SMOKE_IMAGE="i1"),
                     dict(PARALLEL_SMOKE="skipped", PARALLEL_SMOKE_IMAGE=""),
                     dict(PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE="i2")):
