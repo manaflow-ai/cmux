@@ -36,6 +36,7 @@ pub(crate) fn sort_session_summaries(list: &mut [Value]) {
 
 /// The session list reply for `params`: `{sessions}` without `limit`,
 /// `{sessions, nextCursor}` with it.
+#[cfg(test)]
 pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<Value, RpcError> {
     session_list_reply_borrowed(&sorted, params)
 }
