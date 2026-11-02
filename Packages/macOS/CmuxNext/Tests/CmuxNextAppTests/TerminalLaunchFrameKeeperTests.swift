@@ -158,4 +158,30 @@ import Testing
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
         #expect(resaved, "a resized terminal was not saved again within 3 s: a kill now leaves a frame the launch refuses")
     }
+
+    /// Review of b710d40: a resized terminal that keeps changing (a spinner, a log) must still be saved at its new size
+    /// (a frame of the old size is refused at launch), once the size holds, without waiting for its output to stop.
+    @Test func aBusyResizedTerminalIsSavedAtItsNewSize() async throws {
+        let shown = try await Shown()
+        defer { shown.close() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-busy-resize-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = TerminalLaunchFrames(directory: directory)
+        frames.keep("tab_busy_resized", session: shown.session, work: Self.work)
+        try #require(try await Self.eventually { !Self.files("tab_busy_resized", in: directory).isEmpty }, "the first frame was never kept")
+        let saves = frames.keepSaves
+        var frame = shown.window.frame
+        frame.size.width /= 2
+        shown.window.setFrame(frame, display: true)
+        shown.session.view.layoutSubtreeIfNeeded()
+        let resized = shown.session.surfaceView.bounds.size
+        // It never goes quiet: output every 30 ms for 4 s.
+        let busyUntil = ContinuousClock.now.advanced(by: .seconds(4))
+        while ContinuousClock.now < busyUntil, frames.keepSaves == saves {
+            shown.io.send(.output(Data("z".utf8)))
+            try await Task.sleep(for: .milliseconds(30)) // test: keystroke rate
+        }
+        #expect(frames.keepSaves > saves, "a busy terminal was not saved at its new size: the launch refuses its old-size frame")
+        #expect(frames.keepSavedSize("tab_busy_resized") == resized, "the save was not at the new size")
+    }
 }

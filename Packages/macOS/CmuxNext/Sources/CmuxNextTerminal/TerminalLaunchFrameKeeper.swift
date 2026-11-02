@@ -63,6 +63,8 @@ final class TerminalLaunchFrameKeeper {
         /// The terminal's size at the last save: a frame of another size is refused at launch, so a resize saves again
         /// without waiting for ``interval``.
         var savedSize: CGSize?
+        /// The size the previous check saw: a size still changing (a drag, a spring) waits for quiet.
+        var seenSize: CGSize?
         var onDisk = false
     }
 
@@ -88,6 +90,9 @@ final class TerminalLaunchFrameKeeper {
         }
         changed(key)
     }
+
+    /// The size of `key`'s last save (tests).
+    func savedSize(_ key: String) -> CGSize? { kept[key]?.savedSize }
 
     /// The quit path saves every visible frame itself: no keeper save may land after it.
     func stop() {
@@ -128,6 +133,9 @@ final class TerminalLaunchFrameKeeper {
         let generation = entry.changes.generation
         let changedSinceCheck = generation != entry.seen
         entry.seen = generation
+        let size = session.surfaceView.bounds.size
+        let sizeMoving = entry.seenSize != nil && entry.seenSize != size
+        entry.seenSize = size
         if changedSinceCheck { notDrawnChecks[key] = nil } // a few checks per change, not per terminal
         // Nothing usable on disk (removed while hidden, or saved at another size): save as soon as it is quiet.
         let stale = !entry.onDisk || entry.savedSize != session.surfaceView.bounds.size
@@ -137,9 +145,8 @@ final class TerminalLaunchFrameKeeper {
             return
         }
         if changedSinceCheck, entry.lastSave != nil {
-            // A size change (a window drag, a pane spring) waits for quiet with no busy-wait force: a frame of an
-            // in-between size is refused at launch anyway, so saving one mid-gesture is only cost.
-            let sizeMoving = entry.savedSize != session.surfaceView.bounds.size
+            // A size still changing since the last check (a window drag, a pane spring) waits with no busy-wait
+            // force: a frame of an in-between size is refused at launch anyway. Once it holds, busy terminals save.
             let since = entry.waitingSince ?? now
             if sizeMoving || now - since < Self.busyWait {
                 entry.waitingSince = since

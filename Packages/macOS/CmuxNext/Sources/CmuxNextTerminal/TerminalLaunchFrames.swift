@@ -387,6 +387,8 @@ public final class TerminalLaunchFrames {
 
     /// Frames the keeper saved so far (tests, `debug.timings`).
     var keepSaves: Int { keeper?.saves ?? 0 }
+    /// The size of `key`'s last kept save (tests).
+    func keepSavedSize(_ key: String) -> CGSize? { keeper?.savedSize(key) }
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
