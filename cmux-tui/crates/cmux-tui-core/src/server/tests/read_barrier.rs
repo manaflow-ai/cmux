@@ -29,18 +29,17 @@ fn a_tree_reply_names_the_lines_written_before_its_read() {
         &writer,
         &scheduler
     ));
-    // The command may answer from a worker thread: wait for its reply.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    // The command may answer from a worker thread: wait for its reply without taking a line (taking
+    // one while the command runs would change what it reads).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while outbound.state.lock().unwrap().control.len() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let mut reply = None;
-    while reply.is_none() && std::time::Instant::now() < deadline {
-        match outbound.try_pop() {
-            Some(line) => {
-                let value: Value = serde_json::from_str(&line).unwrap();
-                if value["id"] == 7 {
-                    reply = Some(value);
-                }
-            }
-            None => std::thread::sleep(std::time::Duration::from_millis(5)),
+    while let Some(line) = outbound.try_pop() {
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == 7 {
+            reply = Some(value);
         }
     }
     let reply = reply.expect("list-workspaces answered within 10 s");
