@@ -229,6 +229,8 @@ mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 pub mod background_turn;
+pub(crate) mod priority;
+pub(crate) mod priority_window;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod turns;
