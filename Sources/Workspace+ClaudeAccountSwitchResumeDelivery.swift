@@ -32,19 +32,16 @@ extension Workspace {
     /// Types `input` into the respawned `panel` once its shell reports a prompt.
     ///
     /// Typing earlier would land while rc files still run in canonical mode, where an rc-time
-    /// stdin reader can eat the command (#5473). Nothing is typed when the pane goes away or no
-    /// prompt arrives in time.
-    ///
-    /// - Parameter requiresUntouchedShellLine: For the unattended automatic switch: type nothing
-    ///   when the respawned shell's line may already hold other input (see
-    ///   ``ClaudeAccountSwitchShellLine``). A manual switch was asked for by the person at the
-    ///   pane, so it types regardless.
+    /// stdin reader can eat the command (#5473). Nothing is typed when the pane goes away, no
+    /// prompt arrives in time, or the shell's line may already hold other input (see
+    /// ``ClaudeAccountSwitchShellLine``): the command would be appended to it. That holds for a
+    /// manual switch too, since the person who asked for it may have typed into the new shell
+    /// before its prompt.
     @MainActor
     func deliverClaudeAccountSwitchResumeInput(
         _ input: String,
         to panel: TerminalPanel,
-        panelId: UUID,
-        requiresUntouchedShellLine: Bool = false
+        panelId: UUID
     ) async -> ClaudeAccountSwitchResumeDelivery {
         switch await waitForClaudeAccountSwitchShellPrompt(
             panelId: panelId,
@@ -56,10 +53,10 @@ extension Workspace {
         case .timedOut:
             return .notTyped
         case .prompt:
-            if requiresUntouchedShellLine, !ClaudeAccountSwitchShellLine.acceptsResumeInput(
+            guard ClaudeAccountSwitchShellLine.acceptsResumeInput(
                 receivedInputSinceRespawn: panel.hasReceivedExplicitInput,
                 screen: AgentAutoResumeCoordinator.shared.screenState(for: panel.surface)
-            ) {
+            ) else {
                 return .notTyped
             }
             return typeClaudeAccountSwitchResumeInput(input, into: panel, panelId: panelId) ? .typed : .notTyped

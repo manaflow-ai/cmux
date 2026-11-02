@@ -614,6 +614,6 @@ Behavior notes:
 - Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
 - Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
 - Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.
-- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it. The terminal keeps that account afterwards, including after cmux relaunches.
+- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it once the shell shows its prompt. If anything was typed or pasted into the terminal (or it was clicked) before then, cmux types nothing onto that line and notifies you with the command instead. The terminal keeps that account afterwards, including after cmux relaunches.
 
 Default: `[]`

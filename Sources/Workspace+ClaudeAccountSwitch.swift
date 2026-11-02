@@ -260,12 +260,7 @@ extension Workspace {
                 reason: reason
             ))
         }
-        let delivery = await deliverClaudeAccountSwitchResumeInput(
-            resumeInput,
-            to: panel,
-            panelId: panelId,
-            requiresUntouchedShellLine: trigger == .automatic
-        )
+        let delivery = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) trigger=\(trigger) " +

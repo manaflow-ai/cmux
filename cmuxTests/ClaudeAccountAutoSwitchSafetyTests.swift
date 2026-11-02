@@ -340,7 +340,7 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
     }
 }
 
-/// The automatic switch types its resume command only into an untouched shell line.
+/// A switch, manual or automatic, types its resume command only into an untouched shell line.
 @MainActor
 struct ClaudeAccountSwitchShellLineTests {
     @Test(arguments: [AgentAutoResumeCoordinator.ScreenState.emptyPrompt, .unknown])
