@@ -2212,6 +2212,14 @@ RUNNER_STATE_MAX_AGE_SECONDS = 5 * 60
 RUNNER_STATE_CLOCK_SKEW_SECONDS = 5
 RUNNER_STATE_MAX_BYTES = 2 * 1024 * 1024
 
+# The optional queue snapshot is copied into the runner census by the trusted
+# publisher.  Keep this envelope deliberately narrow: the picker needs the
+# janitor's aggregate counts, but never needs artifact URLs, tokens, or
+# workflow payloads from the source API.
+QUEUE_SNAPSHOT_ARTIFACT_KEYS = frozenset({"id", "name", "expired", "created_at", "workflow_run"})
+QUEUE_SNAPSHOT_RUN_KEYS = frozenset({"id", "head_branch", "repository_id", "head_repository_id"})
+QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS = 5
+
 
 def runner_state(repository: str, *, raw: str | None = None,
                  now: dt.datetime | None = None) -> Mapping[str, Any] | None:
@@ -2268,6 +2276,52 @@ def runner_state(repository: str, *, raw: str | None = None,
         return doc
     except (ValueError, TypeError, OSError, EOFError, OverflowError, zlib.error):
         return None
+
+
+def document_queue_snapshot(document: Mapping[str, Any], *, now: dt.datetime,
+                            branch: str) -> Mapping[str, Any] | None:
+    """Return a trusted, fresh janitor snapshot embedded in ``document``.
+
+    The queue snapshot is optional.  A bad optional value must leave the
+    runner roster usable and cause the caller to use its existing live/API
+    snapshot path instead.  Metadata is copied from the artifact API by the
+    publisher and is checked again here so a repository variable cannot make a
+    fork or an old artifact authoritative.
+    """
+    envelope = document.get("queue_snapshot")
+    if not isinstance(envelope, Mapping) or set(envelope) != {"artifact", "snapshot"}:
+        return None
+    artifact = envelope.get("artifact")
+    snapshot = envelope.get("snapshot")
+    if (not isinstance(artifact, Mapping)
+            or set(artifact) != QUEUE_SNAPSHOT_ARTIFACT_KEYS
+            or not isinstance(snapshot, Mapping)):
+        return None
+    artifact_id = artifact.get("id")
+    if (type(artifact_id) is not int or artifact_id <= 0
+            or artifact.get("name") != ARTIFACT_NAME
+            or type(artifact.get("expired")) is not bool
+            or artifact.get("expired")):
+        return None
+    run = artifact.get("workflow_run")
+    if (not isinstance(run, Mapping) or set(run) != QUEUE_SNAPSHOT_RUN_KEYS
+            or any(type(run.get(key)) is not int or run[key] <= 0
+                   for key in ("id", "repository_id", "head_repository_id"))
+            or not trusted_snapshot_artifact(artifact, branch)):
+        return None
+    created = parse_time(str(artifact.get("created_at") or ""))
+    generated = parse_time(str(snapshot.get("generated_at") or ""))
+    if created is None or generated is None:
+        return None
+    created_age = (now - created).total_seconds()
+    if (created_age < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
+            or created_age > MAX_SNAPSHOT_MINUTES * 60
+            or (now - generated).total_seconds() < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
+            or (generated - created).total_seconds() > QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS):
+        return None
+    if snapshot_problem(snapshot, now):
+        return None
+    return snapshot
 
 
 class GitHub:
@@ -2331,7 +2385,13 @@ class GitHub:
         raise AssertionError("unreachable")
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
-        """The newest trusted, unexpired janitor snapshot, in two API requests."""
+        """The newest trusted janitor snapshot, preferring the census document."""
+        document = runner_state(self.repo, now=now)
+        if document is not None:
+            embedded = document_queue_snapshot(document, now=now, branch=branch)
+            if embedded is not None:
+                print("Pool snapshot: trusted repository document (no artifact API requests)", file=sys.stderr)
+                return embedded
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
         if newest is None:
