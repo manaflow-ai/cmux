@@ -65,7 +65,7 @@ impl RowScroll {
         if let Some((_, slot)) = self.slots.iter().find(|(r, _)| *r == row) {
             return *slot;
         }
-        self.next_slot += 1;
+        self.next_slot = self.next_slot.wrapping_add(1);
         self.slots.push((row, self.next_slot));
         self.next_slot
     }

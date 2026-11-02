@@ -76,11 +76,13 @@ pub fn target(
             };
             // The source is always the target's neighbor on the side focus came from.
             let source = if previous > index {
-                (index + 1).min(strip.columns.len() - 1)
+                index.saturating_add(1).min(strip.columns.len().saturating_sub(1))
             } else {
                 index.saturating_sub(1)
             };
-            let a = strip.columns[source].frame;
+            // `source` is in range (`index` is a column of the strip); the guard only keeps the
+            // port free of a panic path.
+            let Some(a) = strip.frame_at(source) else { return fit(frame, current, strip) };
             let b = frame;
             let span = super::swift_max(a.max_x(), b.max_x())
                 - super::swift_min(a.min_x(), b.min_x())
@@ -139,13 +141,13 @@ pub fn snaps_into(strip: &ColumnStrip, mode: CenterFocusedColumn, out: &mut Vec<
         }
         let pad = strip.padding(frame.w());
         let overflows = |neighbor: Option<usize>| {
-            let Some(neighbor) = neighbor.filter(|&n| n < strip.columns.len()) else {
+            let Some(neighbor) = neighbor.and_then(|n| strip.frame_at(n)) else {
                 return false;
             };
             mode == CenterFocusedColumn::OnOverflow
-                && strip.columns[neighbor].frame.w() + strip.gap * 3. + frame.w() > width
+                && neighbor.w() + strip.gap * 3. + frame.w() > width
         };
-        let left = if overflows(Some(index + 1)) {
+        let left = if overflows(index.checked_add(1)) {
             centered
         } else {
             strip.clamp(frame.min_x() - pad - lead)
@@ -196,12 +198,15 @@ pub fn focus_after_scroll(
     let distance = |i: usize| i.abs_diff(snap_column);
     let mut index = swift_min_by(visible, |a, b| distance(*a) < distance(*b))?;
     if forward {
-        while index + 1 < strip.columns.len() && strip.is_column_visible(index + 1, target) {
-            index += 1;
+        while let Some(next) = index.checked_add(1).filter(|&n| strip.is_column_visible(n, target))
+        {
+            index = next;
         }
     } else {
-        while index > 0 && strip.is_column_visible(index - 1, target) {
-            index -= 1;
+        while let Some(previous) =
+            index.checked_sub(1).filter(|&n| strip.is_column_visible(n, target))
+        {
+            index = previous;
         }
     }
     if Some(index) == focused { None } else { Some(index) }

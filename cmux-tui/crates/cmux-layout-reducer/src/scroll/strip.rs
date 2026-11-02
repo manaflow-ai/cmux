@@ -166,6 +166,21 @@ impl ColumnStrip {
         swift_min(swift_max(offset, 0.), self.max_offset())
     }
 
+    /// The frame of column `index`.
+    pub fn frame_at(&self, index: usize) -> Option<Rect> {
+        self.columns.get(index).map(|column| column.frame)
+    }
+
+    /// The id of column `index`.
+    pub fn id_at(&self, index: usize) -> Option<ColumnId> {
+        self.columns.get(index).map(|column| column.id)
+    }
+
+    /// The frame of the column with this id.
+    pub fn frame_of(&self, column: ColumnId) -> Option<Rect> {
+        self.columns.iter().find(|entry| entry.id == column).map(|entry| entry.frame)
+    }
+
     pub fn index_of(&self, column: ColumnId) -> Option<usize> {
         self.columns.iter().position(|entry| entry.id == column)
     }

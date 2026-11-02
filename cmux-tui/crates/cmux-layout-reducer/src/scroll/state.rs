@@ -212,9 +212,10 @@ impl ColumnScrollState {
                     return effects;
                 }
                 let Some(strip) = self.strip.as_ref() else { return effects };
-                let Some(index) = strip.index_of_pane(pane) else { return effects };
-                self.spring.target =
-                    view_offset::center(strip.columns[index].frame, self.spring.target, strip);
+                let Some(frame) = strip.index_of_pane(pane).and_then(|i| strip.frame_at(i)) else {
+                    return effects;
+                };
+                self.spring.target = view_offset::center(frame, self.spring.target, strip);
                 self.finish(animated, &mut effects);
             }
             ColumnScrollEvent::Reveal { pane, animated } => {
@@ -354,7 +355,7 @@ impl ColumnScrollState {
         let old_column = self.focused_column;
         self.focused_pane = focused;
         let index = focused.and_then(|pane| new.index_of_pane(pane));
-        self.focused_column = index.map(|i| new.columns[i].id);
+        self.focused_column = index.and_then(|i| new.id_at(i));
         if let (Some(focused), Some(column)) = (focused, self.focused_column) {
             match self.remembered.iter_mut().find(|(c, _)| *c == column) {
                 Some(entry) => entry.1 = focused,
@@ -380,9 +381,9 @@ impl ColumnScrollState {
         let mut delta = 0.;
         if (new.keeps_order(old) || old.viewport_width != new.viewport_width)
             && let Some(anchor) = anchor_override.or(old_column)
-            && let (Some(before), Some(after)) = (old.index_of(anchor), new.index_of(anchor))
+            && let (Some(before), Some(after)) = (old.frame_of(anchor), new.frame_of(anchor))
         {
-            delta = new.columns[after].frame.min_x() - old.columns[before].frame.min_x();
+            delta = after.min_x() - before.min_x();
         }
         self.spring.value += delta;
         self.spring.target += delta;
@@ -403,9 +404,9 @@ impl ColumnScrollState {
             if removed(point.opened)
                 && old_column == Some(point.opened)
                 && self.focused_column == Some(point.column)
-                && let Some(at) = new.index_of(point.column)
+                && let Some(at) = new.frame_of(point.column)
             {
-                self.spring.target = new.columns[at].frame.min_x() + point.relative_offset;
+                self.spring.target = at.min_x() + point.relative_offset;
                 restored = true;
                 self.restore = None;
             } else if removed(point.column)
@@ -423,12 +424,13 @@ impl ColumnScrollState {
             && self.focused_column == Some(opened)
             && let Some(previous) = old_column
             && let Some(previous_index) = new.index_of(previous)
-            && new.index_of(opened) == Some(previous_index + 1)
+            && new.index_of(opened) == previous_index.checked_add(1)
+            && let Some(previous_frame) = new.frame_at(previous_index)
         {
             self.restore = Some(RestorePoint {
                 column: previous,
                 opened,
-                relative_offset: self.spring.target - new.columns[previous_index].frame.min_x(),
+                relative_offset: self.spring.target - previous_frame.min_x(),
             });
         }
 
@@ -478,12 +480,8 @@ impl ColumnScrollState {
         if !column_changed
             && focused == old_pane
             && effective_mode == CenterFocusedColumn::Always
-            && let Some(before) = old_column.and_then(|c| old.index_of(c))
-            && (old.columns[before].frame.mid_x()
-                - old.viewport_width / 2.
-                - (self.spring.target - delta))
-                .abs()
-                > 1.
+            && let Some(before) = old_column.and_then(|c| old.frame_of(c))
+            && (before.mid_x() - old.viewport_width / 2. - (self.spring.target - delta)).abs() > 1.
         {
             // A layout-only change keeps a column that was not centered
             // (clicked into view) where fitting puts it.
@@ -513,7 +511,7 @@ impl ColumnScrollState {
         else {
             return;
         };
-        let column = strip.columns[next].id;
+        let Some(column) = strip.id_at(next) else { return };
         let Some(pane) = self.remembered_pane(column).or_else(|| strip.first_pane(next)) else {
             return;
         };
