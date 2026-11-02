@@ -84,14 +84,10 @@ final class MotionScreenRecord {
             rows: lines("rows", windowHeight, height), columns: lines("columns", windowWidth, width),
             seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)), scale: Double(scale),
             display: useDisplay ? display.map { CGDirectDisplayID($0) } : nil, sourceRect: source)
-        let recording: ScreenRecording
-        do {
-            try FileManager.checked.createDirectory(at: options.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? FileManager.checked.removeItem(at: options.url)
-            recording = try ScreenRecording(options)
-        } catch {
-            return ["error": "\(error)"]
-        }
+        // The main thread only reads the window's facts above. The folder, ScreenCaptureKit's content list, the
+        // stream and the writer are made off it (`ScreenRecording.start`): starting a recording must not stall the
+        // app it films (the first version spent 48-72 ms of one main-thread turn here, STATUS 4500).
+        let recording = ScreenRecording(options)
         self.recording = recording
         last = recording
         lastError = nil
@@ -115,7 +111,8 @@ final class MotionScreenRecord {
 
 /// One `record_*` recording: ScreenCaptureKit's frames go to an AVAssetWriter and a scanline file, both on
 /// `queue`, off the main thread.
-// Counts live in a Mutex. The writer is made on `queue` at the first frame; finish() hops onto `queue` to close.
+// Counts and the stream live in Mutexes. The writer is made on `queue` at the first frame; finish() hops onto `queue`
+// to close. start() runs off the main actor (@concurrent): no ScreenCaptureKit or file call runs on the main thread.
 // crash-allow: the writer, its input and the scan bytes are not Sendable but are touched on `queue` only (see above).
 nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     nonisolated struct Options: Sendable {
@@ -179,8 +176,8 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     // appends a value and never waits on I/O, a call out or an await.
     private let state = Mutex(State())
     private let limit = DemandTimer(owner: "debug.motion.record.limit")
-    @MainActor private var stream: SCStream?
-    @MainActor private var finishing = false
+    // concurrency-allow: held only to put or take the stream; no ScreenCaptureKit call runs under it.
+    private let streamSlot = Mutex<Handed<SCStream>?>(nil)
 
     private static let secondsPerTick: Double = {
         var info = mach_timebase_info_data_t()
@@ -188,17 +185,19 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         return Double(info.numer) / Double(info.denom) / 1e9
     }()
 
-    init(_ options: Options) throws {
+    init(_ options: Options) {
         self.options = options
         super.init()
         let header: [String: Any] = ["width": options.width, "height": options.height, "rows": options.rows,
                                      "columns": options.columns, "format": "BGRA", "time": "float64-le host seconds"]
-        scan = try JSONSerialization.data(withJSONObject: header) + Data([0x0A])
+        scan = ((try? JSONSerialization.data(withJSONObject: header)) ?? Data()) + Data([0x0A])
     }
 
-    @MainActor
-    func start(windowNumber: CGWindowID) async throws {
+    /// Off the main actor: the folder, ScreenCaptureKit's content list, the filter, the stream and its start.
+    @concurrent nonisolated func start(windowNumber: CGWindowID) async throws {
         guard #available(macOS 14.4, *) else { throw Failure(description: "own-window capture needs macOS 14.4") }
+        try FileManager.checked.createDirectory(at: options.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.checked.removeItem(at: options.url)
         let content: Handed<SCShareableContent> = try await deadline("list this process's windows") { done in
             SCShareableContent.getCurrentProcessShareableContent { content, error in
                 done(content.map { .success(Handed($0)) } ?? .failure(error ?? Failure(description: "no shareable content")))
@@ -223,17 +222,17 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         let _: Bool = try await deadline("start the capture") { done in
             stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
         }
-        guard !finishing else {
+        // A stop asked while the stream started: stop it at once.
+        guard !state.withLock({ $0.ending }) else {
             _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
             return
         }
-        self.stream = stream
+        streamSlot.withLock { $0 = Handed(stream) }
         state.withLock { $0.capturing = true }
-        limit.schedule(after: .seconds(options.seconds)) { @MainActor [weak self] in self?.finish() }
+        limit.schedule(after: .seconds(options.seconds)) { [weak self] in self?.finish() }
     }
 
-    @MainActor
-    private func configuration() -> SCStreamConfiguration {
+    private nonisolated func configuration() -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         configuration.width = options.width
         configuration.height = options.height
@@ -253,16 +252,13 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     }
 
     /// Ends the capture once, then closes the movie and the side files on `queue` (`written` in the counts).
-    @MainActor
-    func finish() {
-        guard !finishing else { return }
-        finishing = true
+    /// Any thread; the stop and the files run off the main actor.
+    nonisolated func finish() {
+        guard !state.withLock({ state -> Bool in defer { state.ending = true }; return state.ending }) else { return }
         limit.cancel()
-        state.withLock { $0.ending = true }
-        let stream = self.stream
-        self.stream = nil
-        Task { @MainActor in
-            if let stream {
+        let handed = streamSlot.withLock { slot -> Handed<SCStream>? in defer { slot = nil }; return slot }
+        Task.detached(priority: .userInitiated) { [self] in
+            if let stream = handed?.value {
                 let _: Bool? = try? await deadline("stop the capture") { done in
                     stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
                 }
@@ -400,8 +396,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     /// Runs `call` with a completion `done` and returns its result, or throws after ``callLimit``. The
     /// continuation resumes once: on the result or the deadline, whichever comes first; a late callback is dropped.
-    @MainActor
-    private func deadline<T: Sendable>(_ what: String, limit: Duration = callLimit,
+    private nonisolated func deadline<T: Sendable>(_ what: String, limit: Duration = callLimit,
                                        _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
         let once = Once<T>()
         let timer = DemandTimer(owner: "debug.motion.record.deadline")
