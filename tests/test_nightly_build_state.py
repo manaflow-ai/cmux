@@ -152,6 +152,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build()[0], 'mode=clean')
         self.assertEqual(self.build()[0], 'mode=incremental')
 
+    def test_a_release_build_script_change_makes_it_clean(self):
+        # The workflow step only runs app-build-release.sh, so its xcodebuild flags live in the scripts.
+        for name in ('scripts/ci/nightly-steps/app-build-release.sh', 'scripts/cmux-next/lib/compilation-cache.sh'):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: f'xcodebuild OTHER_SWIFT_FLAGS=-DCHANGED_{len(name)}\n'})
+                self.assertEqual(self.build()[0], 'mode=clean')
+                self.assertEqual(self.build()[0], 'mode=incremental')
+
     def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
         self.build()
         self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))

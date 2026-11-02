@@ -159,6 +159,9 @@ final class CEFDevToolsController {
             let views = views ?? makeViews(in: tab)
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
+            // Until its frontend draws, DevTools shows its browser's background: the pane's theme color, as every
+            // page of the pane starts with (`CEFPaneHost`), never the color CEF started with (BROWSER VIDEO F1).
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: views.host))
             let size = views.host.bounds.size
             shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
@@ -166,6 +169,7 @@ final class CEFDevToolsController {
             opening = false
             removeViews()
             let frame = Self.undockedFrame(near: tab.container.window)
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: tab.container))
             shim.devToolsSetPlacement(browserID, nil, Int32(frame.minX), Int32(frame.minY),
                                       Int32(frame.width), Int32(frame.height))
         }
