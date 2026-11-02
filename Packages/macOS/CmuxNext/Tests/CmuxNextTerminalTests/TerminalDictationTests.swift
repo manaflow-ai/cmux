@@ -20,12 +20,15 @@ struct TerminalDictationTests {
         let host = TerminalHostView()
         let pasted = Pasted()
         dictation.toggle(host: host) { pasted.texts.append($0) }
-        try await waitFor { dictation.isActive && host.topOverlay != nil }
-        #expect(host.topOverlay is TerminalDictationPreview)
+        #expect(dictation.isActive)
+        let preview = try #require(host.topOverlay as? TerminalDictationPreview)
+        // Events sent before the session's listen task opened the stream would be dropped.
+        try await waitFor { engine.isStreaming }
         engine.emit(.partial("hel"))
         engine.emit(.final("hello"))
         engine.emit(.partial("wor"))
-        try await waitFor { pasted.texts == ["hello"] }
+        // Only the words not pasted yet show: the session's volatile text, not "hello wor".
+        try await waitFor { pasted.texts == ["hello"] && preview.accessibilityLabel() == "Listening… wor" }
         dictation.toggle(host: host) { _ in Issue.record("a stop never retargets the paste") }
         try await waitFor { !dictation.isActive }
         #expect(pasted.texts == ["hello", " wor"])
@@ -40,7 +43,8 @@ struct TerminalDictationTests {
         }
         let host = TerminalHostView()
         dictation.toggle(host: host) { _ in }
-        try await waitFor { dictation.isActive }
+        #expect(dictation.isActive)
+        try await waitFor { engine.isStreaming }
         host.onClose?()
         try await waitFor { !dictation.isActive }
         #expect(!dictation.isActive)
@@ -48,10 +52,11 @@ struct TerminalDictationTests {
         #expect(!dictation.stopIfActive())
     }
 
-    private func waitFor(_ ready: () -> Bool) async throws {
+    private func waitFor(_ ready: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         for _ in 0..<300 where !ready() {
             try await Task.sleep(for: .milliseconds(10))
         }
+        if !ready() { Issue.record("timed out after 3 s", sourceLocation: sourceLocation) }
     }
 }
 
@@ -65,6 +70,8 @@ private nonisolated struct GrantedTerminalAuthorizer: DictationAuthorizing {
 private nonisolated final class ScriptedTerminalTranscriber: SpeechTranscribing, @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+    /// The session's listen task opened the stream: later events are buffered in order.
+    var isStreaming: Bool { lock.withLock { continuation != nil } }
 
     func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: DictationTranscriptionEvent.self, throwing: (any Error).self)
