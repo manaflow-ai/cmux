@@ -13,6 +13,8 @@ mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
 mod atomic_json;
+mod build;
+pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
@@ -40,7 +42,11 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod host_notice_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
@@ -55,9 +61,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
-pub use idle_census::Sidecar;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
+pub use idle_census::{Sidecar, StoredLaunch};
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -76,6 +82,7 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
+mod adopt_retry;
 mod hosts;
 mod lifecycle;
 mod log_deferral;
@@ -101,13 +108,15 @@ mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+mod prompt_sender;
 mod protected_hold;
 mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) use queue::approved_prompts_error;
+pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod profile_respawn;
 mod resolve;
 mod route_switch;
@@ -219,6 +228,9 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+pub mod background_turn;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -274,8 +286,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// question waiting, no activity) before it hibernates: it exits and the
 /// session resumes on its next prompt (`idle.rs`).
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
-/// Git hash and date stamped at build time (see build.rs).
-pub const BUILD: &str = env!("ACPMUX_BUILD");
 
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
@@ -330,6 +340,8 @@ pub(super) struct PendingPermission {
 
 #[derive(Debug, Clone)]
 pub struct TurnInfo {
+    /// Admitted Cloud trigger provenance, never client supplied metadata.
+    pub trigger: bool,
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
@@ -351,11 +363,19 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Its prompt is acpmux's own notice of other agents' messages (an inbox notice or a
+    /// digest, `prompt_line::is_notice`), not words anyone typed: the summary's `turn.notice`.
+    pub notice: bool,
+    /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
+    /// inbox notice and no other agent's steer goes into it.
+    pub persons: bool,
 }
 
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
+    pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
     pub prompt_id: Option<String>,
     /// The delivery id for a message sent through `_acpmux/send_queue`; direct prompts use the
@@ -469,6 +489,12 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
+    /// disk for history, search, export and restore, but list/peer hot paths never walk them.
+    pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
+    /// Serialized summaries for closed sessions. Metadata commits replace the row before the
+    /// next full list, so full callers do not rebuild closed-session projections.
+    pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -639,12 +665,22 @@ pub struct Hub {
     /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
     #[cfg(test)]
     pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
+    #[cfg(test)]
+    pub(super) purge_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
+    /// Tests only: runs right before a queued prompt's `queued` record is logged (`enqueue`).
+    #[cfg(test)]
+    pub(super) queued_log_seam: StdMutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Tests only: this daemon takes a bundle as a build without queue approval would
+    /// (`transfer_in.rs` refuses one that carries approved prompts that still wait).
+    #[cfg(test)]
+    pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -708,6 +744,17 @@ pub struct Hub {
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
 }
 
+/// Serialized forms of one closed session. Each form has its own generation and tag-expiry
+/// deadline: building a list row must never make a previously cached full row look fresh.
+pub(super) struct ClosedSummaryCacheEntry {
+    pub(super) list_generation: u64,
+    pub(super) list_next_expiry: u64,
+    pub(super) list: String,
+    pub(super) full_generation: u64,
+    pub(super) full_next_expiry: u64,
+    pub(super) full: String,
+}
+
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         Self::new_with_mailbox(config, store, Mailbox::memory())
@@ -767,6 +814,8 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            live_session_ids: StdMutex::new(std::collections::HashSet::new()),
+            closed_summary_cache: StdMutex::new(HashMap::new()),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -843,11 +892,17 @@ impl Hub {
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
+            queued_log_seam: Default::default(),
+            #[cfg(test)]
+            queue_approval_off: AtomicBool::new(false),
+            #[cfg(test)]
             prompt_start_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
             #[cfg(test)]
             finish_seam: Default::default(),
+            #[cfg(test)]
+            purge_seam: Default::default(),
             #[cfg(test)]
             retry_seam: Default::default(),
             harness_watch: Default::default(),
@@ -1042,7 +1097,9 @@ impl Hub {
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
-        sessions.insert(session.id.clone(), session);
+        sessions.insert(session.id.clone(), session.clone());
+        drop(sessions);
+        self.update_live_session_index(&session);
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1143,6 +1200,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
@@ -1164,6 +1222,14 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            prepared: StdMutex::new(std::collections::VecDeque::new()),
+            prepared_done: StdMutex::new(std::collections::VecDeque::new()),
+            cloud_generation: AtomicU64::new(
+                std::env::var("CMUX_CLOUD_GENERATION")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+            ),
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
@@ -1216,12 +1282,14 @@ impl Hub {
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
+            status_changes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
+            kept_messages: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
@@ -1242,6 +1310,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
@@ -1250,6 +1319,110 @@ impl Hub {
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         session
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
+        let id = meta.id.clone();
+        let session = self.make_session(meta);
+        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.update_live_session_index(&session);
+        session
+    }
+
+    /// Keep the hot-path index in step with a session's status. The complete session map is
+    /// intentionally retained so an explicit history/restore lookup can still load a closed chat.
+    pub(super) fn update_live_session_index(&self, session: &Session) {
+        let mut live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if session.status() == SessionStatus::Closed {
+            live.remove(&session.id);
+        } else {
+            live.insert(session.id.clone());
+        }
+    }
+
+    pub(super) fn remove_live_session_index(&self, id: &str) {
+        self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
+        let id = session.id.clone();
+        let now = now_ms();
+        let next_expiry = session
+            .meta()
+            .tags
+            .values()
+            .filter_map(|tag| tag.expires_at)
+            .filter(|expires_at| *expires_at > now)
+            .min()
+            .unwrap_or(0);
+        let generation = self.events.summary_generation.load(Ordering::SeqCst);
+        if session.status() == SessionStatus::Closed
+            && let Some(bytes) = self
+                .closed_summary_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .and_then(|entry| {
+                    let (entry_generation, entry_expiry, bytes) = if with_tools {
+                        (entry.full_generation, entry.full_next_expiry, &entry.full)
+                    } else {
+                        (entry.list_generation, entry.list_next_expiry, &entry.list)
+                    };
+                    (entry_generation == generation
+                        && (entry_expiry == 0 || now < entry_expiry)
+                        && !bytes.is_empty())
+                    .then_some(bytes)
+                })
+            && let Ok(row) = serde_json::from_str(bytes)
+        {
+            return row;
+        }
+        let row = if with_tools {
+            self.session_summary(session)
+        } else {
+            self.session_list_summary(session)
+        };
+        if session.status() == SessionStatus::Closed {
+            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
+                list_generation: 0,
+                list_next_expiry: 0,
+                list: String::new(),
+                full_generation: 0,
+                full_next_expiry: 0,
+                full: String::new(),
+            });
+            let bytes = serde_json::to_string(&row).unwrap_or_default();
+            if with_tools {
+                entry.full_generation = generation;
+                entry.full_next_expiry = next_expiry;
+                entry.full = bytes;
+            } else {
+                entry.list_generation = generation;
+                entry.list_next_expiry = next_expiry;
+                entry.list = bytes;
+            }
+        }
+        row
+    }
+
+    pub(super) fn remove_cached_closed_summary(&self, id: &str) {
+        self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
+    /// from `sessions` only by an explicit id/name request.
+    pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
+        let ids: Vec<String> = self
+            .live_session_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        newest_first(ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect())
     }
 
     // ------------------------------------------------------------ lookup
@@ -1990,6 +2163,9 @@ impl Hub {
                 return false;
             }
             m.status = status;
+            if was != status {
+                session.status_changes.fetch_add(1, Ordering::SeqCst);
+            }
             // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
             // it as old as it was, or a chat stopped every day would never be old enough for log
             // retention (`retention.rs`) and would move up the lists that sort by it.
@@ -2004,6 +2180,7 @@ impl Hub {
             }
             (was, m.subsession.clone())
         };
+        self.update_live_session_index(session);
         if was != status {
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);

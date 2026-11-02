@@ -52,6 +52,7 @@ extension BrowserProfileService {
     /// Returns the id.
     func createProfile(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                        source: [String: String]? = nil) async throws -> String {
+        try book.requireReusable(id)
         guard usesDaemonRecords else {
             return try edit { try $0.create(id: id, name: name, color: color, icon: icon, source: source) }.id
         }

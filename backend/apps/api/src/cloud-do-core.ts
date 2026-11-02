@@ -15,6 +15,7 @@ import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
 import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
+import { AUTO_PAUSE_OFF, autoPauseOn } from "./auto-pause.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -337,6 +338,12 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
 
   /** Test only (fakeControl `unset`): configuration a test removes to prove a fail-closed path. */
   protected testUnset = new Set<string>()
+  /** Test only (fakeControl `auto_pause`): replaces CLOUD_IDLE_PAUSE; null = the Worker var decides. */
+  protected testAutoPause: boolean | null = null
+  /** Whether automatic pauses run at all (auto-pause.ts; off unless CLOUD_IDLE_PAUSE is "on"; Leo, 2026-10-30). */
+  protected autoPause(): boolean {
+    return this.testAutoPause ?? autoPauseOn(this.env)
+  }
   /** Test only (fakeControl `link_keys`): the signing secret a mint reads instead of the Worker's. */
   protected testLinkKeys: string | undefined
   /** The bind file's api_origin and env, or null when either is missing (then no create runs). */
@@ -396,9 +403,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !cancelStart && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
       const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
       const bindDenied = row.op === "create" && !row.cancel && !this.bindFileConfig()
+      // An automatic pause still in the ledger (a retry, or one made before the switch went off) never runs while it is off.
+      const autoPauseOff = row.op === "pause" && owner?.status === "pausing" && (owner.pause_reason === "idle" || owner.pause_reason === "no_report") && !this.autoPause()
       let driver: GuardedCloudDriver | null = null
       let routingError: DriverError | undefined
-      if ((!planDenied || captureRecovery) && !bindDenied) try {
+      if ((!planDenied || captureRecovery) && !bindDenied && !autoPauseOff) try {
         driver = await this.driverFor(row, row.cancel || cancelStart || row.op === "delete" || row.op === "env_cleanup" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
       if (platformStart && !this.platformStartsAllowed()) cancelStart = true
@@ -406,7 +415,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; network?: typeof CloudVmNetwork.Type; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number }; env_build?: { stage?: "boot" | "ready" | "setup" | "snapshot" | "warm"; log_tail?: string; timings?: { boot_ms: number; ready_ms: number; setup_ms: number; snapshot_ms: number; warm_ms: number; total_ms: number } } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      if (cancelStart) {
+      if (autoPauseOff) result = { key: row.key, ok: false, error: { code: AUTO_PAUSE_OFF, message: "automatic pause is off on this deployment (CLOUD_IDLE_PAUSE)" }, final: true }
+      else if (cancelStart) {
         try { result = await this.settleDisabledPlatformStart(driver, row, tag) }
         catch { result = { key: row.key, ok: false, error: { code: "cloud.platform.pause_pending", message: "the disabled resume still needs a confirmed pause" }, final: false } }
       }
@@ -515,7 +525,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt(), cloudApprovalsDueAt(this.ctx.storage.sql, now)]) if (t !== null) times.push(t)
     // The cost backstop: the earliest silent deadline of a running machine (never sooner than a minute: a
     // pause the limit held back must not re-fire the alarm at once).
-    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
+    // With automatic pause off (auto-pause.ts) there is no backstop deadline to wake for.
+    if (this.autoPause()) for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {

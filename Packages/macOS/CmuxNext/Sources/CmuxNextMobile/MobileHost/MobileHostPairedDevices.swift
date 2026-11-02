@@ -33,6 +33,12 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
         self.transport = transport
     }
 
+    /// The first 4 bytes of the key ``MobileHostPairedDevice/fingerprint`` hashes, as hex: shown beside
+    /// the phone's name in the Allow prompt so a look-alike name with another key stands out.
+    public var shortFingerprint: String {
+        String(MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey).prefix(8))
+    }
+
     /// The same device asking with the same keys (a retry, whatever its registration date).
     public func sameKeys(as other: MobileHostPairRequest) -> Bool {
         transport == other.transport && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey

@@ -40,6 +40,8 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+#[cfg(unix)]
+pub mod git_seed;
 mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
@@ -220,3 +222,6 @@ pub enum SplitDir {
     /// Split into top/bottom rows.
     Down,
 }
+
+#[cfg(unix)]
+pub mod cloud_repos;

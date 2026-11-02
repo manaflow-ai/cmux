@@ -70,8 +70,13 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
 
   /// The chat with Session Info on (Debug Settings `agent.inspector`, pushed with the header
   /// state) and the tab row offered, open in `placement` (floating by default; pushing with Settings
-  /// Push always) and done entering.
-  const openSessionInfo = async (page: Page, tabRow: number, placement: "overlay" | "push" = "overlay") => {
+  /// Push always, or by default where the gutter cannot hold it) and done entering.
+  const openSessionInfo = async (
+    page: Page,
+    tabRow: number,
+    placement: "overlay" | "push" = "overlay",
+    setting: "overlay" | "push" = placement,
+  ) => {
     await page.evaluate((height) => {
       const bridge = (
         window as unknown as {
@@ -81,7 +86,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       bridge.applyTabRow({ height, trailingInset: 0 });
       bridge.applyHeaderState({ inspector: true, version: 2 });
     }, tabRow);
-    if (placement === "push") await sessionInfoPushAlways(page);
+    if (setting === "push") await sessionInfoPushAlways(page);
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
@@ -156,7 +161,8 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width: 900, height: 640 });
         try {
-          const { panel, toggle } = await openSessionInfo(page, tabRow);
+          // A 900px pane's gutter cannot hold it, so it pushes by default too.
+          const { panel, toggle } = await openSessionInfo(page, tabRow, "push", "overlay");
           await toggle.click();
           await panel.waitFor({ state: "detached" });
           await sessionInfoPushAlways(page);
@@ -308,13 +314,13 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             const open = await fit(panel);
             cards.push({ height, ...open });
             if (height !== 520) continue;
-            // Open Context, then fold it: the card ends at its sections again, shorter by just its rows.
+            // Context starts open (Leo, 2026-11-01); fold it: the card ends at its sections again,
+            // shorter by just its rows.
             const context = panel.locator('section[data-section="context"]');
             const frame = () =>
               page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
-            await context.locator(".ui-disclosure-trigger").click();
             const rows = context.locator(".ui-disclosure-panel");
             await rows.waitFor({ timeout: 5_000 });
             await frame();
@@ -497,13 +503,14 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       }
     });
 
-  // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the chat to move
-  // left for it, the card floats over the chat and stops above the composer's stack.
+  // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the panel to
+  // float beside the chat, it pushes the chat left (Leo, 2026-11-01), so a busy Session Info meets no
+  // part of the composer and its body scrolls.
   // A new chat's dock is `display: contents` (bottomStack.css): its own box is empty, so the card
   // measures its children; the second pass forces that layout on this chat.
   for (const name of browsers.keys())
     for (const contents of [false, true])
-      test(`${name}: over the chat in a narrow pane, a busy Session Info stops above the composer${contents ? " (dock display: contents)" : ""}`, async () => {
+      test(`${name}: in a narrow pane, a busy Session Info pushes the chat and never covers the composer${contents ? " (dock display: contents)" : ""}`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width: 900, height: 900 });
         try {
@@ -511,21 +518,24 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             await page.addStyleTag({
               content: ".acpmux-main > .acpmux-dock { display: contents !important; position: static !important; }",
             });
-          const { panel } = await openSessionInfo(page, 0);
+          await openSessionInfo(page, 0, "push", "overlay");
+          const panel = page.locator("aside.acpmux-session-info");
           await page.addStyleTag({ content: "aside.acpmux-session-info [data-section] { min-height: 1600px; }" });
-          await page.waitForFunction(
-            () => document.querySelector("aside.acpmux-session-info[data-over-chat]") !== null,
-          );
-          const { bottom, dockTop, scrolls } = await panel.evaluate((node) => {
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const { covers, scrolls } = await panel.evaluate((node) => {
             const body = node.querySelector(".acpmux-session-info__body")!;
+            const box = node.getBoundingClientRect();
+            const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
             return {
-              bottom: node.getBoundingClientRect().bottom,
-              // The composer's own box (the dock's may be empty under display: contents).
-              dockTop: document.querySelector(".acpmux-composer")!.getBoundingClientRect().top,
+              covers:
+                box.left < composer.right &&
+                composer.left < box.right &&
+                box.top < composer.bottom &&
+                composer.top < box.bottom,
               scrolls: body.scrollHeight > body.clientHeight + 1,
             };
           });
-          expect({ clear: bottom <= dockTop + 0.5, scrolls }).toEqual({ clear: true, scrolls: true });
+          expect({ covers, scrolls }).toEqual({ covers: false, scrolls: true });
         } finally {
           await page.close();
         }

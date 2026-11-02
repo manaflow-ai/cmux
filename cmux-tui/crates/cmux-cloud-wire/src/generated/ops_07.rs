@@ -4,68 +4,6 @@
 #[allow(unused_imports)]
 use super::*;
 
-wire_errors! {
-    /// The error codes integration.policy.get declares.
-    IntegrationPolicyGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
-    IntegrationPolicySetOp {
-        name: "integration.policy.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationPolicySetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicySetError,
-    }
-}
-
-wire_enum! {
-    IntegrationPolicySetParamsGithubScope {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParamsGithub {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub require_org_admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github: Option<IntegrationPolicySetParamsGithub>,
-}
-
-wire_errors! {
-    /// The error codes integration.policy.set declares.
-    IntegrationPolicySetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyLocked = "policy.locked",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
 wire_op! {
     /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
     IntegrationRevokeOp {
@@ -893,5 +831,75 @@ wire_errors! {
     /// The error codes network.list declares.
     NetworkListError {
         AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Hand a group to another current person (the owner only). You stay as an admin.
+    OwnershipTransferOp {
+        name: "ownership.transfer",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "destructive",
+        principals: [Session],
+        params: OwnershipTransferParams,
+        result: HomeConversationCommit,
+        error: OwnershipTransferError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OwnershipTransferParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+}
+
+wire_errors! {
+    /// The error codes ownership.transfer declares.
+    OwnershipTransferError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.
+    ParticipantAvatarGetOp {
+        name: "participant.avatar.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ParticipantAvatarGetParams,
+        result: ParticipantAvatarGetResult,
+        error: ParticipantAvatarGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetParams {
+    pub participant_id: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+}
+
+wire_enum! {
+    ParticipantAvatarGetResultAvatarMediaType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageGif = "image/gif",
+        ImageWebp = "image/webp",
     }
 }

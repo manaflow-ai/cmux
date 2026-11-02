@@ -79,7 +79,8 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
-/// Team waits for Send in its dialog): the app
+/// Team waits for Send in its dialog; an agent's or script's Share Chat with
+/// Guest waits for the owner's Make Link, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names and ids of the actions the app marks `waitsForPerson` (the
@@ -92,14 +93,8 @@ const PERSON_ACTIONS: &[&str] = &[
     "browser.importCookies",
     "home invite-to-team",
     "home.inviteToTeam",
-    "cloud start-session",
-    "cloudStartSession",
-    "apps install",
-    "app.install",
-    "apps remove",
-    "app.remove",
-    "workspace import-classic",
-    "workspace.importClassic",
+    "share chat",
+    "agent.share",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.

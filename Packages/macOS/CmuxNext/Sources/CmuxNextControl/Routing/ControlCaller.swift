@@ -48,7 +48,9 @@ struct ControlCaller: Sendable, Equatable {
             }
             homeChat = on
         }
-        guard agentSession != nil || terminalID != nil || homeChat else { return nil }
+        guard agentSession != nil || terminalID != nil || homeChat else {
+            throw ControlError.invalidParams("caller must name agent_session, terminal_id, or home_chat")
+        }
     }
 }
 
@@ -62,6 +64,8 @@ struct ControlCallerLocation: Sendable, Equatable {
     /// The pane of the column right of `pane` on its screen; nil when there
     /// is none (the app then makes one).
     var beside: ControlPaneInfo?
+    /// Every pane of that column, in the screen's order (top to bottom); empty when there is none.
+    var column: [ControlPaneInfo] = []
 
     /// The caller's chat tab (agent session) or terminal tab, nil when the
     /// topology shows neither.
@@ -77,7 +81,7 @@ struct ControlCallerLocation: Sendable, Equatable {
                 for pane in screen.panes {
                     guard let tab = pane.tabs.first(where: { $0.page == "home-dock" }) else { continue }
                     return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
-                                beside: besidePane(of: pane, on: screen))
+                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
                 }
             }
         }
@@ -95,7 +99,7 @@ struct ControlCallerLocation: Sendable, Equatable {
                     }
                     guard let tab else { continue }
                     return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
-                                beside: besidePane(of: pane, on: screen))
+                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
                 }
             }
         }
@@ -109,6 +113,28 @@ struct ControlCallerLocation: Sendable, Equatable {
     static func besidePane(of pane: ControlPaneInfo, on screen: ControlScreenInfo) -> ControlPaneInfo? {
         guard let column = pane.column else { return nil }
         return screen.panes.first { $0.column == column + 1 && $0.dock == nil }
+    }
+
+    /// Every pane of that column (``besidePane(of:on:)``'s), in the screen's order.
+    static func besideColumn(of pane: ControlPaneInfo, on screen: ControlScreenInfo) -> [ControlPaneInfo] {
+        guard let column = pane.column else { return [] }
+        return screen.panes.filter { $0.column == column + 1 && $0.dock == nil }
+    }
+
+    /// The kinds of tab `pane` holds, for the same-kind rule (RightColumnPlacement): `terminal`, and
+    /// `browser` for a web page (never an app page tab such as the diff viewer).
+    static func kinds(of pane: ControlPaneInfo) -> Set<String> {
+        var kinds: Set<String> = []
+        for tab in pane.tabs {
+            if tab.kind == "terminal" { kinds.insert("terminal") }
+            if tab.kind == "browser", tab.page == nil { kinds.insert("browser") }
+        }
+        return kinds
+    }
+
+    /// Whether a window shows the caller's workspace, so the app can measure the column on screen.
+    func isShown(in topology: ControlTopology) -> Bool {
+        topology.windows.contains { $0.isVisible && !$0.isHidden && $0.workspaceID == workspace.id }
     }
 
     /// A tab of the beside pane to aim an `openBrowser` at: its selected tab, else its first.
@@ -128,7 +154,14 @@ struct ControlCallerLocation: Sendable, Equatable {
     /// `new_column` when the app would make one.
     var besideJSON: JSONValue {
         guard let beside else { return ["pane": .null, "placement": "new_column"] }
+        // `panes`: the whole column, top to bottom, with the kinds each holds, so a terminal the CLI
+        // or MCP server opens goes to the pane that already holds a terminal, or splits below a lone
+        // pane of another kind (cmux-tui cli/beside.rs).
+        let panes: [JSONValue] = (column.isEmpty ? [beside] : column).map { pane in
+            ["id": .string(pane.id), "kinds": .array(Self.kinds(of: pane).sorted().map(JSONValue.string))]
+        }
         return ["pane": .string(beside.id), "column": beside.column.map { JSONValue($0) } ?? .null, "placement": "existing_column",
+                "panes": .array(panes),
                 "selected_tab": .optional(beside.selectedTabID),
                 "tabs": .array(beside.tabs.map { tab in
                     ["id": .string(tab.id), "kind": .string(tab.page == nil ? tab.kind : "page"), "title": .string(tab.title),
@@ -160,14 +193,35 @@ extension ControlRouter {
 
     /// Aims an agent's surface-opening run that names no target at the
     /// column right of its chat (beside_caller). An explicit target wins;
-    /// a caller the topology does not show leaves the run as it is.
-    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) {
+    /// a caller the topology does not show is refused.
+    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
         guard besideCallerActions.contains(action.id), request.target == nil,
-              request.callerAgentSession != nil || request.callerHomeChat,
-              let location = ControlCallerLocation.resolve(ControlCaller(agentSession: request.callerAgentSession,
-                                                                        homeChat: request.callerHomeChat), in: topology)
-        else { return }
+              request.callerAgentSession != nil || request.callerHomeChat else { return }
+        let caller = ControlCaller(agentSession: request.callerAgentSession, homeChat: request.callerHomeChat)
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
+            throw BrowserCallerTarget.missingCaller(caller)
+        }
         let paneTarget = action.targets.contains("pane")
+        // An agent's browser beside a column that is already there: the app measures that column and
+        // places it as the chat header's Preview is placed (AgentBesidePlacement, RightColumnPlacement):
+        // a tab in the pane that already holds a browser, else a split below a lone pane, else a tab
+        // in the lowest pane; never a third column. Leo 2026-10-31: "imo in this case, just open it
+        // on the existing. you only need the rightmost botom auto split when there's a terminal that
+        // gets opened when there's already a browser, and vice versa".
+        if action.id == "openBrowser", !paneTarget, location.beside != nil, request.callerAgentSession != nil,
+           !location.caller.homeChat, location.isShown(in: topology) {
+            request.target = ControlTargetRef(kind: "tab", id: location.tab.id)
+            request.newColumnBeside = true
+            request.besideCaller = true
+            return
+        }
+        // A workspace no window shows: no measure, so the topology's column picks the pane.
+        if action.id == "openBrowser", !paneTarget, let pane = sameKindOrLowest(location, kind: "browser"),
+           let tab = pane.selectedTabID.flatMap({ id in pane.tabs.contains { $0.id == id } ? id : nil }) ?? pane.tabs.first?.id {
+            request.target = ControlTargetRef(kind: "tab", id: tab)
+            request.besideCaller = true
+            return
+        }
         if let beside = location.beside, paneTarget {
             request.target = ControlTargetRef(kind: "pane", id: beside.id)
         } else if location.beside != nil, let tab = location.besideTab {
@@ -183,5 +237,13 @@ extension ControlRouter {
         if action.id == "openDiffViewer", request.arguments["path"] == nil, let cwd = location.tab.cwd, !cwd.isEmpty {
             request.arguments["path"] = .string(cwd)
         }
+    }
+
+    /// With no window to measure: the column's lowest pane holding `kind`, else its lowest pane when it
+    /// has two or more (RightColumnPlacement: never another split); nil leaves the column's first pane.
+    static func sameKindOrLowest(_ location: ControlCallerLocation, kind: String) -> ControlPaneInfo? {
+        let column = location.column.filter { !$0.tabs.isEmpty }
+        if let same = column.last(where: { ControlCallerLocation.kinds(of: $0).contains(kind) }) { return same }
+        return column.count > 1 ? column.last : nil
     }
 }

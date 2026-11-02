@@ -388,9 +388,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
     private var questions: [String: AgentQuestion] = [:]
-    /// The history page size and the most records to keep on attach.
+    /// The most records one history read returns.
     static let pageSize = 400
-    static let maxHistory = 2000
+    /// The open's byte cap, as the Mac's agent pane opens: a long chat draws its newest records
+    /// after one small read. It used to read 2000 records in five round trips first (1.3-4.3 MB
+    /// on the Mac's long chats), and a page that timed out threw the whole read away.
+    static let openBytes = 128 * 1024
+    /// Each older page's byte cap (``loadEarlierHistory()``, as the reader scrolls up).
+    static let olderBytes = 256 * 1024
+    /// The most reads one scroll up makes looking for a prompt to start its page at.
+    static let maxEarlierReads = 8
     /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
     /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
     /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
@@ -694,7 +701,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
+        let directory = baseDirectory
+        let scope = ArtifactThumbnailOwner.remote(
+            accountID: summary.accountID, macID: summary.macID,
+            resource: "agent:\(sessionID):\(directory)")
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: directory,
+                                      thumbnailCacheScope: scope) {
             await MainActor.run { hub?.macLink }
         }
     }
@@ -833,8 +845,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return CatchUpRead(sessionID: sessionID, after: lastSeq)
     }
 
-    /// Reads from `read.after` to the log's end (a first attach: the newest page, then older
-    /// ones back to the start or the cap). Each request is bounded, and none is sent once the
+    /// A prompt record: where a turn starts.
+    /// A message steered into a running turn (`msg.steer`) is a `user_message` too, and starts none.
+    static func isPrompt(_ record: JSONValue) -> Bool {
+        record["kind"]?.stringValue == "user_message" && record["msg"]?["steer"] != .bool(true)
+    }
+
+    /// Reads from `read.after` to the log's end (a first attach: the newest page only, from its
+    /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
     /// attach is no longer `current` (the link dropped, another attach started, the chat went
     /// away): the hub's next connection is not its own.
     private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, current: @escaping () -> Bool) async -> CatchUpPages {
@@ -850,7 +868,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 "kinds": chatKinds,
                 "eventStream": .bool(true),
             ]
-            if !read.firstAttach { params["afterSeq"] = .number(Double(read.after)) }
+            if read.firstAttach {
+                params["maxBytes"] = .number(Double(openBytes))
+            } else {
+                params["afterSeq"] = .number(Double(read.after))
+            }
             out.result = try await request("_acpmux/attach", params)
             out.page = out.result["events"]?.arrayValue ?? []
             // A reattach (the link came back, or the Mac said this connection lagged) asks for
@@ -870,18 +892,26 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     more = !events.isEmpty && next["hasMore"] == .bool(true)
                 }
             }
-            // First attach: page older records back until the history starts or the cap.
+            // First attach: the newest page only; older pages come as the reader scrolls up.
             out.earlier = read.firstAttach && out.result["hasMore"] == .bool(true)
             if out.earlier {
-                while out.page.count < maxHistory, let oldest = out.page.first?["seq"]?.numberValue {
-                    let older = try await request("_acpmux/events", [
+                if let first = out.page.firstIndex(where: isPrompt) {
+                    // What is before the first prompt belongs to an older turn: it comes with
+                    // that turn's page, never twice.
+                    out.page.removeFirst(first)
+                } else if let oldest = out.page.first?["seq"]?.numberValue {
+                    // The page is inside one turn longer than itself (a long run): its prompt
+                    // alone is read, so the page has a turn to go in. Without it the chat
+                    // opened empty.
+                    // A few, since messages steered into the turn are `user_message`s too.
+                    let opener = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                        "limit": .number(16), "kinds": .array([.string("user_message")]),
                     ])
-                    let events = older["events"]?.arrayValue ?? []
-                    out.page = events + out.page
-                    out.earlier = !events.isEmpty && older["hasMore"] == .bool(true)
-                    if !out.earlier { break }
+                    let records = opener["events"]?.arrayValue ?? []
+                    let start = records.lastIndex(where: isPrompt)
+                    out.page = start.map { [records[$0]] + out.page } ?? out.page
+                    out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
                 }
             }
         } catch {
@@ -943,7 +973,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // transcript instead of animating every past record in (or, on a reattach, the
         // records missed while the link was down). Records after the reply are live.
         beginHistory()
-        if read.firstAttach { emit(.earlierHistory(pages.earlier)) }
+        if read.firstAttach {
+            emit(.earlierHistory(pages.earlier))
+            // Older pages are read before the oldest prompt shown.
+            earlierBefore = pages.earlier ? page.first(where: Self.isPrompt)?["seq"]?.numberValue.map { Int($0) } : nil
+            earlierCarry = []
+        }
         // The reply's session state is as of its `lastSeq` (read with it, before its page),
         // and a catch-up may read records written after it: a turn that ended in a later page
         // must not show as running again. The state goes in at that seq, among the records.
@@ -1030,6 +1065,114 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if !modes.isEmpty { events.append(.modesAvailable(modes, current: detail["modes"]?["currentModeId"]?.stringValue)) }
         if !options.isEmpty { events.append(.update(.configOptions(options))) }
         return events
+    }
+
+    // MARK: Older history (scrolling up)
+
+    /// Older records are read before this seq, the oldest prompt shown; nil when the chat
+    /// shows its start (or has not opened).
+    private var earlierBefore: Int?
+    /// Records read before `earlierBefore` with no prompt among them yet (a turn longer than
+    /// the reads): they go in with the page that reaches their prompt.
+    private var earlierCarry: [JSONValue] = []
+    private var loadingEarlier = false
+
+    public func loadEarlierHistory() {
+        guard !loadingEarlier else { return }
+        guard let before = earlierBefore, let hub, hub.isReady else {
+            // Nothing to read now (the start is shown, or the link is down): the chat's
+            // loading state ends, so the next scroll up asks again.
+            yieldEarlier([], hasEarlier: earlierBefore != nil)
+            return
+        }
+        loadingEarlier = true
+        let sessionID = sessionID
+        Task { [weak self] in
+            let read = await Self.readEarlier(hub, sessionID: sessionID, before: before)
+            self?.applyEarlier(read, before: before)
+        }
+    }
+
+    /// What one scroll up read: records oldest first, whether older ones remain, and whether
+    /// a read failed (nothing is applied; the next scroll up tries again).
+    struct EarlierRead {
+        var records: [JSONValue] = []
+        var more = false
+        var failed = false
+    }
+
+    /// Reads byte-capped pages before `before` until one holds a prompt, the log starts, or
+    /// `maxEarlierReads` pages were read.
+    private static func readEarlier(_ hub: AcpmuxHub, sessionID: String, before: Int) async -> EarlierRead {
+        var out = EarlierRead()
+        var cursor = before
+        do {
+            for _ in 0..<maxEarlierReads {
+                let page = try await hub.request("_acpmux/events", .object([
+                    "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": chatKinds,
+                ]), timeout: pageTimeout)
+                let events = page["events"]?.arrayValue ?? []
+                let hasMore = page["hasMore"] == .bool(true)
+                // hasMore means the server promises older records. An empty or
+                // non-advancing page is a failed read, never the start of history:
+                // dropping earlierBefore here permanently hides older turns.
+                if hasMore {
+                    guard let oldest = events.first?["seq"]?.numberValue,
+                          oldest.isFinite, oldest >= 0, oldest < Double(cursor) else {
+                        out.failed = true
+                        break
+                    }
+                }
+                out.records = events + out.records
+                out.more = !events.isEmpty && hasMore
+                guard out.more, let oldest = events.first?["seq"]?.numberValue,
+                      !events.contains(where: isPrompt) else { break }
+                cursor = Int(oldest)
+            }
+        } catch {
+            out.failed = true
+        }
+        return out
+    }
+
+    /// Puts what a scroll up read in front of the chat as whole turns: from the oldest prompt
+    /// read (what is before it belongs to an older prompt, and is read with the next page).
+    private func applyEarlier(_ read: EarlierRead, before: Int) {
+        loadingEarlier = false
+        guard earlierBefore == before else { return }
+        let all = read.records + earlierCarry
+        var page: [JSONValue] = []
+        if read.failed {
+            // Nothing applied: the next scroll up reads the same page again.
+        } else if !read.more {
+            page = all
+            earlierCarry = []
+            earlierBefore = nil
+        } else if let first = all.firstIndex(where: Self.isPrompt), let seq = all[first]["seq"]?.numberValue {
+            page = Array(all[first...])
+            earlierCarry = []
+            earlierBefore = Int(seq)
+        } else if let oldest = all.first?["seq"]?.numberValue {
+            // Still inside one turn longer than the reads: read on at once (the chat stays
+            // loading), since nothing on screen changes to ask again.
+            earlierCarry = all
+            earlierBefore = Int(oldest)
+            log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): no prompt yet, \(all.count, privacy: .public) records carried")
+            loadEarlierHistory()
+            return
+        }
+        let events = page.flatMap { records.map($0) }
+        let hasEarlier = earlierBefore != nil
+        log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): \(page.count, privacy: .public) records, failed \(read.failed, privacy: .public), more \(hasEarlier, privacy: .public)")
+        // A new reader of this source gets the older turns first, then the rest, in order.
+        if !events.isEmpty { replay.insert(contentsOf: events, at: 0) }
+        yieldEarlier(events, hasEarlier: hasEarlier)
+    }
+
+    private func yieldEarlier(_ events: [AgentSessionEvent], hasEarlier: Bool) {
+        replay.append(.earlierHistory(hasEarlier))
+        for continuation in continuations { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
     }
 
     func receive(record: JSONValue) {

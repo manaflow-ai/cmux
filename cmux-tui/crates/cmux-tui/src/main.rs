@@ -47,6 +47,8 @@ mod share_room;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[cfg(unix)]
+mod distribution;
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -1708,9 +1710,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // Before any mode can serve `identify` or `ping`.
+    // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
+    acpmux::hub::install_build(acpmux_build_id::build());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -2508,6 +2511,10 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    // Check installed plugins in the background so a remote Git host never
+    // delays the daemon's first response. The worker's daily marker and
+    // source/working-tree checks keep local development installs untouched.
+    let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -3020,28 +3027,7 @@ fn start_detached_owner_session(
     };
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
-        match error {
-            local_owner::EnsureError::Spawn(_error) => {
-                anyhow::bail!("{}", messages.owner_spawn_failed())
-            }
-            local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
-            local_owner::EnsureError::RestoreTimeout => {
-                anyhow::bail!("{}", messages.owner_restore_timeout)
-            }
-            local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
-            local_owner::EnsureError::DifferentSession => {
-                anyhow::bail!("{}", messages.different_session)
-            }
-            local_owner::EnsureError::DifferentState => {
-                anyhow::bail!("{}", messages.different_state)
-            }
-            local_owner::EnsureError::InvalidIdentity => {
-                anyhow::bail!("{}", messages.invalid_identity)
-            }
-            local_owner::EnsureError::UnsupportedProtocol => {
-                anyhow::bail!("{}", messages.unsupported_protocol)
-            }
-        }
+        anyhow::bail!("{}", messages.ensure_failed(&error));
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;

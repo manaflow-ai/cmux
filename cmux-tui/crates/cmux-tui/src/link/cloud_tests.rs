@@ -37,13 +37,13 @@ async fn relay_source_sends_scoped_connect_and_token_requests() {
                 serde_json::to_value(grant("token", HOST, &["daemon"])).unwrap()
             };
             let mut stream = reader.into_inner();
-            tokio::io::AsyncWriteExt::write_all(
+            AsyncWriteExt::write_all(
                 &mut stream,
                 serde_json::json!({"ok":true,"value":value}).to_string().as_bytes(),
             )
             .await
             .unwrap();
-            tokio::io::AsyncWriteExt::write_all(&mut stream, b"\n").await.unwrap();
+            AsyncWriteExt::write_all(&mut stream, b"\n").await.unwrap();
         }
     });
     assert_eq!(source.fetch(HOST).await.unwrap().host, HOST);
@@ -70,7 +70,7 @@ fn record(state: &str, services: &[&str]) -> ConnectInfo {
 
 fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
     serde_json::from_value(serde_json::json!({
-        "token": token, "expires_at": 1_792_430_000_000_i64,
+        "token": token, "expires_at": 1_790_000_301_000_u64,
         "host": host, "epoch": 4, "services": services
     }))
     .unwrap()

@@ -161,6 +161,92 @@ wire_op! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResultAvatar {
+    pub sha256: String,
+    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
+    pub bytes: i64,
+    /// The image, base64.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.get declares.
+    ParticipantAvatarGetError {
+        AuthForbidden = "auth.forbidden",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
+    ParticipantAvatarSetOp {
+        name: "participant.avatar.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ParticipantAvatarSetParams,
+        result: ParticipantAvatarSetResult,
+        error: ParticipantAvatarSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetParams {
+    pub participant_id: ParticipantId,
+    /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<String>,
+    /// true removes the picture (no bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<AvatarRef>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.set declares.
+    ParticipantAvatarSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AvatarInvalid = "avatar_invalid",
+        AvatarTooLarge = "avatar_too_large",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    ParticipantsAddOp {
+        name: "participants.add",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsAddParams,
+        result: HomeConversationCommit,
+        error: ParticipantsAddError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParticipantsAddParams {
     pub conversation: ConversationId,
     pub participant: HomeParticipantInput,
@@ -894,4 +980,81 @@ pub struct SsoConnectionCreateParams {
     pub scopes: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jit: Option<SsoConnectionCreateParamsJit>,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.create declares.
+    SsoConnectionCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Disable a connection (owners and admins): sign-in discovery stops routing to it.
+    SsoConnectionDisableOp {
+        name: "sso.connection.disable",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: SsoConnectionDisableParams,
+        result: SsoConnection,
+        error: SsoConnectionDisableError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionDisableParams {
+    pub connection: SsoConnectionId,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.disable declares.
+    SsoConnectionDisableError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's SSO connections, without secrets (owners and admins).
+    SsoConnectionListOp {
+        name: "sso.connection.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session],
+        params: SsoConnectionListParams,
+        result: SsoConnectionListResult,
+        error: SsoConnectionListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListResult {
+    pub team: TeamId,
+    pub connections: Vec<SsoConnection>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.list declares.
+    SsoConnectionListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
 }

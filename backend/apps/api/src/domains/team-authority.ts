@@ -1,26 +1,10 @@
 import { createHash } from "node:crypto"
-import type { OutboxItem, ReduceContext, RowReader, RowWrite } from "@cmux/ownership"
+import type { ReduceContext, RowReader, RowWrite } from "@cmux/ownership"
 import { ROLE_GRANTS, type Role } from "./team-roles.ts"
 
 /** Private per-member incarnation; only changes of membership or role write it. */
 export const TABLE_MEMBER_AUTHORITY = "member_authority"
-export const TEAM_MEMBER_AUTHORITY_CHANGED = "team.member_authority.changed"
-export const TEAM_AUTHORITY_CHANGED = "team.authority.changed"
-/** Cache metadata only; an unavailable row must close its candidates without acknowledging delivery. */
-export type TeamCloudAuthority = { role: string; authority_version: string } | { unavailable: true } | null
 const GENERATION_KEY = "@generation"
-
-/** A durable wakeup only: the target reads current authority instead of trusting delayed payloads. */
-export const memberAuthorityNotice = (team: string, user: string, tx: string): OutboxItem => ({
-  kind: TEAM_MEMBER_AUTHORITY_CHANGED, entity: `member-authority:${team}:${user}:${tx}`,
-  payload: { team, user }, target: { class: "CloudDO", name: team, coalesce: `member-authority:${user}` }
-})
-
-/** Wake the Cloud owner without copying private policy or enumerating team members. */
-export const teamAuthorityNotice = (team: string, tx: string): OutboxItem => ({
-  kind: TEAM_AUTHORITY_CHANGED, entity: `team-authority:${team}:${tx}`, payload: { team },
-  target: { class: "CloudDO", name: team, coalesce: "team-authority" }
-})
 
 const generationOf = (rows?: RowReader): bigint => {
   const stored = rows?.get<{ generation: string }>(TABLE_MEMBER_AUTHORITY, GENERATION_KEY)

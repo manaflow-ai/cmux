@@ -65,6 +65,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserAgentMouse = AgentMouseSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
+    /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
+    public var homeFeedInChief = true
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
@@ -274,6 +276,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `agents.autoRetry.*`: the retry loop after a rate limit or lost connection; the acpmux
+    /// daemon runs it.
+    public var agentRetry = AgentRetrySettings()
     /// `agents.trust.*`: which folders start an agent without the trust question; the acpmux daemon reads the same file.
     public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
@@ -451,6 +456,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentRetry = AgentRetrySettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)

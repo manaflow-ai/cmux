@@ -9,7 +9,7 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return openTool?(resolve(provisional), kind, cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
@@ -50,7 +50,7 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host, where: { self.subagentTabIsBeside(self.resolve(provisional), $0) }) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
             self?.machineTargets() ?? []
         }, moveToMachine: { [weak self] machine, session in
             guard let self else { return false }
@@ -62,7 +62,7 @@ extension AgentTabStore {
         }, showsChat: { [weak self] session in
             guard let self else { return false }
             return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional)), requested: session)
-        }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
+        }) // an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown only beside the chat (its pane or right column), never in another workspace; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
         model.header?.diffTurn = { [weak self] cwd, turn, toggle in
             let chat = self?.resolve(provisional) ?? provisional

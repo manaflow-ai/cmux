@@ -236,8 +236,16 @@ FORK_PULL_REQUEST_BRANCH = re.compile(
 )
 
 
+# The owned-mini member a Blacksmith backlog switches on (2026-11-01): unset, the chain goes on to the
+# RUNNER_POOLS read right after it, so it needs no literal of its own.
+POOL_MEMBER_BEFORE_POOL = re.compile(r"CI_LINUX_GATE_OWNED_RUNNER \|\| fromJSON\(vars\.RUNNER_POOLS\)\.")
+
+
 def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
-    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it."""
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it, or the owned-mini
+    member read directly before that pool read."""
+    if read.group(1) == "CI_LINUX_GATE_OWNED_RUNNER" and POOL_MEMBER_BEFORE_POOL.match(expression, read.start(1)):
+        return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
     if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
         return False
     return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None

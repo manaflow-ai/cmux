@@ -40,10 +40,17 @@
   left: 0;
   display: block;
 }
-/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+/* While text leaves no room the rail stays drawn over it, dimmed, and takes no clicks from the text;
+   the pane-edge strip and keyboard focus reveal it at full strength (Leo, 2026-10-24: "for the narrow
+   windows, i think we should just simply be able to show it. don't shove the ui ... just hide it more"). */
 .acpmux-minimap__rail[data-occluded] {
-  opacity: 0;
+  opacity: 0.4;
   pointer-events: none;
+}
+/* The `dimmed` gutter arm (gutter.experiment.ts): the occluded rail stays drawn, faint, and still
+   leaves the text its clicks. */
+.acpmux-minimap__rail[data-occluded][data-dim] {
+  opacity: 0.4;
 }
 @keyframes acpmux-minimap-in {
   from {
@@ -267,6 +274,17 @@
 .acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
+/* Another session's message (model.ts promptSender): it keeps its row, but its tick is set in from the
+   rail's edge and shorter, as the full-height map sets a reply in, so the person's own prompts stand out
+   (Leo 2026-10-27: "shouldn't they be designated as like a special sort of thing?"). Its tones are
+   the person's ticks'. */
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar,
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__dot {
+  left: 6px;
+}
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar {
+  width: min(20px, calc(100% - 6px));
+}
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
    remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
@@ -318,6 +336,15 @@
   font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
+}
+/* The sender of another session's message, above its words: secondary text, one line. */
+.acpmux-minimap__from {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-minimap__title {
   display: flex;

@@ -84,12 +84,14 @@ impl RelaySource {
         let value: serde_json::Value = serde_json::from_str(answer.trim()).map_err(|_| {
             ConnectInfoError::Unavailable("the link credential relay sent invalid JSON".into())
         })?;
-        if value["ok"] == serde_json::Value::Bool(true) {
-            return Ok(value["value"].clone());
+        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
         }
-        let error = &value["error"];
-        let code = error["code"].as_str().unwrap_or("owner.unreachable");
-        let message = error["message"].as_str().unwrap_or("the link credential relay refused");
+        let error = value.get("error");
+        let field =
+            |name: &str| error.and_then(|e| e.get(name)).and_then(serde_json::Value::as_str);
+        let code = field("code").unwrap_or("owner.unreachable");
+        let message = field("message").unwrap_or("the link credential relay refused");
         Err(ConnectInfoError::from_code(code, message))
     }
 }
@@ -117,34 +119,6 @@ impl ConnectInfoSource for RelaySource {
                 "the link credential relay sent an invalid link_token".into(),
             )
         })
-    }
-}
-
-/// Cloud authority may come from the app-owned relay for the legacy link or
-/// from the explicitly inherited broker used by the Native link. The Native
-/// child never opens a path or receives an install credential itself.
-pub(super) enum CloudSource {
-    Relay(RelaySource),
-    Broker(super::cloud_broker::BrokerSource),
-}
-
-impl ConnectInfoSource for CloudSource {
-    async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
-        match self {
-            Self::Relay(source) => source.fetch(host).await,
-            Self::Broker(source) => source.fetch(host).await,
-        }
-    }
-
-    async fn mint_token(
-        &self,
-        host: &str,
-        services: &[Service],
-    ) -> Result<LinkTokenGrant, ConnectInfoError> {
-        match self {
-            Self::Relay(source) => source.mint_token(host, services).await,
-            Self::Broker(source) => source.mint_token(host, services).await,
-        }
     }
 }
 

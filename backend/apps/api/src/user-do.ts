@@ -22,10 +22,12 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
-import { INSTALL_AUTHORITY_CHANGED, installAuthorityVersion } from "./domains/user-authority.ts"
-import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { installAuthorityVersion } from "./domains/user-authority.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
+
+/** networkIdentity's answer: public key, kind, live grant expiry and op classes, and the install authority version. */
+export interface NetworkIdentityView { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 
 export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid"; message: string }
 
@@ -524,6 +526,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
   /** Public identity only, pinned to the calling client's exact current grant. */
   async deviceKey(entity: string, install: string, grant: string, opClass: "read" | "mutate-own" = "mutate-own"): Promise<JsonWebKey | null> {
+    if (opClass !== "read" && opClass !== "mutate-own") return null
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
@@ -544,8 +547,8 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
-  /** Internal identity projection pinned to the caller's live grant and authority incarnation. */
-  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> } | null> {
+  /** Internal identity projection pinned to the caller's live grant and authority incarnation (TeamDO and the platform CloudDO). */
+  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<NetworkIdentityView | null> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install]
@@ -555,12 +558,24 @@ export class UserDO extends OwnerDO<UserState> {
     return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
   }
 
-  async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string) {
+  /** A client's identity under its live read grant (host.network.target); no mutate-own needed, the same authority version. */
+  async readIdentity(entity: string, install: string, grant: string): Promise<NetworkIdentityView | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant }, Date.now())
+    if (!state.user || !inst || !held || !["mac", "ios", "cli"].includes(inst.kind) || !held.op_classes.includes("read")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
+  }
+
+  /** One owner's bounded batch of networkIdentity reads; a malformed batch answers nothing. */
+  async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string): Promise<Array<NetworkIdentityView | null>> {
     if (!Array.isArray(entries) || entries.length > 128 || entries.some((v) => !v || typeof v.install !== "string" || typeof v.grant !== "string" || v.install.length > 128 || v.grant.length > 128)) return []
     return Promise.all(entries.map((v) => this.networkIdentity(entity, v.install, v.grant, team)))
   }
 
-  async vmNetworkIdentity(entity: string, install: string, grant: string, team: string, machine: string) {
+  /** A VM install's identity, only for its own bound team and machine under a live vm-self grant. */
+  async vmNetworkIdentity(entity: string, install: string, grant: string, team: string, machine: string): Promise<NetworkIdentityView | null> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install]

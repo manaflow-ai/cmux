@@ -5,6 +5,7 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
+#[cfg(target_os = "linux")]
 mod cloud_broker;
 mod cloud_fs;
 mod control;
@@ -14,8 +15,10 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-mod native_broker;
-mod native_route;
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
 mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
@@ -27,6 +30,7 @@ mod inbound;
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
@@ -111,8 +115,8 @@ pub(crate) fn start_link_entry(
     Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
-/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
-/// other frame denied (`remote_denied`).
+/// The gate of the remote entry: exactly the seven `fs-v1` ops and the two
+/// `git-seed-v1` ops, every other frame denied (`remote_denied`).
 fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
     Arc::new(cmux_tui_core::server::FsGate)
 }
@@ -127,6 +131,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("seed") {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+            return seed_cli::run(args.get(1..).unwrap_or_default());
+        }
+        return seed::run(&args[1..]);
+    }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
         return agent_cli::run(&args[1..]);
@@ -135,6 +145,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(args.get(2..).unwrap_or_default());
+        }
         return machine_update::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
@@ -183,7 +196,6 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                 "--server-config",
                 "--credential-socket",
                 "--ready-fd",
-                "--native-cloud-broker-fd",
             ],
         )?),
         "ensure" => {
@@ -435,7 +447,6 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
         ready,
         served,
         watch,
-        broker,
     ))
 }
 
@@ -532,29 +543,13 @@ async fn serve(
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
     // Cloud host ids resolve through the private credential relay owned by
     // the signed-in app. A missing relay fails closed as unavailable.
-    let (source, broker_driver) = match broker {
-        Some(cloud_broker::Bound { stream, .. }) => {
-            stream.set_nonblocking(true)?;
-            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
-            (cloud::CloudSource::Broker(source), Some(driver))
-        }
-        None => (
-            cloud::CloudSource::Relay(
-                credential_socket
-                    .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
-            ),
-            None,
-        ),
-    };
-    let resolver = Arc::new(cloud::CloudResolver::new(source));
-    let peers = Arc::new(if native {
-        Peers::isolated(state.peers_path())
-    } else {
-        Peers::load(state.peers_path())?
-    });
+    let resolver = Arc::new(cloud::CloudResolver::new(
+        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+    ));
+    let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();

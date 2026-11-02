@@ -110,7 +110,7 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
 }
 
 #[test]
-fn native_owner_start_preserves_folder_trust_and_team_host_checks() {
+fn native_owner_start_preserves_folder_trust() {
     let fake = FakeAcpmux::start_with(
         "native-untrusted",
         Fixture { start_folder_trusted: Some(false), ..Default::default() },
@@ -124,19 +124,13 @@ fn native_owner_start_preserves_folder_trust_and_team_host_checks() {
     let start = json!({"cmd":"agent-session-start", "surface":surface,
         "cwd":entry._directory.path().to_string_lossy(), "harness":"claude"});
     assert_eq!(
-        call(&mut stream, &mut reader, start.clone())["error_code"],
+        call(&mut stream, &mut reader, start)["error_code"],
         json!("agent_session.untrusted_folder")
     );
     let methods: Vec<_> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
     assert_eq!(
         methods,
         [json!("_acpmux/web_modes"), json!("_acpmux/harnesses"), json!("acp.trust.get")]
-    );
-    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
-    assert_eq!(call(&mut stream, &mut reader, start)["error_code"], json!(REMOTE_DENIED));
-    assert_eq!(
-        call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}))["error_code"],
-        json!(REMOTE_DENIED)
     );
 }
 
@@ -179,7 +173,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
 }
 
 #[test]
-fn native_owner_transfer_uses_existing_guard_and_rechecks_host_on_finish() {
+fn native_owner_transfer_uses_existing_guard() {
     let fake = FakeAcpmux::start("native-transfer");
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
     entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
@@ -187,10 +181,9 @@ fn native_owner_transfer_uses_existing_guard_and_rechecks_host_on_finish() {
     let home = entry._directory.path().to_path_buf();
     let cwd = home.join("work/project");
     std::fs::create_dir_all(&cwd).unwrap();
-    entry.mux.set_agent_transfer_host(Some(crate::server::agent_transfer::AgentTransferHost {
-        cloud: true,
-        home,
-    }));
+    entry
+        .mux
+        .set_agent_transfer_host(Some(agent_transfer::AgentTransferHost { cloud: true, home }));
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
     let manifest = json!({"schema":"acpmux.transfer.v1", "transferId":"xfer_src", "sessionId":"acp_moving",
@@ -204,10 +197,7 @@ fn native_owner_transfer_uses_existing_guard_and_rechecks_host_on_finish() {
     );
     let received = ok(&mut stream, &mut reader, receive);
     assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_receive"));
-    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
     let finish = json!({"cmd":"agent-transfer-finish", "receive_id":received["receive_id"], "vm_kind":"owner"});
-    assert_eq!(call(&mut stream, &mut reader, finish.clone())["error_code"], json!(REMOTE_DENIED));
-    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     ok(&mut stream, &mut reader, finish);
     assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
 }

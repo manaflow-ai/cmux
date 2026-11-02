@@ -53,6 +53,7 @@ extension CmuxConfigSnapshot {
         if let diagnostic = HomeChiefEngineSetting.parse(root).1 { diagnostics.append(diagnostic) }
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: false), \.homeChannelsEnabled)
+        take(Self.parseLabsToggle(root, path: HomeFeedRowsSetting.configPath, fallback: true), \.homeFeedInChief)
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
         take(HomeServerSetting.parse(root), \.homeServer)

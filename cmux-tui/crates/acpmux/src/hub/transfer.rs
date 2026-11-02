@@ -254,6 +254,7 @@ impl Hub {
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.update_live_session_index(&session);
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -418,6 +419,7 @@ impl Hub {
             self.store.close_log(&meta.id);
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
+            self.remove_cached_closed_summary(&meta.id);
             let _ = self.store.delete(&meta.id);
         }
     }

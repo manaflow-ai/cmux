@@ -25,7 +25,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -386,6 +386,22 @@ fn rekey_verb(args: &[String]) -> u8 {
 
 #[cfg(target_os = "linux")]
 fn cloud_verb(args: &[String]) -> u8 {
+    // Identity authority has no --root or environment override.
+    if args == ["identity"] {
+        return match crate::identity::query() {
+            Ok(identity) => match serde_json::to_string(&identity) {
+                Ok(text) => {
+                    println!("{text}");
+                    code(0)
+                }
+                Err(_) => code(1),
+            },
+            Err(e) => {
+                eprintln!("cmux host cloud identity: {e}");
+                code(1)
+            }
+        };
+    }
     let (paths, rest) = match root_arg(args) {
         Ok(v) => v,
         Err(e) => return usage(&e),
@@ -394,7 +410,7 @@ fn cloud_verb(args: &[String]) -> u8 {
     let answer = match rest.as_slice() {
         [verb] if verb == "daemon-info" => crate::cloud::role::print_daemon_info(&paths, timeout),
         [verb] if verb == "probe-activity" => crate::cloud::role::probe_activity(&paths, timeout),
-        _ => return usage("cloud takes daemon-info or probe-activity"),
+        _ => return usage("cloud takes daemon-info, probe-activity, or identity (without --root)"),
     };
     match answer {
         Ok(value) => {

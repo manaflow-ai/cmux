@@ -5,7 +5,7 @@ import { memberOf, memberUpsert, teamIndexItem, type Member } from "./team-membe
 import type { TeamState } from "./team.ts"
 import { appendAudit } from "./team-audit.ts"
 import { usesSeat } from "./team-roles.ts"
-import { memberAuthorityNotice, memberAuthorityWrites } from "./team-authority.ts"
+import { memberAuthorityWrites } from "./team-authority.ts"
 
 /**
  * Shared (Stack) teams in TeamDO (cx-3bi.43). TeamDO asks Stack for the current team and

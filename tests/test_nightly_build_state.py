@@ -152,6 +152,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build()[0], 'mode=clean')
         self.assertEqual(self.build()[0], 'mode=incremental')
 
+    def test_a_release_build_script_change_makes_it_clean(self):
+        # The workflow step only runs app-build-release.sh, so its xcodebuild flags live in the scripts.
+        for name in ('scripts/ci/nightly-steps/app-build-release.sh', 'scripts/cmux-next/lib/compilation-cache.sh'):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: f'xcodebuild OTHER_SWIFT_FLAGS=-DCHANGED_{len(name)}\n'})
+                self.assertEqual(self.build()[0], 'mode=clean')
+                self.assertEqual(self.build()[0], 'mode=incremental')
+
     def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
         self.build()
         self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))
@@ -168,6 +177,14 @@ class DedicatedBuilder(unittest.TestCase):
                 self.build()
                 self.commit({name: f'changed {name}\n'})
                 self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_prototype_package_or_import_change_stays_incremental(self):
+        self.build()
+        self.commit({'Prototypes/Lab/Package.swift': '// swift-tools-version:5.9\n',
+                     'Prototypes/Lab/Sources/Lab/a.swift': 'import SwiftUI\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
 
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
@@ -304,6 +321,39 @@ class DedicatedBuilder(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertFalse(state.dedicated(runner))
         self.assertFalse(state.mark_built(self.workspace, self.home, 'cmux15-glaeda'))
+
+    def test_only_the_nightly_only_builder_label_keeps_state(self):
+        # run 41340244486: cmux7s-mac-mini-glaeda-nightly-only-3 matched neither, so it restored Swift
+        # packages from R2 (282 s) and built from empty DerivedData.
+        nightly_only = 'cmux7s-mac-mini-glaeda-nightly-only-3'
+        self.assertTrue(state.nightly_only(nightly_only))
+        self.assertFalse(state.nightly_only('cmux15-glaeda-nightly-only-'))
+        self.assertFalse(state.keeps_state(nightly_only))
+        self.assertFalse(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6'))
+        self.assertTrue(state.keeps_state(nightly_only, builder=True))
+        self.assertFalse(state.dedicated(nightly_only))
+        self.assertTrue(state.dedicated(nightly_only, builder=True))
+        self.assertFalse(state.dedicated('blacksmith-6vcpu-macos-26-x', builder=True))
+        self.outputs.write_text('')
+        self.assertTrue(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6', builder=True))
+        self.assertIn('mode=clean', self.outputs.read_text())
+        self.assertTrue((self.workspace / 'build-universal').is_symlink())
+        self.assertTrue((self.workspace / '.spm-cache').is_symlink())
+        # The build finished: the next build on this builder may be incremental.
+        self.assertTrue(state.mark_built(self.workspace, self.home, nightly_only))
+        self.outputs.write_text('')
+        state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6', builder=True)
+        self.assertIn('mode=incremental', self.outputs.read_text())
+        # A plain nightly-only job never prepared kept DerivedData, so there is nothing to mark.
+        plain = Path(tempfile.mkdtemp())
+        self.assertFalse(state.mark_built(plain, self.home, nightly_only))
+
+    def test_the_builder_label_comes_from_the_environment(self):
+        with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': 'true'}):
+            self.assertTrue(state.builder_label())
+        for value in ('false', '', 'True'):
+            with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': value}):
+                self.assertFalse(state.builder_label())
 
 
 if __name__ == '__main__':

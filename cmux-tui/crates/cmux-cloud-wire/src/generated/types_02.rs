@@ -4,6 +4,46 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    GroupPlacementKind {
+        Local = "local",
+        Mini = "mini",
+        CloudVm = "cloud_vm",
+    }
+}
+
+pub type GroupWorkspaceId = String;
+
+/// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPoster {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPosterMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPosterMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
+/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPreview {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPreviewMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPreviewMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GroupPlacement {
     pub kind: GroupPlacementKind,
@@ -896,4 +936,109 @@ pub struct PublicJwk {
     pub crv: LitP256,
     pub x: String,
     pub y: String,
+}
+
+/// One device's APNs registration.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTarget {
+    pub token: PushToken,
+    pub topic: String,
+    pub environment: PushTargetEnvironment,
+    pub install: String,
+    pub device_name: String,
+    pub registered_at: i64,
+}
+
+wire_enum! {
+    PushTargetEnvironment {
+        Development = "development",
+        Production = "production",
+    }
+}
+
+/// An APNs device token (hex).
+pub type PushToken = String;
+
+pub type RepoPattern = String;
+
+/// Decimal per-object revision (the owner's event sequence).
+pub type Revision = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Run {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunError {
+    pub code: String,
+    pub message: String,
+}
+
+/// One automation run; also its Workflow instance id.
+pub type RunId = String;
+
+wire_enum! {
+    RunState {
+        Queued = "queued",
+        Running = "running",
+        Sleeping = "sleeping",
+        Waiting = "waiting",
+        Succeeded = "succeeded",
+        Failed = "failed",
+        Cancelled = "cancelled",
+        Skipped = "skipped",
+        Dead = "dead",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBody {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunWithBodyTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunWithBodyOutcome>,
+    pub body: Body,
 }

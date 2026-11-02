@@ -374,6 +374,23 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         CloudLinkCredentialServer.acceptsRequestForTesting(data)
     }
 
+    /// The private credential socket passed to `cmux-tui link`; it carries no
+    /// token and is only useful while this app's relay is serving.
+    var credentialSocket: URL? {
+        credentialSocketValue
+    }
+
+    /// A unique, short endpoint per launcher instance. Darwin's usual per-user
+    /// temporary directory plus this name fits its 104-byte socket path limit.
+    static func credentialSocketPath(runtimeBase: URL) -> String {
+        let instance = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return runtimeBase.appendingPathComponent("cl-\(instance).sock").path
+    }
+
+    static func credentialRequestAcceptedForTesting(_ data: Data) -> Bool {
+        CloudLinkCredentialServer.acceptsRequestForTesting(data)
+    }
+
     /// The `link ensure` command line for `install` (pure). `--handoff`
     /// goes only with an explicit `--state-dir`.
     func ensureArguments(install: String) -> [String] {

@@ -69,6 +69,24 @@ export const boundedIdentities = async (d: PeerDeps, hosts: NetworkHost[], deadl
   }
   return found
 }
+/**
+ * The final per-owner read of the given hosts' identities, every owner at once and nothing awaited after it.
+ * A change that lands while an earlier snapshot or another owner's batch was pending is seen here; what
+ * remains is the window inside this one concurrent round, bounded by the answer's lease.
+ */
+export const fenceIdentities = async (d: PeerDeps, hosts: NetworkHost[], deadline: number) => {
+  if (hosts.length > 128) throw new Error("identity fence is bounded")
+  const found = new Map<string, NetworkIdentity | null>(), owners = new Map<string, NetworkHost[]>()
+  for (const host of hosts) if (host.owner_user) owners.set(host.owner_user, [...(owners.get(host.owner_user) ?? []), host])
+  if (d.now() >= deadline) throw new Error("identity snapshot deadline exceeded")
+  await Promise.all([...owners].map(async ([user, values]) => {
+    const entries = values.map((h) => ({ install: h.enrolled_by, grant: h.network?.state === "confirmed" ? h.network.install_grant ?? "" : "" }))
+    const answers = await d.identities(user, entries)
+    if (answers.length !== values.length) throw new Error("unavailable identity snapshot")
+    values.forEach((h, i) => found.set(h.id, answers[i] ?? null))
+  }))
+  return found
+}
 export const pointUnique = (d: PeerDeps, hosts: NetworkHost[], identities: Map<string, NetworkIdentity | null>, point: string): boolean =>
   hosts.filter((h) => identityMatches(h, identities.get(h.id) ?? null, d.now()) && pointOf(identities.get(h.id) ?? null) === point).length === 1
 

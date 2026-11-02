@@ -20,7 +20,7 @@ import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
-import { memberAuthorityNotice, memberAuthorityWrites, teamAuthorityNotice } from "./team-authority.ts"
+import { memberAuthorityWrites } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -111,7 +111,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
           ok: true,
           state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
           writes: [...members.map(memberUpsert), ...members.flatMap((m) => memberAuthorityWrites(m.user, ctx)), ...hosts.flatMap(hostUpsert)],
-          ...(state.team ? { outbox: members.flatMap((m) => [teamIndexItem(state.team!, m.user, m.role, ctx.tx), memberAuthorityNotice(state.team!.id, m.user, ctx.tx)]) } : {}),
+          ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
         }
       }

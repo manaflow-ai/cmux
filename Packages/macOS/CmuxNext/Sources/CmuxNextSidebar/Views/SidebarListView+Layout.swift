@@ -40,6 +40,7 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        refreshHoverTab()
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
@@ -409,7 +410,7 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
@@ -442,7 +443,7 @@ extension SidebarListViewComponents {
             view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed),
                            animated: animated || model.followsUserIntent)
             view.railReach = railReach(for: row)
-            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
+            view.isDropTarget = highlightsDropGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)

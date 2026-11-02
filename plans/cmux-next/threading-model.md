@@ -125,6 +125,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
+  `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
+  one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
+  stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
@@ -148,6 +151,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   caller's cancel),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+- Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
+  each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
+  serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
+  a system call; one item per new posting process, so no back-pressure)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,

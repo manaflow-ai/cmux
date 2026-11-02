@@ -75,7 +75,7 @@ fn a_record_for_another_host_or_overlay_address_is_refused() {
 #[test]
 fn a_token_grant_is_scoped_and_never_printed() {
     let grant: LinkTokenGrant = serde_json::from_value(serde_json::json!({
-        "token": "secret-token", "expires_at": 1_792_430_000_000_i64,
+        "token": "secret-token", "expires_at": 1_790_000_301_000_u64,
         "host": HOST, "epoch": 4, "services": ["ssh"]
     }))
     .unwrap();

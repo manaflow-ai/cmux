@@ -1,6 +1,5 @@
 //! The GUI TerminalAttachment protocol through the production Native entry.
 use super::*;
-use base64::Engine as _;
 
 fn terminal(entry: &Entry, stream: &mut UnixStream, reader: &mut BufReader<UnixStream>) -> u64 {
     let identity = ok(stream, reader, json!({"cmd":"identify"}));
@@ -192,21 +191,12 @@ fn native_terminal_keeps_foreign_leases_browser_and_other_client_controls_denied
         json!(REMOTE_DENIED)
     );
     // An actual agent browser surface is not a terminal attachment target.
-    let tab = crate::server::agent_session_attach_tests::agent_tab(&entry.mux, None);
+    let tab = agent_session_attach_tests::agent_tab(&entry.mux, None);
     assert_eq!(
         call(
             &mut second,
             &mut second_reader,
             json!({"cmd":"attach-surface", "surface":tab, "mode":"bytes"})
-        )["error_code"],
-        json!(REMOTE_DENIED)
-    );
-    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
-    assert_eq!(
-        call(
-            &mut second,
-            &mut second_reader,
-            json!({"cmd":"send", "surface":surface, "text":"forbidden"})
         )["error_code"],
         json!(REMOTE_DENIED)
     );

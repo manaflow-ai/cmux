@@ -67,6 +67,14 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
+        if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
+            self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
+            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
@@ -138,7 +146,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.setAttachmentView":
-            // The composer's Inline or Strip choice; the page writes only this key with it.
+            // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
             } else {
@@ -148,6 +156,13 @@ extension AgentPaneRequest {
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
                 self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.noticeAction":
+            // A native notice's button (AgentPaneNotice): its id, nothing else.
+            if let id = params?["id"] as? String, Set((params ?? [:]).keys) == ["id"] {
+                self = .paneNoticeAction(id: id)
             } else {
                 self = .unsupported(method)
             }
@@ -168,6 +183,12 @@ extension AgentPaneRequest {
                 } else {
                     self = .unsupported(method)
                 }
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.clientReady":
+            if let ready = params?["ready"] as? Bool {
+                self = .clientReady(ready)
             } else {
                 self = .unsupported(method)
             }
@@ -300,6 +321,7 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
+        case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String

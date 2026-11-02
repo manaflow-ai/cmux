@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { Domain, OutboxItem } from "@cmux/ownership"
+import type { Domain } from "@cmux/ownership"
 import type { UserState } from "./user.ts"
 
 /** Reducer-owned epochs, replayed with the JSON head; these are cache metadata, never grants. */
@@ -7,12 +7,6 @@ export interface InstallAuthorityState {
   readonly generation: string
   readonly incarnations: Readonly<Record<string, string>>
 }
-
-export const INSTALL_AUTHORITY_CHANGED = "install.authority.changed"
-const notice = (user: string, install: string, tx: string): OutboxItem => ({
-  kind: INSTALL_AUTHORITY_CHANGED, entity: `install-authority:${install}:${tx}`, payload: { install },
-  target: { class: "UserDO", name: user, coalesce: `install-authority:${install}` }
-})
 
 /** Exclude presentation and unrelated account state; include every install/grant admission input. */
 const admission = (state: UserState, install: string): string => {
@@ -49,11 +43,9 @@ export const withInstallAuthority = (domain: Domain<UserState>): Domain<UserStat
       if (next.installs[install]) incarnations[install] = `${generation}:${ctx.tx}`
       else delete incarnations[install]
     }
-    const user = next.user?.id ?? state.user?.id
-    const existing = changed.filter((install) => state.installs[install] !== undefined)
-    if (existing.length && !user) throw new Error("install authority has no user owner")
-    return { ...result, state: { ...next, install_authority: { generation, incarnations } },
-      outbox: [...(result.outbox ?? []), ...existing.map((install) => notice(user!, install, ctx.tx))] }
+    // Readers re-derive the version on every call, so no notice is sent: a changed install simply
+    // stops matching the version an earlier read returned.
+    return { ...result, state: { ...next, install_authority: { generation, incarnations } } }
   }
 })
 

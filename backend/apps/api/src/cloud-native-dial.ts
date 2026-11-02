@@ -2,7 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { CloudVmNetwork, ServerNetworkProof } from "@cmux/protocol"
 import { Schema } from "effect"
 import { can, hostByInstall } from "./domains/team-members.ts"
-import { cloudClientIdentity, peerAuthorityVersion, pointOf, type NetworkHost, type NetworkIdentity } from "./host-network-peers.ts"
+import { cloudClientIdentity, hostStamp, peerAuthorityVersion, pointOf, type NetworkHost, type NetworkIdentity } from "./host-network-peers.ts"
 import { networkOrigin, verifyNetworkIdentity, type NetworkIdentityDeps } from "./network-policy-read.ts"
 
 export type NativeDialDeps = Omit<NetworkIdentityDeps, "stream" | "submitSystem" | "key"> & {
@@ -32,7 +32,7 @@ type Failure = { readonly ok: false; readonly code: string; readonly message: st
 export type NativeDialReply = { readonly ok: true; readonly permit: NativeDialPermit } | Failure
 const forbidden = (): Failure => ({ ok: false, code: "auth.forbidden", message: "the current client network policy does not authorize this dial" })
 const dialIdentity = (host: NetworkHost, own: NetworkIdentity | null, p: Principal, now: number): own is NetworkIdentity =>
-  cloudClientIdentity(host, own, now)
+  cloudClientIdentity(host, own, now) && (p.expires_at === undefined || p.expires_at > now)
     && (p.install_authority === undefined || p.install_authority === own.authority_version)
 
 /** A historical confirmation is a locator. Current grant, key, membership and policy decide access. */
@@ -92,10 +92,13 @@ export const authorizeNativeDial = async (
   if (!host?.network || !origin || target.origin !== origin || !servicesCurrent(d, services) || !Schema.is(ServerNetworkProof)(proof)
     || !Schema.is(CloudVmNetwork)(target.network) || !/^vm_[a-z0-9]{26}$/.test(target.vm)
     || target.network.tenant !== host.network.tenant || target.network.mesh !== host.network.mesh) return forbidden()
+  // The host and membership stamp is taken before the first await; a change during any read never becomes the baseline.
+  const stamp = hostStamp(d, host)
   try {
     const [tenant, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
-    const point = pointOf(own)
-    if (!point || !dialIdentity(host, own, p, d.now()) || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden()
+    const point = pointOf(own), current = currentBinding(d, p)
+    if (!point || !current || current.id !== host.id || hostStamp(d, current) !== stamp || !dialIdentity(current, own, p, d.now())
+      || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden()
     const authorityVersion = peerAuthorityVersion(d, host, own)
     const identity = { ...host.network, wg: host.wg_public_key!, point }
     const read = await verifyNetworkIdentity(d.http, origin, "device", identity, proof, d.now())
@@ -115,7 +118,9 @@ export const authorizeNativeDial = async (
 export const recheckNativeDial = async (d: NativeDialDeps, p: Principal, permit: NativeDialPermit): Promise<boolean> => {
   if (permit.team !== d.team || permit.user !== p.user || permit.install !== p.install || permit.grant !== p.grant) return false
   try {
-    const [tenant, own] = await Promise.all([d.tenant(), d.identity(permit.user, permit.install, permit.grant)])
+    // The identity read is the last await: an install change during the tenant lookup is always seen.
+    const tenant = await d.tenant()
+    const own = await d.identity(permit.user, permit.install, permit.grant)
     const current = currentBinding(d, p)
     return !!current && dialIdentity(current, own, p, d.now()) && peerAuthorityVersion(d, current, own) === permit.authorityVersion
       && own.expires_at === permit.grantExpiresAt && pointOf(own) === permit.point && tenant?.team === d.team && tenant.project === d.project && tenant.tenant === permit.tenant

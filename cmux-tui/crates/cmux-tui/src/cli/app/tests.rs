@@ -345,38 +345,26 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
-/// Every action the app's catalog marks `waitsForPerson = true` gets the
-/// person deadline here too: the CLI must not give up before the app does.
+/// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
+/// when an agent or script asks (#30263), so the CLI waits as long as the app's person deadline:
+/// a late Make Link still reaches the caller instead of a link nobody receives.
 #[test]
-fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
-    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
-    let mut checked = 0;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
-            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
-            let variable = line.trim().split('.').next().unwrap_or_default();
-            let declared = format!("var {variable} = ActionDescriptor(");
-            let Some(start) = text.find(&declared) else { continue };
-            let body = &text[start..];
-            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
-            for key in ["id: \"", "cliName: \""] {
-                if let Some(at) = body.find(key) {
-                    let name = &body[at + key.len()..];
-                    let name = &name[..name.find('"').unwrap_or(0)];
-                    assert_eq!(
-                        waiting_run_timeout(name),
-                        PERSON_RUN_TIMEOUT,
-                        "{name} waits for a person in the app"
-                    );
-                    checked += 1;
-                }
-            }
+fn share_chat_waits_for_the_owners_answer() {
+    let sent = match parse(&args(&["share", "chat", "--surface", "1"])) {
+        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+            Some((method, params, timeout))
         }
+        _ => None,
+    };
+    assert!(sent.is_some(), "expected one action.run call");
+    if let Some((method, params, timeout)) = sent {
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "share chat");
+        assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
     }
-    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+    assert_eq!(waiting_run_timeout("share chat"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("agent.share"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("share list"), WAITING_RUN_TIMEOUT);
 }
 
 /// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.

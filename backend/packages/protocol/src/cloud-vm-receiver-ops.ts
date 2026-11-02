@@ -1,13 +1,14 @@
 import { Schema } from "effect"
+import { isPattern } from "./json-checks.ts"
 import { MachineId } from "./cloud-machine-ops.ts"
 import { def, mutationErrors } from "./op-def.ts"
 
-const Generation = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+const Generation = Schema.String.check(isPattern(/^[0-9a-f]{64}$/))
 export const CloudVmReceiverLifecycleParams = Schema.Struct({
   machine: MachineId,
   phase: Schema.Literals(["read", "begin", "ready", "end"]),
   expected: Schema.optionalKey(Generation),
-  attempt: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/)))
+  attempt: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9a-f]{32}$/)))
 })
 export const CloudVmReceiverLifecycleView = Schema.Struct({
   machine: MachineId, generation: Generation, phase: Schema.Literals(["idle", "starting", "ready", "stopped"])

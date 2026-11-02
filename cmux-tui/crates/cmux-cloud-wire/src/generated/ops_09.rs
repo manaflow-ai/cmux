@@ -160,6 +160,84 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
+    SsoConnectionSetSecretOp {
+        name: "sso.connection.set_secret",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: SsoConnectionSetSecretParams,
+        result: SsoConnection,
+        error: SsoConnectionSetSecretError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionSetSecretParams {
+    pub connection: SsoConnectionId,
+    pub client_secret: String,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.set_secret declares.
+    SsoConnectionSetSecretError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        SsoNotConfigured = "sso.not_configured",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
+    TeamAiLimitGetOp {
+        name: "team.ai_limit.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamAiLimitGetParams,
+        result: TeamAiLimitGetResult,
+        error: TeamAiLimitGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitGetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitGetResult {
+    pub team: String,
+    pub default_usd: WireNumber,
+    pub is_default: bool,
+    pub resets_at: i64,
+    pub me: TeamAiLimitMember,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<TeamAiLimitMember>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_usage: Option<TeamAiUsageLine>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub next_cursor: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.get declares.
+    TeamAiLimitGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// Set one member's personal monthly AI spending limit (USD per UTC month, any amount; 0 = no AI); null clears it and the member uses the team default again. Team admins and billing members, in a person's session. Recorded in the billing audit.
     TeamAiLimitMemberSetOp {
         name: "team.ai_limit.member.set",
@@ -896,5 +974,74 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
+    TeamPolicyUpdateOp {
+        name: "team.policy.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyUpdateParams,
+        result: TeamPolicy,
+        error: TeamPolicyUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyUpdateParams {
+    pub changes: Vec<PolicyChange>,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.policy.update declares.
+    TeamPolicyUpdateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).
+    TeamVmAccountsOp {
+        name: "team_vm.accounts",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmAccountsParams,
+        result: TeamVmAccountsResult,
+        error: TeamVmAccountsError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsResult {
+    pub team: TeamId,
+    pub users: Vec<TeamVmAccountUser>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.accounts declares.
+    TeamVmAccountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
     }
 }

@@ -281,6 +281,19 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
 }
 
 /**
+ * ThemeTokens.wallpaperTintOpacity: the alpha of the theme tint the window lays over a background
+ * picture (WindowBackdrop, with no Opacity of the user's own). Dark themes keep a denser tint; lighter
+ * and higher-contrast themes show more of the picture.
+ */
+export function wallpaperTintOpacity(tokens: ThemeTokens): number {
+  const window = tokens.windowBackground;
+  const headroom = clamp((contrast(tokens.textPrimary, window) - MINIMUM_TEXT_CONTRAST) / 8);
+  const bias = Math.min(Math.max((luminance(window) - 0.18) * 0.12, -0.03), 0.08);
+  const floor = tokens.isDark ? 0.62 : 0.56;
+  return Math.min(Math.max(floor + (1 - headroom) * 0.1 + bias, 0.52), 0.76);
+}
+
+/**
  * The popup surface (OverlayMaterial.swift `ThemeTokens.opaqueOverlayFill`): the opaque window
  * background lifted by up to `lift` toward white, or on a dark theme whose text is lighter than its
  * page toward the text, stopping where secondary text would drop below 4.5:1 on a hovered row. A dark

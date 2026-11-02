@@ -904,3 +904,65 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationPolicyGetParams {}
+
+wire_errors! {
+    /// The error codes integration.policy.get declares.
+    IntegrationPolicyGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
+    IntegrationPolicySetOp {
+        name: "integration.policy.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationPolicySetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicySetError,
+    }
+}
+
+wire_enum! {
+    IntegrationPolicySetParamsGithubScope {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicySetParamsGithub {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_org_admin: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_workflows: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicySetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github: Option<IntegrationPolicySetParamsGithub>,
+}
+
+wire_errors! {
+    /// The error codes integration.policy.set declares.
+    IntegrationPolicySetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyLocked = "policy.locked",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}

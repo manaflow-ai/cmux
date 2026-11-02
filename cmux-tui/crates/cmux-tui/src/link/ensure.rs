@@ -135,7 +135,8 @@ impl Served {
             return true;
         }
         status["session_socket"] == json!(self.session_socket)
-            && status["credential_socket"] == json!(self.credential_socket)
+            && status.get("credential_socket").unwrap_or(&Value::Null)
+                == &json!(self.credential_socket)
             && status["server_config"]["path"] == json!(self.server_config)
             && status["server_config"]["sha256"] == json!(self.server_config_sha256)
     }

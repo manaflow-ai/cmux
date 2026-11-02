@@ -1,0 +1,19 @@
+/* `Spinner`'s own default (icons.tsx imports this sheet), so the mark is right on every page that
+   draws it, not only where conversation.css loads: the centre dot stays hidden and the mark turns on
+   the shared clock (agent work's faint ring with its short sweep, and loading's thin arc, both turn
+   smoothly; never the 3/4 arc for agent work nor the macOS activity indicator's stepping spokes,
+   #29903). Without these rules the svg drew a still mark with a
+   dot in its centre (Leo 2026-10-31: "what is this static symbol with a dot?"). Agent work is a
+   spinner, never a still or breathing dot. conversation.css keeps the Debug working looks (breathe,
+   shimmer) that swap the ring and sweep for the dot; Reduce Motion and the static look hold the mark still. */
+.cv-spinner__dot {
+  display: none;
+  fill: var(--cmux-accent, currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
+  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
+    .cv-spinner {
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  }
+}

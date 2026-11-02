@@ -4,6 +4,56 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageMeterLine {
+    pub meter: Meter,
+    pub unit: String,
+    pub quantity: WireNumber,
+    pub usd: WireNumber,
+}
+
+wire_enum! {
+    UsageStopReason {
+        CapReached = "cap.reached",
+        CapNotConfigured = "cap.not_configured",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageSummary {
+    pub owner: Option<TeamId>,
+    pub month: String,
+    pub meters: Vec<UsageMeterLine>,
+    pub total_usd: WireNumber,
+    pub cap_usd: Option<WireNumber>,
+    pub ceiling_usd: Option<WireNumber>,
+    pub team_cap_usd: Option<WireNumber>,
+    pub stopped: Option<UsageStopReason>,
+}
+
+/// A cmux user (Stack user id kept as an external id).
+pub type UserId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserProfile {
+    pub id: UserId,
+    pub stack_user_id: String,
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
+    pub display_name: String,
+    pub personal_team: TeamId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeam {
+    pub id: TeamId,
+    pub display_name: String,
+    pub kind: UserTeamKind,
+    pub role: TeamRole,
+    pub sso_required: bool,
+}
+
 wire_enum! {
     TriggerStatus {
         Active = "active",

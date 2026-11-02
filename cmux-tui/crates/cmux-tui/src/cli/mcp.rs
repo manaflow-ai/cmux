@@ -23,6 +23,7 @@ mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
+mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
@@ -40,6 +41,7 @@ mod transport;
 mod upstream;
 mod upstream_listing;
 mod v2_tools;
+mod video_tools;
 mod watch;
 
 use std::collections::BTreeSet;
@@ -174,6 +176,15 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// Cloud chat repo actions run on the selected machine daemon.
+    fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "repo.unavailable",
+            "Connect to the Cloud machine and retry.",
+        ))
+    }
+
     /// App calls that may run on another thread: a computer use call's
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
@@ -269,6 +280,10 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
+        super::cloud_repo::call(&self.global, action, args)
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -701,12 +716,14 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.extend(cloud_repo_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.push(open_tool::descriptor());
+        tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
@@ -807,6 +824,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -916,6 +936,9 @@ impl<B: Backend> Server<B> {
         if name == terminal_talk_tools::SEND {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
+        }
+        if let Some(result) = self.call_video(name, &arguments) {
+            return Ok(result);
         }
         if name == open_tool::NAME {
             if !self.actions_loaded {
