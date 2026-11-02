@@ -136,3 +136,11 @@ test("checkpoints go offline when the link does", async () => {
     await act(async () => view.root.unmount());
   }
 });
+
+// Cloud chat recovery (App.tsx `cloudChatRecoveryActive`) and checkpoints read the same `linkUp`.
+test("the link is up for every emit reason but a lost or opening connection", async () => {
+  const { linkUp } = await import("../src/agent-session/acpmux/model");
+  for (const reason of ["connected", "session changed", "agent_message_chunk", "history", "failed"])
+    expect(linkUp(reason)).toBe(true);
+  for (const reason of ["disconnected", "connecting", "connecting: socket closed"]) expect(linkUp(reason)).toBe(false);
+});

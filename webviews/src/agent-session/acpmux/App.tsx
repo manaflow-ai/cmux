@@ -65,6 +65,7 @@ import {
   isLineRow,
   isLiveStep,
   restRoom,
+  linkUp,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -6166,6 +6167,9 @@ function AcpmuxPane() {
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
+  // Footer actions and checkpoints show only while acpmux is reachable. The client reports failures
+  // in the transcript; a bridge that cannot route an action has nothing to add.
+  const connected = linkUp(snapshot.connection);
   const checkpoints = useCheckpoints({
     request: callNative,
     target: snapshot.summary?.cwd
@@ -6175,7 +6179,7 @@ function AcpmuxPane() {
           hostKind: snapshot.summary.hostKind,
         }
       : undefined,
-    online: snapshot.connection === "connected",
+    online: connected,
     strings: checkpointLabels,
     variant: checkpointVariant,
   });
@@ -6234,9 +6238,6 @@ function AcpmuxPane() {
   };
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
-  // Footer actions show only while acpmux is reachable. The client reports failures in the
-  // transcript; a bridge that cannot route an action has nothing to add.
-  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
@@ -8944,7 +8945,7 @@ function AcpmuxPane() {
       !!snapshot.unavailable,
       snapshot.sessionId,
       snapshot.rows.length,
-      snapshot.connection === "connected",
+      connected,
       freshView,
     ),
     recheck: recheckCloudChat,
