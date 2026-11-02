@@ -264,6 +264,59 @@ import Testing
                 "the move and its update go in one change: applied \(remote.applied), moved \(remote.moved)")
     }
 
+    /// The review of #27308: a link moved into Pinned from the Work window stays in Work's Pinned before the daemon
+    /// echoes the change. The move's `item.update {room}` is a pending record write: without it the optimistic view
+    /// read the link's old space (none, so Default's) and the link left the acting window until the echo.
+    @Test func aLinkMovedIntoPinnedStaysInTheActingSpaceBeforeTheEcho() async throws {
+        let store = try await Self.loadedStore(RecordingRemote(document: Self.linkDocument))
+        store.newItemRoom = { Self.work }
+        store.move(["itm_l"], to: SidebarDocTarget(section: Self.pinned), title: SidebarDocStore.moveTitle)
+        #expect(store.shownRecords.items["itm_l"]?.room == Self.work, "\(String(describing: store.shownRecords.items["itm_l"]))")
+        let projection = try #require(store.projection(live: [Self.ref("ws-1")]))
+        func pinned(_ room: String) -> [String] {
+            projection.layout.scopedToWindow(ownedElsewhere: { _ in false }, room: room)
+                .section(SidebarLayoutDocument.pinnedSectionID)?.items.map(\.id.rawValue) ?? []
+        }
+        #expect(pinned(Self.work) == ["itm_l"], "the acting space lost the link before the echo: \(pinned(Self.work))")
+        #expect(pinned(Self.home).isEmpty, "\(pinned(Self.home))")
+    }
+
+    static func pendingOps(_ ops: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: ops) }
+
+    /// A pending `item.update` writes the item fields it patches on the shown records (its space first); a JSON null
+    /// clears one, and a patch with none of them writes nothing.
+    @Test func aPendingItemUpdateWritesItsFields() throws {
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+        ], items: [
+            "itm_l": SidebarDocItem(id: "itm_l", section: Self.pinned, body: .url("https://a.example", title: nil), label: "Old"),
+        ])
+        var pending = SidebarDocPendingRecords()
+        let wrote = pending.add(key: "k1", ops: try Self.pendingOps([
+            ["op": "move", "items": ["itm_l"], "to": ["section": Self.pinned]],
+            ["op": "item.update", "id": "itm_l", "patch": ["room": Self.work, "label": NSNull(), "shows_label": false]],
+        ]), records: records)
+        #expect(wrote)
+        let item = try #require(pending.applied(to: records).items["itm_l"])
+        #expect(item.room == Self.work && item.label == nil && item.showsLabel == false, "\(item)")
+
+        var empty = SidebarDocPendingRecords()
+        #expect(!empty.add(key: "k2", ops: try Self.pendingOps([["op": "item.update", "id": "itm_l", "patch": [String: Any]()]]), records: records))
+    }
+
+    /// A pending New Group keeps its space (`profile`): made in Work, it draws in Work before the echo.
+    @Test func aPendingNewGroupKeepsItsSpace() throws {
+        let records = SidebarDocRecords(sections: [
+            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
+        ], items: [:])
+        var pending = SidebarDocPendingRecords()
+        pending.add(key: "k1", ops: try Self.pendingOps([
+            ["op": "group.create", "id": "itm_gn", "name": "New", "color": "blue", "items": [String](),
+             "profile": Self.work, "to": ["section": Self.custom]],
+        ]), records: records)
+        #expect(pending.applied(to: records).items["itm_gn"]?.room == Self.work)
+    }
+
     /// This Mac's section: `itm_mp` (no space stored, no workspace of its own) holds `itm_mc` (Work's, workspace `ws-5`
     /// live here) and `itm_me` (Work's, empty); `itm_mo` (Default's, empty) holds `itm_mk` (Work's, empty).
     static func machineGroups() -> SidebarDocProjection {
