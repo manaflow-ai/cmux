@@ -7,6 +7,7 @@
 // hover a section shows its handle, and nothing moves. CI fails the file when Chromium cannot launch
 // (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { gridTokenCss } from "./support/gridTokens";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
@@ -81,6 +82,8 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8").replace(/^@import[^;]*;$/gm, ""))
     .join("\n");
+  // The panel's gaps, insets and handle width are grid tokens (#27570), which the page defines.
+  const tokens = gridTokenCss();
 
   let browser: Browser;
   beforeAll(async () => {
@@ -93,7 +96,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   // Away from the panel, so no section starts hovered.
   const show = async (page: Page) => {
     await page.setContent(
-      `<style>${css} body { margin: 0 }</style>` +
+      `<style>${tokens}\n${css} body { margin: 0 }</style>` +
         `<div style="position: absolute; left: 40px; top: 40px; width: 320px">${markup}</div>`,
     );
     await page.mouse.move(2, 2);
@@ -136,7 +139,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    test("the default order draws the three blocks: 6px inside a block, none where it runs, 8px, a hairline, 8px between", async () => {
+    // design/grid.md Rule 4: the inner gap (12) between a block's sections, the block gap (24) between
+    // blocks with the hairline centred in it (#27570).
+    test("the default order draws the three blocks: the inner gap inside a block, the block gap with its hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page);
@@ -159,10 +164,10 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             rules: ruled.map(rule),
           };
         });
-        expect(geometry.about).toEqual([0, 0, 0]);
-        expect(geometry.made).toBeCloseTo(6, 1);
-        // This page has no desktop.css, so the hairline is its 0.5px fallback.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
+        expect(geometry.about).toEqual([12, 12, 12]);
+        expect(geometry.made).toBeCloseTo(12, 1);
+        // The hairline is drawn in the gap, so it adds no height.
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(24, 1);
         // The hairline over the first section of each block but the first, and nowhere else.
         expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
       } finally {
@@ -214,7 +219,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           clearOfScrollbar: true,
           afterSection: true,
           rightOfTitle: true,
-          titleAtTextColumn: 8,
+          // design/grid.md section 3: text = lead + box + 8 (8 + 16 + 8); a head without an icon still
+          // starts its title on that column (#27570).
+          titleAtTextColumn: 32,
         });
       } finally {
         await page.close();
