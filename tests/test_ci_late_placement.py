@@ -357,7 +357,7 @@ class Output(unittest.TestCase):
 
         class API:
             def __init__(self, token, repo):
-                pass
+                seen.setdefault("tokens", []).append(token)
 
             def runners(self):
                 return [*roots(idle=2), *guis(idle=0, busy=10)]
@@ -367,10 +367,12 @@ class Output(unittest.TestCase):
             return {label: 40 if label == GUI else 0 for label in labels}
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
                 mock.patch.object(late.pool, "GitHub", API), mock.patch.object(late, "gui_backlog", backlog):
-            env = dict(OWNED, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ID="77")
+            env = dict(OWNED, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="route", GITHUB_TOKEN="workflow",
+                       GITHUB_REPOSITORY="o/r", GITHUB_RUN_ID="77")
             self.assertEqual(late.main(env), 0)
             text = Path(out.name).read_text()
         self.assertEqual(seen["exclude"], 77)
+        self.assertEqual(seen["tokens"], ["route", "workflow"])
         self.assertIn(f'"cli-product": "{RETRY}"', text)
         self.assertTrue(text.endswith("onto_owned=false\n"), text)
 
@@ -437,7 +439,9 @@ class Workflow(unittest.TestCase):
         self.assertEqual(steps["place"]["env"]["RETRY_RUNNER"], "${{ inputs.pr_retry_runner }}")
         self.assertEqual(steps["place"]["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
         for mint in ("route-token", "route-token-repo"):
-            self.assertEqual(steps[mint]["with"]["permission-actions"], "read", mint)
+            self.assertNotIn("permission-actions", steps[mint]["with"], mint)
+        self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(steps["place"]["env"]["GITHUB_TOKEN"], "${{ github.token }}")
 
     def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
         steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}
@@ -449,7 +453,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(marker["with"]["name"], "macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}")
         self.assertIn('LATE_JOB = "macos / late-placement"', rescue)
         # It starts nothing itself: the rescue sweeper finds the run by its marker.
-        self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read", "actions": "read"})
 
 
 if __name__ == "__main__":

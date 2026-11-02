@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 541,
+  "count": 547,
   "sections": [
     {
       "id": "general",
@@ -1653,6 +1653,18 @@
           ]
         },
         {
+          "key": "agentPane.display.presentation",
+          "title": "Chat Presentation",
+          "help": "",
+          "kind": "choice",
+          "default": "transcript",
+          "group": "Agent Chat",
+          "values": [
+            "transcript",
+            "messages"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -3137,6 +3149,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.chromeGroups",
+          "title": "Chrome-Style Groups",
+          "help": "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.cmd9",
           "title": "Command-9",
           "help": "Goes to the last item, as in browsers, or to the ninth.",
@@ -3579,6 +3599,14 @@
           ]
         },
         {
+          "key": "sidebar.sideBySide",
+          "title": "Workspaces Side by Side",
+          "help": "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.spacesPosition",
           "title": "Spaces Position",
           "help": "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
@@ -3779,6 +3807,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspacesAsTabs",
+          "title": "Workspaces as Tabs",
+          "help": "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
         },
         {
           "key": "status.inferCommandBusy",
@@ -5124,6 +5160,14 @@
       "title": "Home",
       "rows": [
         {
+          "key": "chief.autoRouteSubagents",
+          "title": "Route Subagents to the Best Agent",
+          "help": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Subagents"
+        },
+        {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",
           "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -5259,6 +5303,9 @@
             "moon",
             "moon-blue",
             "mochi",
+            "captain",
+            "sprout",
+            "bolt",
             "fox-arctic",
             "machine-violet",
             "machine-gold",
@@ -5267,6 +5314,14 @@
             "orb-spark",
             "orb-hood"
           ]
+        },
+        {
+          "key": "home.feedInChief",
+          "title": "Show the Feed in Chief",
+          "help": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Chat"
         },
         {
           "key": "home.server",

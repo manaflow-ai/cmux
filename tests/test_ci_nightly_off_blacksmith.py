@@ -13,6 +13,8 @@ import re
 import sys
 import unittest
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -42,8 +44,8 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "attest-nightly-remote-daemon", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "signer-dmg", "route-visual-gate-nightly", "keep-published-dsyms",
+    "attest-nightly-remote-daemon", "signer-build", "signer-app", "signer-app-notary",
+    "signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
@@ -178,7 +180,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotRegex(match.group(1), SINGLE_HOST)
 
     def test_native_nightlies_follow_owned_pool_then_blacksmith(self) -> None:
-        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  build-nightly-app:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         # nightly-next: an idle owned Mac, else the moving Blacksmith label (pick-nightly-build-runner).
@@ -188,7 +190,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
-        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         legacy = re.search(r"^    runs-on: (.+)$", text[text.index("\n  sign-nightly-identity-legacy:"):], re.MULTILINE).group(1)
         self.assertNotIn("blacksmith", legacy)
         self.assertTrue(legacy.endswith("|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"), legacy)
@@ -210,7 +212,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         in verify-signed-nightly. llvm-lipo thins, which gives Apple lipo's bytes.
         """
         import yaml
-        document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
+        document = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))
         jobs = document["jobs"]
         light = ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
                  "contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {job} ') && "
@@ -267,7 +269,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         Their steps still run on a Mac (Apple's lipo, the Mac's tar).
         """
         import yaml
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         linux = linux_runner_values()
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
@@ -302,7 +304,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
     def test_legacy_identity_target_uses_fresh_linux_placement(self) -> None:
         import yaml
         from test_nightly_trusted_routing import evaluate, parse_expression
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text()))["jobs"]
         job = jobs["legacy-identity-target"]
         picker = jobs["pick-legacy-identity-runner"]
         self.assertEqual(set(picker["needs"]), set(job["needs"]) - {"pick-legacy-identity-runner"})
@@ -325,7 +327,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
     def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
         """Fleet admission supplies unique reservations, never an unserved pool label."""
         import yaml
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertNotIn("cmux-fleet-linux-x64", str((job or {}).get("runs-on", "")))
@@ -336,7 +338,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         The light-job test above only checked that these jobs stay on Linux, so decide's literal
         blacksmith-32vcpu-ubuntu-2404 pin passed it. This ratchets BLACKSMITH_LINUX_ONLY_DEBT down."""
         import yaml
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         import json
         light = json.loads((ROOT / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
         alone = {name for name, job in jobs.items()
@@ -354,7 +356,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
     def test_publication_controls_use_declared_light_routing_without_stale_dependencies(self) -> None:
         import json
         import yaml
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for name in PUBLICATION_POOL_JOBS:
             with self.subTest(job=name):

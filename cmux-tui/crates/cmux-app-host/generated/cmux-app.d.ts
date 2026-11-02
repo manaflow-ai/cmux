@@ -40,11 +40,13 @@ declare namespace Cmux {
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
   type ChiefBrainStart = { state: string; reason?: string }
+  type ChiefContinueResult = { continued: boolean; reason?: string }
   type ChiefEngineChoice = { harness?: string; model?: string; effort?: string }
   type ChiefHistory = { chief: string; revisions: Array<Cmux.ChiefRevision> }
   type ChiefId = string
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord>; deleted: Array<string> }
   type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
+  type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
@@ -71,6 +73,8 @@ declare namespace Cmux {
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
   type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; period_end: number } }
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; revision: Cmux.Revision }
+  type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
+  type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh"> }
   type CodeRef = { commit: Cmux.CommitSha; path: string; export?: string }
   type ColorHex = string
   type CommandSpec = unknown
@@ -633,6 +637,8 @@ interface CmuxGlobal {
     }
   }
   chief: {
+    /** `chief.continue` (mutation, scope `chief:write`) */
+    continue: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.MutationResult<Cmux.ChiefContinueResult>>
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
     create: CmuxOp<{ display_name?: string; is_default?: boolean; brain_place?: Cmux.ChiefBrainPlace; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
     engine: {
@@ -667,6 +673,8 @@ interface CmuxGlobal {
       /** `chief.profile.update` (mutation, scope `chief:write`) */
       update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
     }
+    /** `chief.retry` (mutation, scope `chief:write`) */
+    retry: CmuxOp<{ machine?: string; session?: string; chief?: string; message: string }, Cmux.MutationResult<Cmux.ChiefRetryResult>>
     /** `chief.stop` (mutation, scope `chief:write`) */
     stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string; all?: boolean; restart?: Array<string> }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
@@ -777,6 +785,12 @@ interface CmuxGlobal {
       event: {
         /** `cloud.vm.event.emit` (mutation, scope `cloud:execute`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
         emit: CmuxOp<{ machine: Cmux.MachineId; kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"; at: number; data: string }, Cmux.MutationResult<{ delivered: boolean }>>
+      }
+      /** `cloud.vm.network_policy` (read, scope `cloud:read`): Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+      network_policy: CmuxOp<{ machine: Cmux.MachineId }, Cmux.CloudVmNetworkPolicyView>
+      receiver: {
+        /** `cloud.vm.receiver.lifecycle` (mutation, scope `cloud:execute`): Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring. */
+        lifecycle: CmuxOp<{ machine: Cmux.MachineId; phase: "read" | "begin" | "ready" | "end"; expected?: string; attempt?: string }, Cmux.MutationResult<{ machine: Cmux.MachineId; generation: string; phase: "idle" | "starting" | "ready" | "stopped" }>>
       }
       self: {
         /** `cloud.vm.self.get` (read, scope `cloud:read`): The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */

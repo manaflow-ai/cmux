@@ -37,3 +37,13 @@ every on-demand acpmux process; this query does not stop inherited acpmux or mak
 an operation already executing during a memory snapshot atomic. A delivery
 consumer must supply its own operation lifecycle fencing before claiming that
 property. Guests with root compromise are outside this local identity boundary.
+
+Trigger authorization uses the platform origin declared by the daemon build,
+from the host's existing environment-to-origin table. Builds default to
+production. `CMUX_TRIGGER_PLATFORM_ENV=development` or `staging` may be set at
+compile time for debug acceptance builds; release binaries refuse those values
+before contacting any authority. Runtime environment variables and RPC fields
+cannot change this choice. Authorization uses HTTPS with certificate and hostname
+validation, no redirects and no environment proxy. Only that configured authority
+can attest the active principal; response claims still have to match the fresh
+guest identity and every requested scope field.

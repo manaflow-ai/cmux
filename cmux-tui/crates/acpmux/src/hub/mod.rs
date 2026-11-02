@@ -42,6 +42,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod host_notice_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod shutdown_tests;
@@ -57,9 +59,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
-pub use idle_census::Sidecar;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
+pub use idle_census::{Sidecar, StoredLaunch};
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -78,6 +80,7 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
+mod adopt_retry;
 mod hosts;
 mod lifecycle;
 mod log_deferral;
@@ -110,7 +113,8 @@ mod queue_admission;
 mod queue_edit;
 pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) use queue::approved_prompts_error;
+pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod profile_respawn;
 mod resolve;
 mod route_switch;
@@ -223,6 +227,8 @@ mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 pub mod background_turn;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -332,6 +338,8 @@ pub(super) struct PendingPermission {
 
 #[derive(Debug, Clone)]
 pub struct TurnInfo {
+    /// Admitted Cloud trigger provenance, never client supplied metadata.
+    pub trigger: bool,
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
@@ -479,6 +487,12 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
+    /// disk for history, search, export and restore, but list/peer hot paths never walk them.
+    pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
+    /// Serialized summaries for closed sessions. Metadata commits replace the row before the
+    /// next full list, so full callers do not rebuild closed-session projections.
+    pub(super) closed_summary_cache: StdMutex<HashMap<String, (u64, String, String)>>,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -649,12 +663,22 @@ pub struct Hub {
     /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
     #[cfg(test)]
     pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
+    #[cfg(test)]
+    pub(super) purge_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
+    /// Tests only: runs right before a queued prompt's `queued` record is logged (`enqueue`).
+    #[cfg(test)]
+    pub(super) queued_log_seam: StdMutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Tests only: this daemon takes a bundle as a build without queue approval would
+    /// (`transfer_in.rs` refuses one that carries approved prompts that still wait).
+    #[cfg(test)]
+    pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -777,6 +801,8 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            live_session_ids: StdMutex::new(std::collections::HashSet::new()),
+            closed_summary_cache: StdMutex::new(HashMap::new()),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -853,11 +879,17 @@ impl Hub {
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
+            queued_log_seam: Default::default(),
+            #[cfg(test)]
+            queue_approval_off: AtomicBool::new(false),
+            #[cfg(test)]
             prompt_start_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
             #[cfg(test)]
             finish_seam: Default::default(),
+            #[cfg(test)]
+            purge_seam: Default::default(),
             #[cfg(test)]
             retry_seam: Default::default(),
             harness_watch: Default::default(),
@@ -1052,7 +1084,9 @@ impl Hub {
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
-        sessions.insert(session.id.clone(), session);
+        sessions.insert(session.id.clone(), session.clone());
+        drop(sessions);
+        self.update_live_session_index(&session);
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1153,6 +1187,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
@@ -1241,6 +1276,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
+            kept_messages: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
@@ -1270,6 +1306,79 @@ impl Hub {
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         session
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
+        let id = meta.id.clone();
+        let session = self.make_session(meta);
+        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.update_live_session_index(&session);
+        session
+    }
+
+    /// Keep the hot-path index in step with a session's status. The complete session map is
+    /// intentionally retained so an explicit history/restore lookup can still load a closed chat.
+    pub(super) fn update_live_session_index(&self, session: &Session) {
+        let mut live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if session.status() == SessionStatus::Closed {
+            live.remove(&session.id);
+        } else {
+            live.insert(session.id.clone());
+        }
+    }
+
+    pub(super) fn remove_live_session_index(&self, id: &str) {
+        self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
+        let id = session.id.clone();
+        let generation = self.events.summary_generation.load(Ordering::SeqCst);
+        if session.status() == SessionStatus::Closed
+            && let Some(bytes) = self
+                .closed_summary_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .filter(|entry| entry.0 == generation)
+                .map(|entry| if with_tools { &entry.2 } else { &entry.1 })
+            && let Ok(row) = serde_json::from_str(bytes)
+        {
+            return row;
+        }
+        let row = if with_tools {
+            self.session_summary(session)
+        } else {
+            self.session_list_summary(session)
+        };
+        if session.status() == SessionStatus::Closed {
+            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let entry =
+                cache.entry(id).or_insert_with(|| (generation, String::new(), String::new()));
+            entry.0 = generation;
+            let bytes = serde_json::to_string(&row).unwrap_or_default();
+            if with_tools {
+                entry.2 = bytes;
+            } else {
+                entry.1 = bytes;
+            }
+        }
+        row
+    }
+
+    /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
+    /// from `sessions` only by an explicit id/name request.
+    pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
+        let ids: Vec<String> = self
+            .live_session_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        newest_first(ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect())
     }
 
     // ------------------------------------------------------------ lookup
@@ -2027,6 +2136,7 @@ impl Hub {
             }
             (was, m.subsession.clone())
         };
+        self.update_live_session_index(session);
         if was != status {
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);

@@ -11,6 +11,7 @@ import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
+import { withoutSkillDollars } from "../slashCommands";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -140,7 +141,10 @@ export function messageMenuTarget(
       ? turnSeq
       : undefined;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+    // A prompt copies as its bubble reads: a Codex skill `/name`, not `/$name` as sent.
+    row.kind === "user"
+      ? { text: withoutSkillDollars(row.text, snapshot.commands) }
+      : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.

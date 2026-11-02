@@ -240,7 +240,7 @@ acpmux ensure NAME -m codex --machine MACHINE
 acpmux send MACHINE/NAME "…"                     # wait, tail, history, cancel work the same
 acpmux wait                                      # covers remote sessions too
 acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
-                                                 # the session a PR footer's link (or an id, host/name, name) names, here or on another machine: machine, ids, model, cwd, lane, PRs, last turn
+                                                 # the session a PR footer's link (or an id, machine/name, name) names, here or on another machine: machine, ids, model, cwd, lane, PRs, last turn
 acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
@@ -304,6 +304,6 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
   task needs something other than the defaults. Prefer a preset when one exists.
 - Name sessions for the task (`ensure review-pr-42`) so a later step or another
   agent can find them. Tag them (`session tag NAME task=review`) when many run.
-- Do not delete sessions you did not create. Do not change defaults, presets, or hosts
+- Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.

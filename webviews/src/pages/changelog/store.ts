@@ -9,6 +9,7 @@ import {
   type IndexEntry,
   type ListResult,
   type NewsLayout,
+  type SheetLayout,
   type ReleaseNotes,
 } from "./types";
 
@@ -58,6 +59,13 @@ export function parseNewsLayout(hash: string): NewsLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const news = new URLSearchParams(query).get("news");
   return news === "alternate" || news === "stack" || news === "lead" ? news : "grid";
+}
+
+/** The What's New sheet's row layout the route names (`sheet=stack|grid`); inline by default. */
+export function parseSheetLayout(hash: string): SheetLayout {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const sheet = new URLSearchParams(query).get("sheet");
+  return sheet === "stack" || sheet === "grid" ? sheet : "inline";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */

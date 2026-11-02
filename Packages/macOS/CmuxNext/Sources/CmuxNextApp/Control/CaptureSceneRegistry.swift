@@ -474,8 +474,8 @@ extension CaptureSceneRegistry {
             guard let key = createdKey, !cleaned else { return }
             cleaned = true
             try? await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
-            services.windows.pendingClaims.removeValue(forKey: key.rawValue)
-            services.windows.quietClaims.remove(key.rawValue)
+            services.windows.claims.pending.removeValue(forKey: key.rawValue)
+            services.windows.claims.quiet.remove(key.rawValue)
             services.windows.reconcileMembership()
             if let host = addedFixtureHost {
                 AgentTurnStateStore.shared.mirroredHosts.remove(host)
