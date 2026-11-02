@@ -156,7 +156,6 @@ concurrency:
 permissions: {}
 
 env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   # Main's promote guard reads this exact line (promote-nightly-next.mjs G5); see resolve-tree-pending.sh.
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
   CREATE_DMG_VERSION: 8.0.0
@@ -845,6 +844,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           JOBS: pick-nightly-build-runner
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY: "1"
@@ -1750,6 +1750,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 8
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # Enabled only after the all-nightly managed runner is enrolled.
@@ -2556,6 +2557,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           JOBS: prepare-nightly-variant-primary prepare-nightly-variant await-nightly-tree-marker
           NIGHTLY: "1"
           REQUIRE_LIVE_CAPACITY: "1"
@@ -3481,6 +3483,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # The routing App's budget can run out (run 41335987427): a failed read retries with this.
           SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
@@ -3494,6 +3497,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           PLATFORM: linux
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           SNAPSHOT_FALLBACK_TOKEN: ${{ github.token }}
@@ -3522,6 +3526,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
@@ -3546,6 +3551,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           PICK_ON_RERUN: "1"
           # Drain the mini that frees up soonest even past the 2 min horizon, never Blacksmith first
@@ -5079,6 +5085,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
@@ -6334,6 +6341,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           JOBS: legacy-identity-target
           LINUX_ONLY: legacy-identity-target
           REQUIRE_LIVE_CAPACITY: "1"
@@ -6349,6 +6357,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           PLATFORM: linux
           CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}

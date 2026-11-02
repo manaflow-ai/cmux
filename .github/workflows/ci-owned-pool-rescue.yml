@@ -104,7 +104,6 @@ on:
 permissions: {}
 
 env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
@@ -195,6 +194,7 @@ jobs:
 
       - name: Watch runs on persistent pools
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}

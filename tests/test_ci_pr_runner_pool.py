@@ -4118,7 +4118,7 @@ class SharedRunnerStateTests(unittest.TestCase):
         return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
                 "generated_at": "2026-11-02T05:00:00Z", "repository_runners": [],
                 "runner_groups": {pool.RUNNER_GROUP: [{"id": 101, "name": "synthetic-dedicated",
-                    "status": "online", "busy": False, "labels": [{"name": MINI}]}]},
+                    "os": "macOS", "status": "online", "busy": False, "labels": [{"name": MINI}]}]},
                 "scale_sets": {"blacksmith-12vcpu-macos-26": 3, "blacksmith-6vcpu-macos-26": 4}}
 
     @staticmethod
@@ -4142,17 +4142,80 @@ class SharedRunnerStateTests(unittest.TestCase):
         self.assertIsNotNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
         for key, value in (("repository", "untrusted/repo"), ("complete", False),
                            ("schema", "other/v1"), ("generated_at", "2026-11-02T04:54:59Z"),
-                           ("generated_at", "2026-11-02T05:01:01Z"),
+                           ("generated_at", "2026-11-02T05:01:06Z"),
                            ("generated_at", "2026-11-02T05:00:00")):
             with self.subTest(key=key, value=value):
                 bad = {**doc, key: value}
                 self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
-        for update in ({"busy": "false"}, {"status": "unknown"}, {"labels": [MINI]}, {"id": True}):
+        for update in ({"busy": "false"}, {"status": "unknown"}, {"labels": [MINI]}, {"id": True},
+                       {"os": None}, {"os": ""}, {"os": 123}):
             with self.subTest(update=update):
                 bad = self.document()
                 bad["runner_groups"][pool.RUNNER_GROUP][0].update(update)
                 self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
         self.assertIsNone(pool.runner_state("untrusted/repo", raw=self.encode(doc), now=clock))
+
+    def test_document_missing_os_falls_back_to_api_instead_of_hiding_linux_capacity(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["runner_groups"][pool.RUNNER_GROUP][0].pop("os")
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "_runner_pages", return_value=[]) as live, \
+                unittest.mock.patch.object(pool.GitHub, "get_api", return_value={"runner_groups": [
+                    {"name": pool.RUNNER_GROUP, "id": 23}]}):
+            self.assertIsNone(pool.runner_state("manaflow-ai/cmux"))
+            self.assertEqual(pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners(), [])
+        self.assertEqual(live.call_count, 2)
+
+    def test_small_clock_skew_is_allowed_without_extending_stale_expiry(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        for age, accepted in ((-5, True), (-6, False), (300, True), (301, False)):
+            doc = self.document()
+            doc["generated_at"] = (clock - dt.timedelta(seconds=age)).isoformat()
+            with self.subTest(age=age):
+                self.assertEqual(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock)
+                                 is not None, accepted)
+
+    def linux_document(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["runner_groups"][pool.RUNNER_GROUP] = []
+        doc["runner_groups"]["cmux-fleet-linux"] = [{"id": 102, "name": "synthetic-linux",
+            "os": "Linux", "status": "online", "busy": False,
+            "labels": [{"name": "cmux-fleet-linux-x64"}]}]
+        return doc
+
+    def test_fast_checks_picker_selects_linux_from_document_without_live_read(self):
+        import fast_checks_runner as picker
+        doc = self.linux_document()
+        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = picker.read_live(env)
+            self.assertIsNotNone(rows)
+            self.assertEqual(picker.idle_runner(rows), picker.FLEET)
+
+    def test_nightly_control_picker_selects_linux_from_document_without_live_read(self):
+        import nightly_next_control_runner as picker
+        doc = self.linux_document()
+        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+               "CI_CONTROL_CANDIDATE": "cmux-fleet-linux-x64"}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = picker.read_live(env)
+            self.assertIsNotNone(rows)
+            self.assertEqual(picker.idle_runner(rows, picker.candidates(env)), "cmux-fleet-linux-x64")
+
+    def test_portable_live_capacity_accepts_linux_from_document(self):
+        import portable_job_placement as picker
+        doc = self.linux_document()
+        env = {"JOBS": "control", "FLEET_LINUX": "cmux-fleet-linux-x64", "REQUIRE_LIVE_CAPACITY": "1"}
+        clock = dt.datetime.now(dt.timezone.utc)
+        snapshot = {"generated_at": clock.isoformat(), "pools": {}}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+            self.assertEqual(picker.decide(env, rows, snapshot, clock).linux_jobs, ("control",))
 
     def test_document_groups_cannot_expand_the_existing_trusted_groups(self):
         clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
@@ -4184,10 +4247,61 @@ class SharedRunnerStateTests(unittest.TestCase):
         self.assertTrue(paths[0].startswith("/repos/manaflow-ai/cmux/actions/runners?"))
 
     def test_all_requested_picker_workflows_receive_repository_context(self):
-        for name in ("cmux-next.yml", "cmux-next-guards.yml", "cmux-tui-artifacts.yml", "nightly.yml"):
+        expected = {
+            "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py"),
+            "cmux-next-guards.yml": ("portable_job_placement.py",),
+            "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py",
+                             "nightly_sign_runner.py", "signing_runner.py"),
+        }
+
+        def mappings(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from mappings(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from mappings(child)
+
+        for name, scripts in expected.items():
             with self.subTest(workflow=name):
                 doc = yaml.safe_load((WORKFLOWS / name).read_text())
-                self.assertEqual(doc["env"]["CI_RUNNER_STATE"], "${{ vars.CI_RUNNER_STATE }}")
+                # The variable is deliberately step scoped: workflow-wide
+                # inheritance would expose repository context to unrelated
+                # build and test steps.
+                self.assertNotIn("CI_RUNNER_STATE", doc.get("env", {}))
+                seen = set()
+                for step in mappings(doc):
+                    run = step.get("run")
+                    if not isinstance(run, str):
+                        continue
+                    hits = [script for script in scripts if script in run]
+                    if hits:
+                        self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
+                                         "${{ vars.CI_RUNNER_STATE }}", (name, hits))
+                        seen.update(hits)
+                    elif "CI_RUNNER_STATE" in step.get("env", {}):
+                        self.fail(f"runner state leaked to non-picker step in {name}: {run[:80]}")
+                self.assertEqual(seen, set(scripts))
+
+        # Audit every workflow touched by this feature so a future picker edit
+        # cannot accidentally restore workflow-wide repository context or leak
+        # it onto an unrelated appcast/build/test step.
+        picker_scripts = {
+            "simple_pool_picker.py", "portable_job_placement.py", "side_lane_placement.py",
+            "e2e_runner_pool.py", "ios_runner_pool.py", "owned_pool_rescue.py",
+            "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
+            "cmux_next_media_runner.py",
+        }
+        for workflow in WORKFLOWS.glob("*.yml"):
+            doc = yaml.safe_load(workflow.read_text())
+            for step in mappings(doc):
+                if "CI_RUNNER_STATE" not in (step.get("env") or {}):
+                    continue
+                run = step.get("run") or ""
+                self.assertTrue(any(script in run for script in picker_scripts),
+                                f"runner state leaked to non-picker step in {workflow.name}: {run[:100]}")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

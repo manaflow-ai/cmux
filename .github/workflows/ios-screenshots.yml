@@ -75,9 +75,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -115,6 +112,7 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}

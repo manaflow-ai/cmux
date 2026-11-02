@@ -11,9 +11,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -88,6 +85,7 @@ jobs:
         id: pool
         if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true'
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}

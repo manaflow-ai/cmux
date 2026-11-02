@@ -127,7 +127,6 @@ on:
 permissions: {}
 
 env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).

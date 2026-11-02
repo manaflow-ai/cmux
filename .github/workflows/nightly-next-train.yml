@@ -68,9 +68,6 @@ on:
 
 permissions: {}
 
-env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-
 jobs:
   drive:
     name: nightly-next train
@@ -238,6 +235,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           OWNED_LABELS: ${{ format('{0} {1}', vars.NIGHTLY_NEXT_TRAIN_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}

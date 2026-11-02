@@ -2209,6 +2209,7 @@ def _absolute_deadline(deadline: float | None):
 # a request per picker. The publisher lives in HQ's fleet observation tools.
 RUNNER_STATE_SCHEMA = "runner-state/v1"
 RUNNER_STATE_MAX_AGE_SECONDS = 5 * 60
+RUNNER_STATE_CLOCK_SKEW_SECONDS = 5
 RUNNER_STATE_MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -2236,7 +2237,7 @@ def runner_state(repository: str, *, raw: str | None = None,
         generated = parse_time(str(doc.get("generated_at") or ""))
         clock = now or dt.datetime.now(dt.timezone.utc)
         if (generated is None or generated.tzinfo is None
-                or not 0 <= (clock - generated).total_seconds() <= RUNNER_STATE_MAX_AGE_SECONDS):
+                or not -RUNNER_STATE_CLOCK_SKEW_SECONDS <= (clock - generated).total_seconds() <= RUNNER_STATE_MAX_AGE_SECONDS):
             return None
         groups = doc.get("runner_groups")
         if (not isinstance(groups, dict) or RUNNER_GROUP not in groups
@@ -2251,6 +2252,7 @@ def runner_state(repository: str, *, raw: str | None = None,
                 if (not isinstance(runner, dict) or type(runner.get("id")) is not int
                         or runner["id"] <= 0 or not isinstance(runner.get("name"), str)
                         or not runner["name"] or runner.get("status") not in ("online", "offline")
+                        or not isinstance(runner.get("os"), str) or not runner["os"]
                         or type(runner.get("busy")) is not bool
                         or not isinstance(runner.get("labels"), list)
                         or not all(isinstance(label, dict) and isinstance(label.get("name"), str)

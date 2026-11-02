@@ -108,7 +108,6 @@ permissions:
 # A called workflow does not inherit the caller's workflow-level env, so the
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
-  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
   # The package conventions lint (namespace types, free functions, singletons,
   # ...) is a style guard. For pull requests and merge groups into
@@ -218,6 +217,7 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           # Empty unless the step above minted it: idle owned runners, live.
