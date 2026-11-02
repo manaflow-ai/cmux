@@ -111,8 +111,7 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
     // The replacement takes no Kitty image budget slot: the old runtime still holds this id's slot while it lives,
     // as in a respawn (its host stops after the new runtime is in).
     let respawned =
-        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), std::sync::Weak::new())
-            .unwrap();
+        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), Weak::new()).unwrap();
     let (new_sent, new_input) = mpsc::channel();
     respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
     mux.insert_surface_runtime_for_test(respawned);
