@@ -35,12 +35,6 @@ struct AgentPaneColdChatRevealTests {
         return mark.superview != nil && !mark.isHidden
     }
 
-    /// The loading cover's static rows occupy the loaded transcript's first-frame geometry.
-    private static func placeholdersShow(_ view: AgentPaneView) -> Bool {
-        guard view.loadingView.superview != nil else { return false }
-        return view.loadingView.placeholderRows.allSatisfy { $0.superview === view.loadingView && !$0.isHidden }
-    }
-
     /// How long a wait here may take before it reports. Not a timing these tests check: each wait
     /// ends on its condition, and in the full parallel CmuxNextAppTests run a starved main actor
     /// (tests there report 100 to 500 s) held a 120 ms fade's completion past the 2 s this was.
@@ -81,11 +75,20 @@ struct AgentPaneColdChatRevealTests {
         }
     }
 
+    @Test func aColdChatLoadingCoverHasNoTranscriptSkeleton() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+
+        // The loading cover is deliberately just the pane background and its delayed busy mark.
+        // Transcript-shaped bars are a skeleton and must never return to the chat-open path.
+        #expect(view.loadingView.subviews.allSatisfy { $0 === view.loadingView.indicator },
+                "a cold chat loading cover drew a transcript skeleton")
+    }
+
     @Test func aColdChatHoldsItsBackgroundWithoutAMarkThenFadesIn() async throws {
         let (view, window) = try Self.pane()
         defer { window.close() }
         #expect(view.showsLoadingState, "a chat that has not drawn showed its page's unpainted frames")
-        #expect(Self.placeholdersShow(view), "a cold chat showed a blank loading cover")
         #expect(!Self.markShows(view), "the busy mark popped up the moment the chat was opened")
 
         view.model.markPainted()
@@ -95,7 +98,6 @@ struct AgentPaneColdChatRevealTests {
         }
         #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "the fade never ended")
-        #expect(!Self.placeholdersShow(view), "loading placeholders remained after the page was revealed")
     }
 
     @Test func aSlowChatShowsTheMarkAfterABeat() async throws {

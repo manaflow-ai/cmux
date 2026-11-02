@@ -82,4 +82,30 @@ public nonisolated enum HomeStrings {
     public static var deleteChiefButton: String {
         String(localized: "home.chief.delete.button", defaultValue: "Delete Chief", table: "Home", bundle: .module)
     }
+    /// The welcome's call-out of Go to Workspace; the argument is its shortcut (`⌘P`).
+    static func chiefWelcomeGoTo(_ keys: String) -> String {
+        String(format: String(localized: "home.chief.welcome.goTo",
+                              defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
+                              table: "Home", bundle: .module), keys)
+    }
+    /// The heading over the welcome's other shortcuts.
+    static var chiefWelcomeShortcuts: String {
+        String(localized: "home.chief.welcome.shortcuts", defaultValue: "More shortcuts:", table: "Home", bundle: .module)
+    }
+    /// The heading over the welcome's example requests.
+    static var chiefWelcomeExamplesHeader: String {
+        String(localized: "home.chief.welcome.examplesHeader", defaultValue: "Things you can ask me:", table: "Home", bundle: .module)
+    }
+    /// The welcome's example requests, one Markdown list item per line.
+    static var chiefWelcomeExamples: String {
+        String(localized: "home.chief.welcome.examples",
+               defaultValue: "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace",
+               table: "Home", bundle: .module)
+    }
+    /// The welcome's last line: what the Chief answers.
+    static var chiefWelcomeAsk: String {
+        String(localized: "home.chief.welcome.ask",
+               defaultValue: "Ask me anything about cmux: how a feature works, managing your coding agents, or your browsers. Type below to start.",
+               table: "Home", bundle: .module)
+    }
 }

@@ -18,9 +18,14 @@ public protocol PaneTabRowSharing: AnyObject {
     /// The row the view may draw its tools in: the top `height` points (0: it does not share the
     /// row now), less `trailingInset` points at the trailing end, where the pane's own toolbar is.
     func setTabRow(height: CGFloat, trailingInset: CGFloat)
+    /// The surface whose background (`appearance.surfaces`) the view paints under its header, so the
+    /// pane paints the same fill behind its tabs while the view shares the row: the row has no fill
+    /// of its own. Nil: the strip keeps its own (clear, or the user's tab bar background).
+    var tabRowSurface: SurfaceKind? { get }
 }
 
 extension PaneTabRowSharing {
+    public var tabRowSurface: SurfaceKind? { nil }
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
     public func tabRowWidth(room: CGFloat) -> CGFloat { min(max(0, tabRowToolsWidth ?? 0), max(0, room / 2)) }
 
@@ -56,6 +61,7 @@ extension PaneTabRowForwarding {
         set { tabRowSharer?.onTabRowToolsChange = newValue }
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
+    public var tabRowSurface: SurfaceKind? { tabRowSharer?.tabRowSurface }
 }
 
 extension NSView {

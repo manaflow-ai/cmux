@@ -26,12 +26,14 @@ extension ActionID {
     public static let openBrowser: ActionID = "openBrowser"
 }
 
-/// A chat header toggle the native palette runs through the page's `command` bridge, by its name
-/// there. The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick
-/// Chat's panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the
-/// chat's page or the preview it opened.
+/// A chat control the native palette runs through the page's `command` bridge, by its name there.
+/// The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick Chat's
+/// panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the chat's
+/// page or the preview it opened, Run in Background needs work in the foreground, and Session
+/// Info's sections need rows.
 public enum AgentPageCommand: String, CaseIterable, Sendable {
     case toggleFiles, togglePreview, toggleSideTabs
+    case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
 }
 
 extension ActionRegistry {
@@ -58,14 +60,17 @@ extension ActionRegistry {
                 return AgentPaneView.pageCommandUnavailable(title)
             }
             ActionTargetReasons.set(id, in: self, reason)
-            // The palette runs on the focused chat: its row is disabled with the same reason.
-            ActionTargetTitles.setPaletteReason(id, in: self) { reason(ActionInvocation()) }
+            // The palette runs on the focused chat: its row is disabled while that chat does not offer
+            // it, with a subtitle that does not repeat the row's title.
+            ActionTargetTitles.setPaletteReason(id, in: self) {
+                reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
+            }
             return bound
         }.allSatisfy(\.self)
     }
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
-    /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
+    /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
     /// reporting a toggle that changed nothing.
     @discardableResult
     public func bindAgentPaneSessionInfo(
@@ -73,7 +78,7 @@ extension ActionRegistry {
         toggle: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
-            guard isOn?() ?? AgentPaneTunables.inspector.value else { return .refused(AgentPaneView.sessionInfoOff) }
+            guard isOn?() ?? AgentPaneTunables.sessionInfo.value else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }
@@ -111,11 +116,11 @@ extension ActionRegistry {
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String) -> Bool {
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["path": .string(path), "where": .string(target.rawValue)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil
@@ -125,11 +130,11 @@ extension ActionRegistry {
     /// of `pane` through `openBrowser`, the path the tab strip and palette
     /// take. False when the handler refused.
     @discardableResult
-    public func openAgentPreview(_ url: URL, pane: String) -> Bool {
+    public func openAgentPreview(_ url: URL, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["url": .string(url.absoluteString)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.openBrowser, invocation: invocation) }
         return performed && refusal == nil

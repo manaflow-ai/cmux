@@ -9,6 +9,7 @@ extension SidebarListViewComponents {
         let view = rowPool.take(for: key, rebinding: rebinding)
         view.isHidden = false
         wire(view, key: key)
+        scheduleSpareRow() // the next one, once this turn's frame committed
         return view
     }
     /// A row view that leaves the list parks hidden in place: taking it out of the window and adding
@@ -52,6 +53,15 @@ extension SidebarListViewComponents {
             // On every dequeue: a parked block comes back in the sidebar's state now (its edit mode).
             view.region.docList = self
             configureBlockRegion?(view.region)
+        case let (.group(id), view as GroupHeaderRowView) where SidebarGroup.hostMachine(id) != nil:
+            // A remote group: its more button shows the machine's menu (no group editor: it has no name or color of
+            // its own), and its + makes a workspace on the machine, as the machine header's did.
+            let machine = SidebarGroup.hostMachine(id)
+            view.onMore = { [weak self] in self?.groupEditing.showMenu(id) }
+            view.onEdit = view.onMore
+            view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+            view.isEditing = false
+            view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
             view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }

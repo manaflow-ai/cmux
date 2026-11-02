@@ -66,6 +66,7 @@ final class CaptureSceneRegistry {
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
+        if definition.name == Self.sessionInfoNativeScene { AgentPaneSessionInfoDebugState.widenCaptureWindow(targetWindow.window) }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -145,6 +146,19 @@ final class CaptureSceneRegistry {
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
+        var nativeSessionInfo: CmuxNextSettings.JSONValue = .null
+        if definition.name == Self.sessionInfoNativeScene {
+            let native = await nativeSessionInfoReadiness(windowID: targetWindowID)
+            guard native.ready else {
+                return .object([
+                    "error": .string("native Session Info did not settle"),
+                    "scene": .string(definition.name), "readiness": readiness,
+                    "action_readiness": actionReadiness, "scene_action": sceneAction,
+                    "native_session_info": native.report,
+                ])
+            }
+            nativeSessionInfo = native.report
+        }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -170,6 +184,7 @@ final class CaptureSceneRegistry {
         result["readiness"] = readiness
         result["action_readiness"] = actionReadiness
         result["scene_action"] = sceneAction
+        if definition.name == Self.sessionInfoNativeScene { result["native_session_info"] = nativeSessionInfo }
         if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
             _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
         }
@@ -183,6 +198,10 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        // A capture process reuses one app for multiple scenes. Clear the native override before
+        // every scene so a native still cannot leak into legacy scenes; the native scene opts in
+        // explicitly below, while a future shipped default remains authoritative after reset.
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"), "value": .null], services: services)
         let chat = services.windows.controllers.lazy.compactMap { $0.content?.focusedPane?.currentTabKey }.first
         if let chat { services.cloud.toolCards.set([], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in } }
         switch name {
@@ -201,6 +220,14 @@ final class CaptureSceneRegistry {
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
             return await DebugAgentPane.handle(["action": .string("open_changes")], services)
+        case Self.sessionInfoNativeScene:
+            let native = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"),
+                                                "value": .bool(true)], services: services)
+            let click = { [services] in await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services) }
+            guard case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services) else {
+                return .object(["native": native, "click": await click()])
+            }
+            return .object(["native": native, "click": await view.debugOpenSessionInfo(pane: pane, click: click)])
         case "hints-cmd-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
@@ -242,6 +269,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
+        CaptureSceneDefinition(name: sessionInfoNativeScene,
+                               description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
                                description: "A Cloud machine the person opened (its my-project row) and two that agents made, never opened here, each with its image's own workspace-1: the agents' rows show (leaked: true) or none do (false)."),
@@ -389,7 +418,7 @@ extension CaptureSceneRegistry {
         let listed = Set(services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue) ?? [])
         return .array(Self.sceneMachineIDs.map { id in
             let ws = Self.sceneWorkspace(id), session = services.machines.session(id)
-            let ordered = session.map { WindowManager.orderedIDs(of: $0.daemon, machines: services.machines).contains(ws) } ?? false
+            let ordered = session.map { WindowManager.orderedIDs(of: $0.daemon, machines: services.machines, doc: services.sidebarDoc).contains(ws) } ?? false
             let row = SidebarRowKey.workspace(WorkspaceID(ws))
             return .object([
                 "machine": .string(id), "in_store": .bool(session?.daemon.store.workspace(id: ws) != nil), "in_order": .bool(ordered),
@@ -474,8 +503,8 @@ extension CaptureSceneRegistry {
             guard let key = createdKey, !cleaned else { return }
             cleaned = true
             try? await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
-            services.windows.pendingClaims.removeValue(forKey: key.rawValue)
-            services.windows.quietClaims.remove(key.rawValue)
+            services.windows.claims.pending.removeValue(forKey: key.rawValue)
+            services.windows.claims.quiet.remove(key.rawValue)
             services.windows.reconcileMembership()
             if let host = addedFixtureHost {
                 AgentTurnStateStore.shared.mirroredHosts.remove(host)
@@ -658,6 +687,26 @@ extension CaptureSceneRegistry {
             && tabFound && sessionOK && hostKnown && generatedOK && page?.ready == true && sidebarRowMatches && !pending
         let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),sidebarRow=\(sidebarRowMatches),pending=\(pending),\(page?.diagnostic ?? "no view")"
         return (ready, String(diagnostic.prefix(420)))
+    }
+}
+
+/// A deterministic capture of the native Session Info path. The fixture and click are the same
+/// production paths a person uses; only the tunable and the readiness witness are capture-only
+/// (``AgentPaneView/debugSessionInfoReadiness(pane:windowWidth:settle:)``).
+extension CaptureSceneRegistry {
+    static let sessionInfoNativeScene = "session-info-native"
+
+    private func nativeSessionInfoReadiness(windowID: String) async -> (ready: Bool, report: CmuxNextSettings.JSONValue) {
+        guard let controller = services.windows.controller(for: windowID),
+              let key = controller.content?.focusedPane?.currentTabKey,
+              let view = services.agentTabs.existingView(key) else {
+            return (false, .object(["error": .string("native Session Info has no focused agent view")]))
+        }
+        return await view.debugSessionInfoReadiness(pane: key, windowWidth: { Double(controller.window?.frame.width ?? 0) }) { [frames] until in
+            frames.start()
+            let settled = await frames.settled(until: until, start: ContinuousClock.now, window: 100, deadline: 5_000)
+            return (settled, frames.stop())
+        }
     }
 }
 

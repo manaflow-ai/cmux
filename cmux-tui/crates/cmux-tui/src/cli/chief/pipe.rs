@@ -31,6 +31,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         eprintln!("cmux: {}", m.empty_message);
         return 2;
     }
+    session.sender = args.sender(super::acpmux_session().as_deref());
     let (seq, id) = match session.send(text) {
         Ok(sent) => sent,
         Err(LinkError::Transport(message)) => {

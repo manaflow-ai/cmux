@@ -35,7 +35,12 @@ public struct TerminalTabContext {
 @MainActor
 public protocol TerminalTabContent: AnyObject {
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView
+    /// The tab's grid card. Read in a card's body: no host, session or
+    /// request is made here once `prepareCard` ran for the tab.
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView
+    /// Makes what the tab's card shows (its host, its first screen read),
+    /// outside any view update: when the tab is listed and when the grid opens.
+    func prepareCard(for tab: WorkspaceTab, in workspace: Workspace)
     func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView?
     /// The terminal's own actions, shown first in the tab's page menu
     /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
@@ -68,6 +73,7 @@ public protocol TerminalTabContent: AnyObject {
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }

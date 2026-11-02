@@ -1,0 +1,149 @@
+{
+ "id": "spam-cmd-shift-t",
+ "priority": "P0",
+ "title": "Cmd-Shift-T hammered reopens one closed tab per press, newest first, none twice",
+ "why": "audit A1: press 2 inside one round trip reopened the same item (not found) or an older one.",
+ "source": "shortcut spam (handoff/input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md 1; Lawrence 2026-10-28)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-spam-reopen",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "repeat": 6,
+   "gap": 0.2,
+   "mark": "tabs"
+  },
+  {
+   "do": "expect",
+   "title": "6 more terminal tabs in the pane",
+   "since": "tabs",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_pane_ready": {
+      "tabs": 7
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "repeat": 6,
+   "gap": 0.25,
+   "mark": "closed"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hammer"
+  },
+  {
+   "do": "expect",
+   "title": "6 tabs closed",
+   "since": "closed",
+   "timeout": 10,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hammer",
+      "field": "pane_tabs",
+      "equals": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hammer"
+  },
+  {
+   "do": "hammer_key",
+   "key": "T",
+   "modifiers": [
+    "cmd"
+   ],
+   "presses": 6,
+   "within": 0.3,
+   "as": "hammered"
+  },
+  {
+   "do": "expect",
+   "title": "6 Cmd-Shift-T presses in 0.3 s reopened 6 tabs, none twice",
+   "since": "hammered",
+   "within": 2,
+   "timeout": 15,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hammer",
+      "field": "pane_tabs",
+      "delta": 6
+     }
+    },
+    {
+     "spam_runs": {
+      "of": "hammered",
+      "ran": 6
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

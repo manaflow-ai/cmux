@@ -55,7 +55,7 @@ final class UnreadBadgeView: NSView {
     var preferredWidth: CGFloat {
         switch state {
         case .none: 0
-        case .dot: SidebarStyle.dotSize
+        case .dot: SidebarStyle.unreadDotSize
         case .count: max(SidebarStyle.badgeHeight + Metrics.space2, ceil(label.attributedStringValue.size().width) + Metrics.space4)
         }
     }

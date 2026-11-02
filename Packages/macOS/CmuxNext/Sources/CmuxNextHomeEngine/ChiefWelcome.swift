@@ -54,6 +54,7 @@ public nonisolated struct ChiefWelcome: Sendable {
     /// Whether Chief types before each message; false sends all of them at once.
     public let showsTyping: Bool
     private let owner: any ChiefWelcomeOwner
+    private let text: String
 
     /// - Parameters:
     ///   - conversation: The Chief conversation's id.
@@ -61,12 +62,14 @@ public nonisolated struct ChiefWelcome: Sendable {
     ///   - owner: The conversation owner the dots and the messages go through.
     ///   - showsTyping: Whether Chief types first (`Motion.home.animatesLoops`). False (Reduce
     ///     Motion, or Home animation off): no dots and no pauses, the messages show at once.
+    ///   - text: What Chief can do, with the person's current shortcuts; nil uses the introductory text.
     public init(conversation: String, author: String = DaemonHomeSource.chief.id, owner: any ChiefWelcomeOwner,
-                showsTyping: Bool) {
+                showsTyping: Bool, text: String? = nil) {
         self.conversation = conversation
         self.author = author
         self.owner = owner
         self.showsTyping = showsTyping
+        self.text = text ?? Self.aboutText
     }
 
     /// The greeting: "Welcome to cmux! 👋 I'm Chief."
@@ -80,7 +83,11 @@ public nonisolated struct ChiefWelcome: Sendable {
 
     /// The welcome's messages in order, each with its quiet pause and typing time.
     public static var beats: [Beat] {
-        let texts = [(helloClientID, helloText), (aboutClientID, aboutText), (backgroundClientID, backgroundText)]
+        makeBeats(about: aboutText)
+    }
+
+    private static func makeBeats(about: String) -> [Beat] {
+        let texts = [(helloClientID, helloText), (aboutClientID, about), (backgroundClientID, backgroundText)]
         var above: String?
         return texts.map { key, text in
             defer { above = text }
@@ -127,11 +134,12 @@ public nonisolated struct ChiefWelcome: Sendable {
     ///   - wait: Waits out a pause (the host's one-shot deadline; tests record it).
     /// - Throws: The owner's import error; the dots are gone and the later messages are not sent.
     public func play(now: @Sendable () -> Date = { Date() }, wait: @Sendable (Duration) async -> Void) async throws {
+        let beats = Self.makeBeats(about: text)
         guard showsTyping else {
-            try await send(Self.beats, now: now())
+            try await send(beats, now: now())
             return
         }
-        for beat in Self.beats {
+        for beat in beats {
             await wait(beat.quiet)
             await owner.showChiefTyping(true)
             await wait(beat.typing)

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
-import { programChecksCommand, programProblems, secretScanCommand } from "../scripts/cmux-vm-image/smoke";
+import { programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 
@@ -49,6 +50,34 @@ describe("cmux VM image guest commands", () => {
     expect(programProblems(lock, bad)).toEqual([`claude: exit 127: ${lock.programs.find((p) => p.name === "claude")!.expect} ok`, `claude: resolves to /usr/local/bin/claude, expected ${CURRENT_BIN}/claude`]);
   });
 
+  test("a user-local alias of the store's own binary reports as the current profile entry", async () => {
+    // Bake 41401002175: ~/.local/bin/acpmux (the canonical user unit's path, cmux#31337/#31886) comes
+    // first on the login PATH and points through ~/.cmux/bin/cmux-tui at the store's cmux-tui.
+    const root = mkdtempSync(path.join(os.tmpdir(), "cmux-vm-alias-"));
+    try {
+      const store = path.join(root, "store", "cmux-tui");
+      const current = path.join(root, "current", "bin");
+      const local = path.join(root, "home", ".local", "bin");
+      for (const dir of [path.dirname(store), current, local, path.join(root, "home", ".cmux", "bin"), path.join(root, "other")]) mkdirSync(dir, { recursive: true });
+      writeFileSync(store, "#!/bin/sh\n", { mode: 0o755 });
+      symlinkSync(store, path.join(current, "acpmux"));
+      symlinkSync(store, path.join(current, "cmux-tui"));
+      symlinkSync(path.join(current, "cmux-tui"), path.join(root, "home", ".cmux", "bin", "cmux-tui"));
+      symlinkSync(path.join(root, "home", ".cmux", "bin", "cmux-tui"), path.join(local, "acpmux"));
+      writeFileSync(path.join(root, "other", "claude"), "#!/bin/sh\n", { mode: 0o755 });
+      writeFileSync(path.join(current, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+      const lookup = async (command: string) => {
+        const script = `PATH=${local}:${path.join(root, "other")}:${current}:/usr/bin:/bin; ${storeCommandPathSnippet(command, current)}; printf '%s' "$p"`;
+        return (await runChild("bash", ["-c", script], { timeout: 20_000 })).stdout;
+      };
+      expect(await lookup("acpmux")).toBe(path.join(current, "acpmux"));
+      // A different file ahead of the store is still reported where it is.
+      expect(await lookup("claude")).toBe(path.join(root, "other", "claude"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("the daemon source comes from the lock, not a manifest fetch", () => {
     const source = cmuxTuiSourceFromLock(lock);
     expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
@@ -84,8 +113,20 @@ describe("Freestyle key by path", () => {
 // still exited 0 (warnings only), apt-cache then knew none of the pins, and the bake failed on the first
 // pin alphabetically ("no size for acl=..."), which read like a bad lock.
 describe("cmux VM image apt index", () => {
-  test("an index that fails to download fails the update step", async () => {
-    expect(bake.APT_UPDATE_COMMAND).toContain("apt-get update -q --error-on=any");
+  test("an index outage gets one bounded retry with backoff before failing", async () => {
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=180");
+    expect(bake.APT_UPDATE_COMMAND).toContain("apt_update_ok=1; break;");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=30");
+    expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
+    const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
+    expect(payload).toBeDefined();
+    const fallbackSources = Buffer.from(payload!, "base64").toString("utf8");
+    expect(fallbackSources).toContain("archive.ubuntu.com/ubuntu");
+    expect(fallbackSources).toContain("security.ubuntu.com/ubuntu");
     await bashSyntax(bake.APT_UPDATE_COMMAND);
   });
 
