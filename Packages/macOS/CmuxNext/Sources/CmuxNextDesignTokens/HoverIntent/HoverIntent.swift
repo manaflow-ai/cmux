@@ -64,7 +64,7 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
 /// its state and maps each target to the 64-bit handle the rule sees. Its
 /// owner feeds it the target under the pointer and timer deadlines, and runs
 /// the effects on its one timer.
-public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Sendable {
+public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Sendable {
     public enum Phase: Hashable, Sendable {
         case idle
         /// The pointer rests on `target`; it shows when `token` fires.
@@ -122,7 +122,9 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Sendable {
 
     /// The target under the pointer now (nil: none).
     public mutating func hover(_ target: Target?) -> [Effect] {
-        call(0, target: target.map(handle), value: 0)
+        // A mutating method cannot be passed to `map` unapplied: take the handle first.
+        let raw = target.map { handle($0) }
+        return call(0, target: raw, value: 0)
     }
 
     public mutating func deadline(_ token: Int) -> [Effect] {
@@ -161,6 +163,19 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Sendable {
         }
         prune()
         return effects
+    }
+
+    // MARK: Hashable (the state as Swift reads it; the C struct has no conformance)
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.phase == rhs.phase && lhs.state.next_token == rhs.state.next_token && lhs.delay == rhs.delay && lhs.warmFor == rhs.warmFor
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(phase)
+        hasher.combine(state.next_token)
+        hasher.combine(delay)
+        hasher.combine(warmFor)
     }
 
     /// Keeps only the handle the phase names: the rule compares handles with its phase's only.

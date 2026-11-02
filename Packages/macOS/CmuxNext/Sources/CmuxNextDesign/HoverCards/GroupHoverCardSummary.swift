@@ -149,7 +149,8 @@ public nonisolated struct GroupHoverCardSummary: Sendable, Hashable {
 fileprivate nonisolated extension GroupHoverCardSummary.Wire.Line {
     /// The line in words.
     func words(_ kind: GroupHoverCardSummary.Kind) -> String {
-        let listed = { (more: Int?) in (listed ?? "") + ((more ?? 0) > 0 ? " " + GroupHoverCardStrings.more(more ?? 0) : "") }
+        // "a, b, c, d +2 more": the rule's list, then how many it left out.
+        let list = (listed ?? "") + ((more ?? 0) > 0 ? " " + GroupHoverCardStrings.more(more ?? 0) : "")
         switch line {
         case "status":
             let parts = (parts ?? []).map { part in
@@ -166,8 +167,8 @@ fileprivate nonisolated extension GroupHoverCardSummary.Wire.Line {
         case "more": return GroupHoverCardStrings.more(count ?? 0)
         case "latest":
             return GroupHoverCardStrings.latest(title ?? "", age: GroupHoverCardSummary.age(seconds: age_seconds ?? 0, justNow: just_now ?? true))
-        case "branches": return GroupHoverCardStrings.branches(listed(more))
-        default: return GroupHoverCardStrings.ports(listed(more))
+        case "branches": return GroupHoverCardStrings.branches(list)
+        default: return GroupHoverCardStrings.ports(list)
         }
     }
 }
