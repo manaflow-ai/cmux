@@ -485,7 +485,7 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
 /// `kill-all-restore-time: {...}` (ms per terminal, sorted).
 #[test]
 fn kill_all_restore_time_of_12_terminals() {
-    const TERMINALS: usize = 12;
+    const TERMINALS: usize = 24;
     let _exclusive = exclusive_process_test();
     let mut harness = production_harness("kill-all-restore-time");
     let home = harness.dir.clone();
