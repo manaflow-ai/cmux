@@ -71,7 +71,7 @@ try {
       const file = path.join(out, `${name}-${scheme}.png`);
       await page.screenshot({
         path: file,
-        clip: { x: box.x + box.width / 2 - 90, y: box.y + box.height / 2 - 40, width: 180, height: 80 },
+        clip: { x: box.x + box.width / 2 - 120, y: box.y + box.height / 2 - 48, width: 240, height: 96 },
       });
       const disc = await page.screenshot({
         clip: { x: box.x + 4, y: box.y + 4, width: box.width - 8, height: box.height - 8 },
