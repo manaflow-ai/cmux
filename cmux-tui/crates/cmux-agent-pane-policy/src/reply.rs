@@ -74,13 +74,15 @@ fn sort(v: Value) -> Value {
 pub const REPORTED_SCHEMES: [&str; 3] = ["ssh", "ws", "wss"];
 
 /// The lower-cased scheme of the URL `value` when it is one of
-/// [`REPORTED_SCHEMES`] and `value` is a URL by RFC 3986, as Swift's
-/// `URLComponents(string:)` reads one (it returns nil otherwise): a scheme
-/// (a letter, then letters, digits, `+`, `-`, `.`), then for `//` an
-/// authority (a userinfo without `@`, a reg-name host or a `[...]` IPv6
-/// literal, a port of digits), a path, a query and one fragment, each of its
-/// own characters, `%` only as a two-digit escape. Where this check is
-/// stricter than Foundation, the reply only loses a peer's transport.
+/// [`REPORTED_SCHEMES`] and `value` is a strict RFC 3986 URL, the strict
+/// parse of Swift's `URLComponents(string:)` (nil on macOS 14; macOS 15 and
+/// later encode some invalid characters instead): a scheme (a letter, then
+/// letters, digits, `+`, `-`, `.`), then for `//` an authority (a userinfo
+/// `user[:password]` with no `@` and no second `:`, a reg-name host or a
+/// `[...]` IPv6 literal, a port of digits), a path, a query and one
+/// fragment, each of its own characters, `%` only as a two-digit escape.
+/// Where this check is stricter than Foundation, the reply only loses a
+/// peer's transport; it never reports one Foundation would not.
 pub fn reported_scheme(value: &Value) -> Option<&'static str> {
     let text = value.as_str()?;
     let (scheme, rest) = text.split_once(':')?;
@@ -126,7 +128,9 @@ fn valid_authority(authority: &str) -> bool {
         Some((userinfo, host_port)) => (Some(userinfo), host_port),
         None => (None, authority),
     };
-    if userinfo.is_some_and(|u| !uri_chars(u, b":")) {
+    // `user[:password]`: Foundation cuts at the first `:`, and a password
+    // holds no `:`.
+    if userinfo.is_some_and(|u| !uri_chars(u, b":") || u.matches(':').nth(1).is_some()) {
         return false;
     }
     let (host, port) = if let Some(literal) = host_port.strip_prefix('[') {
