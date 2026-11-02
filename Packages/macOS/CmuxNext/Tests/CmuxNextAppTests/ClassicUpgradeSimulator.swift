@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -311,6 +312,18 @@ final class ClassicUpgradeSimulator {
                                       panes: workspace.screens.flatMap(\.panes).map(\.tabs.count).sorted())
         }
         return made
+    }
+
+    /// The names of the workspaces made from classic that the sidebar document does not place with an item the
+    /// daemon confirmed (its echo applied, not only this client's pending change), sorted.
+    func unplacedInDocument() -> [String] {
+        guard let document = services.sidebarDoc.store, document.isActive else { return ["(the sidebar document is not active)"] }
+        let store = services.daemon.store
+        return made().compactMap { id, made in
+            guard let workspace = store.workspace(id: id), let ref = SidebarDocSections.ref(of: workspace, session: store.registryID),
+                  let item = document.shown?.items[ref], document.records.items[item] != nil else { return made.name }
+            return nil
+        }.sorted()
     }
 
     /// Group name to collapsed, for every personal group.
