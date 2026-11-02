@@ -50,7 +50,8 @@ export function transcriptGap(previous: number, next: number): number {
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if (next === MARK_INDICATOR && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
-  if (previous === MARK_STEP && next === MARK_STEP) return 0;
+  // The live line under a run is one more line of it (#29965): flush too.
+  if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR)) return 0;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

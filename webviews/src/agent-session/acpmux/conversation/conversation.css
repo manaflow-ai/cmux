@@ -92,8 +92,8 @@
   --cv-status-gap: 0px;
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
-  /* #30865's reply room and #30400's note gap on the grid: the stack's block gap is the room under a
-     reply and around a note, so neither adds its own. */
+  /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
+     run of flush lines keeps --cv-note-gap (below) around it. */
   --cv-reply-room: 0px;
   --cv-note-gap: var(--grid-gap-block);
   --cv-status-reply-tail: 0px;
