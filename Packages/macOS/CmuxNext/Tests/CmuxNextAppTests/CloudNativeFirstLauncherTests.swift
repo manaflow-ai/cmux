@@ -20,10 +20,10 @@ private final class FakeLauncher: CloudLinkLaunching {
 
 @MainActor
 struct CloudNativeFirstLauncherTests {
-    @Test func nativeIsOptInAndCmuxLinkIsTheDefault() {
-        #expect(CloudNativeFirstLauncher.choice(setting: nil) == .link)
-        #expect(CloudNativeFirstLauncher.choice(setting: "0") == .link)
+    @Test func nativeIsTheDefaultAndZeroTurnsItOff() {
+        #expect(CloudNativeFirstLauncher.choice(setting: nil) == .native)
         #expect(CloudNativeFirstLauncher.choice(setting: "1") == .native)
+        #expect(CloudNativeFirstLauncher.choice(setting: "0") == .link)
     }
 
     @Test func aWorkingNativeRouteIsUsed() async throws {
