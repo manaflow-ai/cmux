@@ -30,6 +30,11 @@ struct TabTitleResolver {
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
     /// An incognito browser tab's live title (its daemon record is a placeholder).
     var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
+    /// Whether a workspace's browser tabs are incognito (`WindowManager.isIncognito(workspace:)`), for
+    /// `title(_:in:)`: the workspace's own answer, read with no lookup of each tab's workspace.
+    var incognitoWorkspace: @MainActor (WorkspaceModel) -> Bool = { _ in false }
+    /// An incognito browser tab's live title, nil while it has none (`TabContentCache.incognitoDisplay`).
+    var incognitoDisplayTitle: @MainActor (TabModel) -> String? = { _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
@@ -48,6 +53,8 @@ struct TabTitleResolver {
             guard let services, tab.kind == .browser, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
         }
+        incognitoWorkspace = { [weak services] workspace in services?.windows.isIncognito(workspace: workspace) ?? false }
+        incognitoDisplayTitle = { [weak services] tab in services?.cache.incognitoDisplay(tab).title }
     }
 
     /// The agent tabs' New Tab pages and `pages`' page tabs (tests).
@@ -90,6 +97,14 @@ struct TabTitleResolver {
     func title(_ tab: TabModel) -> String {
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab) { return incognito ?? Strings.untitledBrowser }
+        return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
+    }
+
+    /// `title(_:)` for `tab` of `workspace` (a sidebar row's tab list): its incognito answer is the workspace's own,
+    /// so the row observes no tab list (TYPING UNDER LOAD F6: a tab made anywhere re-mapped every row).
+    func title(_ tab: TabModel, in workspace: WorkspaceModel) -> String {
+        if let page = page(tab) { return page.title }
+        if tab.kind == .browser, incognitoWorkspace(workspace) { return incognitoDisplayTitle(tab) ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }
 }

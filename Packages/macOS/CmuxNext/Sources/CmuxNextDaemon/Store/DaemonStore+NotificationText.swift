@@ -25,7 +25,9 @@ extension DaemonStore {
                   let text = Self.notificationText(title: entry.title, body: entry.body) else { continue }
             texts[surface] = text
         }
-        if ledgerNotificationTexts != texts { ledgerNotificationTexts = texts }
+        // Only the surfaces whose text changed notify their readers.
+        for surface in ledgerNotificationTexts.keys where texts[surface] == nil { ledgerNotificationTexts[surface] = nil }
+        for (surface, text) in texts { ledgerNotificationTexts[surface] = text }
     }
 
     func recordNotificationText(_ notification: DaemonNotification) {
@@ -33,9 +35,11 @@ extension DaemonStore {
         if let surface = notification.surface, ledgerNotificationTexts[surface] != nil { ledgerNotificationTexts[surface] = nil }
         guard let text = Self.notificationText(title: notification.title, body: notification.body) else { return }
         notificationTexts[notification.notification] = text
-        if notificationTexts.count > Self.notificationTextLimit,
-           let oldest = notificationTexts.keys.min(by: { $0.rawValue < $1.rawValue }) {
+        let ids = notificationTexts.keys
+        if ids.count > Self.notificationTextLimit, let oldest = ids.min(by: { $0.rawValue < $1.rawValue }) {
             notificationTexts[oldest] = nil
+            // Its id never comes back: drop its slot too, so the map stays at the limit.
+            notificationTexts.compact { $0 != oldest }
         }
     }
 

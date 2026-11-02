@@ -22,7 +22,14 @@ private let fallbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
+    var browsers: [String: BrowserEntry] = [:] {
+        didSet {
+            guard browsers.count != oldValue.count else { return }
+            pageRequests.media.tabsChanged()
+            // Each page made or closed tells only the readers of its own tab (a sidebar row, `pageInstalls`).
+            for key in Set(browsers.keys).symmetricDifference(oldValue.keys) { pageInstalls.bump(key) }
+        }
+    }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
@@ -431,6 +438,7 @@ final class TabContentCache {
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
         pageInstalls.bump()
+        pageInstalls.bump(key)
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)

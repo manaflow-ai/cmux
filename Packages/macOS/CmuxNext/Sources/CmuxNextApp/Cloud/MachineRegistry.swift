@@ -149,6 +149,13 @@ final class MachineRegistry {
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
     func daemon(forWorkspace id: String) -> DaemonService? { workspace(id: id)?.1 }
 
+    /// The daemon whose tree holds `workspace` (by identity). It reads no workspace list: a sidebar row that asks
+    /// re-maps on its own workspace's changes, never on a workspace made or closed elsewhere (TYPING UNDER LOAD F6).
+    func daemon(holding workspace: WorkspaceModel) -> DaemonService? {
+        if local.store.holds(workspace) { return local }
+        return remoteDaemons.first { $0.store.holds(workspace) }
+    }
+
     /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
         if let workspace = local.store.workspace(id: id) { return (workspace, local) } // no daemon list for the common case

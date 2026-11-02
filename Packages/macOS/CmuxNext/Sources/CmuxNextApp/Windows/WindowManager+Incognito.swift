@@ -88,6 +88,17 @@ extension WindowManager {
         return claims.pending[workspaceID].map(value.isIncognito) ?? false
     }
 
+    /// `isIncognito(workspace:)` for the model itself, reading only that workspace's facts: its `ephemeral` flag and its
+    /// own entry of the registry (`WindowRegistryStore.incognitoByWorkspace`), never the workspace list or the whole
+    /// registry. A sidebar row asks this for each browser tab it maps; one workspace made or closed anywhere re-mapped
+    /// every such row (TYPING UNDER LOAD F6).
+    func isIncognito(workspace: WorkspaceModel) -> Bool {
+        if workspace.ephemeral { return true }
+        if let listed = registry.incognitoByWorkspace[workspace.id] { return listed }
+        // No window lists it: a claim for a window about to open decides.
+        return claims.pending[workspace.id].map(registry.value.isIncognito) ?? false
+    }
+
     /// True when window `windowID` is incognito.
     func isIncognito(window windowID: String) -> Bool {
         registry.value.isIncognito(windowID)
