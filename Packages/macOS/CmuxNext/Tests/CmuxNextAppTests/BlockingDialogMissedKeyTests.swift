@@ -112,4 +112,18 @@ import Testing
         #expect(!Self.dispatch(try Self.key("a", code: 0, in: f.window), in: f.window, f), "a key outside the blocked tab was taken")
         #expect(answers.isEmpty)
     }
+
+    /// Review of #31849: a pane parks its hidden tab's view in the window. A dialog on that hidden tab shows
+    /// nothing, so it never blocks the keys of the pane's shown tab (a Chromium page window in the same pane).
+    @Test func aHiddenTabsDialogBlocksNoKeyOfThePaneItIsParkedIn() throws {
+        let f = try Self.fixture()
+        defer { f.close() }
+        let pane = try #require(f.window.contentView)
+        let id = CmuxDialogCenter.shared.present(Self.spec, in: .tab(f.tab)) { _ in }
+        #expect(CmuxDialogCenter.shared.dialogBlockingKeys(in: f.window, focusedArea: pane) == id,
+                "the shown tab's dialog does not block its pane")
+        f.tab.isHidden = true
+        #expect(CmuxDialogCenter.shared.dialogBlockingKeys(in: f.window, focusedArea: pane) == nil,
+                "the parked tab's dialog blocks the shown tab's keys")
+    }
 }
