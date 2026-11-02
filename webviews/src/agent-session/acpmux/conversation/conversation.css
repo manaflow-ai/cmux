@@ -623,6 +623,23 @@
   font-weight: 600;
   letter-spacing: var(--text-body--letter-spacing);
 }
+/* A pinned document keeps the originating chat visible while browsing other conversations. */
+.acpmux-artifact-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--agent-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact-source {
+    display: none;
+  }
+}
 .acpmux-artifact-versions {
   display: inline-flex;
   align-items: center;
