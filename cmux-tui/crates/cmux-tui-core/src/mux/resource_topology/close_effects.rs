@@ -498,6 +498,10 @@ impl Mux {
                 "topology close target changed workspaces before commit"
             );
         }
+        let target_workspace = slots
+            .workspace
+            .and_then(|id| state.workspace_by_id(id))
+            .map(|workspace| workspace.public_id.clone());
         let mut plan = self.resource_close_plan_locked(
             operation,
             slots,
@@ -506,8 +510,29 @@ impl Mux {
             &notifications,
             true,
         )?;
-        let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // A tab, pane or screen close that keeps its workspace changes that
+        // workspace only: project it alone, as a create does, so the close's
+        // registry and state hold follows the workspace, not the session
+        // (CLI-1: a CLI `tab close` took 1 s under load). A close that ends
+        // a workspace or a terminal stays on the full projection; a scoped
+        // walk that meets a change outside its scope falls back to it.
+        let scoped = matches!(
+            operation,
+            ResourceOperation::TabClose
+                | ResourceOperation::PaneClose
+                | ResourceOperation::ScreenClose
+        ) && plan.workspace_close.is_none()
+            && plan.terminal_batch.is_empty()
+            && registry.public_fold_seeded();
+        let mut projection = match target_workspace {
+            Some(workspace) if scoped => self.resource_effect_projection_scoped_locked(
+                &registry,
+                &mut plan.state,
+                &[workspace],
+                json!({}),
+            )?,
+            _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
+        };
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still
         // retire that receipt.
@@ -529,6 +554,7 @@ impl Mux {
             &projection.changes,
             &plan.terminal_batch,
             plan.workspace_close.as_ref(),
+            projection.restates_all,
         )?;
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
