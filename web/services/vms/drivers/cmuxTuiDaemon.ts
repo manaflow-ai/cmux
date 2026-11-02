@@ -343,7 +343,7 @@ WantedBy=default.target
     `chown -R "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.config"`,
     `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user daemon-reload`,
     `${cmuxTuiAsDaemonUser('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" systemctl --user stop acpmux.service >/dev/null 2>&1 || true')}`,
-    `${cmuxTuiAsDaemonUser('XDG_RUNTIME_DIR="/run/user/$(id -u)" timeout 15s "$HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true')}`,
+    `${cmuxTuiAsDaemonUser('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" timeout 15s "$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true')}`,
     `${cmuxTuiAsDaemonUser(settle)} || { echo "acpmux daemon did not stop before service start" >&2; exit 3; }`,
     `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service && XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service`,
     `fi`,
