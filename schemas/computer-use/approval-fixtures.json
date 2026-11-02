@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "about": "Canonical JSON and digest of Computer Use approval requests (docs/computer-use-approvals.md). digest = sha256(canonical(request without digest)). Every implementation (Swift host, Rust host, device hub) tests against these cases.",
+  "cases": [
+    {
+      "name": "macos-safari-click",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-studio.local",
+        "session": "c-7f3a",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": "com.apple.Safari",
+          "executable": null,
+          "name": "Safari"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-studio.local\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R1\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "digest": "dfebfc168699d158a3e81a30e0e1ddc16ce1bec46c83dada6d4bd0fccffc3654"
+    },
+    {
+      "name": "linux-executable",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "cmux-tui",
+        "machine": "ubuntu-box",
+        "session": "c-7f3a",
+        "agent": "Codex",
+        "workspace": "infra/deploy",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/bin/firefox",
+          "name": "Firefox"
+        },
+        "tool": "type_text",
+        "risk": "R2",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000
+      },
+      "canonical": "{\"agent\":\"Codex\",\"answerable_until_ms\":1793400600000,\"client\":\"cmux-tui\",\"created_ms\":1793400000000,\"machine\":\"ubuntu-box\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R2\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/firefox\",\"name\":\"Firefox\"},\"tool\":\"type_text\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"infra/deploy\"}",
+      "digest": "0c027ac8f427580c2aa6155d84ef874e7849c197e4605a1344a6897537aa0da0"
+    },
+    {
+      "name": "escapes-and-unicode",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-studio.local",
+        "session": "s/1",
+        "agent": "Agent \"Q\" \\ tab\there\nline\u0001",
+        "workspace": "Café ✓ 日本 😀",
+        "target": {
+          "bundle_id": "com.example.App",
+          "executable": null,
+          "name": "Ünïcode App"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000
+      },
+      "canonical": "{\"agent\":\"Agent \\\"Q\\\" \\\\ tab\\there\\nline\\u0001\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-studio.local\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R1\",\"session\":\"s/1\",\"target\":{\"bundle_id\":\"com.example.App\",\"executable\":null,\"name\":\"Ünïcode App\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"Café ✓ 日本 😀\"}",
+      "digest": "2d1f123a1973837935917e170b539eb8fa1c4468284441c2e769308e463d9a68"
+    },
+    {
+      "name": "windows-paths",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "cmux-tui",
+        "machine": "WIN-11",
+        "session": "c-7f3a",
+        "agent": "Claude",
+        "workspace": "C:\\work\\repo",
+        "target": {
+          "bundle_id": null,
+          "executable": "C:\\Program Files\\App\\app.exe",
+          "name": "App"
+        },
+        "tool": "launch_app",
+        "risk": "R3",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"cmux-tui\",\"created_ms\":1793400000000,\"machine\":\"WIN-11\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R3\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\App\\\\app.exe\",\"name\":\"App\"},\"tool\":\"launch_app\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"C:\\\\work\\\\repo\"}",
+      "digest": "aeaba40d69b08bad2b007c0b4795739105fd99fcbac697d90094bced892bf996"
+    }
+  ]
+}
