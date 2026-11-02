@@ -1133,11 +1133,12 @@ SIGNER_BUILD_ROUTE
     # free on this public repository; a re-run takes Blacksmith Linux 4 vCPU, and a pool signer GitHub drops
     # unstarted hands the nightly to the macOS signer. Leo, 2026-11-01: "surely we measured the signign we
     # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
-    # sentry-dsyms-nightly takes the same line: a network-bound Sentry upload, under 1 min when
-    # Sentry is healthy (10.8 and 19.7 min in runs 41471126151, 41466468306 when it was not).
     "nightly.yml:$signer_route"
     "nightly.yml:$signer_build_route"
     "cmux-next-dev-daily.yml:$signer_pick_route"
+    # sentry-dsyms-nightly takes the pick's line (it holds no signing material): a network-bound Sentry
+    # upload, under 1 min when Sentry is healthy (10.8 and 19.7 min in runs 41471126151, 41466468306 when it was not).
+    "nightly.yml:$signer_pick_route"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"

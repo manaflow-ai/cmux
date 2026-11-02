@@ -357,6 +357,9 @@ public final class MainThreadWatchdog: Sendable {
     // MARK: - Watchdog thread
 
     func watch(sampler: ThreadStackSampler?) {
+        // Once with the initial values while nothing is suspended: its first suspended call then fills no Swift
+        // runtime cache (a Debug build's generic atomics resolve their witness tables on first use).
+        publishSample(board: nil, count: 0, beat: .max)
         var sampledBeat: UInt64 = .max
         var sampledTask: UInt64 = 0
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
@@ -388,14 +391,7 @@ public final class MainThreadWatchdog: Sendable {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
-                    _ = sampler.sample { count in
-                        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
-                        publishedTaskPacked.store(task.packed, ordering: .relaxed)
-                        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
-                        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
-                        publishedSampleCount.store(count, ordering: .relaxed)
-                        publishedSampleBeat.store(beat, ordering: .releasing)
-                    }
+                    _ = sampler.sample { count in publishSample(board: board, count: count, beat: beat) }
                     #if DEBUG
                     afterSampleForTesting.withLock { $0 }?()
                     #endif
@@ -406,6 +402,18 @@ public final class MainThreadWatchdog: Sendable {
             waitForAlarm(nanos: thresholdNanos)
         }
         if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
+    }
+
+    /// Publishes one sample for the main thread to read when its stall ends: the running task, the frame count
+    /// and the beat (``recordStall``). It runs while the main thread is suspended, so atomics only, and no first
+    /// use of anything (``ThreadStackSampler`` says why). Watchdog thread only.
+    private func publishSample(board: MainTaskBoard?, count: Int, beat: UInt64) {
+        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
+        publishedTaskPacked.store(task.packed, ordering: .relaxed)
+        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
+        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        publishedSampleCount.store(count, ordering: .relaxed)
+        publishedSampleBeat.store(beat, ordering: .releasing)
     }
 
     /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds

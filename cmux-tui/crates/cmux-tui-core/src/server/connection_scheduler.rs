@@ -276,6 +276,7 @@ impl ConnectionSurfaceScheduler {
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
+        self.wake_reply_waiters();
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();

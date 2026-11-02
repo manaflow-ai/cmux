@@ -40,16 +40,16 @@ extension CloudStartChat {
             cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)")
         }
         do {
-            if decision.gate, decision.provider == .claude, let userID {
+            var verdict = decision.verdict // One FFI answer per step (cmux#32483): a step's fields never mix a failed call with a good one.
+            if verdict.gate, verdict.transferProvider == .claude, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
-                if decision.readsMachine {
-                    decision.guestStdout = (try? await api.exec(machineID, command: decision.verdict.guestKindProbe, timeoutMs: 20_000))?.stdout
-                }
+                verdict = decision.verdict
+                if verdict.readsMachine { decision.guestStdout = (try? await api.exec(machineID, command: verdict.guestKindProbe, timeoutMs: 20_000))?.stdout }
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
-                if decision.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID)) }
+                if decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID)) }
             }
-            let verdict = decision.verdict, provider = decision.provider
-            guard let provider, let userID else { return false }
+            verdict = decision.verdict
+            guard let provider = verdict.transferProvider, let userID else { return false }
             switch verdict.step {
             case .skip: return false
             case .install: break

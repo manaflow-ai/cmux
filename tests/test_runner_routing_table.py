@@ -118,6 +118,16 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(expression=changed):
                 self.assertTrue(table.portable_order(changed, nightly=True))
 
+    def test_nightly_light_fleet_linux_comes_before_the_mini(self) -> None:
+        attempt = "needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)"
+        linux = attempt + " && needs.build-nightly-app.outputs.light_linux_runner"
+        mini = (attempt + " && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ')"
+                " && needs.build-nightly-app.outputs.light_mini_runner")
+        tail = "fromJSON(vars.RUNNER_POOLS).linux_32"
+        self.assertEqual(table.portable_order("${{ " + " || ".join((linux, mini, tail)) + " }}", nightly=True), "")
+        self.assertTrue(table.portable_order("${{ " + " || ".join((mini, linux, tail)) + " }}", nightly=True))
+        self.assertTrue(table.portable_order("${{ " + " || ".join((linux, tail)) + " }}", nightly=True))
+
     def test_portable_order_resolves_declared_pool_members(self) -> None:
         expression = ("${{ needs.portable-placement.outputs.linux_runner || "
                       "needs.portable-placement.outputs.mini_runner || "
