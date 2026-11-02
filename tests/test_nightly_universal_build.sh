@@ -1491,7 +1491,7 @@ for expected in \
   "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
-  "group: nightly-next-legacy-identity-publish" \
+  "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
   "needs.publish-nightly.outputs.refused != 'true'" \
   "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
