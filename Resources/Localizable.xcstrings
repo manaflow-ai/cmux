@@ -676382,6 +676382,131 @@
         }
       }
     },
+    "notification.claudeAccountAutoSwitch.notSwitched.promptUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit, but cmux couldn't see Claude waiting at an empty prompt, so it didn't switch accounts. Switch accounts manually to continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام، لكن cmux لم يتمكن من رؤية Claude ينتظر عند موجّه فارغ، لذا لم يبدّل الحساب. بدّل الحساب يدويًا للمتابعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht, aber cmux konnte nicht erkennen, dass Claude an einer leeren Eingabeaufforderung wartet, daher hat cmux das Konto nicht gewechselt. Wechsle das Konto manuell, um fortzufahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso, pero cmux no pudo ver a Claude esperando en un prompt vacío, así que no cambió de cuenta. Cambia de cuenta manualmente para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation, mais cmux n’a pas pu voir Claude en attente sur une invite vide, donc il n’a pas changé de compte. Changez de compte manuellement pour continuer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達しましたが、Claude が空のプロンプトで待機していることを cmux が確認できなかったため、アカウントを切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했지만 Claude가 빈 프롬프트에서 기다리는 것을 cmux가 확인하지 못해 계정을 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已达到用量上限，但 cmux 无法确认 Claude 正在空白提示符处等待，因此没有切换账号。请手动切换账号以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已達到用量上限，但 cmux 無法確認 Claude 正在空白提示字元處等待，因此沒有切換帳號。請手動切換帳號以繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja, ali cmux nije mogao vidjeti da Claude čeka na praznom promptu, pa nije promijenio račun. Promijenite račun ručno da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse, men cmux kunne ikke se Claude vente ved en tom prompt, så den skiftede ikke konto. Skift konto manuelt for at fortsætte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo, ma cmux non è riuscito a vedere Claude in attesa su un prompt vuoto, quindi non ha cambiato account. Cambia account manualmente per continuare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់ ប៉ុន្តែ cmux មិនអាចឃើញ Claude កំពុងរង់ចាំនៅប្រអប់បញ្ចូលទទេបានទេ ដូច្នេះវាមិនបានប្ដូរគណនីទេ។ សូមប្ដូរគណនីដោយដៃដើម្បីបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen, men cmux kunne ikke se at Claude ventet ved en tom ledetekst, så den byttet ikke konto. Bytt konto manuelt for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia, ale cmux nie widział, by Claude czekał przy pustym wierszu poleceń, więc nie przełączył konta. Przełącz konto ręcznie, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso, mas o cmux não conseguiu ver o Claude aguardando em um prompt vazio, então não trocou de conta. Troque de conta manualmente para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования, но cmux не увидел, что Claude ждёт у пустой строки ввода, поэтому не переключил учётную запись. Переключите учётную запись вручную, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานแล้ว แต่ cmux มองไม่เห็นว่า Claude กำลังรออยู่ที่พรอมต์ว่าง จึงไม่ได้สลับบัญชี สลับบัญชีด้วยตนเองเพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştı, ancak cmux Claude'un boş bir istemde beklediğini göremedi, bu yüzden hesap değiştirmedi. Devam etmek için hesabı elle değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання, але cmux не побачив, що Claude чекає на порожньому рядку введення, тому не перемкнув обліковий запис. Перемкніть обліковий запис вручну, щоб продовжити."
+          }
+        }
+      }
+    },
     "dialog.claudeAccountSwitch.paneInUse.message": {
       "extractionState": "manual",
       "localizations": {

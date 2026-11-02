@@ -246,7 +246,8 @@ final class ClaudeAccountAutoSwitchCoordinator {
         )
     }
 
-    /// The pane's screen as the shared prompt classifier reads it; `.unknown` when it is gone.
+    /// The pane's screen as the shared prompt classifier reads it; `.unknown`, which holds the
+    /// switch back, when the pane is gone or its screen can't be read.
     private static func screenState(of workspace: Workspace, panelId: UUID) -> AgentAutoResumeCoordinator.ScreenState {
         guard let terminal = workspace.terminalPanel(for: panelId) else { return .unknown }
         return AgentAutoResumeCoordinator.shared.screenState(for: terminal.surface)

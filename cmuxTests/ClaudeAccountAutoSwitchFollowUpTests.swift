@@ -264,6 +264,10 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.draftPending",
                 defaultValue: "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
             ), "default")),
+            (.promptUnconfirmed, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.promptUnconfirmed",
+                defaultValue: "%@ hit its usage limit, but cmux couldn't see Claude waiting at an empty prompt, so it didn't switch accounts. Switch accounts manually to continue."
+            ), "default")),
             (.notRecorded, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",
                 defaultValue: "%@ hit its usage limit, but cmux couldn't record that, so it didn't switch accounts automatically. Switch accounts manually to continue."

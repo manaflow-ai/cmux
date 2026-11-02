@@ -63,8 +63,9 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     /// until the reset time its limit message gives, or ``ClaudeUsageLimitReset/fallbackInterval``
     /// from `now`. The next account comes from ``ClaudeAccountAutoSwitchPolicy``, trusted ones
     /// first, skipping exhausted accounts and ones without a Claude config. A free account is
-    /// still held back when the pane got input after the limit, the turn left background work,
-    /// or the pane already went through every other account without finishing a turn.
+    /// still held back when the pane got input after the limit, its screen isn't Claude's empty
+    /// prompt, the turn left background work, or the pane already went through every other
+    /// account without finishing a turn.
     ///
     /// - Parameters:
     ///   - pane: What cmux knows about the pane.
@@ -73,8 +74,8 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///   - ledger: What the coordinator remembers in memory.
     ///   - isUsable: Whether an account has a Claude config (its `.claude.json` exists).
     ///   - isTrusted: Whether an account already trusts the session's folder.
-    ///   - sourceScreen: The pane's screen now; a typed message in Claude's input box holds the
-    ///     switch back, since the restart would discard it.
+    ///   - sourceScreen: The pane's screen now. Anything but Claude's empty prompt holds the
+    ///     switch back: a typed message the restart would discard, or a screen cmux can't read.
     func action(
         pane: Pane,
         isEnabled: Bool,
