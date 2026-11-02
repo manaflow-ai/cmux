@@ -12,6 +12,8 @@ import {
   paintFindHighlights,
 } from "../src/agent-session/acpmux/conversation/chatFind";
 import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { AgentRunTranscriptCard } from "../src/agent-session/acpmux/subagents/AgentRunCard";
+import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import {
   resetTranscriptDisclosure,
@@ -199,6 +201,92 @@ test("single and grouped disclosures keep independent choices across virtualized
   await act(async () => root!.render(null));
   await render("different-parent");
   expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual(["false", "false", "false"]);
+});
+
+test("a result's Show more choice survives closing its card and virtualized remounts", async () => {
+  const container = installDom();
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 200 });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 60 });
+  const call: SubsessionCall = {
+    tool: "wait",
+    running: false,
+    timedOut: false,
+    sessions: ["review", "lint"].map((name) => ({
+      sessionId: name,
+      name,
+      state: "done",
+      reply: "First paragraph.\n\nSecond paragraph.\n\nLast paragraph.",
+    })),
+  };
+  root = createRoot(container);
+  const render = (sessionId = "parent") =>
+    act(async () =>
+      root!.render(
+        <TranscriptDisclosureProvider sessionId={sessionId}>
+          <SubsessionCallCard call={call} tool={tool("wait")} />
+        </TranscriptDisclosureProvider>,
+      ),
+    );
+  const cards = () => [...container.querySelectorAll<HTMLElement>(".cv-disclosure")];
+  const toggle = (index: number) => cards()[index]!.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!;
+  const more = (index: number) => cards()[index]!.querySelector<HTMLButtonElement>(".cv-subsession__cut button")!;
+  await render();
+  await act(async () => toggle(0).click());
+  await act(async () => toggle(1).click());
+  await act(async () => more(0).click());
+  expect(more(0).getAttribute("aria-expanded")).toBe("true");
+  expect(more(1).getAttribute("aria-expanded")).toBe("false");
+  await act(async () => toggle(0).click());
+  await act(async () => toggle(0).click());
+  expect(more(0).getAttribute("aria-expanded")).toBe("true");
+  await act(async () => root!.unmount());
+  root = createRoot(container);
+  await render();
+  expect(more(0).getAttribute("aria-expanded")).toBe("true");
+  expect(more(1).getAttribute("aria-expanded")).toBe("false");
+  expect(cards()[0]!.querySelector(".cv-subsession__markdown")!.hasAttribute("data-cut")).toBe(false);
+  await render("different-parent");
+  await act(async () => toggle(0).click());
+  expect(more(0).getAttribute("aria-expanded")).toBe("false");
+});
+
+test("standalone agent-run Show more is scoped to its parent chat across switches and remounts", async () => {
+  const container = installDom();
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 200 });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 60 });
+  // Tool-call IDs can recur in independent chats. The chat must be part of the persistence key.
+  const agent: Subagent = {
+    id: "run:call-1",
+    parent: null,
+    name: "review",
+    state: "completed",
+    startedAt: 0,
+    endedAt: 1_000,
+    result: "First paragraph.\n\nSecond paragraph.\n\nFinal checkpoint.",
+  };
+  root = createRoot(container);
+  const render = (sessionId: string) =>
+    act(async () => root!.render(<AgentRunTranscriptCard agent={agent} sessionId={sessionId} />));
+  const more = () => container.querySelector<HTMLButtonElement>(".cv-subsession__cut button")!;
+
+  await render("chat-a");
+  expect(more().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => more().click());
+  expect(more().getAttribute("aria-expanded")).toBe("true");
+
+  await render("chat-b");
+  expect(more().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => more().click());
+  expect(more().getAttribute("aria-expanded")).toBe("true");
+
+  await render("chat-a");
+  expect(more().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => root!.unmount());
+  root = createRoot(container);
+  await render("chat-a");
+  expect(more().getAttribute("aria-expanded")).toBe("true");
+  await render("chat-c");
+  expect(more().getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a started sub-session's row is its name, with no narration in front of it, in every language", async () => {

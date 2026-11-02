@@ -27,6 +27,7 @@ import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { CardCopy } from "./CardCopy";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
@@ -261,9 +262,10 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
 /// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
 /// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
-export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
+/// Keep the reader's choice when the card closes or the transcript virtualizes this result.
+export function Cut({ text, prompt, disclosureKey }: { text: string; prompt?: boolean; disclosureKey: string }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [long, setLong] = useState(false);
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
@@ -406,7 +408,9 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
-          {session.reply && session.state !== "working" && <Cut text={session.reply} />}
+          {session.reply && session.state !== "working" && (
+            <Cut text={session.reply} disclosureKey={`subsession-reply:${tool.id}:${session.sessionId}`} />
+          )}
         </SessionCard>
       ))}
       <Raw tool={tool} />
