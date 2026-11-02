@@ -36,13 +36,13 @@ extension WindowManager {
         }
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
-            // a new workspace (no empty window, REWRITE.md round 1), claimed in
-            // this turn: a repair before its create runs keeps the profile (#31502),
+            // a new workspace (no empty window, REWRITE.md round 1). It is
+            // claimed in this turn, so the window waits there for it (#31502)
             // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            let create = startWorkspace(WorkspaceSpawn(cwd: nil, newTabPage: false), into: state.id)
-            Task { [services] in do { _ = try await create() } catch { services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)") } }
+            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
+            Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
@@ -168,7 +168,7 @@ extension WindowManager {
     private func refuseClosingCreating(_ windows: [String]) throws {
         for window in windows { let rows = PendingWorkspaceRows.shared.rows, held = Set(registry.value.window(window)?.workspaceIDs ?? [])
             WorkspaceLanes.shared.prune(window) { self.services.workspace(id: $0) != nil }
-            if pendingClaims.contains(where: { $0.value == window && !held.contains($0.key) }) || pendingPlacements.values.contains(where: { $0.window == window })
+            if claims.pending.contains(where: { $0.value == window && !held.contains($0.key) }) || pendingPlacements.values.contains(where: { $0.window == window })
                 || WorkspaceLanes.shared.outstandingCreates(in: window) > 0 || rows.contains(where: { $0.window == window }) {
                 throw ActionFailure.invalidTarget(RefusalStrings.gatherWhileCreating)
             }

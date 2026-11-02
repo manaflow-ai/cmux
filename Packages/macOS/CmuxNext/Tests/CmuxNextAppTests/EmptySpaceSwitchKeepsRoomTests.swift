@@ -52,6 +52,6 @@ struct EmptySpaceSwitchKeepsRoomTests {
         let deadline = ContinuousClock.now + .seconds(10)
         while state.profileID == empty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(state.profileID == full, "a failed create left the window in the empty space")
-        #expect(!services.windows.pendingClaims.values.contains(state.id), "a failed create left its claim")
+        #expect(!services.windows.claims.pending.values.contains(state.id), "a failed create left its claim")
     }
 }

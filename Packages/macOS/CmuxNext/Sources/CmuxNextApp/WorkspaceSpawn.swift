@@ -29,8 +29,9 @@ extension WindowManager {
 /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (its reserved terminal id), so
 /// `cmux` and agent hooks inside it know where they run. On a Cloud machine
 /// (`daemon`), it gets no Mac environment (only the placement keys) and
-/// starts in the machine's default directory. `windowID` claims the workspace for that window at the press (`claimNew`;
-/// a failure takes it back), so the window waits for it (#31502) and it lands there in the step that first mirrors it; nil
+/// starts in the machine's default directory. `windowID` claims the
+/// workspace for that window at the press (`claimNew`; a failure releases it),
+/// so it lands there in the step that first mirrors it, and the window waits; nil
 /// leaves it to reconcile (the most recent window). It goes to `spawn.slot`,
 /// else by `workspaces.newPlacement`.
 @MainActor
@@ -49,10 +50,9 @@ struct WorkspaceSpawner {
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
-        let key = WorkspaceKey.generate(), windows = windows
-        if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) } // before its lane runs it
-        guard daemon.connection != nil else { return { windows.createDidFail(workspaceID: key.rawValue); throw DaemonError.notConnected } }
-        let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        let key = WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
+        guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
         let rule = spawn.placesBySetting ? row : nil
@@ -80,8 +80,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                windows.createDidFail(workspaceID: key.rawValue)
-                throw error
+                throw windows.createFailed(key.rawValue, error)
             }
         }
     }
@@ -130,8 +129,7 @@ struct WorkspaceSpawner {
                 shown.abandon()
                 windows.pendingPlacements[key.rawValue] = nil
                 windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
-                windows.createDidFail(workspaceID: key.rawValue)
-                throw error
+                throw windows.createFailed(key.rawValue, error)
             }
         }
     }
