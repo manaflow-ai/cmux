@@ -23,7 +23,9 @@ DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
 # They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
 # build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg')
+# sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg',
+                                   'sentry-dsyms-nightly')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
@@ -316,7 +318,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build 7 s). Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner
         # pick, takes GitHub-hosted Ubuntu first". Attempt 1 takes GitHub-hosted Ubuntu, a re-run Blacksmith Linux
         # 4 vCPU, whatever LINUX_RUNNER, RUNNER_POOLS, the overflow switch or the sign pick's outputs hold.
-        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg'):
+        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg', 'sentry-dsyms-nightly'):
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             self.assertNotIn('blacksmith-16vcpu', source)
             self.assertNotIn('blacksmith-32vcpu', source)
