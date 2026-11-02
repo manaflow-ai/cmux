@@ -238,6 +238,38 @@ import Testing
         #expect(!fm.fileExists(atPath: "\(targetProject(root))/s1"))
     }
 
+    /// The target holds the session in both layouts: the copy at the source's layout is a prefix
+    /// of the source, the other one has turns only the target has. Refreshing the first would
+    /// replace the target's `s1/` tree (deleting a nested copy) or leave two transcripts beside
+    /// each other, so the sync refuses as it does when the other layout is the only copy.
+    @Test(arguments: [false, true])
+    func refusesWhenTheTargetHasBothLayouts(sourceIsNested: Bool) async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        func write(_ body: String, _ path: String) throws {
+            try fm.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+            )
+            try body.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        let (sameLayout, otherLayout) = sourceIsNested
+            ? ("s1/messages/s1.jsonl", "s1.jsonl")
+            : ("s1.jsonl", "s1/messages/s1.jsonl")
+        let sourceProject = "\(root)/src/projects/\(slug("/p"))"
+        try write(Self.conversation, "\(sourceProject)/\(sameLayout)")
+        try write("sub", "\(sourceProject)/s1/subagents/a.jsonl")
+        let continued = Self.conversation + Self.userLine("target only")
+        try write(Self.conversationPrefix, "\(targetProject(root))/\(sameLayout)")
+        try write(continued, "\(targetProject(root))/\(otherLayout)")
+
+        let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .layoutMismatch)
+        #expect(try String(contentsOfFile: "\(targetProject(root))/\(otherLayout)", encoding: .utf8) == continued)
+        #expect(try String(contentsOfFile: "\(targetProject(root))/\(sameLayout)", encoding: .utf8)
+                == Self.conversationPrefix)
+        #expect(!fm.fileExists(atPath: "\(targetProject(root))/s1/subagents"))
+        #expect(try String(contentsOfFile: "\(sourceProject)/\(sameLayout)", encoding: .utf8) == Self.conversation)
+    }
+
     @Test func syncsTranscriptForCwdWithSpacesAndUnicode() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
         let cwd = "/tmp/my proj/한글"
