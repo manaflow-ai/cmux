@@ -169,6 +169,9 @@ int64_t g_next_menu_token = 0;
 // browser's frames of the dialog's origin when it opened. When every one of
 // them has gone (OnFrameDetached) the dialog's frame is gone, and Chromium
 // never answers or resets it (an iframe removed while its alert shows).
+// Limits: a dialog of an opaque origin (about:blank, srcdoc, data:) matches
+// no frame and ends only as before (reset, close); one whose origin another
+// live frame shares stays until that frame goes too.
 struct PendingDialog {
   int browser_id;
   CefRefPtr<CefJSDialogCallback> callback;
@@ -299,20 +302,21 @@ class FileLoadGuard : public CefResourceRequestHandler {
 // holds, telling the host of each (on_dialog_dropped).
 template <typename Gone>
 void DropDialogs(int browser_id, Gone gone) {
-  std::vector<int64_t> dropped;
+  std::vector<std::pair<int64_t, CefRefPtr<CefJSDialogCallback>>> dropped;
   for (auto it = DialogCallbacks().begin(); it != DialogCallbacks().end();) {
     if (it->second.browser_id == browser_id && gone(it->second)) {
-      // The frame is gone, so the answer reaches nothing; it ends CEF's
-      // dialog so the page's next one can show.
-      it->second.callback->Continue(false, CefString());
-      dropped.push_back(it->first);
+      dropped.emplace_back(it->first, it->second.callback);
       it = DialogCallbacks().erase(it);
     } else {
       ++it;
     }
   }
-  if (g_cb.on_dialog_dropped) {
-    for (int64_t token : dropped) {
+  // Answered after the map is updated (an answer may re-enter a handler
+  // that walks it). The frame is gone, so the answer reaches nothing; it
+  // ends CEF's dialog so the page's next one can show.
+  for (auto& [token, callback] : dropped) {
+    callback->Continue(false, CefString());
+    if (g_cb.on_dialog_dropped) {
       g_cb.on_dialog_dropped(g_cb.context, browser_id, token);
     }
   }
@@ -487,13 +491,14 @@ class Client : public CefClient,
       default:
         break;
     }
-    if (!g_cb.on_open_tab) {
+    // An open without a user gesture goes Chromium's way, popup blocker
+    // included, as before: only what the person asked for becomes a tab.
+    if (!g_cb.on_open_tab || !user_gesture) {
       return false;
     }
     const std::string url = target_url.ToString();
     g_cb.on_open_tab(g_cb.context, browser->GetIdentifier(), url.c_str(),
-                     static_cast<int>(target_disposition),
-                     user_gesture ? 1 : 0);
+                     static_cast<int>(target_disposition), 1);
     return true;
   }
 
@@ -1120,7 +1125,8 @@ int rb_shim_find(int browser_id,
                  int match_case,
                  int find_next) {
   CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
-  if (!browser || !text_utf8) {
+  // Chromium refuses an empty search (the host sends a stop instead).
+  if (!browser || !text_utf8 || text_utf8[0] == '\0') {
     return 0;
   }
   browser->GetHost()->Find(CefString(text_utf8), forward != 0,

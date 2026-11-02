@@ -1044,3 +1044,28 @@ fn find_before_the_browser_exists_does_nothing() {
     assert!(tab.control("v1", &Control::FindStop { keep_selection: true }, &mut fake).is_empty());
     assert!(fake.calls.is_empty(), "{:?}", fake.calls);
 }
+
+#[test]
+fn an_empty_find_is_a_stop_and_a_viewer_leaving_ends_its_search() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let find = |query: &str| Control::Find {
+        query: query.into(),
+        forward: true,
+        match_case: false,
+        next: false,
+    };
+    // Chromium refuses an empty search: it never reaches the shim as a find.
+    tab.control("v1", &find(""), &mut fake);
+    assert_eq!(fake.calls, vec!["stop_finding 7 true"]);
+    fake.calls.clear();
+    tab.control("v1", &find("remote"), &mut fake);
+    assert_eq!(tab.find_result(1, 1), Some(Control::FindResult { matches: 1, active: 1 }));
+    // The viewer leaves mid-search: its highlights go, and a viewer that
+    // opens later gets its first result even when the numbers repeat.
+    tab.control("v1", &Control::Close, &mut fake);
+    assert!(fake.calls.contains(&"stop_finding 7 true".to_string()), "{:?}", fake.calls);
+    tab.control("v2", &open("v2", screen(400, 800, 2.0)), &mut fake);
+    tab.control("v2", &find("remote"), &mut fake);
+    assert_eq!(tab.find_result(1, 1), Some(Control::FindResult { matches: 1, active: 1 }));
+}

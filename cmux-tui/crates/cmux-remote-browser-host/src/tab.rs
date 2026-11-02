@@ -146,6 +146,8 @@ pub struct HostTab {
     /// The last `rb.find.result` sent for the running search (`None` before
     /// its first result).
     find_last: Option<(u32, u32)>,
+    /// A viewer's search runs (from its `rb.find` to its `rb.find.stop`).
+    find_running: bool,
 }
 
 /// One open popup surface.
@@ -193,6 +195,7 @@ impl HostTab {
             surfaces: BTreeMap::new(),
             next_stream: 1,
             find_last: None,
+            find_running: false,
         }
     }
 
@@ -301,6 +304,8 @@ impl HostTab {
                 // its viewer on join) re-opens: its screen applies and its
                 // screen seq restarts at 0, with no second `rb.opened`.
                 let reopen = self.viewer_seqs.contains_key(viewer);
+                // A viewer that opens has no search: the next result is sent.
+                self.find_last = None;
                 let input =
                     SessionInput::Open { viewer: viewer.to_string(), screen: screen.into() };
                 match self.session.apply(input) {
@@ -364,8 +369,15 @@ impl HostTab {
                 }
             }
             Control::Close => {
-                // A viewer that leaves cannot send the releases of what it held.
+                // A viewer that leaves cannot send the releases of what it held,
+                // nor end its search: its highlights go with it.
                 self.release_all(p);
+                self.find_last = None;
+                if std::mem::take(&mut self.find_running)
+                    && let Some(browser) = self.browser
+                {
+                    p.stop_finding(browser, true);
+                }
                 match self.session.apply(SessionInput::Leave { viewer: viewer.to_string() }) {
                     Ok(effects) => {
                         self.viewer_seqs.remove(viewer);
@@ -409,6 +421,10 @@ impl HostTab {
                 }
                 Vec::new()
             }
+            Control::Find { query, .. } if query.is_empty() => {
+                // An empty search is the end of the search (Chromium refuses one).
+                self.control(viewer, &Control::FindStop { keep_selection: true }, p)
+            }
             Control::Find { query, forward, match_case, next } => {
                 if let Some(browser) = self.browser {
                     if !*next {
@@ -416,12 +432,14 @@ impl HostTab {
                         // repeats the last search's numbers.
                         self.find_last = None;
                     }
+                    self.find_running = true;
                     p.find(browser, query, *forward, *match_case, *next);
                 }
                 Vec::new()
             }
             Control::FindStop { keep_selection } => {
                 self.find_last = None;
+                self.find_running = false;
                 if let Some(browser) = self.browser {
                     p.stop_finding(browser, *keep_selection);
                 }

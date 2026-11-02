@@ -695,6 +695,11 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
 
     override func paste(_ sender: Any?) { pastePhoneClipboard() }
 
+    // The standard find actions (a key command or menu that sends them): the find bar.
+    override func find(_ sender: Any?) { finder.present() }
+    override func findNext(_ sender: Any?) { finder.step(forward: true) }
+    override func findPrevious(_ sender: Any?) { finder.step(forward: false) }
+
     func done() { _ = resignFirstResponder() }
 }
 

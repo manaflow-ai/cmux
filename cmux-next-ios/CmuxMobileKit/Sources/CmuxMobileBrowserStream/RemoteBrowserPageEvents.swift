@@ -159,6 +159,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50151, // IDC_CONTENT_CONTEXT_CUT
         50152, // IDC_CONTENT_CONTEXT_PASTE
         50153, // IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE
+        50161, // IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE (Chromium's own view-source tab, in the Mac's hidden window)
         50162, // IDC_CONTENT_CONTEXT_INSPECTELEMENT
         50165, // IDC_CONTENT_CONTEXT_LOOK_UP
         50180, 50181, 50182, // the Speech submenu: Start and Stop Speaking speak on the Mac

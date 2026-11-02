@@ -409,6 +409,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 // transport) would stay hidden, blank, under this new viewer.
                 try? connection.send(message: wire.visibility(visible))
                 if !visible { openedHidden?() }
+                resumeFind()
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
@@ -561,6 +562,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// The Mac's page facts, read through the step or navigation in flight.
     func apply(_ page: RemoteBrowserPage) {
         let reported = URL(string: page.url).flatMap { page.url.isEmpty ? nil : $0 }
+        // A new page ends Chromium's search: the count goes (the next query searches it).
+        if let reported, reported != url, findResult != nil {
+            findResult = nil
+            findBar?.resultsChanged()
+        }
         if let (target, from) = navigating {
             // The old page (or a new tab's about:blank) while the asked-for one loads.
             let stale = reported == nil || reported?.absoluteString == "about:blank" || reported == from
@@ -768,11 +774,25 @@ public final class StreamedBrowserModel: BrowserTabState {
         contextMenu = nil
         dialog = nil
         contextMenuWaitEnded()
-        // A new session's page has no search running; the find bar's next query starts one.
+        // A new session's page has no search running: the old count goes.
         if findResult != nil {
             findResult = nil
             findBar?.resultsChanged()
         }
+    }
+
+    /// The new stream session's page searches again for what the find bar still shows.
+    private func resumeFind() {
+        guard !findQuery.isEmpty else { return }
+        send(wire.find(findQuery, forward: true, next: false))
+    }
+
+    /// The find bar's results are no longer current (UIKit asks before a new query): the count
+    /// goes here only; the page's search ends with Done or an empty query.
+    func clearFindResult() {
+        guard findResult != nil else { return }
+        findResult = nil
+        findBar?.resultsChanged()
     }
 
     // MARK: Find in page

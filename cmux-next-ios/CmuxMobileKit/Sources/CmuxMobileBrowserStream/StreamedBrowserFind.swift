@@ -89,7 +89,7 @@ private final class StreamedBrowserFindSession: UIFindSession {
     }
 
     override func invalidateFoundResults() {
-        model?.stopFind()
+        model?.clearFindResult()
     }
 }
 #endif

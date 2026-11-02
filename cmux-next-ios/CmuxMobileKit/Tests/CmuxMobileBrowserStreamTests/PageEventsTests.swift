@@ -370,12 +370,22 @@ import Testing
         #expect(sent(stream, "rb.find").count == 3 && sent(stream, "rb.find.stop").count == 1)
     }
 
-    /// A new stream session has no search running: the old count goes.
-    @Test func aNewSessionDropsTheFindResult() async throws {
-        let (model, _, sink) = try await model()
+    /// A new stream session has no search running: the old count goes, and the page is
+    /// searched again for the query the find bar still shows. A new page drops the count too.
+    @Test func aNewSessionOrPageDropsTheFindResult() async throws {
+        let (model, stream, sink) = try await model()
         model.find("remote")
         await host(sink, #"{"t":"rb.find.result","matches":2,"active":1}"#)
         await host(sink, #"{"t":"welcome","caps":[]}"#)
         #expect(model.findResult == nil)
+        let again = try #require(sent(stream, "rb.find").last)
+        #expect(sent(stream, "rb.find").count == 2 && again["query"] as? String == "remote" && again["next"] as? Bool == false)
+        await host(sink, #"{"t":"rb.find.result","matches":2,"active":1}"#)
+        #expect(model.findResult?.matches == 2)
+        await host(sink, #"{"t":"rb.page","url":"https://example.com/other","title":"","loading":true,"can_go_back":true,"can_go_forward":false}"#)
+        #expect(model.findResult == nil)
+        // Clearing the bar's results (a new query on its way) keeps the page's search.
+        model.clearFindResult()
+        #expect(sent(stream, "rb.find.stop").isEmpty)
     }
 }
