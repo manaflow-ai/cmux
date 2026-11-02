@@ -81,9 +81,6 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
   const scope = typeof raw.active?.scope === "string" ? raw.active.scope : undefined;
   return {
     accounts,
-    ...(Array.isArray(raw.kinds)
-      ? { kinds: raw.kinds.filter((kind): kind is string => typeof kind === "string") }
-      : {}),
     ...(active ? { active } : {}),
     ...(scope ? { scope } : {}),
     ...(Array.isArray(raw.routes) ? {} : { unread: true as const }),
