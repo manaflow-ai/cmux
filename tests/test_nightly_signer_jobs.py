@@ -35,6 +35,9 @@ WORKFLOW = yaml.safe_load(nightly_text())
 JOBS = WORKFLOW["jobs"]
 SIGNER_JOBS = ("signer-build", "signer-app", "signer-app-notary", "signer-dmg-image", "signer-dmg")
 SECRET_JOBS = {"signer-app", "signer-app-notary", "signer-dmg"}
+# The cmux NIGHTLY-identity copy through the same release signer, with the macOS legacy signer as its fallback.
+LEGACY_POOL_JOBS = ("legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg")
+LEGACY_POOL_SECRET_JOBS = {"legacy-signer-app", "legacy-signer-dmg"}
 # The signer route: GitHub-hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run (the hosted-runner guard's exception).
 SIGNER_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                 "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
@@ -97,11 +100,13 @@ class Wiring(unittest.TestCase):
                       yaml.safe_dump(JOBS["publish-nightly"], width=1000))
         # Only signer-dmg is needed outside the signer jobs; the failure report and its close
         # never need a signer job, so a pool run the fallback covered raises no failure issue.
+        # The cmux NIGHTLY-identity copy's release-signer jobs also need signer-build, for the signer binary.
         for name, job in JOBS.items():
             if name in SIGNER_JOBS:
                 continue
             with self.subTest(job=name):
-                self.assertLessEqual(set(needs(job)) & set(SIGNER_JOBS), {"signer-dmg"})
+                allowed = {"signer-dmg", "signer-build"} if name in LEGACY_POOL_JOBS else {"signer-dmg"}
+                self.assertLessEqual(set(needs(job)) & set(SIGNER_JOBS), allowed)
         for name in ("report-nightly-failure", "close-nightly-failure-issue"):
             self.assertFalse(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
 
@@ -356,6 +361,114 @@ class Wiring(unittest.TestCase):
         # signer-dmg.sh makes the published immutable DMG the same way.
         self.assertIn('cp "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_DMG_IMMUTABLE"',
                       (ROOT / "scripts/ci/nightly-steps/signer-dmg.sh").read_text())
+
+
+class LegacyPool(unittest.TestCase):
+    """The cmux NIGHTLY-identity copy through the release signer, the macOS legacy signer as its fallback.
+
+    The macOS signer holds a whole owned Mac, and glaeda's exclusive admission kept it 12-33 min in
+    "Set up runner" (runs of 2026-11-02), so the old feed sat 20-50 min behind cmux NEXT.
+    """
+
+    def test_the_pool_signs_only_this_runs_own_new_build(self):
+        gate = JOBS["legacy-signer-app"]["if"]
+        for clause in ("!cancelled()", "needs.signer-build.result == 'success'",
+                       "needs.legacy-identity-target.outputs.action == 'new'",
+                       "needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id)",
+                       "needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
+                       "needs.decide.outputs.notary_paused != 'true'",
+                       "vars.NIGHTLY_NEXT_LEGACY_POOL != 'off'", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"):
+            self.assertIn(clause, gate)
+
+    def test_the_pool_checks_the_requirement_before_any_secret(self):
+        # A set NIGHTLY_LEGACY_REQUIRED_COMMITS once turned this path off, so every cmux NIGHTLY copy
+        # waited on the macOS signer's exclusive Mac. The pool checks it on the build's own commit.
+        job = JOBS["legacy-signer-app"]
+        self.assertNotIn("NIGHTLY_LEGACY_REQUIRED_COMMITS", job["if"])
+        steps = job["steps"]
+        names = [s.get("name", "") for s in steps]
+        check = names.index("Check the build's commit carries NIGHTLY_LEGACY_REQUIRED_COMMITS")
+        step = steps[check]
+        self.assertIn("nightly-next-legacy-requirement.sh --commit", step["run"])
+        self.assertEqual(step["env"]["BUILD_SHA"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
+        self.assertEqual(step["env"]["REQUIRED"], "${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}")
+        self.assertNotIn("continue-on-error", step)
+        for later in steps[:check]:
+            self.assertNotIn("secrets.", yaml.safe_dump(later))
+
+    def test_secrets_stay_in_the_hosted_signer_jobs(self):
+        for name in LEGACY_POOL_JOBS:
+            job = JOBS[name]
+            text = yaml.safe_dump(job)
+            with self.subTest(job=name):
+                # A pool failure never turns the run red; the macOS signer signs instead.
+                self.assertIs(job.get("continue-on-error"), True)
+                if name in LEGACY_POOL_SECRET_JOBS:
+                    self.assertEqual(job["environment"], "release-next")
+                    self.assertEqual(job["runs-on"], SIGNER_ROUTE)
+                    self.assertNotIn("keychain", text)
+                else:
+                    self.assertNotIn("environment", job)
+                    self.assertNotIn("secrets.", text)
+                    self.assertNotIn("ubuntu", job["runs-on"].replace("'ubuntu-24.04'", ""))
+        prepare = next(step for step in JOBS["legacy-signer-app"]["steps"] if step.get("id") == "prepare")
+        self.assertEqual(set(prepare["env"]), {"APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64"})
+        self.assertIn("cmux.nightly.entitlements", text_of("legacy-signer-app"))
+
+    def test_the_macos_signer_runs_after_publication_when_the_pool_did_not_sign(self):
+        mac = JOBS["sign-nightly-identity-legacy"]
+        self.assertIn("publish-nightly", needs(mac))
+        self.assertIn("legacy-signer-dmg", needs(mac))
+        # The macOS signer also takes over when the pool signed but its DMG did not verify (no tested digest).
+        self.assertIn("verify-nightly-identity-legacy-pool", needs(mac))
+        self.assertIn("(needs.legacy-signer-dmg.outputs.signed_ok != 'true' || "
+                      "needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 == '')", mac["if"])
+        self.assertTrue(mac["if"].startswith("!cancelled() && "))
+        # The pool's outputs exist only when it signed: set by its last steps, after the upload.
+        dmg = JOBS["legacy-signer-dmg"]
+        ids = [step.get("id") for step in dmg["steps"]]
+        uploads = [i for i, step in enumerate(dmg["steps"]) if "upload-artifact" in str(step.get("uses", ""))]
+        self.assertEqual(ids[-1], "done")
+        self.assertLess(max(uploads), ids.index("done"))
+        self.assertEqual(dmg["steps"][uploads[-1]]["with"]["name"], "cmux-nightly-identity-signed")
+        self.assertEqual(dmg["outputs"]["signed_ok"], "${{ steps.done.outputs.signed_ok }}")
+        self.assertEqual(JOBS["legacy-signer-app"]["outputs"]["notarized"], "${{ steps.done.outputs.notarized }}")
+        self.assertEqual([step.get("id") for step in JOBS["legacy-signer-app"]["steps"]][-1], "done")
+
+    def test_publication_reads_whichever_signer_signed(self):
+        publish = yaml.safe_dump(JOBS["publish-nightly-identity-legacy"], width=10000)
+        gate = yaml.safe_dump(JOBS["nightly-identity-legacy-published"], width=10000)
+        for name in ("publish-nightly-identity-legacy", "nightly-identity-legacy-published"):
+            self.assertLessEqual({"legacy-signer-dmg", "verify-nightly-identity-legacy-pool"}, set(needs(JOBS[name])))
+        for output in ("skip", "signed_ok"):
+            expression = (f"(needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.{output}) || "
+                          f"needs.sign-nightly-identity-legacy.outputs.{output}")
+            self.assertIn(expression, publish)
+            self.assertIn(expression, gate)
+        for output in ("dmg_sha256", "minimum_system_version", "notarize", "apple", "requirement_refused"):
+            self.assertIn(f"(needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.{output}) || "
+                          f"needs.sign-nightly-identity-legacy.outputs.{output}", publish)
+        tested = ("needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || "
+                  "needs.verify-nightly-identity-legacy.outputs.tested_sha256")
+        self.assertIn(tested, publish)
+        self.assertIn(tested, gate)
+        self.assertIn("SIGN_RESULT: ${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.signed_ok == 'true' && 'success' || "
+                      "needs.sign-nightly-identity-legacy.result }}", publish)
+        # Publication still waits for the exact build publish-nightly published.
+        self.assertIn("publish-nightly", needs(JOBS["publish-nightly-identity-legacy"]))
+
+    def test_the_pool_verify_is_the_legacy_verify(self):
+        pool, mac = JOBS["verify-nightly-identity-legacy-pool"], JOBS["verify-nightly-identity-legacy"]
+        self.assertEqual(pool["steps"], mac["steps"])
+        self.assertEqual(pool["runs-on"], mac["runs-on"])
+        self.assertEqual(pool["outputs"], mac["outputs"])
+        self.assertNotIn("sign-nightly-identity-legacy", needs(pool))
+        self.assertIn("needs.legacy-signer-dmg.outputs.signed_ok == 'true'", pool["if"])
+        self.assertEqual(pool["env"]["SIGNED_SHA256"], "${{ needs.legacy-signer-dmg.outputs.dmg_sha256 }}")
+
+
+def text_of(name: str) -> str:
+    return yaml.safe_dump(JOBS[name], width=10000)
 
 
 class VerifyAppcastItem(unittest.TestCase):
