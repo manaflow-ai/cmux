@@ -1,0 +1,615 @@
+{
+  "id": "mwv-workspace-row-click-nf",
+  "priority": "P0",
+  "title": "Three windows: each workspace row clicked in each window's sidebar shows in that window, and no other window changes (no film)",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): \"clicking on home/workspaces might bring me to the wrong window\". A row clicked in window N's sidebar must show its workspace in window N (WindowManager.show, origin thisWindow) and leave every other window as it was. Each row is clicked with the pointer (`debug.mouse` at the row's frame from `debug.sidebar_rows`), A, B and A again in each of three windows, and every check reads every window (shown workspace, Home state, rows, panes and tabs, focused pane, frame). The first window, with the earlier journeys' workspaces (its rows may be scrolled), is a fourth window that must not change either.",
+  "source": "VIDEO EXTRA item 6 (multi-window), from journeys/p0/mw-workspace-row-click.json",
+  "budget_seconds": 210,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "person",
+      "title": "set-up: the person's first terminal (New Terminal key), so the keyboard is in a terminal, not in Home's composer, and a script's newTab shows its workspace"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-a1-${nonce}",
+      "as": "a1",
+      "title": "set-up: workspace mw-rc-a1 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-a2-${nonce}",
+      "as": "a2",
+      "title": "set-up: workspace mw-rc-a2 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-b1-${nonce}",
+      "as": "b1",
+      "title": "set-up: workspace mw-rc-b1 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-b2-${nonce}",
+      "as": "b2",
+      "title": "set-up: workspace mw-rc-b2 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-c1-${nonce}",
+      "as": "c1",
+      "title": "set-up: workspace mw-rc-c1 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rc-c2-${nonce}",
+      "as": "c2",
+      "title": "set-up: workspace mw-rc-c2 with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w0",
+      "title": "the first window (it keeps the earlier journeys' workspaces; a bystander here)"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-a1-${nonce}",
+      "to": "new",
+      "as": "w1",
+      "title": "set-up: workspace a1 into a new window 1"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-a2-${nonce}",
+      "to": "w1",
+      "title": "set-up: workspace a2 into window 1"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-b1-${nonce}",
+      "to": "new",
+      "as": "w2",
+      "title": "set-up: workspace b1 into a new window 2"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-b2-${nonce}",
+      "to": "w2",
+      "title": "set-up: workspace b2 into window 2"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-c1-${nonce}",
+      "to": "new",
+      "as": "w3",
+      "title": "set-up: workspace c1 into a new window 3"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rc-c2-${nonce}",
+      "to": "w3",
+      "title": "set-up: workspace c2 into window 3"
+    },
+    {
+      "do": "expect",
+      "title": "three new windows, two workspaces each",
+      "timeout": 15,
+      "all": [
+        {
+          "windows_open": {
+            "baseline_plus": 3
+          }
+        },
+        {
+          "window_state": {
+            "window": "w1",
+            "lists": [
+              "mw-rc-a1-${nonce}",
+              "mw-rc-a2-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_state": {
+            "window": "w2",
+            "lists": [
+              "mw-rc-b1-${nonce}",
+              "mw-rc-b2-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_state": {
+            "window": "w3",
+            "lists": [
+              "mw-rc-c1-${nonce}",
+              "mw-rc-c2-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c10"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w1",
+      "workspace": "mw-rc-a1-${nonce}",
+      "mark": "c10",
+      "title": "click workspace a1's row in window 1's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 shows a1; every other window did not change",
+      "since": "c10",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-rc-a1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c10",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c11"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w1",
+      "workspace": "mw-rc-a2-${nonce}",
+      "mark": "c11",
+      "title": "click workspace a2's row in window 1's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 shows a2; every other window did not change",
+      "since": "c11",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-rc-a2-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c11",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c12"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w1",
+      "workspace": "mw-rc-a1-${nonce}",
+      "mark": "c12",
+      "title": "click workspace a1's row in window 1's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 shows a1; every other window did not change",
+      "since": "c12",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-rc-a1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c12",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "a1"
+    },
+    {
+      "do": "use_window",
+      "window": "w1",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w1",
+      "title": "a click into a1's terminal in w1, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rc-a1-${nonce}",
+      "enter": true,
+      "window": "w1",
+      "mark": "typed-1"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 1 reaches workspace a1's terminal",
+      "since": "typed-1",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rc-a1-${nonce}"
+        },
+        {
+          "app_text_line": "mw-rc-a1-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-rc-a1-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "c12",
+            "except": [
+              "w1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c20"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w2",
+      "workspace": "mw-rc-b1-${nonce}",
+      "mark": "c20",
+      "title": "click workspace b1's row in window 2's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 shows b1; every other window did not change",
+      "since": "c20",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-rc-b1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c20",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c21"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w2",
+      "workspace": "mw-rc-b2-${nonce}",
+      "mark": "c21",
+      "title": "click workspace b2's row in window 2's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 shows b2; every other window did not change",
+      "since": "c21",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-rc-b2-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c21",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c22"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w2",
+      "workspace": "mw-rc-b1-${nonce}",
+      "mark": "c22",
+      "title": "click workspace b1's row in window 2's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 shows b1; every other window did not change",
+      "since": "c22",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-rc-b1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c22",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "b1"
+    },
+    {
+      "do": "use_window",
+      "window": "w2",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w2",
+      "title": "a click into b1's terminal in w2, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rc-b1-${nonce}",
+      "enter": true,
+      "window": "w2",
+      "mark": "typed-2"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 2 reaches workspace b1's terminal",
+      "since": "typed-2",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rc-b1-${nonce}"
+        },
+        {
+          "app_text_line": "mw-rc-b1-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-rc-b1-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "c22",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c30"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w3",
+      "workspace": "mw-rc-c1-${nonce}",
+      "mark": "c30",
+      "title": "click workspace c1's row in window 3's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 3 shows c1; every other window did not change",
+      "since": "c30",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "workspace": "mw-rc-c1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c30",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c31"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w3",
+      "workspace": "mw-rc-c2-${nonce}",
+      "mark": "c31",
+      "title": "click workspace c2's row in window 3's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 3 shows c2; every other window did not change",
+      "since": "c31",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "workspace": "mw-rc-c2-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c31",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "c32"
+    },
+    {
+      "do": "click_sidebar",
+      "window": "w3",
+      "workspace": "mw-rc-c1-${nonce}",
+      "mark": "c32",
+      "title": "click workspace c1's row in window 3's sidebar"
+    },
+    {
+      "do": "expect",
+      "title": "window 3 shows c1; every other window did not change",
+      "since": "c32",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "workspace": "mw-rc-c1-${nonce}",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "c32",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "c1"
+    },
+    {
+      "do": "use_window",
+      "window": "w3",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w3",
+      "title": "a click into c1's terminal in w3, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rc-c1-${nonce}",
+      "enter": true,
+      "window": "w3",
+      "mark": "typed-3"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 3 reaches workspace c1's terminal",
+      "since": "typed-3",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rc-c1-${nonce}"
+        },
+        {
+          "app_text_line": "mw-rc-c1-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-rc-c1-${nonce}"
+        },
+        {
+          "window_unchanged": {
+            "since": "c32",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close the three new windows"
+    }
+  ]
+}

@@ -1,0 +1,271 @@
+{
+  "id": "mwv-restart-three-windows-nf",
+  "priority": "P0",
+  "title": "Three windows, each on its own workspace: after Cmd-Q and reopen each window comes back with its own workspace (no film)",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): restore must give each window back its own workspace, never fold them into the first window, swap them, or drop a window. Before the quit the first window shows workspace a and two more windows show b and c; after Cmd-Q and reopen there are as many windows as before (three when the app had one window before the journey) and a, b and c each show in a window of their own, by name (window ids may change, so windows are found by what they show); typing in each restored window reaches that workspace's terminal.",
+  "source": "VIDEO EXTRA item 6 (multi-window), from journeys/p0/mw-restart-three-windows.json",
+  "budget_seconds": 210,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "person",
+      "title": "set-up: the person's first terminal (New Terminal key), so the keyboard is in a terminal, not in Home's composer, and a script's newTab shows its workspace"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rs-b-${nonce}",
+      "as": "b",
+      "title": "set-up: workspace mw-rs-b with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rs-c-${nonce}",
+      "as": "c",
+      "title": "set-up: workspace mw-rs-c with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-rs-a-${nonce}",
+      "as": "a",
+      "title": "set-up: workspace mw-rs-a with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w1",
+      "title": "window 1: the first window, showing workspace a"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rs-b-${nonce}",
+      "to": "new",
+      "as": "w2",
+      "title": "set-up: workspace b into window 2"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-rs-c-${nonce}",
+      "to": "new",
+      "as": "w3",
+      "title": "set-up: workspace c into window 3"
+    },
+    {
+      "do": "expect",
+      "title": "before the quit: three windows, each showing its own workspace",
+      "timeout": 15,
+      "all": [
+        {
+          "windows_open": {
+            "baseline_plus": 2
+          }
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-rs-a-${nonce}",
+              "mw-rs-b-${nonce}",
+              "mw-rs-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-quit"
+    },
+    {
+      "do": "relaunch",
+      "how": "quit",
+      "mark": "reopened",
+      "title": "Cmd-Q, then open the app again"
+    },
+    {
+      "do": "expect",
+      "title": "after the relaunch: the same number of windows, each showing its own workspace by name",
+      "since": "reopened",
+      "timeout": 30,
+      "all": [
+        {
+          "windows_open": {
+            "since": "before-quit"
+          }
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-rs-a-${nonce}",
+              "mw-rs-b-${nonce}",
+              "mw-rs-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use_window",
+      "shows": "mw-rs-a-${nonce}",
+      "as": "w1",
+      "focus": false,
+      "title": "the restored window that shows workspace a"
+    },
+    {
+      "do": "use",
+      "name": "a"
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w1"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rs-a-${nonce}-back",
+      "enter": true,
+      "window": "w1",
+      "mark": "typed-1"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the restored window of a reaches a's terminal",
+      "since": "typed-1",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rs-a-${nonce}-back"
+        },
+        {
+          "app_text_line": "mw-rs-a-${nonce}-back"
+        },
+        {
+          "pane_frame_text": "mw-rs-a-${nonce}-back"
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-rs-a-${nonce}",
+              "mw-rs-b-${nonce}",
+              "mw-rs-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use_window",
+      "shows": "mw-rs-b-${nonce}",
+      "as": "w2",
+      "focus": false,
+      "title": "the restored window that shows workspace b"
+    },
+    {
+      "do": "use",
+      "name": "b"
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w2"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rs-b-${nonce}-back",
+      "enter": true,
+      "window": "w2",
+      "mark": "typed-2"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the restored window of b reaches b's terminal",
+      "since": "typed-2",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rs-b-${nonce}-back"
+        },
+        {
+          "app_text_line": "mw-rs-b-${nonce}-back"
+        },
+        {
+          "pane_frame_text": "mw-rs-b-${nonce}-back"
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-rs-a-${nonce}",
+              "mw-rs-b-${nonce}",
+              "mw-rs-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use_window",
+      "shows": "mw-rs-c-${nonce}",
+      "as": "w3",
+      "focus": false,
+      "title": "the restored window that shows workspace c"
+    },
+    {
+      "do": "use",
+      "name": "c"
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w3"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-rs-c-${nonce}-back",
+      "enter": true,
+      "window": "w3",
+      "mark": "typed-3"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the restored window of c reaches c's terminal",
+      "since": "typed-3",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-rs-c-${nonce}-back"
+        },
+        {
+          "app_text_line": "mw-rs-c-${nonce}-back"
+        },
+        {
+          "pane_frame_text": "mw-rs-c-${nonce}-back"
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-rs-a-${nonce}",
+              "mw-rs-b-${nonce}",
+              "mw-rs-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "close_extra_windows",
+      "keep_listing": [
+        "mw-rs-a-${nonce}"
+      ],
+      "title": "clean-up: close windows 2 and 3"
+    }
+  ]
+}

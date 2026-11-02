@@ -1,0 +1,265 @@
+{
+  "id": "mwv-move-workspace-between-windows",
+  "priority": "P0",
+  "title": "Move a workspace from window 1 to window 2 and back: it shows in the window named, the window it left keeps its others",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): moving a workspace between windows must act on the two windows named and no other: the workspace shows in the target window, the window it left keeps showing what it showed (its panes, focused pane and frame) and lists it no more, and a third window does not change. The move runs the Move Workspace to Window action (moveWorkspaceToWindow, the sidebar row's Move to Window menu item and the palette entry) through action.run with the target workspace and an explicit `window` argument; typing in the target window then reaches the moved workspace's terminal.",
+  "source": "VIDEO EXTRA item 6 (multi-window), from journeys/p0/mw-move-workspace-between-windows.json",
+  "budget_seconds": 162,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "person",
+      "title": "set-up: the person's first terminal (New Terminal key), so the keyboard is in a terminal, not in Home's composer, and a script's newTab shows its workspace"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-mv-a-${nonce}",
+      "as": "a",
+      "title": "set-up: workspace mw-mv-a with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-mv-b-${nonce}",
+      "as": "b",
+      "title": "set-up: workspace mw-mv-b with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-mv-c-${nonce}",
+      "as": "c",
+      "title": "set-up: workspace mw-mv-c with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w0",
+      "title": "the first window (it keeps the earlier journeys' workspaces; a bystander here)"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-mv-a-${nonce}",
+      "to": "new",
+      "as": "w1",
+      "title": "set-up: workspace a into a new window 1"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-mv-b-${nonce}",
+      "to": "w1",
+      "title": "set-up: workspace b into window 1 (it shows b)"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-mv-c-${nonce}",
+      "to": "new",
+      "as": "w2",
+      "title": "set-up: workspace c into a new window 2"
+    },
+    {
+      "do": "expect",
+      "title": "window 1 lists a and b and shows b; window 2 shows c",
+      "timeout": 15,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-mv-b-${nonce}",
+            "lists": [
+              "mw-mv-a-${nonce}",
+              "mw-mv-b-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-mv-c-${nonce}",
+            "lists": [
+              "mw-mv-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "video_start",
+      "name": "mwv-move-workspace-between-windows",
+      "seconds": 120,
+      "title": "film the judged part (geometry and content, no pacing claim)"
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-move"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-mv-a-${nonce}",
+      "to": "w2",
+      "mark": "move",
+      "title": "Move Workspace to Window: a (listed, not shown, in window 1) to window 2, the window named explicitly"
+    },
+    {
+      "do": "expect",
+      "title": "a shows in window 2; window 1 keeps b (shown, same panes and frame) and lists a no more; the first window did not change",
+      "since": "move",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-mv-a-${nonce}",
+            "lists": [
+              "mw-mv-a-${nonce}",
+              "mw-mv-c-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-mv-b-${nonce}",
+            "lists": [
+              "mw-mv-b-${nonce}"
+            ],
+            "lacks": [
+              "mw-mv-a-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-move",
+            "window": "w1",
+            "ignore": [
+              "rows"
+            ]
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-move",
+            "window": "w0"
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "a"
+    },
+    {
+      "do": "use_window",
+      "window": "w2",
+      "focus": false
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w2",
+      "title": "a click into a's terminal in w2, as a person does before typing"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-mv-a-${nonce}-moved",
+      "enter": true,
+      "window": "w2",
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "typing in window 2 reaches the moved workspace's terminal",
+      "since": "typed",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-mv-a-${nonce}-moved"
+        },
+        {
+          "app_text_line": "mw-mv-a-${nonce}-moved"
+        },
+        {
+          "pane_frame_text": "mw-mv-a-${nonce}-moved"
+        },
+        {
+          "window_unchanged": {
+            "since": "before-move",
+            "except": [
+              "w1",
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-back"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-mv-a-${nonce}",
+      "to": "w1",
+      "mark": "back",
+      "title": "and back: a to window 1"
+    },
+    {
+      "do": "expect",
+      "title": "a shows in window 1 again; window 2 shows c and lists a no more; the first window did not change",
+      "since": "back",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w1",
+            "workspace": "mw-mv-a-${nonce}",
+            "lists": [
+              "mw-mv-a-${nonce}",
+              "mw-mv-b-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_state": {
+            "window": "w2",
+            "workspace": "mw-mv-c-${nonce}",
+            "lacks": [
+              "mw-mv-a-${nonce}"
+            ]
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-back",
+            "window": "w0"
+          }
+        }
+      ]
+    },
+    {
+      "do": "video_stop",
+      "name": "mwv-move-workspace-between-windows",
+      "tail": 0.6
+    }
+  ],
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open"
+    },
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close the two new windows"
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "id": "mwv-close-window",
+  "priority": "P0",
+  "title": "Three windows: close window 2, move to window 3; its shortcut and a script's split act there, never in window 1",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): after a window closes, the next shortcut must act in the window the person moved to; an implicit lookup (`controllers.first`, `windows.first`, a stale key window) sends it to window 1, the app's first controller. Window 2 closes with its Close Window key (Ctrl-Cmd-W) and windows 1 and 3 must not change; the person brings window 3 forward and clicks into it; Cmd-D there must split window 3 only, and a script's split with no window or target (resolved to the window the person used last, cp/multiwindow-2's WindowTarget) must also land in window 3, never window 1.",
+  "source": "VIDEO EXTRA item 6 (multi-window), from journeys/p0/mw-close-window.json",
+  "budget_seconds": 162,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "person",
+      "title": "set-up: the person's first terminal (New Terminal key), so the keyboard is in a terminal, not in Home's composer, and a script's newTab shows its workspace"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-cw-b-${nonce}",
+      "as": "b",
+      "title": "set-up: workspace mw-cw-b with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-cw-c-${nonce}",
+      "as": "c",
+      "title": "set-up: workspace mw-cw-c with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "new_terminal",
+      "name": "mw-cw-a-${nonce}",
+      "as": "a",
+      "title": "set-up: workspace mw-cw-a with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w1",
+      "title": "window 1: the first window (the app's first controller), showing workspace a"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-cw-b-${nonce}",
+      "to": "new",
+      "as": "w2",
+      "title": "set-up: workspace b into window 2"
+    },
+    {
+      "do": "move_workspace",
+      "workspace": "mw-cw-c-${nonce}",
+      "to": "new",
+      "as": "w3",
+      "title": "set-up: workspace c into window 3"
+    },
+    {
+      "do": "expect",
+      "title": "three windows, each showing its own workspace",
+      "timeout": 15,
+      "all": [
+        {
+          "windows_open": {
+            "baseline_plus": 2
+          }
+        },
+        {
+          "windows_show": {
+            "names": [
+              "mw-cw-a-${nonce}",
+              "mw-cw-b-${nonce}",
+              "mw-cw-c-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use_window",
+      "window": "w2",
+      "title": "the person is in window 2"
+    },
+    {
+      "do": "video_start",
+      "name": "mwv-close-window",
+      "seconds": 120,
+      "title": "film the judged part (geometry and content, no pacing claim)"
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-close"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-Cmd-W in window 2 (Close Window)",
+      "key": "w",
+      "modifiers": [
+        "control",
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "close"
+    },
+    {
+      "do": "expect",
+      "title": "window 2 closed; windows 1 and 3 did not change",
+      "since": "close",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "open": false
+          }
+        },
+        {
+          "windows_open": {
+            "since": "before-close",
+            "delta": -1
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-close",
+            "except": [
+              "w2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "c"
+    },
+    {
+      "do": "use_window",
+      "window": "w3",
+      "title": "the person moves to window 3 (it comes forward and takes key)"
+    },
+    {
+      "do": "mouse",
+      "action": "click",
+      "window": "w3",
+      "title": "and clicks into its terminal"
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-split"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-D in window 3 (Split Right)",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "window": "w3",
+      "mark": "split"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "c2"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "expect",
+      "title": "the split is in window 3; window 1 did not change",
+      "since": "split",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "since": "before-split",
+            "dpanes": 1,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-split",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "type",
+      "text": "echo mw-cw-${nonce}-typed",
+      "enter": true,
+      "window": "w3",
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "typing reaches window 3's new terminal",
+      "since": "typed",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-cw-${nonce}-typed"
+        },
+        {
+          "app_text_line": "mw-cw-${nonce}-typed"
+        },
+        {
+          "pane_frame_text": "mw-cw-${nonce}-typed"
+        },
+        {
+          "window_unchanged": {
+            "since": "before-split",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-script"
+    },
+    {
+      "do": "rpc",
+      "title": "a script's split with no window and no target (action.run splitDown): it acts in the window the person used last, window 3",
+      "method": "action.run",
+      "params": {
+        "action": "splitDown",
+        "focus": true
+      }
+    },
+    {
+      "do": "expect",
+      "title": "the script's split is in window 3, never window 1 by default",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "window_state": {
+            "window": "w3",
+            "since": "before-script",
+            "dpanes": 1,
+            "same_workspace": true
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-script",
+            "except": [
+              "w3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "video_stop",
+      "name": "mwv-close-window",
+      "tail": 0.6
+    }
+  ],
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open"
+    },
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close window 3 (and window 2 if it stayed open)"
+    }
+  ]
+}
