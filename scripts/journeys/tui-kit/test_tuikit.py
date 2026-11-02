@@ -135,7 +135,8 @@ def run_frames(args, count, cols=90, rows=30, timeout=30):
 class Grammar(unittest.TestCase):
     def test_python_3_9(self):
         """The minis run /usr/bin/python3 3.9.6: no newer syntax."""
-        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "test_tuikit.py"):
+        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "pace_probe.py", "load_profiles.py",
+                     "test_tuikit.py", "test_load_profiles.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 ast.parse(f.read(), filename=name, feature_version=(3, 9))
 
@@ -192,6 +193,81 @@ class Gradient(unittest.TestCase):
         row = "\x1b[12;3H" + "".join(e["char"] for e in lay["wide"])
         self.assertIn(row, text)
 
+    def test_pace_modes_keep_the_frames_and_seed(self):
+        """Every pace mode draws the same frames."""
+        base = ["gradient", "--frames", "12", "--fake-clock", "--seed", "4", "--duration", "0"]
+        outs = [run_frames(base + ["--pace", mode], 12)[0] for mode in tuikit.PACE_MODES]
+        self.assertEqual(frames(outs[0]), frames(outs[1]))
+        self.assertEqual(frames(outs[0]), frames(outs[2]))
+        with self.assertRaises(ValueError):
+            tuikit.Pacer(120, "nap")
+
+    def test_pace_defaults(self):
+        """gradient spins by default (a sleeping 120 fps loop woke in bursts on a fleet mini, job
+        0a364ec0ef40: interval p95 47 ms); top sleeps; the heavy profile's hidden gradients sleep."""
+        parser = tuikit.build_parser()
+        self.assertEqual(parser.parse_args(["gradient"]).pace, "spin")
+        self.assertEqual(parser.parse_args(["top"]).pace, "sleep")
+        hidden = [extra for program, extra in heavy_profile.HIDDEN_PROGRAMS if program == "gradient"]
+        self.assertTrue(hidden and all(extra[extra.index("--pace") + 1] == "sleep" for extra in hidden))
+
+    def test_pacer_modes_on_a_fake_clock(self):
+        """A sleep that wakes 1 ms late: sleep mode starts the frame 1 ms late; hybrid sleeps to 2 ms
+        before the due time and polls the rest; spin never sleeps. The clock moves 0.1 ms a read."""
+        class Fake:
+            def __init__(self):
+                self.now, self.sleeps = 100.0, []
+
+            def clock(self):
+                self.now += 0.0001
+                return self.now
+
+            def sleep(self, seconds):
+                self.sleeps.append(seconds)
+                self.now += seconds + 0.001
+
+        for mode, sleeps, late in (("sleep", 1, 0.001), ("hybrid", 1, 0.0), ("spin", 0, 0.0)):
+            fake = Fake()
+            pacer = tuikit.Pacer(100, mode, 2.0, clock=fake.clock, sleep=fake.sleep)
+            got = pacer.wait(1)  # due 10 ms after the start
+            self.assertEqual(len(fake.sleeps), sleeps, mode)
+            self.assertAlmostEqual(got, late, delta=0.0003, msg=mode)
+            self.assertEqual(pacer.before, 0.0)
+            if mode == "hybrid":
+                self.assertAlmostEqual(fake.sleeps[0], 0.008, delta=0.0003)
+        fake = Fake()
+        pacer = tuikit.Pacer(100, "sleep", clock=fake.clock, sleep=fake.sleep)
+        fake.now += 1.0  # a second behind: drawn at once, counted as late before the wait, schedule restarts
+        self.assertAlmostEqual(pacer.wait(0), 1.0, delta=0.001)
+        self.assertAlmostEqual(pacer.before, 1.0, delta=0.001)
+        self.assertEqual((pacer.base, fake.sleeps), (0, []))
+        self.assertAlmostEqual(pacer.start, fake.now, delta=0.0002)
+
+    def test_python_run_below_the_floor_is_not_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "g.jsonl")
+            # 50000 fps asked of the Python engine: it cannot hold it, so the run is NOT RUN, never ok
+            subprocess.run([PY, KIT, "gradient", "--engine", "python", "--fps", "50000", "--size", "160x48",
+                            "--duration", "1", "--log", log], stdout=subprocess.DEVNULL, timeout=30)
+            end = [e for e in read_jsonl(log) if e["ev"] == "end"][0]
+        self.assertEqual(end["engine"], "python")
+        self.assertEqual(end["verdict"], "NOT RUN", end)
+
+    def test_pace_probe_reports_each_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([PY, os.path.join(HERE, "pace_probe.py"), "--seconds", "0.5", "--out", tmp,
+                                   "--only", "sleep,hybrid,spin,taskpolicy-B-pid+sleep"],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            lines = [l for l in done.stdout.splitlines() if l.startswith("TUI-KIT-PACE-VARIANT ")]
+            self.assertEqual([l.split()[1] for l in lines], ["sleep", "hybrid", "spin", "taskpolicy-B-pid+sleep"])
+            data = load_json(os.path.join(tmp, "pace.json"))
+        for name in ("sleep", "hybrid", "spin"):  # structure only: the timing is the host's, the probe's output
+            r = data["results"][name]
+            self.assertGreater(r["frames"], 0, name)
+            for key in ("p50", "p95", "p99", "max", "late_hist", "nvcsw", "nivcsw", "draw_max", "darwin_bg"):
+                self.assertIn(key, r)
+
     def test_fps_must_be_positive(self):
         done = subprocess.run([PY, KIT, "gradient", "--fps", "0", "--frames", "1", "--size", "10x5"],
                               capture_output=True, text=True, timeout=20)
@@ -205,6 +281,54 @@ class Gradient(unittest.TestCase):
         data, code = run.collect(10)
         self.assertEqual(code, 0)
         self.assertTrue(data.endswith((tuikit.ESU + tuikit.RESET + tuikit.WRAP_ON + tuikit.SHOW + tuikit.ALT_OFF).encode()))
+
+
+REQUIRE_RUST = os.environ.get("CMUX_TUIKIT_REQUIRE_RUST") == "1"  # the fleet self-test: no skip
+
+
+def need_rust(test):
+    if not tuikit.rust_bin("tk-gradient"):
+        if REQUIRE_RUST:
+            test.fail("tk-gradient is not built (tuikit.py build-bins)")
+        test.skipTest("tk-gradient is not built (tuikit.py build-bins)")
+
+
+class GradientRust(unittest.TestCase):
+    """The compiled tk-gradient against the Python engine: the same bytes, and the rate it holds."""
+
+    def output(self, engine, *args):
+        done = subprocess.run([PY, KIT, "gradient", "--engine", engine, "--fake-clock", "--duration", "0"] + list(args),
+                              capture_output=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def test_same_bytes_as_python(self):
+        need_rust(self)
+        for seed, size, cell, extra in ((3, "90x30", "1", []), (7, "160x48", "2", []), (11, "49x17", "1", []),
+                                        (5, "21x3", "2", ["--no-sync"]), (2, "1x1", "1", [])):
+            args = ["--seed", str(seed), "--size", size, "--cell", cell, "--frames", "40"] + extra
+            py, rs = self.output("python", *args), self.output("rust", *args)
+            self.assertEqual(len(frames(py)), len(frames(rs)), (seed, size))
+            if py != rs:
+                for k, (a, b) in enumerate(zip(frames(py), frames(rs))):
+                    self.assertEqual(a, b, "seed %d size %s frame %d differs" % (seed, size, k))
+            self.assertEqual(py, rs, (seed, size, cell))
+
+    def test_holds_120_fps(self):
+        need_rust(self)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "g.jsonl")
+            done = subprocess.run([PY, KIT, "gradient", "--engine", "rust", "--seed", "1", "--size", "160x48",
+                                   "--duration", "3", "--log", log], stdout=subprocess.DEVNULL, timeout=30)
+            self.assertEqual(done.returncode, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        self.assertEqual(end["engine"], "rust")
+        self.assertEqual(end["verdict"], "ok", end)
+        self.assertGreaterEqual(end["achieved_fps"], 0.95 * 120, end)
+        stamps = [e["mono"] for e in events if e["ev"] == "frame"]
+        gaps = sorted((b - a) * 1000 for a, b in zip(stamps, stamps[1:]))
+        self.assertLess(gaps[int(0.95 * len(gaps))], 1000 / 120 * 1.5, "p95 frame interval")
 
 
 class Sigwinch(unittest.TestCase):

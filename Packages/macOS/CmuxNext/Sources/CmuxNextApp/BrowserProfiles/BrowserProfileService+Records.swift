@@ -52,9 +52,7 @@ extension BrowserProfileService {
     /// Returns the id.
     func createProfile(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                        source: [String: String]? = nil) async throws -> String {
-        // The home daemon stores the profile record, but this Mac still owns
-        // its queued Chromium and WebKit deletion. Guard both record paths.
-        guard !book.pendingCleanup.contains(id) else { throw BrowserProfileBookError.pendingCleanup }
+        try book.requireReusable(id)
         guard usesDaemonRecords else {
             return try edit { try $0.create(id: id, name: name, color: color, icon: icon, source: source) }.id
         }

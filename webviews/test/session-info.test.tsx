@@ -51,6 +51,7 @@ import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
+import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -403,6 +404,44 @@ test("Session Info derives Cloud from the host handshake when the summary has no
   });
   expect(section(container, "environment")?.textContent).not.toContain("Add repository…");
   expect(section(container, "environment")?.textContent).not.toContain("Default");
+});
+
+test("Summary card and Session Info expose Add repository for the real Cloud shape", async () => {
+  const container = installDom(true);
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
+  delete summaryWithoutMachineKind.host;
+  const realCloudShape: AcpmuxSnapshot = {
+    ...chat([]),
+    summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session" },
+  };
+  const card = {
+    shown: true,
+    column: true,
+    reserve: false,
+    collapsed: false,
+    toggle: noop,
+    show: noop,
+    close: noop,
+    fold: noop,
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SummaryCard
+        card={card}
+        environment={{
+          summary: withCloudMachineSummary(realCloudShape.summary, "cloud-machine-id"),
+          machineName: "Studio",
+          cloudRepositoryAvailable: true,
+        }}
+        rows={[]}
+        subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: noop }}
+      />,
+    );
+  });
+  expect(container.querySelector('button[data-action="add-repository"]')?.textContent).toContain("Add repository…");
 });
 
 test("Session Info keeps a summary without a Cloud machine id local", async () => {

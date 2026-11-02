@@ -15,7 +15,7 @@ import Testing
 /// workspace opens the tab on the machine's store; the page's frames go through the tab's real
 /// pane host (``AgentTabRemoteHost``) and wire (``RemoteAcpmuxWire``) as the agent pane sends
 /// them. The Rust suite (cmux-tui tests/cli/agent_session_start.rs) covers the daemon verb alone.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloudAgentChatTests {
     /// The first send starts the chat in the machine's acpmux, in the machine's folder: the
     /// folder trust question goes to that machine and its answer is recorded there, the machine's
