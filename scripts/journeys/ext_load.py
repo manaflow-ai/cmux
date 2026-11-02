@@ -92,7 +92,7 @@ def step_load_start(j, step):
     home = env.get("HOME") or j.app.home
     argv = ["/usr/bin/python3", "-I", tool, "run", profile, "--app-socket", str(j.app.sock), "--home", str(home),
             "--seed", str(step.get("seed", 7)), "--duration", str(step.get("duration", 300)), "--out", str(out),
-            "--keep", named["pane"]]
+            "--keep", named["pane"], *[str(a) for a in step.get("args", [])]]
     stdout = open(out / f"{profile}.stdout", "w")
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=open(out / f"{profile}.stderr", "w"),
                             env=dict(os.environ, HOME=str(home)))

@@ -34,8 +34,13 @@ def steps(profile, film):
          {"do": "smoke_adopt_line", "line": "typing-${nonce}", "as": "typing"},
          {"do": "echo_start"}]
     if profile != "L0":
+        args = []
+        if profile in ("L1", "L6"):
+            args += ["--rate", "120"]  # CLI storm: 120 calls/s in total (the order's 50-200)
+        if profile in ("L3", "L6"):
+            args += ["--devtools"]  # DevTools open (the load tool refuses it when it would take focus)
         s.append({"do": "load_start", "profile": profile, "seed": SEED, "duration": 240, "keep": "typing",
-                  "ready_timeout": 60})
+                  "ready_timeout": 120 if profile in ("L5", "L6") else 60, "args": args})
     s.append({"do": "typing_rect", "target": "terminal"})
     s.append({"do": "probe_mark", "as": "before"})
     for half, (lo, hi) in enumerate(((0, 60), (60, 120)), 1):

@@ -116,7 +116,11 @@
       "seed": 7,
       "duration": 240,
       "keep": "typing",
-      "ready_timeout": 60
+      "ready_timeout": 60,
+      "args": [
+        "--rate",
+        "120"
+      ]
     },
     {
       "do": "typing_rect",
