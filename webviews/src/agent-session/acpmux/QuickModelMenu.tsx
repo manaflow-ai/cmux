@@ -757,7 +757,7 @@ export function QuickModelMenu({
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}
       onAdd={
-        account.accounts.add
+        account.accounts.add && accounts.list?.family
           ? () => {
               onOpenChange(false);
               setAddingAccount(true);
@@ -1416,9 +1416,10 @@ export function QuickModelMenu({
           )}
         </MenuPopup>
       </Menu>
-      {addingAccount && account?.accounts.add && (
+      {addingAccount && account?.accounts.add && accounts.list?.family && (
         <AddAccountDialog
           add={account.accounts.add}
+          family={accounts.list.family}
           onClose={() => setAddingAccount(false)}
           onAdded={() => {
             setAddingAccount(false);

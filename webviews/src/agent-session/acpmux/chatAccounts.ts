@@ -9,6 +9,7 @@ export type ChatAccount = { id: string; name: string; kind?: string };
 export type NewChatAccount = {
   id: string;
   kind: string;
+  family: string;
   name?: string;
   accountHome?: string;
   secret?: string;
@@ -17,6 +18,7 @@ export type NewChatAccount = {
 /// A chat's route choices and its active binding; no active route means the harness login.
 export type ChatAccountList = {
   accounts: ChatAccount[];
+  family?: string;
   active?: string;
   scope?: string;
   /// The reply carried no route list (an error or a shape this pane does not know): no routes known,
@@ -65,6 +67,7 @@ export const ownRouteOf = (accounts: ChatAccounts, sessionId: string) => ({
 export function readChatAccounts(reply: unknown): ChatAccountList {
   const raw = (reply && typeof reply === "object" ? reply : {}) as {
     routes?: unknown;
+    family?: unknown;
     active?: { routeId?: unknown; scope?: unknown } | null;
   };
   const accounts: ChatAccount[] = [];
@@ -81,6 +84,7 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
   const scope = typeof raw.active?.scope === "string" ? raw.active.scope : undefined;
   return {
     accounts,
+    ...(typeof raw.family === "string" && raw.family ? { family: raw.family } : {}),
     ...(active ? { active } : {}),
     ...(scope ? { scope } : {}),
     ...(Array.isArray(raw.routes) ? {} : { unread: true as const }),

@@ -9,11 +9,13 @@ import "./addAccount.css";
 /** The picker adds a local route. Rust validates it; existing accounts and bindings stay intact. */
 export function AddAccountDialog({
   add,
+  family,
   kinds = ["direct-subscription", "direct-api-key"],
   onClose,
   onAdded,
 }: {
   add(account: NewChatAccount): Promise<void>;
+  family: string;
   kinds?: ("direct-subscription" | "direct-api-key")[];
   onClose(): void;
   onAdded(): void;
@@ -28,14 +30,16 @@ export function AddAccountDialog({
   const fields: { name: keyof NewChatAccount; label: StringKey; required?: boolean }[] = [
     { name: "id", label: "picker.accountId", required: true },
     { name: "name", label: "environment.name" },
-    ...(subscription ? [{ name: "accountHome" as const, label: "picker.accountHome" as const }] : []),
+    ...(subscription && (family === "claude" || family === "codex")
+      ? [{ name: "accountHome" as const, label: "picker.accountHome" as const }]
+      : []),
     ...(kind === "direct-api-key"
       ? [{ name: "secret" as const, label: "picker.accountSecret" as const, required: true }]
       : []),
   ];
   const submit = () => {
     if (sending.current) return;
-    const account: NewChatAccount = { id: values.id?.trim() ?? "", kind };
+    const account: NewChatAccount = { id: values.id?.trim() ?? "", kind, family };
     for (const field of fields) {
       const value = values[field.name]?.trim();
       if (value) account[field.name] = value;

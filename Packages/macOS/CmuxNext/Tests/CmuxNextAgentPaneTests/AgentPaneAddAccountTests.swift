@@ -9,7 +9,7 @@ private actor AccountNoHost: AgentPaneHostProviding {
 @Suite(.serialized)
 @MainActor
 struct AgentPaneAddAccountTests {
-    private let params: [String: String] = ["id": "work", "kind": "direct-subscription", "name": "Work login", "accountHome": "/tmp/account-work"]
+    private let params: [String: String] = ["id": "work", "kind": "direct-subscription", "family": "claude", "name": "Work login", "accountHome": "/tmp/account-work"]
 
     @Test func decodesTypedRequestWithoutLoggingAccountDetails() {
         let request = AgentPaneRequest(body: ["method": "account.add", "params": params])
@@ -17,9 +17,12 @@ struct AgentPaneAddAccountTests {
         #expect(!String(reflecting: request).contains("account-work"))
         #expect(AgentPaneRequest(body: ["method": "account.add", "params": params.merging(["replace": "true"]) { _, value in value }]).description == "unsupported")
         #expect(AgentPaneRequest(body: ["method": "account.add", "params": ["id": "work", "kind": 1]]).description == "unsupported")
+        #expect(AgentPaneRequest(body: ["method": "account.add", "params": params.filter { $0.key != "family" }]).description == "unsupported")
     }
 
-    @Test func onlyOneRealGestureForwardsTheTypedAddThroughTheLocalSocket() async throws {
+    @Test(arguments: ["claude", "codex"])
+    func onlyOneRealGestureForwardsTheTypedAddThroughTheLocalSocket(family: String) async throws {
+        let params = params.merging(["family": family]) { _, value in value }
         let socket = FileManager.default.temporaryDirectory.appendingPathComponent("a-\(UUID().uuidString).sock").path
         let relay = try OneShotRelay(path: socket, replies: [
             #"{"jsonrpc":"2.0","id":1,"result":{"_meta":{"acpmux":{"origin":"local"}}}}"#,
@@ -37,7 +40,10 @@ struct AgentPaneAddAccountTests {
         #expect((added["value"] as? [String: Any])?["id"] as? String == "work")
         let calls = relay.requests.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
         let add = try #require(calls.first { $0["method"] as? String == "_acpmux/route/add" })
-        #expect(add["params"] as? [String: String] == params)
+        let forwarded = try #require(add["params"] as? [String: Any])
+        #expect(forwarded["families"] as? [String] == [family])
+        #expect(forwarded["family"] == nil)
+        for (key, value) in params where key != "family" { #expect(forwarded[key] as? String == value) }
         #expect(!model.transport.gestures.isAvailable)
         let replayed = await model.respond(to: request)
         #expect((replayed["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")

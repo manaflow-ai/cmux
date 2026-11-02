@@ -12,6 +12,7 @@ export default componentEntry({
     const { AddAccountDialog } = await import("./AddAccountDialog");
     return ({ kind, unavailable }: { kind: "direct-subscription" | "direct-api-key"; unavailable?: boolean }) => (
       <AddAccountDialog
+        family="claude"
         kinds={[kind]}
         add={async () => {
           if (unavailable) throw new Error("The local agent service is unavailable.");
