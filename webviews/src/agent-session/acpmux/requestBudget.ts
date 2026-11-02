@@ -47,12 +47,42 @@ const ON_GESTURE = new Set([
   "_acpmux/agent_login/api_key",
 ]);
 
+/// Controls that stop, revoke or decline: the person's Stop or Revoke must take effect now, never
+/// behind slow reads (a revoked chat would keep its allowance meanwhile). They count and go at once
+/// like `session/cancel`; with no grant to spend, a busy refusal sends them again.
+const STOPS = new Set([
+  "session/close",
+  "_acpmux/detach",
+  "_acpmux/detach_parent",
+  "_acpmux/kill",
+  "_acpmux/process/kill",
+  "_acpmux/bg/stop",
+  "_acpmux/subagent_stop",
+  "_acpmux/subsession/stop",
+  "_acpmux/queue_decline",
+  "_acpmux/permission_chat_revoke",
+  "_acpmux/pair_revoke",
+  "_acpmux/file_put_cancel",
+  "_acpmux/transfer_abort",
+  "_acpmux/agent_login/cancel",
+  "_acpmux/chats_window_close",
+]);
+
 export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
 }
 
-/// Whether a busy refusal of `method` may send it again: never one the person's click authorized.
-export function retriesWhenBusy(method: string): boolean {
+/// Whether `method` goes out at once whatever the count (the daemon's 64 leaves it room).
+export function skipsQueue(method: string): boolean {
+  return ON_GESTURE.has(method) || STOPS.has(method);
+}
+
+/// Whether a busy refusal of a request may send it again: never one whose frame spends the person's
+/// click. A trust that distrusts and a group deny need no click, as on the host (`needsGesture`); a
+/// single permission answer's option is the host's to judge, so it never goes again.
+export function retriesWhenBusy(method: string, params: Record<string, unknown> = {}): boolean {
+  if (method === "acp.trust.set") return params.level === "untrusted" || params.level === "unknown";
+  if (method === "_acpmux/permission_group_respond") return params.decision === "deny";
   return !ON_GESTURE.has(method);
 }
 
@@ -103,10 +133,10 @@ export class RequestBudget {
   }
 
   /// Sends request `id` now, or once a slot frees when `limit` are unanswered. One the person's
-  /// click authorized goes now whatever the count (the daemon's 64 leaves it room).
+  /// click authorized, or a Stop or Revoke, goes now whatever the count (`skipsQueue`).
   admit(id: number | string, method: string, send: () => void): void {
     if (!countsAgainstBudget(method)) return send();
-    if (ON_GESTURE.has(method)) return this.start(id, send);
+    if (skipsQueue(method)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }

@@ -11,6 +11,7 @@ import {
   countsAgainstBudget,
   RequestBudget,
   retriesWhenBusy,
+  skipsQueue,
   WORK_LIMIT,
 } from "./requestBudget";
 
@@ -239,4 +240,37 @@ test("click-authorized methods count but never wait, and are never retried after
   expect(retriesWhenBusy(ANSWER)).toBe(false);
   expect(retriesWhenBusy("_acpmux/permission_group_respond")).toBe(false);
   expect(retriesWhenBusy(PROBE)).toBe(true);
+});
+
+test("a Stop or Revoke goes past a full budget at once, and still goes again after a busy refusal", () => {
+  const budget = new RequestBudget(1);
+  const sent: string[] = [];
+  budget.admit(1, PROBE, () => sent.push("probe"));
+  budget.admit(2, PROBE, () => sent.push("waits"));
+  for (const method of [
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/kill",
+    "_acpmux/subagent_stop",
+    "_acpmux/queue_decline",
+  ]) {
+    expect(skipsQueue(method)).toBe(true);
+    expect(retriesWhenBusy(method)).toBe(true);
+    budget.admit(3, method, () => sent.push(method));
+  }
+  expect(sent).toEqual([
+    "probe",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/kill",
+    "_acpmux/subagent_stop",
+    "_acpmux/queue_decline",
+  ]);
+  expect(skipsQueue(PROBE)).toBe(false);
+});
+
+test("a deny spends no click, so it goes again after a busy refusal; an allow never does", () => {
+  expect(retriesWhenBusy("acp.trust.set", { level: "untrusted" })).toBe(true);
+  expect(retriesWhenBusy("acp.trust.set", { level: "trusted" })).toBe(false);
+  expect(retriesWhenBusy("_acpmux/permission_group_respond", { decision: "deny" })).toBe(true);
+  expect(retriesWhenBusy("_acpmux/permission_group_respond", { decision: "allow" })).toBe(false);
+  expect(retriesWhenBusy(ANSWER, { optionId: "reject" })).toBe(false);
 });

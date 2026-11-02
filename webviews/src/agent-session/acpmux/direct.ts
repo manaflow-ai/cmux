@@ -3937,7 +3937,7 @@ export class AcpmuxDirectClient {
         request?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     };
-    const result = this.expectReply(id, method, deadline, retriesWhenBusy(method) ? send : undefined);
+    const result = this.expectReply(id, method, deadline, retriesWhenBusy(method, params) ? send : undefined);
     this.budget.admit(id, method, send);
     return result;
   }
