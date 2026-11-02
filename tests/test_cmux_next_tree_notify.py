@@ -105,7 +105,9 @@ class FakeApi:
                 else f"cmux-next base tier · {sha}" if inputs.get("base_tier") == "true"
                 else f"cmux-next · {sha}")
         # GitHub's clock moves on: each dispatch is created after everything before it.
-        self.runs.append({"name": name, "created_at": f"2026-11-02T05:{len(self.runs):02d}:00Z"})
+        # As the REST API lists it: the evaluated run-name in display_title (and here a static `name`).
+        self.runs.append({"name": "cmux-next", "display_title": name,
+                          "created_at": f"2026-11-02T05:{len(self.runs):02d}:00Z"})
         return 204
 
     def delete(self, path: str) -> int:
@@ -352,7 +354,8 @@ class Notify(unittest.TestCase):
         (runs 41383430152, 41384506675, 41389933894, ...). The run history is the record: a marker
         already reported after its upload is not dispatched again; a publication still starts it."""
         base = push_marker(origin="dispatch", tip_suite="base")
-        api = FakeApi([base], branch_head=NEWER, runs=[{"name": f"cmux-next base tier · {SHA}",
+        api = FakeApi([base], branch_head=NEWER, runs=[{"name": "cmux-next",
+                                                        "display_title": f"cmux-next base tier · {SHA}",
                                                         "created_at": EARLIER}])
         self.assertEqual(run(api, state="failed"), 1)
         self.assertEqual(api.dispatched[0]["inputs"]["same_tree_state"], "failed")
@@ -374,7 +377,7 @@ class Notify(unittest.TestCase):
                 self.assertEqual(run(api, state="failed"), 1)
                 self.assertEqual(run(api, state="failed"), 0)
                 # Another commit's run of the same kind does not cap this one.
-                other = FakeApi([marker], runs=[{"name": notify.run_name(dict(marker, sha=NEWER,
+                other = FakeApi([marker], runs=[{"name": "cmux-next", "display_title": notify.run_name(dict(marker, sha=NEWER,
                                                                               dev_daily_sha=NEWER)),
                                                  "created_at": LATER}])
                 self.assertEqual(run(other, state="failed"), 1)
@@ -398,6 +401,16 @@ class Notify(unittest.TestCase):
         self.assertEqual(len(api.history_reads), 2)
         self.assertEqual(run(api, state="ready"), 3)
         self.assertEqual(len(api.history_reads), 2)
+
+    def test_the_run_name_is_read_from_display_title_or_name(self):
+        """REST lists the evaluated run-name as display_title (and, with run-name set, as name)."""
+        for run_record in ({"name": "cmux-next", "display_title": f"cmux-next base tier · {SHA}"},
+                           {"name": f"cmux-next base tier · {SHA}"}):
+            with self.subTest(run=run_record):
+                api = FakeApi([push_marker(origin="dispatch", tip_suite="base")], branch_head=NEWER,
+                              runs=[dict(run_record, created_at=LATER)])
+                self.assertEqual(run(api, state="failed"), 0)
+                self.assertEqual(api.dispatched, [])
 
     def test_an_unreadable_run_history_reports_as_before(self):
         """Without the record the red is still reported: a missing report hides a failure."""

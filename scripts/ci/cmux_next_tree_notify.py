@@ -233,8 +233,13 @@ def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
                           f"&created=%3E%3D{since}&per_page=100&page={page}")
         runs = listing.get("workflow_runs", []) if isinstance(listing, dict) else []
         for run in runs:
-            if isinstance(run, dict) and isinstance(run.get("name"), str):
-                names.setdefault(run["name"], []).append(str(run.get("created_at", "")))
+            if not isinstance(run, dict):
+                continue
+            # The evaluated run-name: `display_title` (GitHub also puts it in `name` when the workflow
+            # sets run-name, as cmux-next.yml does; both are read so neither field alone is relied on).
+            for title in {run.get("display_title"), run.get("name")}:
+                if isinstance(title, str):
+                    names.setdefault(title, []).append(str(run.get("created_at", "")))
         if len(runs) < 100:
             break
     return names
