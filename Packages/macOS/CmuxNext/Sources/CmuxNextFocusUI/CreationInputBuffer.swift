@@ -183,12 +183,17 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
 
-    /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine` (nil: no terminal
-    /// found, they keep no lane): once the window shows the workspace they run in that terminal, never in what has the
-    /// keyboard instead (Home's message box beside the pinned dock).
+    /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine`: once the window
+    /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
+    /// the pinned dock). With no terminal found (nil) they are dropped, as for a workspace that never showed.
     public func bindNewWorkspaceKeys(to tab: String?, machine: String?) {
-        guard let tab else { return }
-        for id in workspaceTickets where laneTabs[id] == nil { (laneTabs[id], laneMachines[id]) = (tab, machine) }
+        let unbound = workspaceTickets.filter { laneTabs[$0] == nil }
+        guard let tab else {
+            let before = events.count
+            events.removeAll { $0.creation.map(unbound.contains) ?? false }
+            return Self.logDropped(before - events.count, why: "its workspace shows no terminal")
+        }
+        for id in unbound { (laneTabs[id], laneMachines[id]) = (tab, machine) }
     }
 
     /// Drops the held keys typed for a new workspace's terminal that the window does not show (`shown`: the workspace it
