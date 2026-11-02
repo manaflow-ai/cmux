@@ -305,6 +305,27 @@ struct ClassicUpgradeSimulationTests {
         await sim.shutdown()
     }
 
+    /// The run reads back only the workspace it is making, never the whole tree (#32408). Each read of the whole tree
+    /// (`list-workspaces`) grows with the session, and the run made at least three per workspace: a 512-workspace
+    /// upgrade got four times slower per workspace by its end, and under load one read passed the 2 s request
+    /// limit and that workspace did not come over. The run's own whole-tree reads must not grow with its
+    /// workspaces. (The store's snapshots, which coarse daemon events still start, are counted apart.)
+    @Test func theRunReadsOnlyTheWorkspaceItMakes() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
+        let launch = await sim.launch()
+        #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        let reads = try #require(launch.treeReads)
+        #expect(reads < profile.expectedCount,
+                "\(reads) whole-tree reads for \(profile.expectedCount) workspaces (and \(launch.snapshots ?? 0) store snapshots)")
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
     /// Background workspaces come over parked: their tabs stay, their shells
     /// do not run (no PTY), and showing one starts its terminals in place.
     @Test func backgroundWorkspacesStartTheirTerminalsWhenFirstShown() async throws {
