@@ -144,14 +144,14 @@ API 27 pin and the harness's variants, before it can be the default.
 
 | Feature | Expected with hosting | Status |
 |---|---|---|
-| Mouse, scroll, hover | page window (input target) as today | open (verify the explicit `ignoresMouseEvents` on a no-pixel window) |
-| Keyboard, IME, focus | page window is key, as today | open |
-| Context menus, select popups, bubbles | own windows, as today | open |
+| Mouse, scroll, hover | page window (input target) as today | verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `click`, `scroll`, `drag` |
+| Keyboard, IME, focus | page window is key, as today | keys verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `keys`; IME open |
+| Context menus, select popups, bubbles | own windows, as today | verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `context`, `select.popup`, `select.click`; bubbles open |
 | Accessibility | page window AX tree; `CmuxApplication` maps windows | open |
-| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
+| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | docked: verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `devtools.hosted`, `devtools.pixels`, `devtools.click`; in its own cmux window open |
 | Drag and drop | page window is the drag destination and source | open |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
-| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | open (not verified on screen) |
+| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | `window.open`: verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `popup.hosted`, `popup.pixels`, `popup.click`; extension popups open |
 
 ## 4. Risks
 
@@ -221,10 +221,29 @@ own workspace by id; `workspace.selectFirst` showed the launch's workspace, so e
 validity gate is the three mode rows, and show.again is recorded. `bench_launch.py` keeps the build's Debug Settings
 file when it moves the saved session aside, so the mode the A/B set still applies.
 
-Remaining before default on:
+Remaining before default on (as of 2026-11-01; 2026-11-02 status below):
 1. A shipping pin at fork API >= 27 with the CVE fix: cmux.39 (the API 30 line rebased on the cmux.38 security
    line). Until then the tunable and resize sync are inert for users (cmux.38 is API 24).
 2. Pixel and input rows on a host with Screen Recording and event posting, both modes.
 3. STRESS column-close, more runs; if the long frame holds, trace it (page-window show and order churn, slice 3).
 4. The post-commit GPU wait (section 1): the fork still calls `Synchronize()` at a 0 deadline.
 5. Popups and DevTools in hosted mode on screen (section 3).
+
+Status 2026-11-02 (engine cef-154.0.34-cmux.40: the cmux.38 security line plus fork API 30):
+1. The pin: #31610. cmux.40 is released; it lands once its archives and the remote browser host are in the cmux-cef
+   R2 bucket.
+2. Done. `cef-layer-verify.py --input cua` drives HID input and reads the display through the capture minis'
+   CuaDriver, which holds Accessibility and Screen Recording. Fleet step 6bd2fe6a: 19 of 20 rows
+   pass in both modes. `pixels.window` fails in both: the app's own window image never holds Chromium's pixels, so
+   `pixels.screen` is the evidence. `resize.top` mid-resize shows the red bar 6-12 px below the top edge in mode on
+   against 2 px off (three runs). That is inside the row's tolerance, and it is the one place on lags off.
+3. Not hosting. Two valid STRESS runs per mode on cmux.40 (steps f24f2c78, 5ca225c9): column-close longest frame
+   380-570 ms off, 492-560 ms on, 481-557 ms on0, with 11-13 missed frames in every mode. The long frame is the STRESS
+   layout's own cost (slice 3 stays the follow-up).
+4. Fixed in the fork for a 0 deadline: cmux.40 skips `Synchronize()` then (fork 7e500143). For a hosted page's
+   deadline, on (8 ms) and on0 (0 ms) match in light and STRESS, so the post-commit wait costs no measurable frames.
+5. Done for `window.open` popups, `<select>` popups and docked DevTools (item 2's step). Still open: DevTools in its
+   own cmux window, and extension popups.
+Idle (`idle-budget.py`, step f5c96d2c, 60 s settle and 60 s window): app wakeups per second 2.9 off / 2.0 on in the light
+session and 8.0 / 7.8 in STRESS-static; the GPU and renderer processes are within 1/s.
+

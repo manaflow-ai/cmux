@@ -60,7 +60,8 @@ CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
 KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh'
-                       r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh)$')
+                       r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh'
+                       r'|app-build-release\.sh|compilation-cache\.sh)$')
 # The build's own settings: the Release build step's text (its xcodebuild settings and how it forms
 # OTHER_SWIFT_FLAGS) and the decide outputs it reads (BUILD_SETTINGS in the environment of the
 # prepare step). A change to either is a clean build: objects compiled under other -D flags,
