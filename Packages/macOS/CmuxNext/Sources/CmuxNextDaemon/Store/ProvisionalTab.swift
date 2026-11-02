@@ -76,6 +76,7 @@ public struct ProvisionalTab: Sendable, Hashable {
               let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
         let paired = entry.createdConfirmed && entry.createdSurface == delta.surface // the reply named it already
         store.intentLog.noteCreated(transaction, surface: delta.surface)
+        if case .createWorkspace(let w, _) = entry.kind { print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) echo \(w.key.rawValue) surface=\(delta.surface.rawValue) paired=\(paired) closeWhenCreated=\(entry.closeWhenCreated)") }
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""

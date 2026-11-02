@@ -83,6 +83,7 @@ final class PendingWorkspaceRows {
         func done(_ row: Row) -> Bool {
             row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
         }
+        for row in rows where row.window == window { print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) forget \(row.id) listed=\(listed.contains(row.id)) takenOver=\(takenOver.contains(row.id)) held=\(held(row.id))") }
         let gone = Set(rows.filter(done).map(\.id)); guard !gone.isEmpty else { return } // judged once: `done` reads the sets cleared below
         takenOver.subtract(gone); unpinned.subtract(gone)
         rows.removeAll { gone.contains($0.id) }
@@ -98,7 +99,7 @@ final class PendingWorkspaceRows {
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
             guard unsentSlots.contains(id) || SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
-            takenOver.insert(id)
+            takenOver.insert(id); print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) takenOver-marked \(id)")
             return true
         }, from: listed)
     }

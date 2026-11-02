@@ -73,6 +73,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         let work = try AgentSessionWorkspace.open(session: session, name: "closed lane", key: key, cwd: nil, services: services)
         let standIn = store.workspaces.contains { $0.key == key }
         // Same turn: the daemon has not answered the create yet.
+        print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-pressed \(key.rawValue) standIn=\(standIn)")
         let ran = services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: key.rawValue)))
         _ = await work.value
         let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !store.workspaces.contains { $0.key == key } }
@@ -84,6 +85,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         let back = store.workspaces.filter { $0.key == key }
         let tabLeft = tabs.tab(showing: session, host: tabs.localHost)
         let rowLeft = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
+        print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-end \(key.rawValue) ran=\(ran) gone=\(gone) back=\(back.map { "\($0.id) prov=\($0.isProvisional)" }) tabLeft=\(tabLeft ?? "nil") rowLeft=\(rowLeft)")
         await launched.stop()
 
         try #require(standIn, "the open showed no stand-in to close")

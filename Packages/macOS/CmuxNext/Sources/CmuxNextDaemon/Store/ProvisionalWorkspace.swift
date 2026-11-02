@@ -84,6 +84,7 @@ extension DaemonStore {
             workspace = model ?? WorkspaceModel(provisional.workspaceSnapshot)
             store.provisionalWorkspaces.workspacesByID[provisional.key.rawValue] = workspace
             let at = min(max(index ?? store.workspaces.count, 0), store.workspaces.count)
+            print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) stand-in inserted \(provisional.key.rawValue) confirmed=\(confirmed != nil)")
             store.workspaces.insert(workspace, at: at)
             store.index.insert(workspace)
             store.sidebarNeedsRecompute = true

@@ -64,24 +64,24 @@ extension AgentTabStore {
                 let created: (AgentTabCreated, UInt64?) = try await WorkspaceCreation.createWithFirstTab(
                     key, name: name, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
-                    BenchSpans.mark("cmdN.workspace.created")
+                    print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) workspace-created \(key.rawValue)"); BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
                                                             mutationID: UUID().uuidString)
                     request.transaction = transaction
                     // One mutation id for every send: a tab the daemon made after the deadline replays.
-                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { try await connection.request(request) }
+                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) tab-request-sent \(key.rawValue)"); do { let r = try await connection.request(request); print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) tab-request-answered \(key.rawValue)"); return r } catch { print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) tab-request-error \(key.rawValue) \(error)"); throw error } }
                     BenchSpans.mark("cmdN.tab.created")
                     let tab = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                               surface: response.surface)
                     return (tab, await connection.eventSequence())
                 }
-                self?.tabCreated(tabKey, as: created.0)
+                print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) confirm-created \(key.rawValue) tab=\(created.0.key)"); self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) } // a chat its page started first binds now (as `open`)
                 return key.rawValue
             } catch {
-                fail()
+                print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) confirm-failed \(key.rawValue) \(error)"); fail()
                 throw error
             }
         }
