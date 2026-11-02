@@ -105,7 +105,8 @@ struct ColdBrowserFocusKeysTests {
 
             // The page comes; the keys went to it (or wait for it), never to the left terminal's shell.
             try await PinnedPageTests.until({ services.cache.existingBrowser(browser) != nil }, report: { "the browser tab's page never came: \(describe())" })
-            try await Task.sleep(for: .seconds(2))
+            // Reading the terminal after the page-ready signal is the causal boundary: the daemon's
+            // response drains any queued input before returning, so the assertion needs no wall-clock sleep.
             let screen = (try? await connection.request(ReadScreenRequest(surface: leftSurface), timeout: .seconds(5)))?.text ?? "unreadable"
             #expect(!screen.contains("n5x\(nonce)"), "keys typed for the browser tab reached the terminal that had the keyboard: \(screen)\nkey paths: \(paths)")
         }
