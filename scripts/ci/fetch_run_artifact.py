@@ -10,14 +10,21 @@ for again from where it stopped, with a fresh signed URL. The zip's SHA-256 is c
 the digest GitHub recorded at upload, then it is unpacked into --dest, as download-artifact does.
 
 A failure exits non-zero and leaves --dest empty, so the workflow's download-artifact step can
-take over. The token goes to the GitHub API only, never to the blob host.
+take over.
 
-Usage: fetch_run_artifact.py --name NAME --dest DIR [--run-id ID] [--repo OWNER/REPO]
-Env: GH_TOKEN (actions: read), GITHUB_API_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID.
+It asks the artifact service download-artifact itself uses (ListArtifacts, GetSignedArtifactURL)
+with the job's runtime token, so it needs no GITHUB_TOKEN permission. A run step does not get
+that token: the workflow starts this from a pinned actions/github-script step, which hands its
+own environment to this process only (never $GITHUB_ENV). The token goes to the artifact service
+only, never to the blob host.
+
+Usage: fetch_run_artifact.py --name NAME --dest DIR
+Env: ACTIONS_RUNTIME_TOKEN, ACTIONS_RESULTS_URL.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -26,7 +33,6 @@ import sys
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -39,45 +45,70 @@ class Failed(Exception):
     pass
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
-        return None
+SERVICE = "twirp/github.actions.results.api.v1.ArtifactService/"
+
+
+def backend_ids(token: str) -> tuple[str, str]:
+    """(workflow run, workflow job) backend ids from the runtime token's Actions.Results scope."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (IndexError, ValueError) as error:
+        raise Failed("the runtime token is not a JWT") from error
+    for scope in str(claims.get("scp") or "").split():
+        parts = scope.split(":")
+        if len(parts) == 3 and parts[0] == "Actions.Results":
+            return parts[1], parts[2]
+    raise Failed("the runtime token has no Actions.Results scope")
+
+
+def unwrap(value):
+    """A protobuf wrapper value as JSON: a bare value, or {"value": ...} from some encoders."""
+    return value.get("value") if isinstance(value, dict) else value
 
 
 class Api:
-    def __init__(self, base: str, token: str, repo: str):
-        self.base, self.token, self.repo = base.rstrip("/"), token, repo
+    """The artifact service download-artifact itself uses: the job's runtime token, no GITHUB_TOKEN scope."""
 
-    def _request(self, url: str) -> urllib.request.Request:
-        return urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "cmux-fetch-run-artifact",
-        })
+    def __init__(self, results_url: str, token: str, *, https_only: bool = True):
+        self.base = results_url.rstrip("/") + "/"
+        self.token, self.https_only = token, https_only
+        self.run_id, self.job_id = backend_ids(token)
 
-    def artifact(self, run_id: str, name: str) -> dict:
-        query = urllib.parse.urlencode({"name": name, "per_page": 100})
-        url = f"{self.base}/repos/{self.repo}/actions/runs/{run_id}/artifacts?{query}"
-        with urllib.request.urlopen(self._request(url), timeout=30) as response:
-            items = json.load(response).get("artifacts") or []
-        items = [a for a in items if a.get("name") == name and not a.get("expired")]
-        if not items:
-            raise Failed(f"run {run_id} has no artifact named {name}")
-        return max(items, key=lambda a: int(a.get("id") or 0))
+    def _call(self, method: str, body: dict) -> dict:
+        request = urllib.request.Request(self.base + SERVICE + method, data=json.dumps(body).encode(), method="POST",
+                                         headers={"Authorization": f"Bearer {self.token}",
+                                                  "Content-Type": "application/json",
+                                                  "User-Agent": "cmux-fetch-run-artifact"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            raise Failed(f"artifact service {method} answered HTTP {error.code}") from error
+
+    def artifact(self, name: str) -> dict:
+        found = self._call("ListArtifacts", {"workflow_run_backend_id": self.run_id,
+                                             "workflow_job_run_backend_id": self.job_id,
+                                             "name_filter": name}).get("artifacts") or []
+        found = [a for a in found if a.get("name") == name]
+        if not found:
+            raise Failed(f"this run has no artifact named {name}")
+        def database_id(a: dict) -> int:
+            return int(unwrap(a.get("database_id", a.get("databaseId"))) or 0)
+        newest = max(found, key=database_id)
+        return {"id": database_id(newest), "name": name,
+                "run": newest.get("workflow_run_backend_id") or newest.get("workflowRunBackendId") or self.run_id,
+                "job": newest.get("workflow_job_run_backend_id") or newest.get("workflowJobRunBackendId") or self.job_id,
+                "digest": str(unwrap(newest.get("digest")) or "")}
 
     def blob_url(self, artifact: dict) -> str:
-        url = str(artifact.get("archive_download_url") or "")
-        if not url.startswith(f"{self.base}/"):
-            raise Failed("artifact download URL is not on the GitHub API host")
-        try:
-            urllib.request.build_opener(NoRedirect).open(self._request(url), timeout=30)
-        except urllib.error.HTTPError as error:
-            location = error.headers.get("Location")
-            if error.code in (301, 302, 303, 307, 308) and location:
-                return location
-            raise Failed(f"artifact download answered HTTP {error.code}") from error
-        raise Failed("artifact download did not redirect to a blob")
+        answer = self._call("GetSignedArtifactURL", {"workflow_run_backend_id": artifact["run"],
+                                                     "workflow_job_run_backend_id": artifact["job"],
+                                                     "name": artifact["name"]})
+        url = str(answer.get("signed_url") or answer.get("signedUrl") or "")
+        if not url.startswith("https://" if self.https_only else "http"):
+            raise Failed("the artifact service gave no https signed URL")
+        return url
 
 
 class Ranged:
@@ -179,10 +210,10 @@ def extract(archive: Path, dest: Path) -> list[str]:
     return names
 
 
-def fetch(api: Api, run_id: str, name: str, dest: Path, *, parts: int, stall: float, attempts: int,
+def fetch(api: Api, name: str, dest: Path, *, parts: int, stall: float, attempts: int,
           budget: float) -> None:
     started = time.monotonic()
-    artifact = api.artifact(run_id, name)
+    artifact = api.artifact(name)
     digest = str(artifact.get("digest") or "")
     dest.mkdir(parents=True, exist_ok=True)
     archive = dest.parent / f".{dest.name}.{artifact['id']}.zip"
@@ -211,20 +242,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--name", required=True)
     parser.add_argument("--dest", required=True, type=Path)
-    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--parts", type=int, default=16)
     parser.add_argument("--stall", type=float, default=20.0, help="seconds a range may send nothing")
     parser.add_argument("--attempts", type=int, default=5, help="tries per range")
     parser.add_argument("--budget", type=float, default=240.0, help="seconds for the whole download")
     args = parser.parse_args(argv)
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    if not (token and args.run_id and args.repo):
-        print("::warning::fetch_run_artifact: needs GH_TOKEN, a run id and a repository", file=sys.stderr)
+    token, results_url = os.environ.get("ACTIONS_RUNTIME_TOKEN", ""), os.environ.get("ACTIONS_RESULTS_URL", "")
+    if not (token and results_url):
+        print("::warning::fetch_run_artifact: no ACTIONS_RUNTIME_TOKEN or ACTIONS_RESULTS_URL (run it from a JavaScript "
+              "action step); download-artifact takes over", file=sys.stderr)
         return 2
-    api = Api(os.environ.get("GITHUB_API_URL", "https://api.github.com"), token, args.repo)
     try:
-        fetch(api, args.run_id, args.name, args.dest, parts=args.parts, stall=args.stall,
+        api = Api(results_url, token)
+        fetch(api, args.name, args.dest, parts=args.parts, stall=args.stall,
               attempts=args.attempts, budget=args.budget)
     except (Failed, OSError, ValueError, zipfile.BadZipFile, urllib.error.URLError) as error:
         shutil.rmtree(args.dest, ignore_errors=True)

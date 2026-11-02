@@ -4632,8 +4632,6 @@ jobs:
     if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-      # Read this run's artifact list and blob URL for the parallel-range download (fetch_run_artifact.py).
-      actions: read
     outputs:
       # The final DMG's image when launch-smoke-nightly smoked it instead of this job.
       image: ${{ steps.final-image.outputs.image }}
@@ -4680,10 +4678,14 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         continue-on-error: true
         timeout-minutes: 5
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ github.token }}
           ARTIFACT: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
-        run: python3 -I .publish-tooling/scripts/ci/fetch_run_artifact.py --name "$ARTIFACT" --dest final-dmg
+          FETCH_DEST: final-dmg
+        with:
+          script: |
+            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
+            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && steps.fetch-final-dmg.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4959,8 +4961,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      # Read this run's artifact list and blob URL for the parallel-range download (fetch_run_artifact.py).
-      actions: read
     outputs:
       sha256: ${{ steps.dmg.outputs.sha256 }}
       floor: ${{ steps.dmg.outputs.floor }}
@@ -4988,12 +4988,18 @@ jobs:
       - name: Download the signed app (parallel ranges)
         continue-on-error: true
         timeout-minutes: 5
+        # A JavaScript step, so the script gets the job's runtime token for the artifact service in its
+        # own environment (download-artifact's route, no GITHUB_TOKEN permission); nothing goes to $GITHUB_ENV
+        # but the flag.
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ github.token }}
           ARTIFACT: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-        run: |
-          python3 -I .publish-tooling/scripts/ci/fetch_run_artifact.py --name "$ARTIFACT" --dest signer-app
-          echo "SIGNER_APP_FETCHED=true" >> "$GITHUB_ENV"
+          FETCH_DEST: signer-app
+        with:
+          script: |
+            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
+            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+            else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome: signer-dmg reuses these two steps and has no ranged step.
       - &signer-download-app
         name: Download the signed app

@@ -8,6 +8,7 @@ destination empty on failure so download-artifact takes over.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import io
@@ -27,7 +28,9 @@ SPEC = importlib.util.spec_from_file_location("fetch_run_artifact", ROOT / "scri
 fra = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(fra)
 
-TOKEN = "test-token"
+CLAIMS = {"scp": "Actions.ExampleScope Actions.Results:run-backend:job-backend"}
+TOKEN = "e30." + base64.urlsafe_b64encode(json.dumps(CLAIMS).encode()).decode().rstrip("=") + ".sig"
+SERVICE = "/twirp/github.actions.results.api.v1.ArtifactService/"
 
 
 def make_zip(files: dict[str, bytes]) -> bytes:
@@ -46,6 +49,7 @@ class Fake:
         self.blob_auth: list[str] = []
         self.blob_requests: list[str] = []
         self.url_mints = 0
+        self.service_calls: list = []
         self.lock = threading.Lock()
         fake = self
 
@@ -55,29 +59,39 @@ class Fake:
             def log_message(self, *args):
                 pass
 
-            def do_GET(self):  # noqa: N802
+            def reply(self, code: int, body: dict | None = None):
+                data = json.dumps(body).encode() if body is not None else b""
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):  # noqa: N802
                 base = f"http://127.0.0.1:{self.server.server_address[1]}"
-                if self.path.startswith("/repos/o/r/actions/runs/7/artifacts"):
-                    assert self.headers.get("Authorization") == f"Bearer {TOKEN}"
-                    body = json.dumps({"artifacts": [
-                        {"id": 1, "name": "art", "expired": True, "archive_download_url": f"{base}/old"},
-                        {"id": 5, "name": "art", "expired": False, "digest": fake.digest,
-                         "archive_download_url": f"{base}/repos/o/r/actions/artifacts/5/zip"},
-                    ]}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+                with fake.lock:
+                    fake.service_calls.append((self.path.removeprefix(SERVICE), body, self.headers.get("Authorization")))
+                if self.path == SERVICE + "ListArtifacts":
+                    assert (body["workflow_run_backend_id"], body["workflow_job_run_backend_id"]) == ("run-backend", "job-backend")
+                    self.reply(200, {"artifacts": [
+                        {"workflow_run_backend_id": "run-backend", "workflow_job_run_backend_id": "old-job",
+                         "database_id": "4", "name": body["name_filter"], "size": "1"},
+                        {"workflow_run_backend_id": "run-backend", "workflow_job_run_backend_id": "upload-job",
+                         "database_id": "5", "name": body["name_filter"], "size": str(len(fake.blob)),
+                         **({"digest": fake.digest} if fake.digest else {})},
+                    ]})
                     return
-                if self.path == "/repos/o/r/actions/artifacts/5/zip":
+                if self.path == SERVICE + "GetSignedArtifactURL":
+                    assert body == {"workflow_run_backend_id": "run-backend",
+                                    "workflow_job_run_backend_id": "upload-job", "name": "art"}, body
                     with fake.lock:
                         fake.url_mints += 1
                         mint = fake.url_mints
-                    self.send_response(302)
-                    self.send_header("Location", f"{base}/blob?sig={mint}")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
+                    self.reply(200, {"signed_url": f"{base}/blob?sig={mint}"})
                     return
+                self.reply(404)
+
+            def do_GET(self):  # noqa: N802
                 if self.path.startswith("/blob"):
                     with fake.lock:
                         fake.blob_auth.append(self.headers.get("Authorization") or "")
@@ -130,7 +144,7 @@ class FetchRunArtifact(unittest.TestCase):
     def run_fetch(self, fake: Fake, **kwargs) -> Path:
         dest = self.tmp / "signer-app"
         options = dict(parts=8, stall=1.0, attempts=3, budget=30.0) | kwargs
-        fra.fetch(fra.Api(fake.base, TOKEN, "o/r"), "7", "art", dest, **options)
+        fra.fetch(fra.Api(fake.base + "/", TOKEN, https_only=False), "art", dest, **options)
         return dest
 
     def test_reads_the_artifact_in_ranges_and_unpacks_it(self):
@@ -142,6 +156,8 @@ class FetchRunArtifact(unittest.TestCase):
         # One probe for the size, then one request per range: 4 ranges of at least 16 MiB.
         self.assertEqual(len(fake.blob_requests), 1 + 4)
         self.assertEqual(fake.blob_auth, [""] * len(fake.blob_auth), "the token never goes to the blob host")
+        self.assertEqual([call[0] for call in fake.service_calls], ["ListArtifacts", "GetSignedArtifactURL"])
+        self.assertEqual({call[2] for call in fake.service_calls}, {f"Bearer {TOKEN}"})
 
     def test_a_stalled_range_resumes_where_it_stopped_with_a_fresh_url(self):
         fake = self.fake()
@@ -157,12 +173,15 @@ class FetchRunArtifact(unittest.TestCase):
         fake = self.fake(digest="sha256:" + "0" * 64)
         with self.assertRaises(fra.Failed):
             self.run_fetch(fake)
-        os.environ["GH_TOKEN"] = TOKEN
-        os.environ["GITHUB_API_URL"] = fake.base
-        self.addCleanup(os.environ.pop, "GH_TOKEN", None)
-        self.addCleanup(os.environ.pop, "GITHUB_API_URL", None)
         dest = self.tmp / "out"
-        rc = fra.main(["--name", "art", "--dest", str(dest), "--run-id", "7", "--repo", "o/r", "--stall", "1"])
+        dest.mkdir()
+        (dest / "partial").write_bytes(b"x")
+        rc = fra.main(["--name", "art", "--dest", str(dest), "--stall", "1"])  # no runtime token here
+        self.assertEqual(rc, 2)
+        os.environ["ACTIONS_RUNTIME_TOKEN"], os.environ["ACTIONS_RESULTS_URL"] = TOKEN, fake.base + "/"
+        self.addCleanup(os.environ.pop, "ACTIONS_RUNTIME_TOKEN", None)
+        self.addCleanup(os.environ.pop, "ACTIONS_RESULTS_URL", None)
+        rc = fra.main(["--name", "art", "--dest", str(dest), "--stall", "1"])  # an http signed URL is refused
         self.assertEqual(rc, 1)
         self.assertFalse(dest.exists())
 
@@ -174,6 +193,11 @@ class FetchRunArtifact(unittest.TestCase):
         with self.assertRaises(fra.Failed):
             self.run_fetch(fake, attempts=1, budget=10.0)
         self.assertLess(time.monotonic() - started, 15)
+
+    def test_backend_ids_come_from_the_runtime_token(self):
+        self.assertEqual(fra.backend_ids(TOKEN), ("run-backend", "job-backend"))
+        with self.assertRaises(fra.Failed):
+            fra.backend_ids("not-a-jwt")
 
     def test_refuses_members_that_leave_the_destination(self):
         archive = self.tmp / "evil.zip"
