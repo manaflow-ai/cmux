@@ -24,6 +24,7 @@ final class LinkHintController {
     }
 
     private var session: Session? { didSet { noteActive() } }
+    private var replays = LinkHintReplays<NSEvent>()
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
     private var pending: Task<Void, any Error>?
     /// What runs with the pending call's value, on main; the task carries none of it.
@@ -77,16 +78,14 @@ final class LinkHintController {
     /// being a hint key goes on, and so does every key once the page no
     /// longer has the keyboard (a terminal, a field, another window).
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if replays.isReplay(event) { return false } // sent back to the page: it goes on, never held again
         guard var current = session, let tab = current.tab, let home = current.window,
               window === home || window?.parent === home, current.isFocused() else {
             cancel()
             return false
         }
         let flags = event.modifierFlags.intersection([.command, .control, .option])
-        if event.keyCode == 53 {
-            cancel()
-            return true
-        }
+        if event.keyCode == 53 { cancel(); return true } // Escape ends the session
         let outcome: LinkHintSession.Outcome
         if flags.isEmpty, event.keyCode == 51 {
             outcome = current.keys.type(nil)
@@ -117,7 +116,7 @@ final class LinkHintController {
         guard var current = session, current.tab === tab else { return }
         let outcome = current.keys.show(targets, editing: editing)
         session = current
-        if outcome == .passThrough { session = nil; return current.held.release(after: outcome).forEach { NSApp.sendEvent($0) } }
+        if outcome == .passThrough { session = nil; let keys = current.held.release(after: outcome); replays.mark(keys); return keys.forEach { NSApp.sendEvent($0) } }
         if outcome == .cancel {
             current.notice(LinkHintStrings.noLinks)
             session = nil
