@@ -184,6 +184,8 @@ struct CloudStartSession {
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
+        await passHarnessLogin(session, agent: agent)
+        try still(name)
         let daemon = session.daemon
         guard let host = AgentTabStore.registryHost(of: daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
@@ -378,6 +380,11 @@ struct CloudStartSession {
         // didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up, session.resumeFailure == nil else { throw failure() }
+    }
+
+    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
+    func passHarnessLogin(_ session: CloudMachineSession, agent: String) async {
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
     }
 
     /// How long a machine has to come up (Move to Cloud's own wait).
