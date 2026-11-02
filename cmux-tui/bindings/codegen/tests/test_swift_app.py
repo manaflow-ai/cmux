@@ -305,6 +305,40 @@ class BindingErrorTests(unittest.TestCase):
                 bindings["families"] = {family: bindings["families"]["Layout"]}
                 self.assert_refused(f"family {family!r}", bindings=bindings)
 
+    def test_a_required_field_gated_by_a_capability_is_refused(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["split"]["capability"] = "layout-undo-v1"
+        self.assert_refused("set-split-ratio.split: a required field gated by layout-undo-v1", document)
+
+    def test_two_fields_with_one_swift_name_are_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"]["fields"]["dir"] = {"name": "target"}
+        self.assert_refused("swap-pane: two fields become the same Swift name", bindings=bindings)
+
+    def test_two_bindings_generating_one_type_are_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["zoom-pane"]["name"] = "SwapPaneRequest"
+        self.assert_refused("two bindings generate the Swift type SwapPaneRequest", bindings=bindings)
+
+    def test_an_unknown_protocol_is_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"]["protocol"] = "Encodable"
+        self.assert_refused("swap-pane: protocol must be one of", bindings=bindings)
+
+    def test_binding_a_type_the_schema_lacks_is_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["types"]["NoSuchType"] = "Whatever"
+        self.assert_refused("types binds NoSuchType", bindings=bindings)
+
+    def test_a_request_that_is_not_an_object_is_refused(self) -> None:
+        document = layout_document()
+        document["commands"]["swap-pane"]["request"] = {"kind": "ref", "name": "EmptyResult"}
+        # The schema validator refuses it first; the emitter's own check is the second line.
+        from codegen.validate import ValidationError
+
+        with self.assertRaises((ValidationError, BindingError)):
+            rendered(document)
+
     def test_an_order_naming_an_unknown_field_is_refused(self) -> None:
         bindings = layout_bindings()
         bindings["families"]["Layout"]["requests"]["swap-pane"]["order"] = ["pane", "nope"]
@@ -348,6 +382,28 @@ class CheckAndWriteTests(unittest.TestCase):
         self.assertEqual(self.run_mode("check"), ["stale Old/OldRequest.generated.swift"])
         self.assertEqual(self.run_mode("write"), [])
         self.assertFalse(stale.exists())
+
+    def test_an_output_root_outside_the_repository_is_refused(self) -> None:
+        import json
+
+        for root in ("/abs/Requests", "../Requests", "Sources/../../Requests", ""):
+            with self.subTest(root=root):
+                bindings = layout_bindings()
+                bindings["output_root"] = root
+                (self.root / "bindings.json").write_text(json.dumps(bindings), encoding="utf-8")
+                with self.assertRaises(BindingError):
+                    self.run_mode("write")
+                self.assertFalse((self.root.parent / "Requests").exists())
+
+    def test_a_hand_written_file_at_a_generated_path_is_never_replaced(self) -> None:
+        path = self.out / "Layout" / "SwapPaneRequest.generated.swift"
+        path.parent.mkdir(parents=True)
+        path.write_text("// hand-written\n", encoding="utf-8")
+        for mode in ("check", "write"):
+            with self.subTest(mode=mode):
+                with self.assertRaises(BindingError):
+                    self.run_mode(mode)
+                self.assertEqual(path.read_text(encoding="utf-8"), "// hand-written\n")
 
     def test_a_generated_file_of_another_generator_is_not_owned(self) -> None:
         self.run_mode("write")
