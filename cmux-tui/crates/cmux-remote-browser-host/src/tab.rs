@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, Dialog, HistoryOp, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect,
-    RefuseReason, SessionState, SurfaceKind,
+    Control, Dialog, Disposition, HistoryOp, InputEvent, Menu, MenuChoice, MenuKind, PointerKind,
+    Rect, RefuseReason, SessionState, SurfaceKind,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -43,7 +43,27 @@ pub trait Presentation {
     fn load_url(&mut self, browser: i32, url: &str) -> bool;
     /// Back, forward, reload or stop (`rb.history`).
     fn history(&mut self, browser: i32, op: HistoryOp) -> bool;
+    /// Finds `query` in the page (`rb.find`): a new search, or (`next`) the
+    /// next or previous match of the running one. Results come back through
+    /// [`HostTab::find_result`].
+    fn find(
+        &mut self,
+        browser: i32,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        next: bool,
+    ) -> bool;
+    /// Ends the search and its highlights (`rb.find.stop`); `keep_selection`
+    /// leaves the active match selected.
+    fn stop_finding(&mut self, browser: i32, keep_selection: bool) -> bool;
 }
+
+/// Chromium's View Page Source (`IDC_VIEW_SOURCE`, chrome/app/chrome_command_ids.h).
+/// Chromium runs it as a tab of its own in the host's hidden window, which no
+/// viewer sees, so the host opens it as `rb.open_tab` of the page's
+/// `view-source:` address instead.
+pub const VIEW_SOURCE_COMMAND: i64 = 35002;
 
 /// What the host does for a popup surface (RP7) besides the shim calls.
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +143,9 @@ pub struct HostTab {
     surfaces: BTreeMap<u32, HostSurface>,
     /// The stream the next shown surface gets (never 0, the page's).
     next_stream: u16,
+    /// The last `rb.find.result` sent for the running search (`None` before
+    /// its first result).
+    find_last: Option<(u32, u32)>,
 }
 
 /// One open popup surface.
@@ -169,6 +192,7 @@ impl HostTab {
             pointer_at: BTreeMap::new(),
             surfaces: BTreeMap::new(),
             next_stream: 1,
+            find_last: None,
         }
     }
 
@@ -365,12 +389,19 @@ impl HostTab {
                     }
                     Err(MenuReject::UnknownToken) => return Vec::new(),
                 };
+                let mut out = Vec::new();
                 for effect in outcome.effects {
                     if let MenuEffect::ChromeContinue { token, choice } = effect {
+                        if let MenuChoice::Command { id: VIEW_SOURCE_COMMAND } = choice
+                            && let Some(source) = self.view_source(token, p)
+                        {
+                            out.push(source);
+                            continue;
+                        }
                         self.answer_fork(token, &choice, p);
                     }
                 }
-                Vec::new()
+                out
             }
             Control::DialogResult { token, accept, text } => {
                 if let Some(open) = self.fork_dialog.take_if(|d| d.rb_token == *token) {
@@ -378,8 +409,58 @@ impl HostTab {
                 }
                 Vec::new()
             }
+            Control::Find { query, forward, match_case, next } => {
+                if let Some(browser) = self.browser {
+                    if !*next {
+                        // A new search: its first result is sent even when it
+                        // repeats the last search's numbers.
+                        self.find_last = None;
+                    }
+                    p.find(browser, query, *forward, *match_case, *next);
+                }
+                Vec::new()
+            }
+            Control::FindStop { keep_selection } => {
+                self.find_last = None;
+                if let Some(browser) = self.browser {
+                    p.stop_finding(browser, *keep_selection);
+                }
+                Vec::new()
+            }
             _ => Vec::new(),
         }
+    }
+
+    /// View Page Source chosen in context menu `token` (the menu offered it):
+    /// Chromium's menu is answered with cancel (its own view-source tab would
+    /// open where no viewer sees it) and the viewers get `rb.open_tab` of the
+    /// page's `view-source:` address. `None` when the open menu is not that
+    /// context menu or the page has no address yet (the choice then goes to
+    /// Chromium as usual).
+    fn view_source(&mut self, token: u64, p: &mut dyn Presentation) -> Option<Control> {
+        let open = self.fork_menu.as_ref()?;
+        if open.rb_token != token || open.kind != MenuKind::Context {
+            return None;
+        }
+        let url = self.page.url();
+        if url.is_empty() {
+            return None;
+        }
+        let source = if url.starts_with("view-source:") {
+            url.to_string()
+        } else {
+            format!("view-source:{url}")
+        };
+        self.answer_fork(token, &MenuChoice::Cancel, p);
+        let request = self.next_open_tab;
+        self.next_open_tab = self.next_open_tab.wrapping_add(1).max(1);
+        self.open_tabs.insert(request);
+        Some(Control::OpenTab {
+            request,
+            url: source,
+            disposition: Disposition::ForegroundTab,
+            user_gesture: true,
+        })
     }
 
     /// Closes the open menu `token` on both sides: Chromium gets cancel,
@@ -764,6 +845,29 @@ impl HostTab {
             Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
             None => Vec::new(),
         }
+    }
+
+    /// Chromium dropped the dialog with the fork's token without an answer
+    /// (the frame that asked went away, or the page closed): the viewers
+    /// close it (`rb.dialog.cancel`). Nothing for a dialog no longer open.
+    pub fn dialog_dropped(&mut self, fork_token: i64) -> Vec<Control> {
+        match self.fork_dialog.take_if(|d| d.fork_token == fork_token) {
+            Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
+            None => Vec::new(),
+        }
+    }
+
+    /// Chromium's find result for the running search (`OnFindResult`):
+    /// `rb.find.result` when the match count or the active match moved.
+    /// `active` is 1-based, 0 while Chromium has not picked one.
+    pub fn find_result(&mut self, matches: i32, active: i32) -> Option<Control> {
+        let matches = u32::try_from(matches).unwrap_or(0);
+        let active = u32::try_from(active).unwrap_or(0).min(matches);
+        if self.find_last == Some((matches, active)) {
+            return None;
+        }
+        self.find_last = Some((matches, active));
+        Some(Control::FindResult { matches, active })
     }
 
     /// Starts the wanted capture that the shim refused before (call it on

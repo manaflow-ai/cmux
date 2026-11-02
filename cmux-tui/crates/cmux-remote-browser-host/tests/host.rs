@@ -83,6 +83,21 @@ impl Presentation for Fake {
         self.calls.push(format!("history {browser} {op:?}"));
         true
     }
+    fn find(
+        &mut self,
+        browser: i32,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        next: bool,
+    ) -> bool {
+        self.calls.push(format!("find {browser} {query:?} {forward} {match_case} {next}"));
+        true
+    }
+    fn stop_finding(&mut self, browser: i32, keep_selection: bool) -> bool {
+        self.calls.push(format!("stop_finding {browser} {keep_selection}"));
+        true
+    }
 }
 
 fn screen(w: u32, h: u32, scale: f64) -> ScreenInfo {
@@ -865,4 +880,167 @@ fn a_page_popup_asks_the_app_for_a_tab_with_rising_requests() {
     let answer = Control::OpenTabResult { request: 1, tab: Some("tab-2".into()), refused: None };
     assert!(tab.control("v1", &answer, &mut fake).is_empty());
     assert!(fake.calls.is_empty());
+}
+
+fn link_menu() -> Menu {
+    Menu {
+        kind: MenuKind::Context,
+        anchor: Rect { x: 10.0, y: 20.0, width: 0.0, height: 0.0 },
+        surface: 0,
+        items: vec![
+            item(50100, "Open Link in New &Tab", "command"),
+            item(0, "", "separator"),
+            item(35002, "&View Page Source", "command"),
+        ],
+        selected: None,
+        multiple: false,
+        right_aligned: false,
+    }
+}
+
+#[test]
+fn open_link_in_new_tab_goes_to_chromium_and_its_new_tab_comes_back_as_rb_open_tab() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.menu_opened(900, link_menu(), &mut fake);
+    let out = tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 50100 } },
+        &mut fake,
+    );
+    assert!(out.is_empty(), "{out:?}");
+    assert_eq!(fake.calls, vec!["context_menu_result 900 Some(50100)"]);
+    // Chromium runs the command through OpenURLFromTab with a foreground tab
+    // (cef_window_open_disposition_t 3); the shim hands it to the host.
+    assert_eq!(
+        tab.popup_requested("https://example.com/next", 3, true),
+        Some(Control::OpenTab {
+            request: 1,
+            url: "https://example.com/next".into(),
+            disposition: Disposition::ForegroundTab,
+            user_gesture: true,
+        })
+    );
+}
+
+#[test]
+fn view_page_source_opens_the_pages_view_source_address_as_a_tab_of_its_own() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.page_changed(PageChange::Url("https://example.com/a?b=1".into()));
+    tab.menu_opened(900, link_menu(), &mut fake);
+    let out = tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 35002 } },
+        &mut fake,
+    );
+    assert_eq!(
+        out,
+        vec![Control::OpenTab {
+            request: 1,
+            url: "view-source:https://example.com/a?b=1".into(),
+            disposition: Disposition::ForegroundTab,
+            user_gesture: true,
+        }]
+    );
+    // Chromium's own view-source tab would open in the hidden window: its
+    // menu is answered with cancel, once.
+    assert_eq!(fake.calls, vec!["context_menu_result 900 None"]);
+    let again = tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 35002 } },
+        &mut fake,
+    );
+    assert!(again.is_empty(), "{again:?}");
+    assert_eq!(fake.calls.len(), 1, "a duplicate answer reached the shim");
+    // The source page's own View Page Source does not nest view-source:.
+    tab.page_changed(PageChange::Url("view-source:https://example.com/a?b=1".into()));
+    tab.menu_opened(901, link_menu(), &mut fake);
+    let out = tab.control(
+        "v1",
+        &Control::MenuResult { token: 2, choice: MenuChoice::Command { id: 35002 } },
+        &mut fake,
+    );
+    assert!(
+        matches!(&out[..], [Control::OpenTab { request: 2, url, .. }] if url == "view-source:https://example.com/a?b=1"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn view_page_source_the_menu_never_offered_cancels_the_menu() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.page_changed(PageChange::Url("https://example.com/".into()));
+    let mut menu = link_menu();
+    menu.items.truncate(1);
+    tab.menu_opened(900, menu, &mut fake);
+    let out = tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 35002 } },
+        &mut fake,
+    );
+    assert_eq!(out, vec![Control::MenuCancel { token: 1 }]);
+    assert_eq!(fake.calls, vec!["context_menu_result 900 None"]);
+}
+
+#[test]
+fn a_dialog_whose_frame_went_away_is_cancelled_on_the_viewer_once() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.dialog_opened(77, dialog(DialogKind::Alert, "From the frame"), &mut fake);
+    // Another dialog's drop (one the host already replaced) does nothing.
+    assert_eq!(tab.dialog_dropped(76), vec![]);
+    assert_eq!(tab.dialog_dropped(77), vec![Control::DialogCancel { token: 1 }]);
+    assert_eq!(tab.dialog_dropped(77), vec![]);
+    // The shim answered Chromium itself; a late viewer answer reaches nothing.
+    tab.control("v1", &Control::DialogResult { token: 1, accept: true, text: None }, &mut fake);
+    assert!(fake.calls.is_empty(), "{:?}", fake.calls);
+    assert_eq!(tab.dialog_reset(), vec![]);
+}
+
+#[test]
+fn find_reaches_the_shim_and_its_results_come_back_when_they_move() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let find = |query: &str, forward: bool, next: bool| Control::Find {
+        query: query.into(),
+        forward,
+        match_case: false,
+        next,
+    };
+    assert!(tab.control("v1", &find("remote", true, false), &mut fake).is_empty());
+    // Chromium reports the count as it grows, then the active match.
+    assert_eq!(tab.find_result(3, 0), Some(Control::FindResult { matches: 3, active: 0 }));
+    assert_eq!(tab.find_result(14, 1), Some(Control::FindResult { matches: 14, active: 1 }));
+    assert_eq!(tab.find_result(14, 1), None, "a repeat is not sent");
+    tab.control("v1", &find("remote", false, true), &mut fake);
+    assert_eq!(tab.find_result(14, 14), Some(Control::FindResult { matches: 14, active: 14 }));
+    // A new search reports even numbers equal to the last ones.
+    tab.control("v1", &find("remote", true, false), &mut fake);
+    assert_eq!(tab.find_result(14, 14), Some(Control::FindResult { matches: 14, active: 14 }));
+    // No match: Chromium's -1 / 0 reads 0 of 0.
+    tab.control("v1", &find("zzz", true, false), &mut fake);
+    assert_eq!(tab.find_result(0, -1), Some(Control::FindResult { matches: 0, active: 0 }));
+    tab.control("v1", &Control::FindStop { keep_selection: false }, &mut fake);
+    assert_eq!(
+        fake.calls,
+        vec![
+            r#"find 7 "remote" true false false"#,
+            r#"find 7 "remote" false false true"#,
+            r#"find 7 "remote" true false false"#,
+            r#"find 7 "zzz" true false false"#,
+            "stop_finding 7 false",
+        ]
+    );
+}
+
+#[test]
+fn find_before_the_browser_exists_does_nothing() {
+    let mut fake = Fake::default();
+    let mut tab = HostTab::new(1, 41, "https://example.com/");
+    let find = Control::Find { query: "x".into(), forward: true, match_case: false, next: false };
+    assert!(tab.control("v1", &find, &mut fake).is_empty());
+    assert!(tab.control("v1", &Control::FindStop { keep_selection: true }, &mut fake).is_empty());
+    assert!(fake.calls.is_empty(), "{:?}", fake.calls);
 }

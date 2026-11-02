@@ -111,12 +111,13 @@ import Testing
         let open = try #require(got.first ?? nil)
         #expect(open.token == 3 && model.contextMenu?.token == 3)
         // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Cast, QR Code, Inspect,
-        // and Speech, whose ids CEF renumbers) and rows Chromium opens as a tab the host does not
-        // hand to viewers (Open Link in New Tab and Window, Search for, View Page Source; the
-        // ids the host sent on the real link, 2026-10-29) are left out with their
-        // separators; Chromium's `&` mnemonics are dropped (`&&` is `&`). Page rows stay.
+        // and Speech, whose ids CEF renumbers) are left out with their separators; Chromium's
+        // `&` mnemonics are dropped (`&&` is `&`). Page rows stay, and so do the rows that open
+        // a tab (View Page Source, Open Link in New Tab and Window, Search for): the host hands
+        // their tab to the phone as `rb.open_tab` (the ids it sent on the real link, 2026-10-29).
         let rows = open.menu.phoneItems
-        #expect(rows.map(\.label) == ["Back", "Reload", "", "Spelling"])
+        #expect(rows.map(\.label) == ["Back", "Reload", "", "View Page Source", "", "Open Link in New Tab",
+                                      "Open Link in New Window", "", "Search for \u{201C}R&D\u{201D}", "", "Spelling"])
         #expect(rows.last?.items.map(\.label) == ["Check Spelling While Typing"])
         #expect(RemoteBrowserMenuItem.withoutMnemonic("&Search for \u{201C}R&&D\u{201D}") == "Search for \u{201C}R&D\u{201D}")
         model.choose(.command(33002), in: 3)
@@ -308,5 +309,73 @@ import Testing
         let (model, stream, _) = try await model()
         model.hardReload()
         #expect(sent(stream, "rb.history").last?["op"] as? String == "reload_no_cache")
+    }
+
+    // MARK: Open Link in New Tab
+
+    /// Open Link in New Tab from the page's menu: the pick goes to the page, and the tab
+    /// Chromium opens for it comes back as `rb.open_tab` (the host forwards OpenURLFromTab),
+    /// which opens beside the page like a target=_blank link.
+    @Test func openLinkInNewTabFromThePageMenuOpensATab() async throws {
+        let (model, stream, sink) = try await model()
+        var asked: [RemoteBrowserOpenTab] = []
+        model.openTab = { request in
+            asked.append(request)
+            return "s10"
+        }
+        model.requestContextMenu(x: 40, y: 80) { _ in }
+        await host(sink, Self.linkMenu)
+        let rows = try #require(model.contextMenu).menu.phoneItems
+        #expect(rows.contains { $0.id == 50100 } && rows.contains { $0.id == 35002 })
+        model.choose(.command(50100), in: 3)
+        #expect((sent(stream, "rb.menu.result").last?["choice"] as? [String: Any])?["id"] as? Int == 50100)
+        await host(sink, #"{"t":"rb.open_tab","request":1,"url":"https://example.com/linked","disposition":"background_tab","user_gesture":true}"#)
+        #expect(asked.map(\.url) == ["https://example.com/linked"] && asked.first?.opensInBackground == true)
+        #expect(sent(stream, "rb.open_tab.result").last?["tab"] as? String == "s10")
+    }
+
+    // MARK: Find in page
+
+    /// Find in page: a query starts a search on the Mac (`rb.find`), its count and active
+    /// match come back (`rb.find.result`), next and previous step it, and Done ends it
+    /// (`rb.find.stop`). A result after Done is for no search and is ignored.
+    @Test func findSearchesThePageStepsAndStops() async throws {
+        let (model, stream, sink) = try await model()
+        model.find("remote")
+        let first = try #require(sent(stream, "rb.find").last)
+        #expect(first["query"] as? String == "remote" && first["next"] as? Bool == false
+            && first["forward"] as? Bool == true && first["match_case"] as? Bool == false)
+        #expect(model.findResult == nil)
+        await host(sink, #"{"t":"rb.find.result","matches":14,"active":1}"#)
+        #expect(model.findResult == RemoteBrowserFindResult(matches: 14, active: 1))
+        #expect(model.findResult?.activeIndex == 0)
+        model.findNext(forward: false)
+        let step = try #require(sent(stream, "rb.find").last)
+        #expect(step["query"] as? String == "remote" && step["next"] as? Bool == true && step["forward"] as? Bool == false)
+        await host(sink, #"{"t":"rb.find.result","matches":14,"active":14}"#)
+        #expect(model.findResult?.activeIndex == 13)
+        // No match: nothing is active.
+        model.find("zzz")
+        await host(sink, #"{"t":"rb.find.result","matches":0,"active":0}"#)
+        #expect(model.findResult == RemoteBrowserFindResult(matches: 0, active: 0) && model.findResult?.activeIndex == nil)
+        model.stopFind()
+        #expect(sent(stream, "rb.find.stop").count == 1 && sent(stream, "rb.find.stop").last?["keep_selection"] as? Bool == true)
+        #expect(model.findResult == nil && model.findQuery.isEmpty)
+        await host(sink, #"{"t":"rb.find.result","matches":3,"active":1}"#)
+        #expect(model.findResult == nil)
+        // Nothing to step or stop once the search ended; an empty query ends a search.
+        model.findNext(forward: true)
+        model.stopFind()
+        model.find("")
+        #expect(sent(stream, "rb.find").count == 3 && sent(stream, "rb.find.stop").count == 1)
+    }
+
+    /// A new stream session has no search running: the old count goes.
+    @Test func aNewSessionDropsTheFindResult() async throws {
+        let (model, _, sink) = try await model()
+        model.find("remote")
+        await host(sink, #"{"t":"rb.find.result","matches":2,"active":1}"#)
+        await host(sink, #"{"t":"welcome","caps":[]}"#)
+        #expect(model.findResult == nil)
     }
 }
