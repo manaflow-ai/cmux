@@ -6,7 +6,8 @@ import Testing
 
 /// Bit-for-bit trace of the column scroll reducer under the command-pan bench's gestures, to compare
 /// two code versions: the Swift reducer at the B1 base and the Rust reducer (cmux_scroll_*) at the
-/// head. Not a gate and off unless CMUX_COLUMN_SCROLL_PARITY=1; the same file runs on both refs and
+/// head. Not a gate. It lives only on never-merge parity refs (the step allowlist takes no env switch), so it runs
+/// unconditionally there; the same file runs on both refs and
 /// each run prints its trace, which the two runs' logs compare.
 ///
 /// The input is the bench's (scripts/cmux-next/bench-command-pan.py `gesture`, LayoutRootView+Scroll,
@@ -22,7 +23,7 @@ import Testing
 /// ```
 /// CMUX_COLUMN_SCROLL_PARITY=1 swift test --filter ColumnScrollReleaseParityTrace
 /// ```
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_COLUMN_SCROLL_PARITY"] == "1"))
+@Suite(.serialized)
 struct ColumnScrollReleaseParityTrace {
     private static let dt = 1.0 / 120.0
     private static let spring = SpringParameters(response: 0.2, dampingFraction: 0.9)
