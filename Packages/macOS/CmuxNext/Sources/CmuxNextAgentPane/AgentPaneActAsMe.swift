@@ -27,21 +27,21 @@ import Security
 /// (``recordLetThrough(method:driver:)``).
 @MainActor @Observable public final class AgentPaneActAsMe {
     /// The methods a posted gesture may grant while the grant is on (policy.json `act_as_me_covers`).
-    public static let covers: Set<String> = [
+    public nonisolated static let covers: Set<String> = [
         "session/prompt",
         "_acpmux/queue_approve",
     ]
 
     /// The managed policy key (docs/mdm).
-    public static let managedKey = "ComputerUseActsAsPerson"
+    public nonisolated static let managedKey = "ComputerUseActsAsPerson"
 
-    public enum Holder: String, Sendable {
+    public nonisolated enum Holder: String, Sendable {
         case person
         case managed
     }
 
     /// The process that posted the input a let-through used.
-    public struct Driver: Sendable, Equatable {
+    public nonisolated struct Driver: Sendable, Equatable {
         public var pid: pid_t?
         public var path: String?
         public var bundleID: String?
@@ -53,7 +53,7 @@ import Security
     }
 
     /// One let-through, as cmux-tui's `let_through_record` shapes it.
-    public struct LetThrough: Sendable, Equatable {
+    public nonisolated struct LetThrough: Sendable, Equatable {
         public let method: String
         public let holder: Holder
         public let driver: Driver
@@ -61,15 +61,28 @@ import Security
 
     /// The person's own click on the card's Allow. Only ``AgentPaneActAsMeCard`` makes one, from the
     /// click itself (``AgentPaneActAsMeCard/takePersonClick(on:up:)``); nothing outside this module can.
-    public struct PersonClick: Sendable {
+    public nonisolated struct PersonClick: Sendable {
         fileprivate init() {}
         static func taken() -> PersonClick { PersonClick() }
     }
 
-    /// Where the person's grant is kept.
-    public struct Store: Sendable {
+    /// Where the person's grant is kept. Writes run off main and store the latest value under a lock, so
+    /// two quick changes never land out of order.
+    public nonisolated final class Store: Sendable {
         let read: @Sendable () -> Bool
-        let write: @Sendable (Bool) -> Void
+        private let write: @Sendable (Bool) -> Void
+        // lock carve-out: the latest grant, set on main, written off main by each persist task
+        private let latest = Mutex(false)
+
+        init(read: @escaping @Sendable () -> Bool, write: @escaping @Sendable (Bool) -> Void) {
+            (self.read, self.write) = (read, write)
+        }
+
+        /// The value the next write stores.
+        func set(_ on: Bool) { latest.withLock { $0 = on } }
+
+        /// Stores the latest value.
+        func flush() { latest.withLock { write($0) } }
 
         /// This launch only (tests, a DEV build without a Team ID).
         public static func memory() -> Store {
@@ -81,19 +94,21 @@ import Security
         /// access group reads or writes it, so `security`, `defaults write` or a file an agent writes
         /// cannot turn it on.
         public static func keychain(service: String) -> Store {
-            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                        kSecAttrAccount as String: "act-as-me", kSecAttrSynchronizable as String: false,
-                                        kSecUseDataProtectionKeychain as String: true]
+            @Sendable func query() -> [String: Any] {
+                [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                 kSecAttrAccount as String: "act-as-me", kSecAttrSynchronizable as String: false,
+                 kSecUseDataProtectionKeychain as String: true]
+            }
             return Store(read: {
-                var read = query
+                var read = query()
                 read[kSecReturnData as String] = true
                 read[kSecMatchLimit as String] = kSecMatchLimitOne
                 var out: CFTypeRef?
                 return SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess && (out as? Data) == Data("on".utf8)
             }, write: { on in
-                SecItemDelete(query as CFDictionary)
+                SecItemDelete(query() as CFDictionary)
                 guard on else { return }
-                var add = query
+                var add = query()
                 add[kSecValueData as String] = Data("on".utf8)
                 add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
                 SecItemAdd(add as CFDictionary, nil)
@@ -109,10 +124,6 @@ import Security
     public private(set) var letThroughs: [LetThrough] = []
     static let keptLetThroughs = 64
     @ObservationIgnored private let store: Store
-    /// The state the next Keychain write stores: each write stores the latest, under the lock, so two
-    /// quick changes never land out of order.
-    // lock carve-out: the latest grant, written off main by each persist task
-    @ObservationIgnored private let latest = Mutex(false)
     @ObservationIgnored nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.act-as-me")
 
     public init(store: Store = .memory()) {
@@ -197,11 +208,8 @@ import Security
     /// The stored grant (a Keychain read, off main).
     @concurrent private static func read(_ store: Store) async -> Bool { store.read() }
 
-    /// Stores the latest grant (a Keychain write, off main), under the lock so two quick changes never
-    /// land out of order.
-    @concurrent private static func write(_ store: Store, latest: Mutex<Bool>) async {
-        latest.withLock { store.write($0) }
-    }
+    /// Stores the latest grant (a Keychain write, off main).
+    @concurrent private static func write(_ store: Store) async { store.flush() }
 
     /// The bundle id of the app whose executable is at `path` (its enclosing `.app`), nil when none.
     nonisolated static func bundleID(executable path: String) -> String? {
@@ -210,9 +218,9 @@ import Security
     }
 
     private func persist(_ on: Bool) {
-        let (store, latest) = (store, latest)
-        latest.withLock { $0 = on }
+        let store = store
+        store.set(on)
         // task-owner: one Keychain write per change, ends on its own
-        Task { await Self.write(store, latest: latest) }
+        Task { await Self.write(store) }
     }
 }

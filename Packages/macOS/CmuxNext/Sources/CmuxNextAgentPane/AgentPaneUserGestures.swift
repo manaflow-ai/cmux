@@ -89,6 +89,30 @@ import CmuxNextCompat
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
+    /// The clock gestures are timed on (the system uptime; tests set it): a credit a gesture left
+    /// (``AgentPaneTransport/startCredit``) is timed on it too.
+    var uptime: TimeInterval { now() }
+
+    /// Uses the gesture's scope-add credit (one attach of a session that is not yet the pane's):
+    /// true once per recorded gesture; the grant credit stays.
+    public func consumeScope() -> Bool {
+        guard let lastScope else { return false }
+        self.lastScope = nil
+        return now() - lastScope <= Self.lifetime
+    }
+
+    /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
+    /// is available, its age in seconds, and the outstanding tickets. Never a ticket value.
+    public var debugState: (available: Bool, scopeAvailable: Bool, ageSeconds: Double?, tickets: Int) {
+        (isAvailable, lastScope.map { now() - $0 <= Self.lifetime } ?? false, last.map { now() - $0 }, tickets.count)
+    }
+
+    /// ``debugState`` as one log field.
+    public var debugDescription: String {
+        let age = last.map { String(format: "%.3f", now() - $0) } ?? "none"
+        return "gestureAvailable=\(isAvailable) scopeAvailable=\(debugState.scopeAvailable) gestureAge=\(age) tickets=\(tickets.count)"
+    }
+
     // MARK: Computer use acting as the person (``AgentPaneActAsMe``)
 
     /// The grant posted gestures are judged by: the app's one (``AgentPaneShared/actAsMe``); nil grants nothing.

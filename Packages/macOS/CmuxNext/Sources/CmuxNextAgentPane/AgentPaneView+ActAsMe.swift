@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesignTokens
+import CmuxNextDesign
 
 extension AgentPaneView {
     /// Shows the "Computer use can act as me" indicator at the pane's top right, under the chat's header
