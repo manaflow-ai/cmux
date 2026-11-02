@@ -10,7 +10,16 @@ let root: Root | undefined;
 let container: HTMLElement;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "localStorage", "IS_REACT_ACT_ENVIRONMENT"];
+const KEYS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "localStorage",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
