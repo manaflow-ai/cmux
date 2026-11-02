@@ -12,7 +12,7 @@
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
-//   bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+//   [LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -26,6 +26,9 @@ import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
+/// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
+/// the open's serial round trips before its newest message show as multiples of it.
+const LATENCY = Number(process.env.LATENCY ?? 0);
 const webviews = path.resolve(import.meta.dir, "..");
 const LATEST = `Answer ${TURNS}:`;
 
@@ -36,6 +39,8 @@ let attachEvents = 0;
 /// When each protocol call first reached the stand-in in this load (epoch ms).
 let arrivals = new Map<string, number>();
 let socketOpenedAt = 0;
+/// Every call of this load, with when it came (ms after the socket opened), for TRACE=1.
+let calls: string[] = [];
 /// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
 /// daemon answers an attach or an older-history read with.
 const newest = (limit: number, beforeSeq = Infinity) => {
@@ -149,10 +154,15 @@ try {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (!arrivals.has(message.method)) arrivals.set(message.method, Date.now());
+        calls.push(`${message.method} ${Date.now() - socketOpenedAt}`);
         if (message.id === undefined) return;
         const result = answer(message.method, (message as { params?: Record<string, unknown> }).params);
-        if (message.method === "_acpmux/attach") attachedAt = Date.now();
-        ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        const reply = () => {
+          if (message.method === "_acpmux/attach") attachedAt = Date.now();
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        };
+        if (LATENCY > 0) setTimeout(reply, LATENCY);
+        else reply();
       },
     },
   });
@@ -313,6 +323,7 @@ try {
     );
     attachedAt = 0;
     arrivals = new Map();
+    calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
     await page.goto(url);
@@ -367,6 +378,7 @@ try {
     if (process.env.TRACE === "1") {
       console.log(`trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`);
       for (const line of got.trace as string[]) console.log(`  ${line}`);
+      console.log(`  calls (ms after the socket opened at ${(socketOpenedAt - got.origin).toFixed(0)}): ${calls.join(", ")}`);
     }
     const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
@@ -478,7 +490,7 @@ try {
     const median = (pick: (r: Round) => number) =>
       rounds.map(pick).sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
     console.log(
-      `chat-open [rail ${arm}]: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
+      `chat-open [rail ${arm}]: ${TURNS} turns, answers delayed ${LATENCY} ms, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
     );
     console.log(
       "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
