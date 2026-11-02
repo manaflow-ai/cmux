@@ -87,6 +87,13 @@ SECTIONS_SOURCE = "schemas/settings/source/sections.json"
 SECTIONS_SWIFT = SCHEMA_DIR + "/SettingsSection.generated.swift"
 SECTIONS = [
     {
+        "source": "schemas/settings/source/agent-retry.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
+        "type": "AgentRetrySettingsSchema",
+        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/updates.json",
         "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
         "type": "UpdateSettingsSchema",

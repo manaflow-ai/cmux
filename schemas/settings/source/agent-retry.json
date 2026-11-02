@@ -1,0 +1,63 @@
+{
+  "$comment": "HAND-EDITED source shared by acpmux retry policy and generated Settings rows. Default values preserve autoResumeDelaysMs.",
+  "lists": [
+    {
+      "name": "agentRetry",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentChat",
+        "text": "Agent Chat"
+      },
+      "rows": [
+        {
+          "key": "agents.retry.enabled",
+          "name": "retryEnabled",
+          "title": {
+            "key": "settings.agents.retry.enabled",
+            "text": "Automatically Retry Failed Turns"
+          },
+          "help": {
+            "key": "settings.agents.retry.enabled.help",
+            "text": "Retry connection and capacity failures using the existing retry schedule. Stop or a successful turn ends the loop. Changes apply to the next scheduled retry."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "retry",
+            "capacity",
+            "connection",
+            "timer"
+          ]
+        },
+        {
+          "key": "agents.retry.intervalSeconds",
+          "name": "retryIntervalSeconds",
+          "title": {
+            "key": "settings.agents.retry.intervalSeconds",
+            "text": "Retry Interval"
+          },
+          "help": {
+            "key": "settings.agents.retry.intervalSeconds.help",
+            "text": "Seconds between retries. Zero keeps the existing backoff schedule and attempt count. Provider reset times can extend a wait."
+          },
+          "kind": "number",
+          "default": 0,
+          "keywords": [
+            "agent",
+            "retry",
+            "capacity",
+            "connection",
+            "timer"
+          ],
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "step": 1,
+            "unit": "seconds"
+          }
+        }
+      ]
+    }
+  ]
+}

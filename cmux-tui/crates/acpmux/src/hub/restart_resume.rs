@@ -18,7 +18,7 @@
 //! - `auto_resume_scheduled` with `reason: "daemon_restart"` records it, and its `user_message`
 //!   carries `_meta.provenance = {kind: "auto_resume", reason: "daemon_restart", ...}`.
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
-//!   of restarts gives up after the attempts it configures ([`configured_attempts`]), as a
+//!   of restarts gives up after the attempts it configures (the configured schedule), as a
 //!   transport cut does (`auto_resume_exhausted`).
 //! - A crash between the continuation's `queued` record and its move to the head
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
@@ -31,7 +31,7 @@
 //! happen gives it back to the queue here. #5846 item 1: a chat moves between a laptop and a
 //! Cloud machine mid-turn and keeps working.
 
-use super::{DEFAULT_DELAYS_MS, SUFFIX, configured_attempts, split_attempt};
+use super::{DEFAULT_DELAYS_MS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use cmux_json::JsonSet as _;
@@ -466,7 +466,7 @@ impl Hub {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
         let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            configured_attempts(c.auto_resume_delays_ms.as_ref())
+            super::settings::read(c.auto_resume_delays_ms.as_ref()).len()
         });
         if attempts == 0 {
             return None;

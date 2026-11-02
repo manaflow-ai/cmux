@@ -67,6 +67,7 @@ pub(super) mod reset_hint;
 mod restart_resume;
 pub(in crate::hub) use restart_resume::Cut;
 mod restore;
+pub(super) mod settings;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -566,10 +567,8 @@ impl Hub {
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
-            let delays = {
-                let cfg = hub.config.read().await;
-                cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-            };
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = settings::read(configured.as_ref());
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
