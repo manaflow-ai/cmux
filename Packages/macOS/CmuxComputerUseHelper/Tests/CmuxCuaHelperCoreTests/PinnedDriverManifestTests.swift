@@ -8,9 +8,25 @@ import Testing
 /// writes: its parsers deny unknown fields, so a wrong key fails here, not in
 /// a person's session. Needs no Accessibility: it creates the driver and
 /// sessions, and calls nothing that touches an app. The SDK comes from
-/// ensure-cua-pinned-asset.sh (fleet artifact store or R2).
+/// ensure-cua-pinned-asset.sh (its cache, CMUX_CUA_ASSET_FILE, the fleet
+/// artifact store or R2); where none has it the test is disabled and says why.
 @Suite(.serialized) struct PinnedDriverManifestTests {
-    @Test(.timeLimit(.minutes(5))) func thePinnedDriverAcceptsTheAskCeilingAndSessionManifests() throws {
+    /// The pinned SDK tarball, or nil where it cannot be fetched.
+    static let sdkTarball: String? = {
+        guard let text = try? run("/bin/bash", [repo.appending(path: "scripts/cmux-next/ensure-cua-pinned-asset.sh").path,
+                                               repo.appending(path: "scripts/cmux-next/cua-driver-sdk.pin.json").path,
+                                               "--optional"]) else { return nil }
+        let path = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }()
+
+    static let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    @Test(.timeLimit(.minutes(5)),
+          .enabled(if: PinnedDriverManifestTests.sdkTarball != nil, "the pinned Cua Driver SDK is not reachable here (no cached copy, no store copy, no R2 read credentials)"))
+    func thePinnedDriverAcceptsTheAskCeilingAndSessionManifests() throws {
         let library = try Self.pinnedLibrary()
         HelperEnvironment(helperBundleID: "com.cmuxterm.cua.tests").apply()
         let store = try SessionFixture.store()
@@ -66,12 +82,7 @@ import Testing
 
     /// The pinned SDK, fetched and unpacked; its dylib path.
     static func pinnedLibrary() throws -> String {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let tarball = try run("/bin/bash", [repo.appending(path: "scripts/cmux-next/ensure-cua-pinned-asset.sh").path,
-                                           repo.appending(path: "scripts/cmux-next/cua-driver-sdk.pin.json").path])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let tarball = try #require(sdkTarball)
         let directory = FileManager.default.temporaryDirectory.appending(path: "cua-sdk-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         _ = try run("/usr/bin/tar", ["-xzf", tarball, "-C", directory.path])
@@ -89,7 +100,9 @@ import Testing
         try process.run()
         let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        try #require(process.terminationStatus == 0, "\(executable) \(arguments.joined(separator: " ")) failed")
+        guard process.terminationStatus == 0 else {
+            throw ToolError("\(executable) \(arguments.joined(separator: " ")) failed")
+        }
         return text
     }
 }
