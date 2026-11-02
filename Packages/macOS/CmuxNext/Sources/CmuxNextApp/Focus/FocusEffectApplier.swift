@@ -86,8 +86,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         // The active window's focused terminal is read now, so its Cmd-W decides the close in the key's turn (TabCloseGuard).
         guard controller.services.windows.active === controller else { return }
-        let pane = { if case .terminal(let key, let id) = state.resolved { content?.paneController(key: key).map { ($0, $0.tab(StripTabID(id))) } } else { nil } }()
-        controller.services.terminalReadAhead.focus(pane?.1, on: pane?.0.daemon)
+        guard case .terminal(let key, let id) = state.resolved, let pane = content?.paneController(key: key) else { return controller.services.terminalReadAhead.focus(nil, on: nil) }
+        controller.services.terminalReadAhead.focus(pane.tab(StripTabID(id)), on: pane.daemon)
     }
 
     // MARK: Responder
