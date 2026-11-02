@@ -505,12 +505,11 @@ test("the composer keeps its Account switcher, with Cmux routers under a Provide
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
-test("with no routes, Account offers the CLI login and says how to add one", async () => {
+test("with no routes, Account offers only the CLI login until a family is known", async () => {
   await mount({ routes: [] });
   await open();
   const account = await openSub("Account");
-  // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(itemsOf(account)).toEqual(["CLI login"]);
   expect(account.textContent).not.toContain("cmux route");
 });
 
