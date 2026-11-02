@@ -2177,16 +2177,16 @@ impl Hub {
                     tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
                         .await;
             }
-            // No awaits follow unregistering: a fixed-ID creator may now publish.
+            // No awaits follow unregistering: a fixed-ID creator may now publish. Keep the
+            // removal, index update and event publication under the same lock so a replacement
+            // cannot publish its created event before this purge notice.
             let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             if sessions.get(&session.id).is_some_and(|current| Arc::ptr_eq(current, session)) {
                 sessions.remove(&session.id);
             }
-            drop(sessions);
             self.remove_live_session_index(&session.id);
-            // Tell watchers (peers, TUIs) the session is gone only after local resolution can no
-            // longer find it. Otherwise a watcher that handles this event immediately can still
-            // resolve the just-purged session during the unregistering window.
+            // Tell watchers after local resolution can no longer find it, while the sessions lock
+            // still prevents a fixed-ID replacement from publishing first.
             let _ = self.events.send(HubEvent {
                 session_id: session.id.clone(),
                 record: Arc::new(EventRecord {
@@ -2203,6 +2203,7 @@ impl Hub {
                 }),
                 remote: None,
             });
+            drop(sessions);
         }
         Ok(())
     }
