@@ -27,6 +27,7 @@ on:
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
       - scripts/ci/runs_on_values.py
+      - scripts/ci/pr_runner_pool.py
       - scripts/ci/signing_runner_variables.py
       - scripts/ci/python-with-yaml.sh
       - scripts/ci/runner_pools.py
@@ -41,9 +42,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The self-hosted runners this repository can use (its own and the org's
+  # glaeda group, pr_runner_pool.GitHub.runners()), for the host count in
+  # check's runs-on step: names and labels only, as a job output. Its own job
+  # because it holds the routing App key, so it runs where no variable can
+  # move it (tests/test_ci_fork_runner_routing.py), on the queue janitor's
+  # bounded Linux pick. If it fails, check still runs and fails closed.
+  # The Python runs from feat-cmux-next, the reviewed tooling ref
+  # (scripts/ci/runs_on_values.py there), as nightly-next-launch-smoke.yml
+  # runs its scripts.
+  runners:
+    name: Read the self-hosted runner list
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - name: Check out the runs-on tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      # As nightly.yml's pick-nightly-app-runner mints it: the org's
+      # Self-hosted runners read is where the minis register.
+      - name: Mint the runner-list token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Read the runners
+        id: read
+        timeout-minutes: 1
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Until the counting lands on feat-cmux-next, there is no list to read;
+          # check then runs main's copy without the host count.
+          if ! grep -q -- '--list-runners' scripts/ci/runs_on_values.py; then
+            echo "::notice title=runs-on value::feat-cmux-next's runs_on_values.py has no --list-runners yet; hosts are not counted"
+            exit 0
+          fi
+          python3 scripts/ci/runs_on_values.py --list-runners >> "$GITHUB_OUTPUT"
+
   check:
     name: Check repository variables
-    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    needs: runners
+    # !cancelled(): a failed runner read still runs every check here; the host count fails closed.
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -119,17 +177,32 @@ jobs:
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
         run: python3 scripts/ci/runner_pools.py --check
 
+      # The host count's Python, from the reviewed tooling ref (see the runners job).
+      - name: Check out the runs-on tooling
+        if: ${{ !cancelled() }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runs-on-tooling
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
       # No runs-on waits on one machine through a variable's value
       # (scripts/ci/runs_on_values.py). The workflow text passes
       # `vars.X || <pool>` however X is set, and a set X never falls through,
       # so this reads each runs-on of every branch below that runs workflows
       # with the live values. Every variable a runs-on reads is passed by name
       # (tests/test_ci_runs_on_values.py keeps the list complete for this tree;
-      # the script names any other branch's variable missing here).
+      # the script names any other branch's variable missing here). It also
+      # counts the hosts whose runners carry each label set a variable asks
+      # for, from the runners job's list, and fails a set one host serves,
+      # picker or not, or a list it did not get.
       - name: Check no runs-on waits on one machine
         id: runs-on-values
         if: ${{ !cancelled() }}
         env:
+          CMUX_CI_COUNT_RUNNER_HOSTS: '1'
+          CMUX_CI_RUNNER_LIST: ${{ needs.runners.outputs.list }}
           # Branches whose workflows run: the default branch, the cmux NEXT
           # branches, and rc/cnx-ios-builder (the iPhone INTERNAL builder runs
           # its own frozen copy of ios-internal-nightly.yml).
@@ -197,4 +270,12 @@ jobs:
             fi
             trees+=("$branch=$dir")
           done
-          python3 scripts/ci/runs_on_values.py "${trees[@]}"
+          # feat-cmux-next's copy counts hosts (CMUX_CI_COUNT_RUNNER_HOSTS); until it
+          # does, main's copy runs the same check without the count.
+          tool=.runs-on-tooling/scripts/ci/runs_on_values.py
+          if [ -f "$tool" ] && grep -q CMUX_CI_COUNT_RUNNER_HOSTS "$tool"; then
+            python3 "$tool" "${trees[@]}"
+          else
+            echo "::notice title=runs-on value::feat-cmux-next's runs_on_values.py does not count hosts yet; checking without the count"
+            python3 scripts/ci/runs_on_values.py "${trees[@]}"
+          fi
