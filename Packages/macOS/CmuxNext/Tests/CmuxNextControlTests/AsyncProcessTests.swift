@@ -96,19 +96,33 @@ import Testing
     }
 
     @Test func aProcessGroupStopsDescendantsThatOutliveTheirGitLeader() async throws {
-        let marker = FileManager.default.temporaryDirectory.appending(path: "async-process-group-\(UUID().uuidString)").path
-        defer { unlink(marker) }
-        // The leader ignores TERM and waits for a descendant. The descendant records TERM and exits;
-        // a direct-pid stop leaves it running, while the process-group stop reaches it atomically.
-        // The leader ignores TERM only after it forks the descendant: a shell started with TERM ignored
-        // cannot trap it ("signals ignored upon entry to the shell cannot be trapped"), so a descendant
-        // forked after `trap '' TERM` never wrote the marker.
-        let script = "/bin/sh -c 'trap \"echo term > \\(marker); exit 0\" TERM; while :; do sleep 1; done' & trap '' TERM; wait"
-        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: .seconds(1),
-                                     onCancel: .finish, killGrace: .seconds(2), terminationScope: .processGroup)
-        // `.finish`: the run resolves at the leader's exit, which waits for the descendant's trap to write the
-        // marker; a `.stop` run resolves at the timeout itself, before the descendant has run its trap.
-        await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
+        let directory = FileManager.default.temporaryDirectory
+        let marker = directory.appending(path: "async-process-group-\(UUID().uuidString)").path
+        let ready = directory.appending(path: "async-process-group-ready-\(UUID().uuidString)").path
+        try #require(mkfifo(ready, 0o600) == 0)
+        defer { unlink(marker); unlink(ready) }
+        // The leader waits for a descendant and ignores TERM only after it forks it (a shell started with TERM
+        // ignored cannot trap it). The descendant traps TERM, writes the marker and exits; a direct-pid stop
+        // would leave it running, while the process-group stop reaches it.
+        // The paths are the shells' positional parameters ($0 the marker, $1 the readiness fifo), not text
+        // spliced into the script: the old `\\(marker)` in this literal was never interpolated, so the trap
+        // wrote to a file named "(marker)" in the working directory (or failed to parse) and the marker never appeared.
+        let script = #"/bin/sh -c 'trap "echo term > \"\$0\"; exit 0" TERM; echo ready > "$1"; while :; do sleep 1; done' "$0" "$1" & trap '' TERM; wait"#
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script, marker, ready],
+                                     onCancel: .finish, killGrace: .seconds(10), terminationScope: .processGroup)
+        let run = Task { try await processes.run(request) }
+        // Stop only once the descendant has installed its trap and said so: no timing race on a loaded host.
+        // Blocks until the descendant opens the fifo to write; one that never starts fails at the suite's limit.
+        let reader = open(ready, O_RDONLY)
+        try #require(reader >= 0)
+        var byte: UInt8 = 0
+        let readyRead = read(reader, &byte, 1)
+        close(reader)
+        try #require(readyRead == 1)
+        // `.finish`: the cancel sends TERM to the group and the run resolves at the leader's exit, which waits
+        // for the descendant's trap to write the marker.
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
         #expect(FileManager.default.fileExists(atPath: marker))
     }
 
