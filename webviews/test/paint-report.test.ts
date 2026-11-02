@@ -26,7 +26,8 @@ function page(visibility: "visible" | "hidden") {
   };
 }
 
-const task = () => new Promise((resolve) => setTimeout(resolve, 5));
+/// The next task: the report runs on the task its frame (or its hidden page) queued, which comes first.
+const task = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("a hidden page reports its paint although it draws no frame", async () => {
   const hidden = page("hidden");
