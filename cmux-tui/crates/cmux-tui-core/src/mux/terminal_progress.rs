@@ -20,6 +20,11 @@ impl Mux {
         // registry reads and the commit below run with the registry alone
         // (TUL-F7: progress reports held the session lock 18 s of 187 s
         // under L6, max 198 ms, and a person's key lookups waited).
+        // The registry connection stays pinned to the end, as before: the
+        // journal writer takes only the connection, so without the pin a
+        // writer commit could land between the reads below and this
+        // publish's commit (#32326 review).
+        let _connection = registry.connection.pin();
         let current = {
             let state = self.lock_state_pinned(&registry).unwrap();
             state.terminal_catalog.get(id).cloned()
