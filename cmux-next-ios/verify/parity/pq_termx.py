@@ -79,6 +79,17 @@ def tap_menu(j, title, scroll=True):
     time.sleep(1.0)
 
 
+def menu_item(j, title, tries=6):
+    """A row of an open context menu, scrolled into view (a long menu scrolls)."""
+    for _ in range(tries):
+        item = j.sim.wait(label=title, kind="Button", timeout=2)
+        if item and item.frame[1] + item.frame[3] < 700:
+            return item
+        j.sim.swipe(140, 640, 140, 380, 0.4)
+        time.sleep(0.6)
+    return None
+
+
 def seed_terminal(flow, lines):
     name, surface = seed(flow)
     t.mac_raw({"cmd": "send", "surface": surface, "text": lines + "\r"})
@@ -281,7 +292,7 @@ def names_ids(j, label):
     x, y = row.center
     j.sim.long_press(x, y, 1.0)
     time.sleep(1.0)
-    copy = j.sim.wait(label="Copy", kind="Button", timeout=5)
+    copy = menu_item(j, "Copy")
     check(copy, f"no Copy in the row menu: {[e.label for e in j.sim.find(kind='Button')][:30]}")
     j.sim.tap_el(copy)
     time.sleep(0.8)
@@ -336,7 +347,7 @@ def duplicate(j, label, browsers=True):
     j.sim.long_press(x, y, 1.0)
     time.sleep(1.2)
     title = "Duplicate Workspace" if browsers else "Duplicate Workspace Without Browser Tabs"
-    item = j.sim.wait(label=title, kind="Button", timeout=5)
+    item = menu_item(j, title)
     pq.shot(f"dup{'' if browsers else '-nobrowser'}-{label}-menu")
     if not item:
         j.sim.tap(200, 100)

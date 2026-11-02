@@ -154,18 +154,24 @@ extension LiveWorkspaceCreationBackend {
             throw error
         }
         // Color and icon as the Mac's builder sets them; a refusal leaves the copy as it is.
-        var identity: [String: Any] = [:]
-        if let color { identity["color"] = color }
-        if let icon { identity["icon"] = icon }
-        if !identity.isEmpty {
-            Self.address(created, into: &identity)
-            _ = try? WorkspaceSync.check(await client.request("set-workspace-metadata", params: identity))
+        if color != nil || icon != nil {
+            _ = try? WorkspaceSync.check(await client.request("set-workspace-metadata",
+                                                              params: Self.identityParams(created, color: color, icon: icon)))
         }
         let tree = try await sync.listNow()
         guard let copy = tree.workspaces.first(where: { $0.id == created.id }) else {
             throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
         }
         return copy
+    }
+
+    /// `set-workspace-metadata`'s params: the workspace, and its color and icon when set.
+    nonisolated static func identityParams(_ workspace: Workspace, color: String?, icon: String?) -> sending [String: Any] {
+        var params: [String: Any] = [:]
+        if let color { params["color"] = color }
+        if let icon { params["icon"] = icon }
+        address(workspace, into: &params)
+        return params
     }
 
     nonisolated static func surface(_ reply: Data) throws -> Int {
@@ -192,13 +198,19 @@ struct DuplicateBuilder {
         try await fill(first.root, pane: pane, initial: initial)
         var previous = pane
         for column in screen.columns.dropFirst() {
-            var params: [String: Any] = ["pane": previous]
-            if let width = column.width, width > 0 { params["width"] = width }
-            let surface = try LiveWorkspaceCreationBackend.surface(await client.request("new-pane-right", params: params))
+            let surface = try LiveWorkspaceCreationBackend.surface(
+                await client.request("new-pane-right", params: Self.columnParams(pane: previous, width: column.width)))
             let next = try await self.pane(holding: surface)
             try await fill(column.root, pane: next, initial: surface)
             previous = next
         }
+    }
+
+    /// `new-pane-right`'s params: the column to the left, and the new column's width when known.
+    nonisolated static func columnParams(pane: Int, width: Double?) -> sending [String: Any] {
+        var params: [String: Any] = ["pane": pane]
+        if let width, width > 0 { params["width"] = width }
+        return params
     }
 
     /// `pane` holds one new terminal (`initial`) started for `node`'s first tab.
