@@ -224,13 +224,17 @@ final class CaptureSceneRegistry {
             let native = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"),
                                                 "value": .bool(true)], services: services)
             let click: CmuxNextSettings.JSONValue
-            if case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services),
-               await view.debugSessionInfoHeaderPressed() {
-                // Showcase state can retain an open toggle across scene renders. Close it with the
-                // real header click first, then click the same control again to prove opening works.
-                let close = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
-                let open = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
-                click = .object(["pane": .string(pane), "initial_pressed": .bool(true), "close": close, "open": open])
+            if case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services) {
+                let alreadyPressed = await view.debugSessionInfoHeaderPressed()
+                if alreadyPressed {
+                    // Showcase state can retain an open toggle across scene renders. Close it with
+                    // the real header click first, then click the same control again to prove opening works.
+                    let close = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
+                    let open = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
+                    click = .object(["pane": .string(pane), "initial_pressed": .bool(true), "close": close, "open": open])
+                } else {
+                    click = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
+                }
             } else {
                 click = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
             }
