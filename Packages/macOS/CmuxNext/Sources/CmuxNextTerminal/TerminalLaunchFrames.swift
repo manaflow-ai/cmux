@@ -400,6 +400,8 @@ public final class TerminalLaunchFrames {
 
     /// Frames the keeper saved so far (tests, `debug.timings`).
     var keepSaves: Int { keeper?.saves ?? 0 }
+    /// The keeper's checks so far (each a main-actor timer wake).
+    var keepChecks: Int { keeper?.checks ?? 0 }
     /// The size of `key`'s last kept save (tests).
     func keepSavedSize(_ key: String) -> CGSize? { keeper?.savedSize(key) }
 

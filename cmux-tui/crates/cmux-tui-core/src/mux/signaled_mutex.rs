@@ -244,6 +244,8 @@ impl<'a> StateGuard<'a> {
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
+        #[cfg(test)]
+        STATE_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
         let waited = waited_from.elapsed();
         stats.acquired(site, waited, blocker);
         StateGuard {
@@ -258,6 +260,18 @@ impl<'a> StateGuard<'a> {
 }
 
 const STATE_LOCK_NAME: &str = "mux.state";
+
+#[cfg(test)]
+thread_local! {
+    static STATE_LOCKS_TAKEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
+/// lock by counting, with no timing (TYPING UNDER LOAD F4).
+#[cfg(test)]
+pub(crate) fn state_locks_taken_on_this_thread() -> u64 {
+    STATE_LOCKS_TAKEN.with(std::cell::Cell::get)
+}
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
@@ -351,6 +365,16 @@ impl DerefMut for PinnedState<'_> {
 }
 
 impl Mux {
+    /// The test hook a state mutation runs after the part that reads the
+    /// session (`set_state_commit_after_apply_hook_for_test`); nothing
+    /// outside tests.
+    pub(crate) fn run_state_commit_after_apply_hook(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.state_commit_after_apply.lock().unwrap().clone() {
+            hook();
+        }
+    }
+
     /// Lock state for a flow that holds `registry` and touches its database
     /// while state is held. The connection lock is taken first (see the
     /// module docs); registry methods called meanwhile re-enter it.

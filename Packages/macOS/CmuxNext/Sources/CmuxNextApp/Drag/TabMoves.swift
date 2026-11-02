@@ -252,6 +252,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        nameInput(tab, services: services, incognito: nil)
+    }
+
+    /// `nameInput` with the tab's incognito answer when the caller knows it (a sidebar row's workspace), so a browser
+    /// tab skips the lookup that reads every tab list (TYPING UNDER LOAD F6); nil looks it up. The one browser rule.
+    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
         // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
         // shows of its own names the workspace.
@@ -265,7 +271,7 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
+        let offTheRecord = tab.kind == .browser && (incognito ?? (services.cache.browserTabs.isIncognitoTab(tab.id) == true))
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)

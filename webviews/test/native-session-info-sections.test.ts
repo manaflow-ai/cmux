@@ -49,6 +49,8 @@ test("Cloud environment actions retain anchors, grants and one Remote Control sw
   )!;
   expect(section.bare).toBe(true);
   expect(section.rows.find((row) => row.id === "machine")!.trailing).toBe(t("composer.cloud"));
+  // The Cloud machine says what it is and how long its files last, as the web panel does.
+  expect(section.rows.find((row) => row.id === "machine")!.subtitle).toBe(t("cloudRepository.lifetime"));
   const control = section.rows.find((row) => row.id === "remoteControl")!;
   expect(control).toMatchObject({
     toggle: true,

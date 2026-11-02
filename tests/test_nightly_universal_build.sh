@@ -919,7 +919,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $EARLY_ADMISSION" ] \
   || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || !(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image)) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -1491,7 +1491,7 @@ for expected in \
   "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
-  "group: nightly-next-legacy-identity-publish" \
+  "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
   "needs.publish-nightly.outputs.refused != 'true'" \
   "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
