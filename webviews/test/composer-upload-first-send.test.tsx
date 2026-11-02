@@ -99,7 +99,8 @@ test("a send made while a pasted video uploads waits for it, then goes once with
   expect(sent).toEqual([["Sunbringer Menu Animation.mp4"]]);
 });
 
-test("a failed upload is tried again on its own; its chip never shows Retry when that works", async () => {
+test("a failed upload is tried again on the person's next key; its chip never shows Retry when that works", async () => {
+  const input = personInput();
   const answers: UploadResult[] = [
     { error: "Couldn't send the file to gcp-codex-lane-2." },
     { paths: ["/remote/clip.mp4"] },
@@ -111,6 +112,9 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   });
   let shownFailed = false;
   await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => calls === 1);
+  act(() => input.key());
+  input.restore();
   await until(() => {
     if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
     return handle.current!.attachments.length === 1;
@@ -211,6 +215,7 @@ test("an upload the host refused outright shows Retry at once, with no try again
 });
 
 test("an automatic retry stays in its original chat after a plain chat switch", async () => {
+  const input = personInput();
   // The composer instance survives a chat switch. Uploading A's file with B's current upload
   // handler would leak it to B's machine, even though A's pending chip stayed scoped to A.
   const handle: { current: Probe | null } = { current: null };
@@ -237,8 +242,9 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   // An ordinary chat selection, with no explicit draft/attachment carry.
   act(() => root!.render(<Harness options={b} handle={handle} />));
   expect(handle.current!.pending).toEqual([]);
-  const retryWindowStarted = Date.now();
-  await until(() => Date.now() - retryWindowStarted > UPLOAD_RETRY_DELAY_MS + 100);
+  // The person's next key in chat B: the try it starts must not go through B.
+  act(() => input.key());
+  await act(turn);
   expect(bCalls).toBe(0);
   expect(handle.current!.attachments).toEqual([]);
 
@@ -250,9 +256,11 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   await until(() => handle.current!.attachments.some((attached) => attached.name === "Sunbringer Menu Animation.mp4"));
   expect(aCalls).toBe(2);
   expect(bCalls).toBe(0);
+  input.restore();
 });
 
 test("an intentionally carried upload retries through its destination chat", async () => {
+  const input = personInput();
   const handle: { current: Probe | null } = { current: null };
   let aCalls = 0;
   let bCalls = 0;
@@ -276,6 +284,8 @@ test("an intentionally carried upload retries through its destination chat", asy
   await act(() => void handle.current!.attach([mp4()], true));
   await until(() => aCalls === 1 && handle.current!.pending.length === 1);
   act(() => root!.render(<Harness options={b} handle={handle} />));
+  act(() => input.key());
+  input.restore();
   await until(() => bCalls === 1 && handle.current!.attachments.length === 1);
   expect(aCalls).toBe(1);
   expect(handle.current!.pending).toEqual([]);
@@ -310,7 +320,7 @@ function fakeDocument() {
   };
 }
 
-test("the first try again goes on its own; the last waits for the person's key or click, never Return", async () => {
+test("every try again waits for the person's key or click, never Return", async () => {
   const { doc, fire, count } = fakeDocument();
   let again = 0;
   let gaveUp = 0;
@@ -320,8 +330,11 @@ test("the first try again goes on its own; the last waits for the person's key o
     () => (gaveUp += 1),
     doc,
   );
-  // fixed-wait: the 1 s before the first try again is the behavior under test.
+  // fixed-wait: no try goes on a timer, without the host's gesture.
   await new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS + 50));
+  expect(again).toBe(0);
+  fire("pointerdown");
+  await turn();
   expect(again).toBe(1);
   retryUploadLater(
     UPLOAD_AUTO_RETRIES - 1,
