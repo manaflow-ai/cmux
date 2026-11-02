@@ -172,6 +172,11 @@ def _run_per_session(script, name):
     sys.exit(code)
 
 
+# `--suite=keep-frames-disk`: what the app writes while the 12-pane HEAVY session runs and after it goes idle, with the
+# launch frame folder's writes per terminal (REOPEN-F6), scripts/cmux-next/keep-frames-disk-bench.py.
+if "--suite=keep-frames-disk" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "keep-frames-disk-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=keep-frames-disk"])
 # `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
