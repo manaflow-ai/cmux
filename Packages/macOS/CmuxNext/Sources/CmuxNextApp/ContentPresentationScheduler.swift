@@ -6,6 +6,9 @@ protocol PresentablePane: AnyObject {
     /// Showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool { get }
     func showSelected()
+    /// The pane waits for a later frame: it shows what it has without a new surface or page (a terminal's
+    /// frame from the last quit), so a frame that commits meanwhile is not empty there.
+    func showWhileWaiting()
 }
 
 /// Shows panes' selected content on display frames instead of inside model
@@ -17,7 +20,9 @@ protocol PresentablePane: AnyObject {
 /// 100-180 ms under load (surface creation compiles Metal pipelines
 /// synchronously). Here only the selection a pane has at frame time is
 /// shown, content already alive is shown at once, and at most one new
-/// surface is created per frame; the rest wait for the next frame.
+/// surface is created per frame; the rest wait for the next frame, showing
+/// meanwhile what they have without one (`showWhileWaiting`: a reopened
+/// terminal's last frame), so every visible pane has content in each frame.
 @MainActor
 final class ContentPresentationScheduler {
     private let frames: any ControlFrameSource
@@ -35,6 +40,7 @@ final class ContentPresentationScheduler {
     func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
+        if !pane.selectedContentIsAlive { pane.showWhileWaiting() }
         schedule()
     }
 
