@@ -952,7 +952,6 @@ def l6_exit(codes):
     return 1 if any(code != 0 for code in codes.values()) else 0
 
 
-
 def daemon_stats(app, path):
     """Records one `server-stats` reply of the app's daemon (locks, write path, resource projection) to PATH, as
     JSON: read only, no focus effect (CLI-1, STATUS 6237: which lock sites the storm holds under the real load).
@@ -981,6 +980,7 @@ def daemon_stats(app, path):
             json.dump(out, f)
     except OSError:
         pass
+
 
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
@@ -1043,11 +1043,12 @@ def cmd_run(a):
         profile.guard.start()
         while profile.guard.baseline is None and profile.guard.is_alive():
             time.sleep(0.01)  # the baseline is read before the load starts
+        if getattr(a, "daemon_stats", False) and profile.name == "L1":
+            # Before `ready`: the Python storm's rate window starts there (review should-fix at 5287ec5911d).
+            daemon_stats(app, os.path.join(profile.dir, "daemon-stats-start.json"))
         ready = (time.monotonic(), time.time())
         profile.manifest["ready"] = {"t_mono": ready[0], "t_wall": ready[1]}
         profile.save()
-        if getattr(a, "daemon_stats", False) and profile.name == "L1":
-            daemon_stats(app, os.path.join(profile.dir, "daemon-stats-start.json"))
         profile.calls.loading = True
         print("LOAD-READY %s t_mono=%.6f t_wall=%.6f" % (profile.name, ready[0], ready[1]), flush=True)
         timer = threading.Timer(a.duration, profile.stop.set) if a.duration else None

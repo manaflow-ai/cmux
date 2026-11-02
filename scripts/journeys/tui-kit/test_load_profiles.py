@@ -637,12 +637,14 @@ class WorkersOption(unittest.TestCase):
             out = os.path.join(d, "stats.json")
             load_profiles.daemon_stats(App(), out)
             th.join(5); srv.close()
-            rec = json.load(open(out))
+            with open(out) as f:
+                rec = json.load(f)
             self.assertEqual(seen["req"]["cmd"], "server-stats")
             self.assertEqual(rec["reply"], {"ok": True, "locks": {}})
             App.daemon_sock = os.path.join(d, "missing.sock")
             load_profiles.daemon_stats(App(), out)
-            self.assertIn("error", json.load(open(out)))
+            with open(out) as f:
+                self.assertIn("error", json.load(f))
 
 
 if __name__ == "__main__":
