@@ -43,6 +43,24 @@ import Testing
         #expect(closes == 2)
     }
 
+    /// The slider's parts and a slider row's accessory keep to the padded box of the popup's other
+    /// rows (``PopupRowView/contentGuide``), not to insets of their own.
+    @Test func partsSpanThePopupRowsPaddedBox() {
+        let spec = descriptor()
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "1", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: view.preferredHeight)
+        view.layout()
+        let box = PopupRowView.Layout()
+        #expect(view.slider.frame.minX == box.leading)
+        #expect(view.slider.frame.maxX == 240 - box.trailing)
+        let rowView = PopupRowView(leading: nil, title: "Row")
+        rowView.frame = NSRect(x: 0, y: 0, width: 240, height: box.minHeight)
+        rowView.layoutSubtreeIfNeeded()
+        #expect(rowView.contentGuide.layoutFrame.minX == box.leading)
+        #expect(rowView.contentGuide.layoutFrame.maxX == 240 - box.trailing)
+    }
+
     @Test func numericPositionOverridesNamedRestingIdentity() {
         var spec = descriptor()
         spec.selectedValue = "high"
