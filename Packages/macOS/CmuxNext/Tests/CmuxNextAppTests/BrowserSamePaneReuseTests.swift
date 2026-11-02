@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
