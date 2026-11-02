@@ -58,14 +58,10 @@ extension BrowserProfileService {
         guard file != nil, !pending.isEmpty else { return }
         let cef = services.cache.cef, webKit = services.cache.webKit.profileStore
         let ready = pending.filter { id in
-            guard !cleanupInFlight.contains(id) else { return false }
             guard let profile = BrowserProfileRecord.engineProfile(for: id) else { return true }
             return !cef.hasOpened(profile) && !webKit.loadedProfiles.contains(profile)
         }
         guard !ready.isEmpty else { return }
-        // An in-flight deletion owns its id until both engines' data is gone;
-        // duplicate cleanup tasks must never race a later re-creation.
-        cleanupInFlight.formUnion(ready)
         let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
         let bundleID = services.environment.launch.bundleID
         // task-owner: one-shot removal of deleted profiles' files; reports back once
@@ -78,7 +74,6 @@ extension BrowserProfileService {
                 try? FileManager.default.removeItem(at: SiteSettingsRegistry.defaultFile(for: profile, bundleIdentifier: bundleID))
                 done.append(id)
             }
-            self?.cleanupInFlight.subtract(ready)
             try? self?.edit { $0.finishCleanup(done) }
         }
     }
@@ -92,23 +87,17 @@ extension BrowserProfileService {
         // task-owner: one-shot migration of the import store at launch
         Task { [weak self] in
             let pending = await store.sourcesInDefaultProfile()
-            var awaitsDeletedData = false
             for record in pending where BrowserProfileRecord.isValidID(record.proposedProfileID) {
                 guard let self else { return }
                 do {
                     _ = try await createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
                                                 source: record.sourceFields)
                     try await store.retarget(record.sourceKey, to: record.proposedProfileID)
-                } catch BrowserProfileBookError.pendingCleanup {
-                    // A deleted profile may have the same deterministic import ID. Preserve its
-                    // migration ticket; the next launch can retry after engine cleanup finishes.
-                    awaitsDeletedData = true
-                    logger.error("migrate import \(record.sourceKey, privacy: .public): browser profile is pending deletion")
                 } catch {
                     logger.error("migrate import \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
-            if !awaitsDeletedData { try? self?.edit { $0.importsMigrated = true } }
+            try? self?.edit { $0.importsMigrated = true }
             self?.seedImportedHistory()
         }
     }

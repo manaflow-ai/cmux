@@ -42,7 +42,6 @@ nonisolated enum BrowserProfileAppStrings {
         case .defaultProfile: defaultCannotBeDeleted
         case .invalidName: invalidName
         case .invalidID: noProfile("")
-        case .pendingCleanup: "Browser profile data is still being deleted; retry after cleanup completes"
         case .invalidColor: RefusalStrings.colorMustBeOneOf("grey, blue, red, yellow, green, pink, purple, cyan, orange")
         case .invalidIcon: invalidIcon
         }

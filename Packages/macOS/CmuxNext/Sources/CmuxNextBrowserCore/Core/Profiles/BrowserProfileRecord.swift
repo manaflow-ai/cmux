@@ -75,8 +75,6 @@ public nonisolated enum BrowserProfileBookError: Error, Hashable, Sendable {
     case defaultProfile
     case invalidName
     case invalidID
-    /// Engine files for this identifier are still being removed.
-    case pendingCleanup
     case invalidColor
     case invalidIcon
 }
