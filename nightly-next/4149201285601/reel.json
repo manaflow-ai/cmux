@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4149201285601",
+  "notes": "notes/4149201285601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32470,
+      "title": "ci: one-off job that puts the missing production platform secrets on cmux-platform-production",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
