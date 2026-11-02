@@ -51,7 +51,7 @@ else, and never waits:
 4. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
    resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
-   is one or two runners (glaeda-dev-std-xcode-26.6: cmux8s busy with feed work and cmux11s offline from 10:12Z
+   is one or two runners (glaeda-dev-std-xcode-26.6: one busy with feed work and one offline from 10:12Z
    on 2026-11-02, when 15 DEV daily compiles queued there for up to 1.5 h), so a busy slot is no fallback;
 5. only while a fresh snapshot sees every Blacksmith macOS label stalled, the shared DEV slot label while a DEV
    slot is online: it waits there behind feed work only (the slots admit nothing else), never at the back of the

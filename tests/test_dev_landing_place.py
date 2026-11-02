@@ -302,7 +302,7 @@ class DailyPickerTests(unittest.TestCase):
 
     def test_with_nothing_owned_idle_it_overflows_to_a_moving_blacksmith_label_not_the_busy_dev_slot(self):
         # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6, whose two
-        # runners were busy (cmux8s) and offline (cmux11s): a label one or two runners serve is a reservation, and
+        # runners were busy and offline: a label one or two runners serve is a reservation, and
         # every reservation has a fallback within minutes. Blacksmith macOS is the routing order's last resort.
         busy = [slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2", status="offline"),
                 runner("cmux13s-glaeda-9", SIDE, busy=True)]
