@@ -300,6 +300,33 @@ import os
                 "the quit removed the frame of a pane waiting for the read: the next launch shows that pane empty")
     }
 
+    /// Review of #32372 (P3): the launch read takes at most `maximumFiles` names, and it took them before it kept only
+    /// saved frames. Atomic-write files left by kills mid-write (`<key>@1x.jpg.sb-<id>`) sort before a later key and
+    /// took every slot: that terminal showed no frame.
+    @Test func filesLeftByKilledWritesNeverCrowdOutASavedFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal)
+        defer { waiting.window.close() }
+        let directory = try await Self.saved(["tab_z": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for index in 0..<TerminalLaunchFrames.maximumFiles {
+            try Data("partial".utf8).write(to: directory.appending(path: "tab_a\(index)@1x.jpg.sb-killed-\(index)"))
+        }
+        #expect(await Self.launch(directory).showAhead("tab_z", in: waiting.content, reveal: reveal),
+                "files of killed writes took the read's slots: the saved frame was never read")
+    }
+
+    /// Review of #32372 (P3): a terminal on screen whose shown image gives no bitmap at quit keeps its saved frame.
+    @Test func aShownTerminalWhoseImageGivesNoBitmapKeepsItsSavedFrame() async throws {
+        let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // An image with no representation gives no CGImage.
+        await TerminalLaunchFrames(directory: directory).save(images: ["tab-1": NSImage(size: Self.size)])
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        #expect(names.contains { TerminalLaunchFrames.owner(of: $0) == "tab-1" },
+                "the quit removed the saved frame of a terminal on screen it had no new frame for")
+    }
+
     /// The reopen number is the LAST terminal of the first window frame to show its frame, never the first; a terminal
     /// that never shows one leaves it unset.
     @Test func theLaunchNumberIsTheLastPaneAndOnlyOnceEveryPaneShowed() async throws {
