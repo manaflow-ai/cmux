@@ -1054,9 +1054,6 @@ async fn acpmux(
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
                         continue;
                     }
-                    for id in crate::acpmux_policy::response_ids(&text) {
-                        server_reply_ids.remove(&id);
-                    }
                     if let Ok(value) = serde_json::from_str::<Value>(&text) {
                         let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
                         for request in requests {
@@ -1100,6 +1097,10 @@ async fn acpmux(
                     }
                     let latest = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
                     if crate::acpmux_policy::exposure_refusal_with_replies(&text, &latest, &bound_sessions, &server_reply_ids).is_some() { break; }
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let methodless = match &value { Value::Array(items) => items.iter().all(|item| item.get("method").is_none()), other => other.get("method").is_none() };
+                        if methodless { for id in crate::acpmux_policy::response_ids(&text) { server_reply_ids.remove(&id); } }
+                    }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
@@ -1118,7 +1119,7 @@ async fn acpmux(
                         for request in requests {
                             if request.get("method").is_some() {
                                 for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
-                                    bound_sessions.insert(session);
+                                    bound_sessions.insert(session.clone());
                                     server_reply_ids.insert(id, session);
                                 }
                             }

@@ -254,7 +254,13 @@ pub fn returned_sessions(message: &str) -> Vec<(String, String)> {
 fn contains_blocked_session(value: &Value, state: &SessionExposure, bound: &HashSet<String>) -> bool {
     match value {
         Value::Object(object) => object.iter().any(|(key, value)| {
-            if matches!(key.as_str(), "sessionId" | "session") {
+            if matches!(key.as_str(), "sessionId" | "session" | "agent_session") {
+                if key == "agent_session" {
+                    return value
+                        .get("session")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| !allowed(state, id, bound));
+                }
                 return value.as_str().is_some_and(|id| !allowed(state, id, bound));
             }
             contains_blocked_session(value, state, bound)
