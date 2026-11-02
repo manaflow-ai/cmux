@@ -556,7 +556,8 @@ fn origin_changed_during_a_guest_push_cannot_be_recorded_as_a_ready_chat() {
     assert!(first["error"].as_str().unwrap().contains("start a new chat"));
     let pin = Ledger::update(&path, |pins| {
         (pins.copied_chat(&send(&copy.key), "vm-a"), pins.copy_place(&send(&copy.key), "vm-a"))
-    }).unwrap();
+    })
+    .unwrap();
     assert_eq!(pin.0, None, "the changed project must not be opened");
     let original_place = pin.1.expect("incomplete copy is kept for the original project");
     std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
