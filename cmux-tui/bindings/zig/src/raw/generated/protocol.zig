@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8";
+pub const ir_sha256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8575,6 +8575,28 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
     );
 }
 
+pub const SetAttachVisibilityRequest = struct {
+    surface: Id,
+    visible: bool,
+};
+
+pub const SetAttachVisibilityResult = struct {
+    viewers: u32,
+};
+
+pub fn setAttachVisibility(client: anytype, request: SetAttachVisibilityRequest) !wire.Decoded(SetAttachVisibilityResult) {
+    return client.callTyped(
+        SetAttachVisibilityResult,
+        .{
+            .name = "set-attach-visibility",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "attach-visibility-v1",
+        },
+        request,
+    );
+}
+
 pub const SetCellPixelsRequest = struct {
     height_px: u16,
     width_px: u16,
@@ -11659,7 +11681,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 287;
+pub const command_count: usize = 288;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11884,6 +11906,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
+    .{ .name = "set-attach-visibility", .authority = "frontend", .since = 12, .capability = "attach-visibility-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },

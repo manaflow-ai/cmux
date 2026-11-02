@@ -10,10 +10,15 @@ later steps change it, and its failure still fails the job. build-nightly-app
 scans the app it just archived beside its uploads (74-77 s of prepare's
 critical path, runs 41416268105 and 41413478144); prepare scans only when that
 job did not prove the app (an unsigned resume). The Sentry upload stays
-non-fatal, as before.
+non-fatal, as before. On nightly-next it left build-nightly-app altogether:
+Sentry held "Finish the dSYM upload to Sentry" 10.8 and 19.7 min (runs
+41471126151, 41466468306) on the path prepare and the signers wait on, so
+sentry-dsyms-nightly uploads the build's dSYM artifacts after it, and nothing
+waits for that job.
 """
 
 from pathlib import Path
+import fnmatch
 import os
 import re
 import shutil
@@ -193,6 +198,53 @@ class BackgroundStepTests(unittest.TestCase):
                 finished = self.run_step(job, SENTRY_FINISH)
                 self.assertIn("uploaded build-universal/Build/Products/Release/", finished.stdout)
                 self.assertEqual(finished.returncode == 0, ok, finished.stderr)
+
+
+    def test_nightly_next_uploads_to_sentry_off_the_build_path(self):
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        jobs = doc["jobs"]
+        off_track = "needs.decide.outputs.track != 'nightly-next'"
+        for name in (SENTRY_START, SENTRY_FINISH):
+            with self.subTest(step=name):
+                self.assertIn(off_track, step(APP_JOB, name)["if"])
+        sentry = jobs["sentry-dsyms-nightly"]
+        self.assertIn("build-nightly-app", sentry["needs"])
+        for condition in ("inputs.nightly_next_unsigned_run == ''", "needs.decide.outputs.track == 'nightly-next'",
+                          "needs.decide.outputs.build_only != 'true'"):
+            self.assertIn(condition, sentry["if"])
+        self.assertNotIn("always()", sentry["if"])
+        self.assertIs(sentry["continue-on-error"], True)
+        self.assertLessEqual(sentry["timeout-minutes"], 60)
+        self.assertEqual(sentry["permissions"], {"contents": "read", "actions": "read"})
+        self.assertNotIn("cancel-in-progress", str(sentry))
+        # Nothing waits for it.
+        for name, job in jobs.items():
+            needs = job.get("needs") or []
+            with self.subTest(job=name):
+                self.assertNotIn("sentry-dsyms-nightly", [needs] if isinstance(needs, str) else needs)
+        # The same token, org and project the build job used; the build's two dSYM artifacts.
+        upload = next(item for item in sentry["steps"] if item.get("name") == "Upload the build's dSYMs to Sentry")
+        self.assertEqual(upload["env"], {"SENTRY_AUTH_TOKEN": "${{ secrets.SENTRY_AUTH_TOKEN }}",
+                                         "SENTRY_ORG": "manaflow", "SENTRY_PROJECT": "cmuxterm-macos"})
+        self.assertEqual(step(APP_JOB, SENTRY_START)["env"], upload["env"])
+        self.assertIn("scripts/upload-sentry-dsyms.sh", upload["run"])
+        download = next(item for item in sentry["steps"] if "download-artifact" in str(item.get("uses")))
+        build_sha = "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
+        kept = step(APP_JOB, "Keep the nightly-next dSYMs for publication")["with"]["name"]
+        rust = step(APP_JOB, "Keep the cmux-tui client dSYMs for Sentry")
+        pattern = download["with"]["pattern"]
+        self.assertEqual(kept, f"nightly-next-dsyms-{build_sha}")
+        self.assertEqual(rust["with"]["name"], f"nightly-next-cmux-tui-dsyms-{build_sha}")
+        for name in (kept, rust["with"]["name"]):
+            with self.subTest(artifact=name):
+                self.assertTrue(fnmatch.fnmatchcase(name, pattern), (name, pattern))
+        # The Rust client's dSYMs that app-upload-dsyms.sh uploads, only when the fast build made them.
+        script = (ROOT / "scripts/ci/nightly-steps/app-upload-dsyms.sh").read_text()
+        for dsym in re.findall(r"cmux-tui/target/aarch64-apple-darwin/release/[\w.-]+\.dSYM", script):
+            with self.subTest(dsym=dsym):
+                self.assertIn(dsym, rust["with"]["path"])
+        self.assertIn("env.NIGHTLY_FAST_BUILD == 'true'", rust["if"])
+        self.assertIs(rust["continue-on-error"], True)
 
 
 if __name__ == "__main__":

@@ -23,11 +23,24 @@ DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
 # They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
 # build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg')
+# sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg',
+                                   'sentry-dsyms-nightly')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
 )
+
+DEFAULT_POOL_MEMBERS = {
+    'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
+    'linux_4': 'blacksmith-4vcpu-ubuntu-2404',
+    'linux_8': 'blacksmith-8vcpu-ubuntu-2404',
+    'linux_16': 'blacksmith-16vcpu-ubuntu-2404',
+    'linux_32': 'blacksmith-32vcpu-ubuntu-2404',
+    'macos_15': 'blacksmith-6vcpu-macos-15',
+    'macos_26': 'blacksmith-6vcpu-macos-26',
+    'macos_26_large': 'blacksmith-12vcpu-macos-26',
+}
 
 
 def evaluate(node, context):
@@ -46,6 +59,21 @@ def evaluate(node, context):
         return {'true': True, 'false': False, 'null': None}.get(value, value)
     if kind == 'ref':
         return context.get(node[1], '')
+    if kind == 'pool':
+        # Resolve the same declared pool members as runs_on_labels.py. A test
+        # may provide RUNNER_POOLS JSON to exercise a reconciled member; when
+        # it does not, use the declaration's first member as the stable
+        # fixture value.
+        configured = context.get('vars.RUNNER_POOLS', '')
+        try:
+            pools = json.loads(configured) if configured else {}
+        except (TypeError, json.JSONDecodeError):
+            pools = {}
+        if isinstance(pools, dict) and isinstance(pools.get(node[1]), str):
+            return pools[node[1]]
+        declaration = json.loads((ROOT / '.github/runners.json').read_text())
+        members = declaration.get('pools', {}).get(node[1], {}).get('members', [])
+        return members[0] if members else ''
     if kind == 'cmp':
         left, right = (str(evaluate(arg, context)).lower() for arg in node[2:])
         if node[1] in ('>', '<', '>=', '<='):
@@ -61,9 +89,15 @@ def evaluate(node, context):
         if node[1].lower() == 'format':
             return args[0].format(*args[1:])
         if node[1].lower() == 'fromjson':
-            return json.loads(args[0])
+            try:
+                return json.loads(args[0])
+            except (TypeError, json.JSONDecodeError):
+                return {}
         if node[1].lower() == 'contains':
             return str(args[1]).lower() in str(args[0]).lower()
+    if kind == 'prop':
+        value = evaluate(node[1], context)
+        return value.get(node[2], DEFAULT_POOL_MEMBERS.get(node[2], '')) if isinstance(value, dict) else DEFAULT_POOL_MEMBERS.get(node[2], '')
     raise ValueError(node)
 
 
@@ -316,10 +350,11 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build 7 s). Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner
         # pick, takes GitHub-hosted Ubuntu first". Attempt 1 takes GitHub-hosted Ubuntu, a re-run Blacksmith Linux
         # 4 vCPU, whatever LINUX_RUNNER, RUNNER_POOLS, the overflow switch or the sign pick's outputs hold.
-        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg'):
+        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg', 'sentry-dsyms-nightly'):
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             self.assertNotIn('blacksmith-16vcpu', source)
             self.assertNotIn('blacksmith-32vcpu', source)
+            self.assertNotRegex(source, r'RUNNER_POOLS\)\.linux_(?:16|32)\b')
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                            'blacksmith-32vcpu-ubuntu-2404'):
                 for attempt, want in ((1, 'ubuntu-24.04'), (2, 'blacksmith-4vcpu-ubuntu-2404'),
@@ -798,7 +833,11 @@ class CredentialedControls(unittest.TestCase):
         class Context(dict):
             def get(self, key, default=''):
                 if key == 'pool_linux':
-                    return json.loads(pool or '{}').get('linux', '')
+                    try:
+                        member = json.loads(pool or '{}').get('linux', '')
+                    except (TypeError, json.JSONDecodeError):
+                        return ''
+                    return member if member in CREDENTIALED_CONTROL_MEMBERS else ''
                 return super().get(key, default)
         source = DOC['jobs'][job]['runs-on'][3:-2]
         self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux", source)

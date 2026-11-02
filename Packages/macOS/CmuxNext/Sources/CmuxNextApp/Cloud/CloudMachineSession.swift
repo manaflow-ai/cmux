@@ -33,7 +33,9 @@ final class CloudMachineSession {
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
-    /// The ended link went down or was revoked, not refused (``CloudAppLinks/isDrop(_:)``).
+    /// The last ended link's error as the link gave it (``CloudAppLinks/endedMessage(_:)`` shows less), for `cloud.machines`.
+    @ObservationIgnored private(set) var linkEndedDetail: String?
+    /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
@@ -45,6 +47,8 @@ final class CloudMachineSession {
     @ObservationIgnored private var appConnecting = false
     /// A daemon update restarted the daemon while a connect hop ran: connect afresh once it ends.
     @ObservationIgnored private var reconnectAfterHop = false
+    /// The machine began running while a connect was in flight: that connect is retried if it fails.
+    @ObservationIgnored private var retryIfHopFails = false
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
@@ -131,7 +135,7 @@ final class CloudMachineSession {
             connect()
         } else if previous == .starting || previous == .provisioning, record.status == .running, daemon.connection == nil {
             // A new machine is live while it provisions, but its daemon answers only once it runs.
-            retryNow()
+            if appConnecting { retryIfHopFails = true } else { retryNow() }
         }
         recoverInterruptedMutation()
     }
@@ -159,6 +163,7 @@ final class CloudMachineSession {
             guard !disconnected, !machine.shownStatus.isChanging else {
                 noteMutationInterruption()
                 appConnecting = false
+                retryIfHopFails = false
                 return
             }
             if let appLink {
@@ -228,6 +233,9 @@ final class CloudMachineSession {
         defer {
             appConnecting = false
             recoverInterruptedMutation()
+            let retry = retryIfHopFails && linkEnded != nil
+            retryIfHopFails = false
+            if retry, !reconnectAfterHop { connect(origin: .user) }
             if reconnectAfterHop {
                 reconnectAfterHop = false
                 appTicket = nil
@@ -329,10 +337,11 @@ final class CloudMachineSession {
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
+        linkEndedDetail = String(describing: error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
-        linkDropped = CloudAppLinks.isDrop(error)
+        linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
         if let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
