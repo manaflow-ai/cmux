@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextLayout
 public import CmuxNextDesign
 import CmuxNextTerminal
 
@@ -65,7 +66,7 @@ extension PaneContentView {
             needsLayout = true
         } else {
             if view.frame != contentHost.bounds { view.frame = contentHost.bounds }
-            view.autoresizingMask = [.width, .height]
+            if view.autoresizingMask != [.width, .height] { view.autoresizingMask = [.width, .height] }
         }
         // Above what still shows (a backdrop or a held page); hidden parked
         // views stay where they are, so a switch moves no view.
@@ -95,10 +96,9 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
-        // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
-        // sets their frame. A page that shares the tab row is sized by `layoutParked` instead.
-        if !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { view.autoresizingMask = [] }
+        // A hidden agent or internal page stays sized with the pane (no redraw at a new size when shown, `AgentPageRedraw.awaits`);
+        // a hidden terminal or browser does not (`install` sizes it), nor a page sharing the tab row (`layoutParked`).
+        if !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { LayoutRootView.stopsFollowing(view, in: contentHost) }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
@@ -146,7 +146,7 @@ extension PaneContentView {
         for entry in parked {
             guard let view = entry.view, view.superview === contentHost, view !== content, view.isHidden,
                   let frame = parkedFrame(of: view) else { continue }
-            view.autoresizingMask = []
+            if !view.autoresizingMask.isEmpty { view.autoresizingMask = [] }
             if view.frame != frame { view.frame = frame }
         }
     }
