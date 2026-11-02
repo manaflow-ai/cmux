@@ -3299,6 +3299,22 @@ button.cv-video-frames__frame:focus-visible {
   flex: 0 1 auto;
   max-width: 100%;
 }
+/* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+.cv-received__host {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The dot sits 4px from the name and from the host, not the sender's 8px gap plus a space. */
+  margin-inline-start: calc(4px - var(--cv-row-icon-gap));
+  color: var(--cv-text-dim);
+}
+.cv-received__host::before {
+  content: "\00B7";
+  margin-inline-end: 4px;
+}
 /* The sender's name is the line's first word: it starts on the rows' text column, its tint
    reaching back into the icon gap (transcript-icon-column.test.ts, transcript-row-alignment.test.ts). */
 .cv-received__sender > .cv-agent-tag.is-open {
