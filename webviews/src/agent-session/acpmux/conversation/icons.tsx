@@ -263,18 +263,21 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** The working spinner's spokes: eight, like the macOS activity indicator (the native rows' mark,
- * CmuxNextDesign `NativeSpinnerImage`), the top one leading at full strength and the rest fading
- * counter-clockwise behind it. `cv-spinner` steps them round one spoke at a time. */
-const SPINNER_SPOKES = Array.from({ length: 8 }, (_, index) => ({
-  angle: index * 45,
-  opacity: index === 0 ? 1 : Math.max(0.25, 1 - (8 - index) * 0.11),
-}));
+/** The working track's strength: the native ring track's (`StatusIndicatorTunables.trackOpacity`). */
+const WORKING_TRACK_OPACITY = 0.22;
+/** The working sweep: 80° of the r 5.25 ring from 12 o'clock clockwise (the native
+ * `StatusIndicatorPlan.sweepLength`, 0.22 of the circle). */
+const WORKING_SWEEP_PATH = "M8 2.75a5.25 5.25 0 0 1 5.17 4.34";
 
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the stepping
- * spokes, or a still dot while the row's words shimmer. `loading` (a check or a page loading, not
- * agent work) always draws the turning ring. `cv-spinner` turns either on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning
+ * sweep, or a still dot while the row's words shimmer. Agent work's spinner is a faint full ring
+ * (`cv-spinner__track`) with a short bright sweep (`cv-spinner__sweep`, about 80°, round caps)
+ * turning, as in Claude and ChatGPT and as the native rows draw it (CmuxNextDesign
+ * `StatusIndicatorPlan.workingGlyph`). Neither the 3/4 arc (Leo 2026-10-31: "who even decided to
+ * put that 3/4 circle") nor the macOS activity indicator's spokes (#29903; Leo 2026-11-01: "why the
+ * f*** did you make the spinner into this????"). `loading` (a check or a page loading, not agent
+ * work) keeps the turning arc. `cv-spinner` turns either on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
@@ -301,13 +304,26 @@ export const Spinner = ({
         strokeLinecap="round"
       />
     ) : (
-      <g className="cv-spinner__spokes" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round">
-        {SPINNER_SPOKES.map(({ angle, opacity }) => (
-          <line key={angle} x1="8" y1="1.75" x2="8" y2="4.75" opacity={opacity} transform={`rotate(${angle} 8 8)`} />
-        ))}
-      </g>
+      <>
+        <circle
+          className="cv-spinner__track"
+          cx="8"
+          cy="8"
+          r="5.25"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          opacity={WORKING_TRACK_OPACITY}
+        />
+        <path
+          className="cv-spinner__sweep"
+          d={WORKING_SWEEP_PATH}
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />
+      </>
     )}
-    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 
@@ -408,8 +424,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />
@@ -490,12 +507,5 @@ export const PauseCircle = (p: CvIconProps) => (
 export const ArrowRight = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
-  </Svg>
-);
-
-/** Opens somewhere else: the cue on a chip that opens another chat (AgentTag.tsx). */
-export const ArrowUpRight = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M5.25 10.75 10.75 5.25M6.25 5.25h4.5v4.5" />
   </Svg>
 );

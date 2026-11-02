@@ -138,9 +138,12 @@ impl Hub {
             &host_spec.env,
             &host_spec.cwd,
         );
-        let servers =
-            crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
-                .await;
+        let servers = crate::hub::LaunchServers::read(
+            &launch,
+            spec.draft.family.clone().unwrap_or_default(),
+            spec.spawn.kind,
+        )
+        .await;
         host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         // The start itself has no time budget (`link::spawn`); the pool is its caller and gives
         // up after its own `START_BUDGET`, as for its later stages. Giving up ends the host.

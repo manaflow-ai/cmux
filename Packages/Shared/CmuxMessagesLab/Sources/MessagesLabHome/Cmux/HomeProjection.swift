@@ -74,6 +74,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onDraftTextChange: () -> Void = {}
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
+    /// Retry a committed person message in a Chief conversation. The app
+    /// forwards this canonical owner message id to `chief.retry`.
+    var onChiefRetry: ((MessageID) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.

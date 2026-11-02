@@ -287,7 +287,7 @@ pub(super) fn start(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
+    if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if let Err(refusal) = startable(mux, params.surface) {
@@ -690,10 +690,31 @@ pub(crate) fn vm_word(vm_kind: &Option<Option<String>>) -> Option<&str> {
 impl Mux {
     /// The machine kind gate of a start, a guarded chat move in
     /// (`agent_transfer.rs`) and folder trust, read again at each call:
-    /// `vm_kind` is the call's own (only the exact `owner` counts). Any other
+    /// Native token connections use the signed role bound before their first
+    /// frame. Missing Native roles never fall back to the request. Other
+    /// connections retain the caller API answer (only exact `owner`). Any other
     /// word says the caller knows this machine is a Cloud VM it does not own:
     /// refused on any host, as a guest's root can remove every Cloud sign here.
-    pub(crate) fn agent_host_gate(&self, vm_kind: Option<&str>) -> Result<(), Refusal> {
+    pub(crate) fn agent_host_gate(
+        &self,
+        client: u64,
+        vm_kind: Option<&str>,
+    ) -> Result<(), Refusal> {
+        let signed = {
+            let state = self.control_clients.state.lock().map_err(|_| Refusal::HostUnverified)?;
+            state.clients.get(&client).ok_or(Refusal::HostUnverified)?.native_vm_kind
+        };
+        let vm_kind = match signed {
+            Some(Some(cmux_link::token::VmKind::Team)) => return Err(Refusal::TeamVmBlocked),
+            Some(None) => return Err(Refusal::HostUnverified),
+            Some(Some(cmux_link::token::VmKind::Owner)) => {
+                if vm_kind.is_some_and(|kind| kind != "owner") {
+                    return Err(Refusal::HostUnverified);
+                }
+                Some("owner")
+            }
+            None => vm_kind,
+        };
         self.control_clients.agent_sessions.starts.host_gate(vm_kind == Some("owner"))?;
         match vm_kind {
             Some(kind) if kind != "owner" => Err(Refusal::HostUnverified),

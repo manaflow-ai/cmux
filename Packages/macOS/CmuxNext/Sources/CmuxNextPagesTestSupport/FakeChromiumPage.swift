@@ -35,6 +35,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var closed = false
     /// Every visibility value requested by the host.
     public private(set) var visibility: [Bool] = []
+    /// The last ``setAnswersFileChooser(_:)``; nil before any.
+    public private(set) var answersFileChooser: Bool?
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -73,6 +75,8 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
+    /// Records the value in ``answersFileChooser``.
+    public func setAnswersFileChooser(_ on: Bool) { answersFileChooser = on }
     /// How often the page was reloaded.
     public private(set) var reloads = 0
     /// Counts the reload in ``reloads``.

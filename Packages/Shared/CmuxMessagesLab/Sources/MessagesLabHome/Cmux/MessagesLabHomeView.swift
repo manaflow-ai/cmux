@@ -92,6 +92,7 @@ public final class MessagesLabHomeView: NSView {
             let next = newValue.isFinite ? min(max(newValue, 0.5), 2) : 1
             guard next != controller.host.contentZoom else { return }
             controller.host.contentZoom = next
+            applyColumnZoom()
             applyZoomBounds()
             controller.followWindowScale()
             // The field moved with the zoom (the host is now frame / zoom tall) without a frame change here: lay out
@@ -100,6 +101,20 @@ public final class MessagesLabHomeView: NSView {
             layoutSubtreeIfNeeded()
             controller.onFieldTopChange?()
         }
+    }
+
+    /// cmux: the zoom whose bubble column this chat keeps on screen at every zoom
+    /// (https://github.com/manaflow-ai/cmux/issues/28978): `zoom` magnifies the text, the bubbles and the field, and
+    /// the column they wrap in stays as wide as at this zoom. The Chief chat sets its most zoomed-out level, the widest
+    /// column; nil keeps MessagesLab's own column, which narrows as the zoom grows. Set it before the chat lays out:
+    /// rows re-wrap on the next width change.
+    public var widestColumnZoom: CGFloat? {
+        didSet { applyColumnZoom() }
+    }
+
+    /// `Metrics.columnZoom` for this zoom and `widestColumnZoom`.
+    private func applyColumnZoom() {
+        Metrics.columnZoom = widestColumnZoom.map { zoom / $0 } ?? 1
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
@@ -185,10 +200,31 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onStop = newValue }
     }
 
+    /// Runs after the daemon accepts a Chief stop, when the stop button
+    /// becomes Continue.
+    public var onContinue: (() -> Void)? {
+        get { controller.onContinue }
+        set { controller.onContinue = newValue }
+    }
+
+    /// Whether the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { controller.continueAvailable }
+        set { controller.continueAvailable = newValue }
+    }
+
     /// The host's Stop all agents: Option-click on the stop button.
     public var onStopAll: (() -> Void)? {
         get { controller.onStopAll }
         set { controller.onStopAll = newValue }
+    }
+
+    /// A committed person message in a Chief conversation asks the Chief to
+    /// answer that message again. The app supplies the `chief.retry` bridge;
+    /// ordinary Home conversations leave it unset.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { projection.onChiefRetry }
+        set { projection.onChiefRetry = newValue }
     }
 
     /// The stop button's tooltip while the Chief works; nil: "Stop".

@@ -528,6 +528,23 @@ class GalleryHealth(unittest.TestCase):
         within = health(fresh=[("a.b#c", "play: waitFor did not hold within 3000 ms")])
         self.assertFalse(reds.gallery_classify(within, health(fresh=[("a.b#c", WAIT)])).own)
 
+    def test_a_state_past_its_shift_baseline_is_red_and_the_base_can_share_it(self):
+        shifted = [{"state": "agent-pane.tool-expand#bottom", "score": 0.02, "baseline": 0, "moves": []}]
+        head = health(shifted=shifted)
+        self.assertTrue(reds.gallery_classify(head, health()).own)
+        self.assertFalse(reds.gallery_classify(head, health(shifted=shifted)).own)
+        self.assertEqual(reds.gallery_entries(head), ["agent-pane.tool-expand"])
+        # A base checker from before the shift gate wrote no `shifted` list: it still reads as whole.
+        self.assertIsNone(reds.gallery_classify(health(), health()))
+
+    def test_a_geometry_break_is_red_per_violation_and_the_base_can_share_it(self):
+        broke = [{"state": "agent-pane.transcript#worked", "violations": [{"rule": "icon-column", "key": "icon-column:row r1", "detail": "x"}]}]
+        head = health(geometry=broke)
+        self.assertTrue(reds.gallery_classify(head, health()).own)
+        self.assertFalse(reds.gallery_classify(head, health(geometry=broke)).own)
+        other = [{"state": "agent-pane.transcript#worked", "violations": [{"rule": "icon-column", "key": "icon-column:row r2", "detail": "x"}]}]
+        self.assertTrue(reds.gallery_classify(head, health(geometry=other)).own)
+
     def test_a_crashed_render_is_never_the_bases(self):
         crashed = health(fresh=[("a.b#c", "did not render: page.goto: Target crashed")])
         verdict = reds.gallery_classify(crashed, crashed)
@@ -1055,6 +1072,35 @@ class BunTestReds(unittest.TestCase):
         self.assertEqual(reds.web_failures(head_shard).truncated, [])
         self.assertFalse(reds.classify_web([head_shard], [head_shard]).own)
 
+
+
+class ClassifyAny(unittest.TestCase):
+    """base_red_excuse.py's window: a failing test is the base's when any one of the base logs fails it."""
+
+    def test_a_test_red_on_any_base_is_shared_and_names_that_base(self):
+        head = log(failed("a()"), failed("b()"), SUMMARY)
+        verdict = reds.classify_any(head, [("run 2", log(failed("a()"), SUMMARY)),
+                                           ("run 1", log(failed("b()"), SUMMARY))], "cmux-next swift test")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["a() (run 2)", "b() (run 1)"])
+
+    def test_a_test_red_on_no_base_is_the_heads(self):
+        head = log(failed("a()"), failed("c()"), SUMMARY)
+        verdict = reds.classify_any(head, [("run 2", log(failed("a()"), SUMMARY)),
+                                           ("run 1", log(failed("b()"), SUMMARY))])
+        self.assertTrue(verdict.own)
+        self.assertIn("c()", verdict.reasons[0])
+        self.assertIn("run 2, run 1", verdict.reasons[0])
+
+    def test_one_base_is_classify(self):
+        head = log(failed("a()"), SUMMARY)
+        base = log(failed("b()"), SUMMARY)
+        self.assertEqual(reds.classify_any(head, [("run 1", base)]).reasons, reds.classify(head, base, "", "run 1").reasons)
+
+    def test_a_crash_is_the_heads_whatever_any_base_shows(self):
+        crashed = log(failed("a()"), ABORT)
+        verdict = reds.classify_any(crashed, [("run 2", log(SUMMARY)), ("run 1", crashed)], "cmux-next swift test")
+        self.assertTrue(verdict.own)
 
 if __name__ == "__main__":
     unittest.main()

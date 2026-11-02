@@ -30,6 +30,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let workspaceID: String?
     /// Its `mux.parent` tag: the coordinator that started it.
     public let parent: String?
+    /// Chief turn tags pair its child-owner key with its participant identity. Never inferred from names.
+    public let chiefChildren: String?
+    public let chiefParticipant: String?
     public let state: State
     /// Since when it has been in `state`.
     public let since: Date?
@@ -70,6 +73,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
     /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
     public let markKey: String?
+    /// The session's latest reply, one line (the summary's `preview`): the cookie consent panel
+    /// names it beside the agent chat that asked.
+    public let preview: String?
     /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
     /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
     public let usageWarnings: [String]
@@ -77,14 +83,18 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
-                turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil) {
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, preview: String? = nil,
+                usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
+                turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
+                chiefChildren: String? = nil, chiefParticipant: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
         self.peer = peer
         self.workspaceID = workspaceID
         self.parent = parent
+        self.chiefChildren = chiefChildren
+        self.chiefParticipant = chiefParticipant
         self.state = state
         self.since = since
         self.error = error
@@ -103,6 +113,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.createdAt = createdAt
         self.markKey = markKey
+        self.preview = preview
         self.usageWarnings = usageWarnings
     }
 
@@ -139,10 +150,13 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
                                  createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 preview: nonEmpty(summary["preview"]),
                                  usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) },
                                  sidebarRequiresOpen: (lane["requiresOpen"] as? Bool) ?? false,
                                  turnPrompt: turn?["prompt"] as? String,
-                                 turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]))
+                                 turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
+                                 chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
+                                 chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

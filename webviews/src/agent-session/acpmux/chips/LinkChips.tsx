@@ -20,6 +20,7 @@ import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
+import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
@@ -57,7 +58,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
-      {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
+      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileDoc size={16} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </button>
   );
@@ -75,7 +76,7 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
       /* tooltip-allow: the chip shows the file's name only; the tooltip says where it is */ title={where}
       aria-label={where}
     >
-      <FileDoc size={15} className="cv-chip__icon" />
+      <FileDoc size={16} className="cv-chip__icon" />
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </span>
   );
@@ -95,20 +96,25 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
   // link with the GitHub mark and its text. Its title goes to the hover card only.
   const ref = githubRefLabel(href);
-  const mark = ref ? <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
+  const mark = ref ? <GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
   // The hover card always has an icon to show; a favicon cmux has fits there, not in the line.
   const favicon = site?.icon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
   ) : undefined;
-  const cardMark = mark ?? favicon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />;
+  const cardMark = mark ?? favicon ?? <Globe size={16} strokeWidth={1.1} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);
+  // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
+  // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
+  // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
+  const state = usePullRequestState(pullRequest?.url);
   return (
     <>
       <a
         ref={setAnchor}
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
+        data-pr-state={state}
         href={href}
         rel="noreferrer"
         {...hover.trigger}

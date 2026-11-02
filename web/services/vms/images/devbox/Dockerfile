@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-arping \
     openssh-client \
     pkg-config \
+    locales \
     jq \
     fd-find \
     fzf \
@@ -71,6 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     e2fsprogs \
   && rm -rf /var/lib/apt/lists/* \
+  && locale-gen C.UTF-8 >/dev/null \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
   && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
