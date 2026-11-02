@@ -83,6 +83,22 @@ fn a_rollback_whose_wal_cannot_be_removed_keeps_the_backup_aside() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn installing_a_cleaned_registry_removes_the_old_rollback_journal() {
+    let dir = temp_dir("install-journal");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    fs::write(&db_path, b"full").unwrap();
+    fs::write(staging_path(&db_path), b"cleaned").unwrap();
+    fs::write(sidecar_path(&db_path, "-journal"), b"old pages").unwrap();
+
+    install(&db_path).unwrap();
+
+    assert_eq!(fs::read(&db_path).unwrap(), b"cleaned");
+    assert_eq!(fs::read(previous_path(&db_path)).unwrap(), b"full");
+    assert!(!sidecar_path(&db_path, "-journal").exists());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 fn registry_with_meta(path: &Path, entries: &[(&str, &str)]) {
     let connection = Connection::open(path).unwrap();
     connection

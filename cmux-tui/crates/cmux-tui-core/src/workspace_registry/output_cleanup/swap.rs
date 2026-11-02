@@ -1052,6 +1052,10 @@ fn install(db_path: &Path) -> anyhow::Result<()> {
     anyhow::ensure!(file_len(&wal) == 0, "the registry WAL still holds data: {}", wal.display());
     remove_if_present(&wal)?;
     remove_if_present(&sidecar_path(db_path, "-shm"))?;
+    // A rollback-journal sidecar belongs to the old registry's pages. Leaving
+    // it beside the cleaned file would let SQLite apply those pages after the
+    // rename, corrupting or rolling back the installed registry.
+    remove_if_present(&sidecar_path(db_path, "-journal"))?;
     let previous = previous_path(db_path);
     remove_if_present(&previous)?;
     let parent = db_path.parent().context("registry path has no directory")?;
