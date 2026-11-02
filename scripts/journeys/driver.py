@@ -57,6 +57,8 @@ MAX_FRAMES = 240
 CLIP_WIDTH = 1280
 # Seconds of fresh snapshots a frame check gets once the state it should show holds.
 FRAME_GRACE = 10.0
+# The daemon and app checks whose `lines` can back a frame_screen text that OCR misread (Journey.ocr_unread).
+OCR_BACKED = ("smoke_new_terminals", "smoke_app_lines", "smoke_daemon_lines")
 # Evidence a passing journey must have: the user-visible result seen three independent ways.
 REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
@@ -516,11 +518,37 @@ def apply_daemon_skew(status, reason, skew):
     return "not run", f"daemon build is not the build under test: {skew}; was {status}: {reason}"[:600]
 
 
+def _ocr_fold(text):
+    return re.sub(r"\s+", "", text).translate(OCR_FOLD).lower()
+
+
 def ocr_contains(lines, wanted):
     """Whether OCR'd `lines` show `wanted` (spaces dropped, look-alike letters folded)."""
-    fold = lambda s: re.sub(r"\s+", "", s).translate(OCR_FOLD).lower()
-    target = fold(wanted)
-    return any(target in fold(line) for line in lines) or target in fold("".join(lines))
+    target = _ocr_fold(wanted)
+    return any(target in _ocr_fold(line) for line in lines) or target in _ocr_fold("".join(lines))
+
+
+OCR_NEAR_EDITS = 1      # a shown text that recognition misread in at most this many glyphs
+OCR_NEAR_MIN_LEN = 8    # ... and only for a text this long (a nonce line), never a short word
+
+
+def ocr_near(lines, wanted):
+    """The OCR line that shows `wanted` but for at most OCR_NEAR_EDITS glyphs (an edit distance against any part of
+    the folded line), or None. A frame that does not show the text (blank, the echoed command, another nonce) has none."""
+    target = _ocr_fold(wanted)
+    if len(target) < OCR_NEAR_MIN_LEN:
+        return None
+    for line in lines:
+        text = _ocr_fold(line)
+        prev = [0] * (len(text) + 1)          # a match may start anywhere in the line
+        for i, ch in enumerate(target, 1):
+            cur = [i] + [0] * len(text)
+            for j, tc in enumerate(text, 1):
+                cur[j] = min(prev[j - 1] + (ch != tc), prev[j] + 1, cur[j - 1] + 1)
+            prev = cur
+        if min(prev) <= OCR_NEAR_EDITS:
+            return line
+    return None
 
 
 def negative(name, want):
@@ -1054,6 +1082,8 @@ class Journey:
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
         detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        near = {t: ocr_near(lines, t) for t in missing}
+        detail["near"] = {t: line for t, line in near.items() if line is not None}
         return bool(want.get("shows")) and not missing and not present, detail
 
     def cond_quit_leftovers(self, want, cache):
@@ -1423,6 +1453,11 @@ class Journey:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
                     break
+        for s in frames:
+            if not s["ok"]:
+                note = self.ocr_unread(s, state)
+                if note:
+                    s["ok"], s["at"], s["detail"] = True, now(), dict(s["detail"], ocr_unread=note)
         failed = []
         for s in state:
             elapsed = None if s["at"] is None else round((s["at"] - t0) * 1000)
@@ -1440,6 +1475,27 @@ class Journey:
         if failed:
             raise StepError("; ".join(failed))
         return result
+
+    def ocr_unread(self, s, state):
+        """The note "OCR could not read it (daemon check passed): ..." when a failed frame_screen only missed `shows`
+        texts that (1) a daemon check of the SAME step names in its `lines` and that check passed, and (2) the frame
+        shows but for one glyph (ocr_near); else None, and the miss stays a failed step (lead 11:1xZ: two false smoke
+        reds from misread glyphs, STATUS 5811 and 6305). A blank frame, a frame without the text, a `lacks` text on
+        screen or a failed or missing daemon check is never excused: the visual check keeps what it adds."""
+        detail = s.get("detail")
+        if s["name"] != "frame_screen" or not isinstance(detail, dict) or detail.get("error"):
+            return None
+        missing, present, near = detail.get("missing") or [], detail.get("present") or [], detail.get("near") or {}
+        if not missing or present:
+            return None
+        said = []
+        for text in missing:
+            backer = next((o["name"] for o in state if o["name"] in OCR_BACKED and o["ok"] and not o["negative"]
+                           and text in (o["cond"][o["name"]].get("lines") or [])), None)
+            if backer is None or text not in near:
+                return None
+            said.append(f"{text!r} read as {near[text]!r}, {backer} passed")
+        return "OCR could not read it (daemon check passed): " + "; ".join(said)
 
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
