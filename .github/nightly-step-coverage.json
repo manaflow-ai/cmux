@@ -4,6 +4,7 @@
     "nightly.yml": {
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
         "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Start early Linux admission beside the Mac picker": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
         "Admit early controls on reserved fleet Linux": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
