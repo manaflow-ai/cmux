@@ -95,8 +95,11 @@ pub(super) fn sync(directory: &Path, terminal_id: &TerminalPublicId) {
     }
 }
 
+/// One tail frame: its stream offset and raw bytes.
+type Frame = (u64, Vec<u8>);
+
 /// (generation, snapshot offset it continues, frames) of a tail file.
-fn read_file(file: &Path) -> Option<(String, u64, Vec<(u64, Vec<u8>)>)> {
+fn read_file(file: &Path) -> Option<(String, u64, Vec<Frame>)> {
     if fs::metadata(file).ok()?.len() > MAX_TAIL_FILE_BYTES {
         return None;
     }

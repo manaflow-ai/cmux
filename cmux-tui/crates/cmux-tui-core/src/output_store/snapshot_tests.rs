@@ -209,7 +209,7 @@ fn a_snapshot_in_full_mode_removes_a_tail_left_from_snapshot_mode() {
     let directory = directory("full-mode");
     let log = log(b"");
     super::super::tail::append(&directory, &log.terminal_id, "g", 0, 0, b"old", false).unwrap();
-    snapshot_written(&directory, &log, false, 9, (80, 24), &std::sync::Arc::from("g"), 3);
+    snapshot_written(&directory, &log, false, 9, (80, 24), &Arc::from("g"), 3);
     let left = super::super::tail::path(&directory, &log.terminal_id).exists();
     let _ = std::fs::remove_dir_all(&directory);
     assert!(!left, "the tail of snapshot mode outlived a full-mode snapshot");
