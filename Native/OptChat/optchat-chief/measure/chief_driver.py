@@ -668,7 +668,7 @@ try:
         log(f"COORDINATOR tool_list={json.dumps(tool_list, sort_keys=True)}")
 
         ask_token = "ASK-" + secrets.token_hex(4).upper()
-        ask_text = f"Forward this coordinator request: send the word {ask_token} and tell me when it's sent."
+        ask_text = f"Use acpmux_send to forward this coordinator request: send the word {ask_token} and tell me when it's sent."
         # A Chief turn session is ephemeral; resolve the current one again
         # after the owner exchange instead of reusing an ended turn id.
         chief_session = chief_turn_session()
