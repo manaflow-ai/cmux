@@ -91,6 +91,7 @@ export function HandoffReviewMessage({
             aria-label={s.context}
             value={capsule}
             rows={10}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -105,6 +106,7 @@ export function HandoffReviewMessage({
             aria-label={s.checkpoint}
             value={checkpoint}
             placeholder={s.checkpointPlaceholder}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -118,6 +120,7 @@ export function HandoffReviewMessage({
           <input
             aria-label={s.checkpointConfirm}
             type="checkbox"
+            required
             checked={confirmed}
             disabled={!editable}
             onChange={(e) => {
@@ -175,7 +178,7 @@ export function HandoffReviewMessage({
         <div className="acpmux-handoff-buttons">
           <button
             type="submit"
-            disabled={busy || !!state.conflict || !capsule.trim() || !checkpoint.trim() || !confirmed}
+            disabled={busy || !!state.conflict}
           >
             {state.busy === "starting" || record.state === "starting"
               ? s.starting

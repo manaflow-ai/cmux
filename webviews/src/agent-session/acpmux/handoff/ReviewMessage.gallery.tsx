@@ -2,7 +2,7 @@
 //
 // The review is the only point where a handoff's context, checkpoint and approved memory
 // references become a prompt. Keep the gallery entry centered on that safety boundary: the
-// target can edit a draft, but Start stays gated until a checkpoint is explicitly confirmed.
+// target can edit a draft, but form validation requires an explicitly confirmed checkpoint.
 import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -259,7 +259,7 @@ export default componentEntry<Props>({
       play: edit,
     },
     "checkpoint-gating": {
-      note: "Start stays disabled until a repository checkpoint is entered and the user confirms its saved working changes; Enter then starts the review.",
+      note: "Continue identifies missing required fields; a checkpoint and explicit saved-work confirmation are still required before Enter starts the review.",
       props: propsFor(noCheckpoint),
       play: checkpointGating,
     },
