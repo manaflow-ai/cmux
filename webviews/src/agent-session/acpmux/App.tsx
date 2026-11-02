@@ -8935,29 +8935,32 @@ function AcpmuxPane() {
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            chat={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-          />
+          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+            <SubagentTray
+              key={shownSessionId}
+              chat={shownSessionId}
+              items={trayList}
+              finished={trayFinished}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+              canReadTail={
+                opensProcessTerminal(snapshot.summary) &&
+                clientEpoch > 0 &&
+                directClient.current !== undefined &&
+                backgroundTaskOutput !== undefined
+              }
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+              placement={trayPlacement}
+              shown={trayChat}
+              enters={trayEnters}
+            />
+          </SubagentHarnessContext.Provider>
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
