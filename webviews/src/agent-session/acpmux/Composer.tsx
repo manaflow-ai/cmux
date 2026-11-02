@@ -1182,12 +1182,13 @@ export function Composer({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks).
+  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
+  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
   const [arrowed, setArrowed] = useState(false);
   useEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query]);
+  }, [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
