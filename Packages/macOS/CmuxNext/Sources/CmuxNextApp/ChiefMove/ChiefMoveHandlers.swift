@@ -45,7 +45,7 @@ enum ChiefMoveHandlers {
     /// The list as the app sees its machines now.
     static func targets(_ context: AppActionContext) -> [ChiefMoveTarget] {
         let machines = context.services.machines
-        let records = SidebarDocStore.current?.records
+        let records = context.services.sidebarDoc.store?.records
         func isRemoteGroup(_ daemon: DaemonService) -> Bool {
             guard let session = daemon.store.registryID else { return false }
             return records?.sections["sec_m_\(session)"]?.hostGroup == true

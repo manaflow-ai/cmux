@@ -333,6 +333,8 @@
     "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks"},
     "nightly.yml#build-nightly-inputs": {"class": "portable-checks"},
     "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
+    "nightly.yml#route-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant-primary": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant": {"class": "portable-checks"},
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",

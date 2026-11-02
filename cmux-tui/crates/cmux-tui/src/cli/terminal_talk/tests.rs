@@ -383,6 +383,51 @@ fn terminal_send_generated_key_is_returned_on_a_lost_reply() {
     assert_eq!(daemon.applied.get(), 2, "one paste and one Enter");
 }
 
+/// A replay key must identify the same terminal even if a user moves a tab,
+/// renames a title or changes which terminal is current.
+#[test]
+fn keyed_terminal_send_requires_a_full_stable_terminal_id() {
+    const TERMINAL: &str = "term_c1a0de00000000000000000000000001";
+    for target in ["Fix lag", "tab_claude", "term_c1a0de"] {
+        let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
+        let request = SendRequest {
+            target: target.to_owned(),
+            idempotency_key: Some("one-send".into()),
+            wait: Wait::None,
+            ..quick("echo once")
+        };
+        let failure = send::run(&daemon, None, &request).expect_err("mutable selector refused");
+        assert_eq!(failure.exit, 2, "{target}: {failure:?}");
+        assert_eq!(failure.failure.error["code"], "terminal.send_stable_target_required");
+        assert_eq!(failure.failure.error["details"]["terminal"], TERMINAL);
+        assert!(daemon.writes().is_empty(), "{target} sent bytes before refusal");
+    }
+}
+
+/// An unkeyed first attempt can still use a title. If a write's response is
+/// lost, the error includes its resolved terminal id to retry with the key.
+#[test]
+fn lost_ack_title_send_retries_using_the_original_terminal_id() {
+    const TERMINAL: &str = "term_c1a0de00000000000000000000000001";
+    let daemon = LostAckDaemon::new(1);
+    let request = SendRequest {
+        target: "Fix lag".into(),
+        wait: Wait::None,
+        enter_delay: Duration::ZERO,
+        ..quick("echo once")
+    };
+    let failed = send::run(&daemon, None, &request).expect_err("paste applied, reply lost");
+    assert_eq!(failed.failure.error["details"]["terminal"], TERMINAL);
+    let send_id = failed.failure.idempotency_key.expect("stable recovery id");
+    let retry =
+        SendRequest { target: TERMINAL.into(), idempotency_key: Some(send_id.clone()), ..request };
+    let receipt = send::run(&daemon, None, &retry).expect("replayed original paste, sent Enter");
+    assert_eq!(receipt["idempotency_key"], send_id);
+    assert_eq!(receipt["terminal"], TERMINAL);
+    assert_eq!(daemon.applied.get(), 2, "one paste and one Enter total");
+    assert_eq!(daemon.inner.writes().len(), 2);
+}
+
 #[test]
 fn send_pastes_presses_enter_waits_and_answers_only_the_reply() {
     let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";

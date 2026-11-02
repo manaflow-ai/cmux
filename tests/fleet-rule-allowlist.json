@@ -27,7 +27,6 @@
     "Native/OptChat/optchat-chief/deploy/brain/rollback.sh": {"count": 1, "reason": "safe: -U own uid and the deploy's own brain bin dir"},
     "Native/OptChat/optchat-chief/deploy/brain/tests/rollback.test.sh": {"count": 1, "reason": "safe: -U own uid and the test's own agent-host path next to the script"},
     "Native/OptChat/optchat-chief/tests/right_column_prompt.rs": {"count": 2, "reason": "safe: test asserting the prompt forbids pkill"},
-    "Prototypes/SettingsShellLab/script/build_and_run.sh": {"count": 1, "reason": "debt: -x the prototype app name stops any running copy, not only the one this script launched; record the launched PID"},
     "backend/chief-opencode/bench/run.sh": {"count": 1, "reason": "debt: `pkill -f 'opencode serve ... --port 4096'` matches any user's server on that port; record the PID it starts"},
     "cmux-next-ios/verify/design/terminal/VERIFY-round2.md": {"count": 1, "reason": "safe: a QA record describing a past fault-injection run; no command runs from it"},
     "cmux-next-ios/verify/design/terminal/qa-round-11.md": {"count": 1, "reason": "safe: a QA record describing a past fault-injection run; no command runs from it"},

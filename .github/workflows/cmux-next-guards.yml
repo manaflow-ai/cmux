@@ -247,6 +247,10 @@ jobs:
       # against the previous tip. A push runs every routed group (no list): a product-only change routes
       # none on its pull request, and a guard it breaks then shows on the push that landed it. No base
       # (a new branch, an unreadable tip) routes every group and runs no base comparison.
+      # A push that touches what the guards read (.github/, tests/, scripts/ci/) is judged at its tip: no base
+      # comparison, so every red step fails the push. Judged only against the previous tip, a red that persists
+      # stays green: 18 guard steps sat red on the branch, unseen, until #31366
+      # (detect_linux_guard_changes.feat_push_judges_tip).
       - name: Changed files
         id: changes
         env:
@@ -277,8 +281,13 @@ jobs:
             echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files against $base"
             echo "base=$base" >> "$GITHUB_OUTPUT"
             if [[ "$EVENT_NAME" != pull_request ]]; then
+              tip="$(python3 scripts/ci/detect_linux_guard_changes.py --feat-push-tip "$RUNNER_TEMP/changed-files.txt")"
+              echo "tip=$tip" >> "$GITHUB_OUTPUT"
               rm -f "$RUNNER_TEMP/changed-files.txt"
               echo "a push runs every routed guard group"
+              if [[ "$tip" == true ]]; then
+                echo "the push touches what the guards read: every red step at the tip fails it"
+              fi
             fi
           else
             rm -f "$RUNNER_TEMP/changed-files.txt"
@@ -322,7 +331,7 @@ jobs:
       # only on a step red on this change but not on its base; the base's reds are warnings
       # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
       - name: Checkout the base
-        if: (steps.changes.outputs.base || '') != '' && (steps.changes.outputs.base) != '0000000000000000000000000000000000000000'
+        if: (steps.changes.outputs.base || '') != '' && (steps.changes.outputs.base) != '0000000000000000000000000000000000000000' && steps.changes.outputs.tip != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.changes.outputs.base }}
@@ -332,6 +341,7 @@ jobs:
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
+          GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
@@ -341,7 +351,11 @@ jobs:
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
           fi
-          python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
+          if [ "$GUARDS_AT_TIP" = true ]; then
+            python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"
+          else
+            python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
+          fi
 
   vt-link-graph:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
