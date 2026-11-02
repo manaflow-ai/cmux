@@ -193,30 +193,14 @@ export default componentEntry<Props>({
   load: async () => CmuxExecRowsGallery,
   keywords: ["cmux_exec", "cmux exec", "mcp", "script", "code mode"],
   variants: {
-    before: variant(
-      "before",
-      "light",
-      'Before: every script reads "Called cmux · cmux exec" over escaped JSON.',
-    ),
-    "before-dark": variant(
-      "before",
-      "dark",
-      'Before: every script reads "Called cmux · cmux exec" over escaped JSON.',
-    ),
-    after: variant(
-      "after",
-      "light",
-      "Each script says what it did; opened, JavaScript, calls and a result tree.",
-    ),
+    before: variant("before", "light", 'Before: every script reads "Called cmux · cmux exec" over escaped JSON.'),
+    "before-dark": variant("before", "dark", 'Before: every script reads "Called cmux · cmux exec" over escaped JSON.'),
+    after: variant("after", "light", "Each script says what it did; opened, JavaScript, calls and a result tree."),
     "after-dark": variant(
       "after",
       "dark",
       "Each script says what it did; opened, JavaScript, calls and a result tree.",
     ),
-    running: variant(
-      "running",
-      "light",
-      "The second script still running: its title from the calls in its source.",
-    ),
+    running: variant("running", "light", "The second script still running: its title from the calls in its source."),
   },
 });

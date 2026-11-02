@@ -68,11 +68,7 @@ const snapshot = () => look;
 
 /// The listed chat a send's target names: its id when the call gives it, else the chat with that
 /// name, on that host for `host/name` or `host:name` (a basket such as `reports:leo` is no chat).
-export function targetChat(
-  store: SubsessionStore,
-  target: string,
-  sessionId?: string,
-): string | undefined {
+export function targetChat(store: SubsessionStore, target: string, sessionId?: string): string | undefined {
   if (sessionId) return store.has(sessionId) ? sessionId : undefined;
   // A peer's chat is listed as `host/name` (acpmux hub/peers.rs); a send may name a chat by its id.
   const listed = store.find(target);
@@ -81,9 +77,7 @@ export function targetChat(
   const split = /^([^/:]+)[/:](.+)$/.exec(target);
   if (!split) return undefined;
   const id = store.find(`${split[1]}/${split[2]}`) ?? store.find(split[2]!);
-  return id && (store.find(`${split[1]}/${split[2]}`) === id || store.host(id) === split[1])
-    ? id
-    : undefined;
+  return id && (store.find(`${split[1]}/${split[2]}`) === id || store.host(id) === split[1]) ? id : undefined;
 }
 
 const NO_STORE = new SubsessionStore();
@@ -171,10 +165,7 @@ export function SentMessageLine({
   const source = !text && file && state !== "failed" ? file : "";
   const label =
     shape === "arrow" && (state === "sending" || state === "sent") && preview
-      ? t(state === "sending" ? "subsession.sending" : "subsession.to", {
-          name: MARK,
-          text: preview,
-        })
+      ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
       : sendLabel(t, state);
   const [before, after = ""] = label.split(MARK);
   // The recipient as every message row draws it: a chip, and a button when its chat is known.
@@ -192,8 +183,7 @@ export function SentMessageLine({
     ) : (
       <span className="cv-agentmsg__name cv-recipient is-plain">{target}</span>
     );
-  const more =
-    others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
+  const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
   const toggle = () => setOpen((value) => !value);
   const icon = state === "failed" ? <AlertCircle /> : <Envelope />;
   return (
@@ -209,15 +199,12 @@ export function SentMessageLine({
         aria-controls={open ? id : undefined}
         onClick={toggle}
         onKeyDown={(event: KeyboardEvent) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " "))
-            return;
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
           event.preventDefault();
           toggle();
         }}
       >
-        <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>
-          {icon}
-        </span>
+        <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>{icon}</span>
         {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
         <span className="cv-agentmsg__sentence">
           {before.trim() && <span className="cv-agentmsg__words">{before.trim()}</span>}
@@ -305,8 +292,7 @@ export function RawToggle({
   const t = useT();
   const [own, setOwn] = useState(startOpen);
   const open = shown ?? own;
-  const setOpen = (next: (value: boolean) => boolean) =>
-    onOpenChange ? onOpenChange(next(open)) : setOwn(next);
+  const setOpen = (next: (value: boolean) => boolean) => (onOpenChange ? onOpenChange(next(open)) : setOwn(next));
   const id = useId();
   return (
     <div className="cv-subsession__raw">
@@ -374,10 +360,7 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
 /// response.
 function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boolean }) {
   const id = useId();
-  const call = useMemo(
-    () => (tool.command ? undefined : (mcpCall(tool) ?? acpmuxMcpSendCall(tool))),
-    [tool],
-  );
+  const call = useMemo(() => (tool.command ? undefined : (mcpCall(tool) ?? acpmuxMcpSendCall(tool))), [tool]);
   if (call)
     return (
       <McpCallDetails
@@ -391,12 +374,6 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
       />
     );
   return (
-    <ShellBlock
-      command={tool.command}
-      output={tool.output}
-      exitCode={tool.exitCode}
-      live={live}
-      reveal={reveal}
-    />
+    <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />
   );
 }

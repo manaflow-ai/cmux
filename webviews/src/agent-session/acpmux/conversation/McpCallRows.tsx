@@ -35,13 +35,7 @@ import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
-export function McpCallRows({
-  items,
-  disclosureKey,
-}: {
-  items: readonly AcpmuxActivity[];
-  disclosureKey: string;
-}) {
+export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
     <McpCallRow item={items[0]!} />
   ) : (
@@ -49,13 +43,7 @@ export function McpCallRows({
   );
 }
 
-function McpGroupRow({
-  items,
-  disclosureKey,
-}: {
-  items: readonly AcpmuxActivity[];
-  disclosureKey: string;
-}) {
+function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
   // The Verbose transcript view opens the calls.
@@ -92,9 +80,7 @@ function McpGroupRow({
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
-          {failures > 0 && (
-            <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>
-          )}
+          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
           size={14}
@@ -201,10 +187,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
 /// Pair a Raw string argument with its rendered presentation. Find uses the rendered copy only
 /// when it can highlight every indexed occurrence; hidden URLs and shadow-root code use Raw.
 /// Keys, other arguments and the response remain searchable.
-function requestPresentation(
-  request: string,
-  alternatives: Readonly<Record<string, string>>,
-): ReactNode {
+function requestPresentation(request: string, alternatives: Readonly<Record<string, string>>): ReactNode {
   if (!Object.keys(alternatives).length) return request;
   const parts: ReactNode[] = [];
   let from = 0;
@@ -255,10 +238,7 @@ export function McpCallDetails({
   const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
   const blocked = failure?.kind === "hook";
   const shownOutput = blocked ? failure.output : output;
-  const response = useMemo(
-    () => mcpOutputResult(shownOutput, strip, call.tool),
-    [shownOutput, strip, call.tool],
-  );
+  const response = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
@@ -350,11 +330,7 @@ export function CmuxExecDetails({
     </div>
   );
   return (
-    <div
-      id={id}
-      className="cv-mcp-call cv-cmux-exec"
-      ref={menuPartRef({ output: tool.output ?? "" })}
-    >
+    <div id={id} className="cv-mcp-call cv-cmux-exec" ref={menuPartRef({ output: tool.output ?? "" })}>
       {script &&
         part(
           t("tools.cmux.head.script"),
@@ -387,23 +363,14 @@ export function CmuxExecDetails({
       {parts.result &&
         part(
           t("tools.cmux.head.result"),
-          <pre
-            ref={resultBox}
-            className="cv-mcp-call__body cv-cmux-exec__code selectable"
-            data-tree
-            data-find-join=""
-          >
+          <pre ref={resultBox} className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree data-find-join="">
             <TreeLines lines={parts.result} />
           </pre>,
         )}
       {parts.error &&
         part(
           t("tools.cmux.head.error"),
-          <pre
-            className="cv-mcp-call__body cv-cmux-exec__code selectable"
-            data-tree
-            data-find-join=""
-          >
+          <pre className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree data-find-join="">
             <TreeLines lines={parts.error} />
           </pre>,
         )}
