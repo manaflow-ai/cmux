@@ -17,7 +17,7 @@ struct CLIDifficultyAssessmentTurnTests {
         let reply = "Cut the sync engine over in three phases."
         let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], lateReply: reply)
         defer { run.cleanup() }
-        try run.stop()
+        try run.stop(lastAssistantMessage: nil)
         #expect(run.classifierPrompts().count == 1)
         #expect(run.rated(user: Self.step7, reply: reply), "the rating must see this turn's reply; saw \(run.classifierPrompts())")
         #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
@@ -28,25 +28,25 @@ struct CLIDifficultyAssessmentTurnTests {
         let reply = "Here is the migration plan."
         let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [Fixture.userLine("Plan a zero-downtime migration.")], lateReply: reply)
         defer { run.cleanup() }
-        try run.stop()
+        try run.stop(lastAssistantMessage: nil)
         #expect(run.classifierPrompts().count == 1, "the first turn must be rated")
         #expect(run.rated(reply: reply))
         #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
     }
 
-    /// No reply within the wait: no call, rather than pairing the prompt with an older reply.
-    /// The skip does not start the 3 minute window, so the next turn end is rated.
-    @Test func makesNoCallWhenNoReplyArrives() throws {
-        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)])
+    /// A `Stop` input without the turn's reply (a Claude Code that does not pass it): no call,
+    /// even with a reply on disk, since nothing tells the hook when this turn's reply lands there
+    /// (ruling R46). The skip does not start the 3 minute window, so the next turn end is rated.
+    @Test func makesNoCallWhenTheStopInputCarriesNoReply() throws {
+        let run = try Fixture(probe: Probe(), answer: "Hard.")
         defer { run.cleanup() }
-        try run.stop()
-        #expect(run.classifierPrompts().isEmpty, "a prompt must never be rated with the previous turn's reply")
+        try run.stop(lastAssistantMessage: nil)
+        #expect(run.classifierPrompts().isEmpty, "saw \(run.classifierPrompts())")
         #expect(run.priorityParams().isEmpty)
 
-        try run.appendToTranscript(Fixture.assistantLine("Step 7 is mapped."))
         try run.stop()
         #expect(run.classifierPrompts().count == 1)
-        #expect(run.rated(user: Self.step7, reply: "Step 7 is mapped."))
+        #expect(run.rated(user: "Redesign the sync engine, step 6", reply: Fixture.sixthReply))
     }
 
     /// Claude Code passes the turn's final reply to the `Stop` hook as `last_assistant_message`;

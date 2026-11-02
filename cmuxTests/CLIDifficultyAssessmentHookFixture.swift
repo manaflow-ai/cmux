@@ -117,9 +117,12 @@ struct DifficultyHookFixture {
 
     func cleanup() { context.cleanup() }
 
+    /// The reply that ends ``sixExchanges``.
+    static let sixthReply = "Mapping the dependencies for step 6."
+
     /// Runs the turn-end hook once. `lastAssistantMessage` is the turn's reply as Claude Code
     /// passes it in the `Stop` input; `nil` leaves the key out.
-    func stop(lastAssistantMessage: String? = nil) throws {
+    func stop(lastAssistantMessage: String? = DifficultyHookFixture.sixthReply) throws {
         let (environment, input) = hookInvocation(lastAssistantMessage: lastAssistantMessage)
         let result = Harness.runHookProcess(
             context: context, arguments: ["hooks", "claude", "auto-name"], environment: environment, standardInput: input
