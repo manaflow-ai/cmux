@@ -637,7 +637,8 @@ fn completed_guest_seed_reports_its_checkout_and_keeps_dependencies_unverified()
     std::fs::write(
         project.join(".git/config"),
         "[remote \"origin\"]\n url = https://github.com/team/project.git\n",
-    ).unwrap();
+    )
+    .unwrap();
     let copy = copy_of(project.to_str().unwrap(), "");
     let commit = "a".repeat(40);
     let copied = copy.run(&path, &|_, _, _| {
@@ -674,7 +675,8 @@ fn planned_or_unreadable_git_revision_is_never_a_guest_checkout_receipt() {
         std::fs::write(
             project.join(".git/config"),
             "[remote \"origin\"]\n url = https://github.com/team/project.git\n",
-        ).unwrap();
+        )
+        .unwrap();
         let copy = copy_of(project.to_str().unwrap(), "");
         let answer = copy.run(&path, &|_, _, _| {
             Ok(super::pushed_fields(&json!({
