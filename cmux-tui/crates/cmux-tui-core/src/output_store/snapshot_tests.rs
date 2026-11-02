@@ -320,11 +320,15 @@ fn held_redraws_past_the_idle_cap_fall_back_to_the_snapshot() {
     let due = store.writer.state.0.lock().unwrap().due;
     let _ = std::fs::remove_dir_all(&directory);
     assert_eq!(pending, 0, "{pending} held redraw bytes stay in memory");
-    // The drop asks for the snapshot that covers it at the next pass, not
-    // at the next 30 s or 1 MiB point (the loss bound holds after a drop).
+    // The drop asks for the snapshot that covers it at the first pass that
+    // may write one (here: when the 1 s write backoff ends), not at the
+    // next 30 s or 1 MiB point.
     assert!(dirty, "the dropped bytes wait for a snapshot nobody asked for");
+    let limit = std::time::Instant::now()
+        + super::super::STORE_RETRY_MIN
+        + super::super::TAIL_FLUSH_INTERVAL;
     assert!(
-        due.is_some_and(|due| due <= std::time::Instant::now() + super::super::TAIL_FLUSH_INTERVAL),
-        "no pass is due within the flush interval after the drop"
+        due.is_some_and(|due| due <= limit),
+        "no pass is due when the backoff ends after the drop"
     );
 }
