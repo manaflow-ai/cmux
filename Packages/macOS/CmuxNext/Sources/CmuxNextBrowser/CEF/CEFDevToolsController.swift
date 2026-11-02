@@ -156,7 +156,6 @@ final class CEFDevToolsController {
         // to the frontend's (BROWSER VIDEO F2: bottom, then right ~13 refreshes later). As in Chrome, one side counts:
         // cmux's is written into that setting here, before the frontend exists, for every way DevTools opens (cmux's
         // commands, a panel, the page's Inspect, Chromium's own commands).
-        _ = shim.devToolsSetFrontendDockSide(browserID, Self.forkSide(of: embedded ? layout.dock : .window))
         if embedded {
             // Docked or in its own window, DevTools is a child of a cmux
             // view, so a later move keeps it alive.
