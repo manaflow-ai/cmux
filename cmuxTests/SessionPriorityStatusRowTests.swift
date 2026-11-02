@@ -17,7 +17,7 @@ struct SessionPriorityStatusRowTests {
         _ states: [SessionPriorityPaneState] = [],
         tier: SessionPriorityTier = .urgent,
         difficulty: ClaudeSessionDifficulty = .hard,
-        source: SessionPriorityWorkspaceState.DifficultySource = .default,
+        source: SessionPriorityDifficultySource = .default,
         target: SessionPriorityTarget? = .init(effort: .xhigh)
     ) -> SidebarStatusEntry {
         SessionPriorityStatusRow.entry(

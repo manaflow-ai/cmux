@@ -3,6 +3,11 @@ import Foundation
 
 /// Mutation entry points for the workspace's session priority state. Each
 /// ignores a no-op change, otherwise persists and tells the coordinator.
+///
+/// `Workspace` is main-actor isolated (inferred from its `FilePreviewTabMetadataHost`
+/// conformance), as is the `SessionPriorityWorkspaceState` these touch; the extension
+/// states that boundary instead of leaving it to the inference.
+@MainActor
 extension Workspace {
     /// Sets or clears (nil = automatic) the user's difficulty override.
     func setClaudeDifficultyOverride(_ difficulty: ClaudeSessionDifficulty?) {
