@@ -11,6 +11,10 @@ export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
 export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
+/// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
+/// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
+/// "now there's sometimes too much spacing between tool calls".
+export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
 /// line, then the block gap to whatever comes next.
@@ -47,6 +51,11 @@ export const MARK_FOOTER_ROW = 6;
 /// ends, at the footer's place and height, so the end moves nothing (chat-transcript.md "A turn that
 /// ends moves nothing").
 export const MARK_FOOTER_SLOT = 7;
+/// A status row that is not a step row (model.ts `isStatusRow`: a background task's or a subagent's
+/// end, a compaction, a failover, ...): one quiet line that joins no row flush, but is as far from
+/// the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
+/// one gap above and one below).
+export const MARK_STATUS = 8;
 
 type MarkedRow = {
   kind: string;
@@ -85,6 +94,9 @@ export function transcriptGap(previous: number, next: number): number {
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
   // The live line under a run is one more line of it (#29965): flush too.
   if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
+  // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
+  const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
+  if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

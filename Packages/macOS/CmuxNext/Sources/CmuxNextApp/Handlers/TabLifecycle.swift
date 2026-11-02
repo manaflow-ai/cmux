@@ -47,7 +47,7 @@ enum TabLifecycle {
         switch PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
         case .tab(let target): pane = target
         case .split(let target, let direction):
-            return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
+            return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, on: ctx.services.daemon(for: target).machineID, from: ctx.services.paneController(for: focused)), direction: direction)
         }
         // Ghostty's `tab-inherit-working-directory = false`: the home folder (NewTerminalStart).
         let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: ctx.services.daemon(for: pane),
