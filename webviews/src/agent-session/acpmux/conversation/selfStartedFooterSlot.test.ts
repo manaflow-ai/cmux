@@ -29,7 +29,7 @@ const ended = row("woken-end", "turnSummary", 40_000, { status: "completed", dur
 /// Where the bottom of the transcript is: its last drawn row's end plus the gap to the composer.
 const bottom = (rows: AcpmuxRow[]) => {
   const layout = layoutConversation(rows, 720);
-  return { layout, end: layout.totalHeight + layout.tailGap + layout.restBand };
+  return { layout, end: layout.totalHeight + (layout.tailGap ?? 0) + (layout.restBand ?? 0) };
 };
 
 for (const agentFamily of ["claude", "codex"])
