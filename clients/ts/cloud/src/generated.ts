@@ -92,6 +92,7 @@ export type CloudConnectInfo = {
   readonly host: HostId
   readonly epoch: number
   readonly state: CloudMachineStatus
+  readonly network?: CloudVmNetwork
   readonly peer: {
     readonly wg_public_key: string
     readonly overlay_address: string
@@ -242,6 +243,13 @@ export type CloudSnapshot = {
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
   readonly revision: Revision
+}
+
+export type CloudVmNetwork = {
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly ipv4_cidr: string
+  readonly ipv4: string | null
 }
 
 export type CloudVmNetworkPolicyView = {
@@ -794,6 +802,48 @@ export type Host = {
 export type HostId = string
 
 export type HostKind = "device" | "server"
+
+export type HostNetworkPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly inbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+  readonly outbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+}
+
+export type HostNetworkPolicyView = {
+  readonly schema_version: 1
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<HostNetworkPeer>
+}
 
 export type Install = {
   readonly id: InstallId
@@ -1749,6 +1799,7 @@ export interface CloudOps {
     readonly params: {
       readonly host: HostId
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
       readonly token: string
@@ -2610,6 +2661,28 @@ export interface CloudOps {
     readonly result: {
       readonly host: HostId
       readonly network: ServerNetworkBinding
+    }
+  }
+  /** Read the calling host's current directed Native peer policy with a fresh install-key proof. Peers are joined to live backend hosts, owners, installs and original grants; unmatched peers grant no access. This bounded identity snapshot is not a dial credential or a serving-role activation. Receivers still need current authority and service authentication. */
+  readonly "host.network.policy": {
+    readonly params: {
+      readonly host: HostId
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: HostNetworkPolicyView
+  }
+  /** Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential. */
+  readonly "host.network.target": {
+    readonly params: {
+      readonly mesh?: NativeMeshId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly tenant: NativeTenantId
+      readonly project: string
+      readonly origin: string
+      readonly mesh: NativeMeshId
+      readonly ipv4_cidr: string
     }
   }
   /** Remove a host from the team directory (its owner or a team admin). */
@@ -3919,6 +3992,8 @@ export const cloudOpMeta = {
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "host.network.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "host.network.target": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

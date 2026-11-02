@@ -1,7 +1,8 @@
 import Foundation
 
 /// What pending sidebar-document changes write on item records (#26382): a group's name, color or
-/// icon (`group.update`) and a new group (`group.create`). The mirror's rows place every pending
+/// icon (`group.update`), a new group (`group.create`, with its space) and an item's own fields (`item.update`: its
+/// space, label, span, icon). The mirror's rows place every pending
 /// change at once, but the rows draw names, colors and icons from the records, and the confirmed
 /// records change only with the daemon's batch: a rename, a recolor or New Group showed only after
 /// the echo. Each change's writes hold from its intent until its key settles (its batch applied, a
@@ -12,6 +13,31 @@ nonisolated struct SidebarDocPendingRecords {
         /// `group.update`: each field nil when the patch leaves it; a nil inner value clears it.
         case update(id: String, name: String?, color: String??, icon: String??)
         case create(SidebarDocItem)
+        /// `item.update`: each field nil when the patch leaves it; a nil inner value clears it.
+        case item(id: String, patch: ItemPatch)
+    }
+
+    /// The fields of an `item.update` patch the records hold. A link, tab or app moved into Pinned stores the acting
+    /// window's space (`room`) in the same change: without it the optimistic rows read the old space and the item left
+    /// that window until the echo.
+    private struct ItemPatch {
+        var room: String??
+        var showsLabel: Bool?
+        var span: Int??
+        var label: String??
+        var iconURL: String??
+
+        var isEmpty: Bool { room == nil && showsLabel == nil && span == nil && label == nil && iconURL == nil }
+
+        func applied(to item: SidebarDocItem) -> SidebarDocItem {
+            var item = item
+            if let room { item.room = room }
+            if let showsLabel { item.showsLabel = showsLabel }
+            if let span { item.span = span }
+            if let label { item.label = label }
+            if let iconURL { item.iconURL = iconURL }
+            return item
+        }
     }
 
     private struct Entry {
@@ -64,6 +90,9 @@ nonisolated struct SidebarDocPendingRecords {
                 records.items[id] = item
             case let .create(item):
                 if records.items[item.id] == nil { records.items[item.id] = item }
+            case let .item(id, patch):
+                guard let item = records.items[id] else { continue }
+                records.items[id] = patch.applied(to: item)
             }
         }
         return records
@@ -84,7 +113,13 @@ nonisolated struct SidebarDocPendingRecords {
             let section = to?["section"] as? String ?? first?.section ?? ""
             let parent = to?["parent"] as? String ?? (to?["section"] == nil ? first?.parent : nil)
             return .create(SidebarDocItem(id: id, section: section, parent: parent,
-                                          body: .group(name: op["name"] as? String ?? "", color: op["color"] as? String, icon: nil, collapsed: false)))
+                                          body: .group(name: op["name"] as? String ?? "", color: op["color"] as? String, icon: nil, collapsed: false),
+                                          room: op["profile"] as? String))
+        case "item.update":
+            guard let wire = op["patch"] as? [String: Any] else { return nil }
+            let patch = ItemPatch(room: field(wire, "room"), showsLabel: wire["shows_label"] as? Bool,
+                                  span: wire["span"].map { $0 as? Int }, label: field(wire, "label"), iconURL: field(wire, "icon_url"))
+            return patch.isEmpty ? nil : .item(id: id, patch: patch)
         default:
             return nil
         }
