@@ -74,10 +74,7 @@ pub(super) fn chat_folder_exists(socket: &Path, chat: &str) -> Result<bool, (Str
         )
     };
     let mut remote = Remote::connect(socket).map_err(|_| unavailable())?;
-    remote
-        .kind(chat)
-        .map(|kind| kind.as_deref() == Some("dir"))
-        .map_err(|_| unavailable())
+    remote.kind(chat).map(|kind| kind.as_deref() == Some("dir")).map_err(|_| unavailable())
 }
 
 const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
