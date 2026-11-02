@@ -35,7 +35,7 @@ extension DaemonService {
     /// nil counts it as running none.
     @MainActor public func runningPrograms(of tabs: [TabModel], unanswered: (@MainActor (TabModel) -> String)? = nil) async -> RunningPrograms {
         // A stand-in (a terminal still opening) has no process to ask and runs nothing yet: never asked.
-        let terminals = tabs.filter { $0.kind == .pty && !$0.dead && !ProvisionalTab.isProvisional(surface: $0.surface) }
+        let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
         // No connection: nothing was asked (the base answer, an empty map), unless no answer counts as a program.
         guard let connection, !terminals.isEmpty else {
             guard let unanswered else { return [:] }
