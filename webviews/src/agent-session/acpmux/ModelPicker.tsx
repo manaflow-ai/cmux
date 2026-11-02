@@ -65,6 +65,8 @@ type HarnessChoice = {
   unavailable?: string;
   acpmuxHarness?: string;
   pickable: boolean;
+  /** A catalog harness this machine does not have: its tab lists, its models cannot start. */
+  notInstalled?: boolean;
   /** A profile from the chat's folder and its state. */
   folder?: ModelPickerProps["catalog"][number]["folder"];
   /** The brand the row's mark draws (a folder profile's icon or family, else its id). */
@@ -198,7 +200,7 @@ function choicesFor(entry: HarnessChoice | undefined, lang?: string): ModelChoic
 /// harness (a bundled catalog harness acpmux does not have is not one), as `current` below picks it.
 /// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
 export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
-  return uniqueHarnesses(catalog)[0]?.id;
+  return uniqueHarnesses(catalog).find((entry) => !entry.notInstalled)?.id;
 }
 
 /// The models a typed query finds among `entries`, each with its harness, in rail order: the full
@@ -234,13 +236,18 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       folder: entry.folder,
       mark: knownMark(entry.icon, entry.family, entry.id),
     }));
-  // Terminal and unknown harnesses are routing entries, not installed choices.
+  // Terminal and unknown harnesses are routing entries, not installed choices. Every harness the
+  // catalog names lists, installed or not, the ones this machine has first (Leo 2026-10-26: "show
+  // all harnesses, all models (pi, opencode, prime intellect, etc…)").
   const result: HarnessChoice[] = [];
   const byName = new Map<string, { choice: HarnessChoice; sources: ModelPickerProps["catalog"] }>();
-  for (const entry of catalog) {
-    if (entry.folder || entry.pickable === false) continue;
+  const ordered = [...catalog.filter((entry) => !entry.notInstalled), ...catalog.filter((entry) => entry.notInstalled)];
+  for (const entry of ordered) {
+    if (entry.folder || (entry.pickable === false && !entry.notInstalled)) continue;
     const name = agentName(entry.id, entry.name);
     const existing = byName.get(name);
+    // An installed harness of the same name already stands for it.
+    if (existing && entry.notInstalled) continue;
     if (!existing) {
       const sources = [entry];
       let models: HarnessChoice["models"] | undefined;
@@ -262,6 +269,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         unavailable: entry.unavailable,
         acpmuxHarness: entry.id,
         pickable: true,
+        ...(entry.notInstalled ? { notInstalled: true } : {}),
         ...(entry.top ? { top: entry.top } : {}),
       };
       result.push(next);
@@ -480,6 +488,11 @@ export function ModelPicker(props: ModelPickerProps) {
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
+  /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
+  const needsSetup = useCallback(
+    (entry: HarnessChoice) => entry.notInstalled === true || loginFor(entry) !== undefined,
+    [loginFor],
+  );
   const t = useT();
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
@@ -581,15 +594,13 @@ export function ModelPicker(props: ModelPickerProps) {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (!modelsNeeded) return owner;
     if (searching) {
-      const searchable = harnesses.filter(
-        (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
-      );
+      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && !needsSetup(entry));
       for (const { model, entry } of searchModels(searchable, parsed, lang)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        if (!entry.folder && loginFor(entry) === undefined)
+        if (!entry.folder && !needsSetup(entry))
           for (const model of choicesFor(entry, lang)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected && loginFor(selected) === undefined) {
+    } else if (selected && !needsSetup(selected)) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere, lang);
       const shown = olderOpen ? [...latest, ...older] : latest;
@@ -611,14 +622,14 @@ export function ModelPicker(props: ModelPickerProps) {
     selected,
     starredView,
     runsHere,
-    loginFor,
+    needsSetup,
     harness,
     lang,
   ]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   const rowCount = visible.length;
   const olderCount =
-    !modelsNeeded || searching || starredView || (selected && loginFor(selected) !== undefined)
+    !modelsNeeded || searching || starredView || (selected && needsSetup(selected))
       ? 0
       : shownSections(selected, runsHere, lang).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
@@ -841,7 +852,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || model.defaultChoice || !owner?.pickable || loginFor(owner) !== undefined) return;
+    if (model.unavailable || model.defaultChoice || !owner?.pickable || needsSetup(owner)) return;
     toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
@@ -871,7 +882,7 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
-        loginFor(entry) === undefined &&
+        !needsSetup(entry) &&
         // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
         (!entry.unavailable || entry.ids.includes(harness ?? "")),
     );
@@ -924,7 +935,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.
     const stale = (entry: HarnessChoice) => !!entry.unavailable && !entry.ids.includes(harness ?? "");
     const starred = startable
-      .filter((entry) => loginFor(entry) === undefined && !stale(entry))
+      .filter((entry) => !needsSetup(entry) && !stale(entry))
       .flatMap((entry) =>
         groupChoices(
           choicesFor(entry, lang).filter((model) => favorites.has(model.id)),
@@ -937,13 +948,19 @@ export function ModelPicker(props: ModelPickerProps) {
       const { shown, more } = signedOutHere
         ? { shown: [], more: [] }
         : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
+      // A harness this machine does not have lists its catalog models, none of them pickable, with
+      // its Install… row.
+      const missing = !!entry.notInstalled;
+      const tabRow = (model: ModelChoice) => (missing ? { ...row(entry, model), disabled: true } : row(entry, model));
       list.push({
         id: entry.id,
         name: entry.name,
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
-        models: shown.map((model) => row(entry, model)),
-        more: more.map((model) => row(entry, model)),
+        models: shown.map(tabRow),
+        more: more.map(tabRow),
         ...(entry.unavailable ? { unavailable: true } : {}),
+        ...(missing ? { note: t("harnesses.notInstalled") } : {}),
+        ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
@@ -977,6 +994,8 @@ export function ModelPicker(props: ModelPickerProps) {
     current?.id,
     current?.folder,
     loginFor,
+    needsSetup,
+    onAddAgent,
     favorites,
     starredText,
     harness,
@@ -991,7 +1010,7 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
-    if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
+    if (!owner || model.disabled || !owner.pickable || needsSetup(owner)) return;
     const harnessId = owner.acpmuxHarness ?? owner.id;
     const here = owner.ids.includes(harness ?? "");
     if (onCombo && (model.effort || model.fast || !here)) {
@@ -1014,7 +1033,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const pickProfile = (id: string) => {
     if (id === harness || signedOut?.[id] !== undefined) return;
     const owner = allHarnesses.find((entry) => entry.id === id);
-    if (owner && loginFor(owner) !== undefined) return;
+    if (owner && needsSetup(owner)) return;
     const target = owner?.acpmuxHarness ?? id;
     if (harnessFixed) {
       if (fork?.ready && fork.targets.has(target)) fork.to(target);
@@ -1201,7 +1220,11 @@ export function ModelPicker(props: ModelPickerProps) {
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
-    const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
+    const signIn = entry.notInstalled
+      ? t("harnesses.notInstalled")
+      : loginFor(entry) !== undefined
+        ? t("harnesses.signedOut")
+        : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   const fastOn = fastMode !== undefined && fastModeIsOn(fastMode);
@@ -1304,7 +1327,7 @@ export function ModelPicker(props: ModelPickerProps) {
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
-                modelsNeeded && current && loginFor(current) === undefined
+                modelsNeeded && current && !needsSetup(current)
                   ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
                       quickRow("", model),
                     )
@@ -1445,7 +1468,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}
                     aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                    aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
+                    aria-disabled={blockedProfile(entry) || needsSetup(entry) || undefined}
                     data-signed-out={loginFor(entry) !== undefined || undefined}
                     disabled={!entry.pickable}
                     data-harness-index={index}
@@ -1596,7 +1619,20 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
-                {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                {selected && !searching && !starredView && selected.notInstalled ? (
+                  <>
+                    <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
+                    {onAddAgent && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={addHarness}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
+                      </button>
+                    )}
+                  </>
+                ) : selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>
                     <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
                     {loginFor(selected) && onLogIn && (

@@ -181,6 +181,8 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
+  /// Sets up a harness this machine does not have (its Install… row).
+  setUp?(): void;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
@@ -1003,16 +1005,30 @@ export function QuickModelMenu({
           );
         })}
       </MenuRadioGroup>
-      {rows.length === 0 && (
+      {rows.length === 0 ? (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
             : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
         </MenuItem>
+      ) : (
+        // A harness that is not installed lists its models and says why none can start.
+        !query &&
+        shown?.note &&
+        shown.setUp && (
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {shown.note}
+          </MenuItem>
+        )
       )}
       {!query && shown?.note && shown.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
           <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+      {!query && shown?.note && shown.setUp && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.setUp?.()}>
+          <span className="acpmux-menu-label">{t("harnesses.install")}</span>
         </MenuItem>
       )}
     </>
