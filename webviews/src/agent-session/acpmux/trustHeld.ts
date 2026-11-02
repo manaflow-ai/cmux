@@ -44,12 +44,14 @@ export function sentIn(entry: TrustHeldPrompt, chat: string | undefined, cwd: st
 
 /// Where prompts the hold gives back go (a refusal, or a page that quits), each list in order: the
 /// shown chat's into its composer; another chat's into that chat's draft, as the shown chat's when
-/// no composer shows (a hand-off review in its place); a new chat's into the composer, the only
-/// draft such a chat has, or with none shown into what the next composer gets (`later`).
+/// no composer shows (a hand-off review in its place); a new chat's into the composer when that
+/// new chat (same folder) still shows, the only draft such a chat has, else into what the next
+/// composer of that new chat gets (`later`), never into another chat's composer.
 export function whereHeldGoes(
   entries: readonly TrustHeldPrompt[],
   shownChat: string | undefined,
   composerShows: boolean,
+  shownCwd?: string,
 ): { composer: TrustHeldPrompt[]; drafts: Map<string, TrustHeldPrompt[]>; later: TrustHeldPrompt[] } {
   const composer: TrustHeldPrompt[] = [];
   const drafts = new Map<string, TrustHeldPrompt[]>();
@@ -57,7 +59,7 @@ export function whereHeldGoes(
   for (const entry of entries) {
     if (entry.chat !== undefined && (entry.chat !== shownChat || !composerShows))
       drafts.set(entry.chat, [...(drafts.get(entry.chat) ?? []), entry]);
-    else if (composerShows) composer.push(entry);
+    else if (composerShows && sentIn(entry, shownChat, shownCwd)) composer.push(entry);
     else later.push(entry);
   }
   return { composer, drafts, later };

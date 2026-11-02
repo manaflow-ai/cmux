@@ -9141,17 +9141,21 @@ function AcpmuxPane() {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
-    const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
+    const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer), trustHeldCwd);
     const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
     // behind what is there, the first goes first.
     for (const entry of behind ? where.composer : [...where.composer].reverse())
       composer?.restore(entry.text, entry.attachments, behind);
     if (where.later.length) {
-      heldBack.current = [
-        ...(heldBack.current ?? []),
-        ...where.later.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
-      ];
+      // The next composer gets them only while that new chat shows; with another chat shown they
+      // stay in the host's draft of the new chat's tab alone, out of that chat's composer.
+      const shownHere = where.later.filter((entry) => sentInHeld(entry, snapshot.sessionId, trustHeldCwd));
+      if (shownHere.length)
+        heldBack.current = [
+          ...(heldBack.current ?? []),
+          ...shownHere.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
+        ];
       const text = where.later.map((entry) => entry.text).filter((part) => part.trim());
       writes.push(postUnsentDraft([...text, lastUnsentDraft].filter((part) => part.trim()).join("\n\n")));
     }
