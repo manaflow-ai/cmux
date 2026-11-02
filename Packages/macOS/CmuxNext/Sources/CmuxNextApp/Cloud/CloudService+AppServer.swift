@@ -110,7 +110,8 @@ extension CloudService {
             watchPause: { attempt in
                 // wakeup-allow: same-key watch while the approval sheet is open; cancelled when the sheet closes
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
-            }
+            },
+            holds: approvalHolds
         )
     }
 

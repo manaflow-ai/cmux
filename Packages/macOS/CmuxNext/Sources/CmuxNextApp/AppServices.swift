@@ -122,7 +122,7 @@ final class AppServices {
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
         showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self),
+        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()

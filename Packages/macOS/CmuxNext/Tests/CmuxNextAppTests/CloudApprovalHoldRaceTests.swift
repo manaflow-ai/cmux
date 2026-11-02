@@ -2,6 +2,7 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
+@testable import CmuxNextFeed
 import Foundation
 import Testing
 
@@ -10,7 +11,9 @@ import Testing
 /// runs, so `integration.approval.get` reads pending, while its feed item is closed: answering it
 /// finds no open item. The create must go on with the op's answer (it was answered), and never
 /// answer the hold again. A hold whose item belongs to another team still fails: that is the real
-/// mismatch the same "feed item or team" reply also means.
+/// mismatch the same "feed item or team" reply also means. The Mac hears the answer from the feed
+/// owner's push of the closed item (``CloudApprovalHolds``), so the sheet closes at once, not at the
+/// next watch check.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CloudApprovalHoldRaceTests {
     /// The Cloud backend and the person's feed, as the Mac's session sees them.
     @MainActor final class Backend {
@@ -20,6 +23,8 @@ import Testing
         var answeredOnPhone = false
         var sameKeyCallsAfterAnswer = 0
         var feedAnswers = 0
+        var sessionCalls = 0
+        var sheetsShown = 0
         var held: Any = [String: Any]()
         var sheetAnswer: CheckedContinuation<Bool, Never>?
         var sheetCancelled = false
@@ -39,6 +44,7 @@ import Testing
 
         /// One API Worker call as the person's session (`v1/read`, `v1/ops`).
         func session(_ body: Data) throws -> Data {
+            sessionCalls += 1
             let call = try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]
             let params = call["params"] as? [String: Any] ?? [:]
             let value: [String: Any]
@@ -78,12 +84,13 @@ import Testing
     }
 
     /// The production flow's shape: the real `CloudApprovalAnswer` for team_a over `backend`.
-    private func flow(_ backend: Backend) -> CloudMachineCreateFlow {
+    private func flow(_ backend: Backend, holds: CloudApprovalHolds? = nil) -> CloudMachineCreateFlow {
         let approvals = CloudApprovalAnswer(call: { _, body in try await MainActor.run { try backend.session(body) } })
         return CloudMachineCreateFlow(
             run: { _, args, _, _ in try await MainActor.run { try backend.run(args) } },
             confirm: { _ in
-                await withTaskCancellationHandler {
+                backend.sheetsShown += 1
+                return await withTaskCancellationHandler {
                     await withCheckedContinuation { backend.sheetAnswer = $0 }
                 } onCancel: {
                     Task { @MainActor in
@@ -96,7 +103,8 @@ import Testing
                 try await approvals.approve(request: request, op: op, params: try JSONEncoder().encode(params), team: "team_a")
             },
             pause: { _ in },
-            watchPause: { _ in try await backend.nextWatchCheck() })
+            watchPause: { _ in try await backend.nextWatchCheck() },
+            holds: holds)
     }
 
     @Test func aYesOnTheMacAfterThePhoneAnsweredGoesOnWithTheOpsAnswer() async throws {
@@ -122,5 +130,47 @@ import Testing
             try await creating.value
         }
         #expect(backend.feedAnswers == 0)
+    }
+
+    @Test func theFeedPushOfThePhonesAnswerClosesTheSheetAtOnce() async throws {
+        let backend = Backend()
+        let holds = CloudApprovalHolds()
+        let creating = Task { try await flow(backend, holds: holds).create(name: "cloud-chats", startedByPerson: true) }
+        while backend.sheetAnswer == nil { await Task.yield() }
+        backend.answeredOnPhone = true
+        // The feed owner pushes the closed approve item; the Mac's next watch check never comes.
+        holds.recordAnswered(["apr_1"])
+        let made = try await creating.value
+        #expect(made["id"]?.stringValue == "vm_1")
+        #expect(backend.sheetCancelled, "the sheet stayed open after the feed showed the hold answered")
+        #expect(backend.sessionCalls == 0, "a hold the feed showed answered was answered again")
+    }
+
+    @Test func aHoldTheFeedAlreadyShowsAnsweredShowsNoSheet() async throws {
+        let backend = Backend()
+        let holds = CloudApprovalHolds()
+        holds.recordAnswered(["apr_1"])
+        backend.answeredOnPhone = true
+        // The first call reads pending (the approved op runs); the hold was answered before the sheet could show.
+        let made = try await flow(backend, holds: holds).create(name: "cloud-chats", startedByPerson: true)
+        #expect(made["id"]?.stringValue == "vm_1")
+        #expect(backend.sheetsShown == 0)
+        #expect(backend.sessionCalls == 0)
+    }
+
+    @Test func theFeedKeepsTheCloudHoldOfItsOwnTeamsItemOnly() {
+        func hold(scope: String, team: String, poster: String = "integration", home: String = "cloud") -> String? {
+            FeedWireDecode.item([
+                "id": "fi_1", "title": "Approve a Cloud change from your device", "created_at": 1, "kind": "approve", "state": "answered", "home": home,
+                "poster": ["kind": poster, "scope": scope],
+                "prompt": ["action": ["type": "tool", "tool": "cloud.machine.create",
+                                      "input": ["approval": ["team": team, "request": "apr_1", "digest": "dg_1"]]]],
+            ])?.cloudHoldRequest
+        }
+        #expect(hold(scope: "system:cloud:team_a", team: "team_a") == "apr_1")
+        #expect(hold(scope: "system:cloud:team_b", team: "team_a") == nil, "another team's owner posted it")
+        #expect(hold(scope: "system:connections:team_a", team: "team_a") == nil, "an integrations hold, not a Cloud one")
+        #expect(hold(scope: "system:cloud:team_a", team: "team_a", poster: "agent") == nil)
+        #expect(hold(scope: "system:cloud:team_a", team: "team_a", home: "local:ins_1") == nil, "a local owner's item")
     }
 }

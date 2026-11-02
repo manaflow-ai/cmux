@@ -25,6 +25,9 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
         /// The request is not the create the person confirmed.
         case mismatch(request: String, reason: String)
         case refused(code: String)
+        /// The person answered it elsewhere (the phone, the dashboard): the create's own team's item that
+        /// carries it is closed, while the approved op still reads pending. Nothing more to answer.
+        case answered(request: String)
     }
 
     let call: Call
@@ -58,10 +61,12 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
             throw Failure.mismatch(request: request, reason: "params")
         }
         guard let digest = held["digest"] as? String else { throw Failure.mismatch(request: request, reason: "digest") }
-        let list = try await post("v1/read", ["op": "feed.list", "params": [
-            "state": "open", "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100,
-        ]])
-        guard let item = Self.item(carrying: request, op: op, digest: digest, team: team, in: list) else {
+        guard let item = Self.item(carrying: request, op: op, digest: digest, team: team, in: try await approveItems("open")) else {
+            // No open item: answered elsewhere when this team's closed item carries it (cmux#32354); another
+            // team's item, or none, is still the mismatch.
+            if Self.item(carrying: request, op: op, digest: digest, team: team, in: try await approveItems("closed")) != nil {
+                throw Failure.answered(request: request)
+            }
             throw Failure.mismatch(request: request, reason: Self.closedItem)
         }
         let reply = try await post("v1/ops", ["op": "feed.answer", "origin": "user", "idempotency_key": "approve:\(request)",
@@ -69,6 +74,13 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
         if reply["ok"] as? Bool == false {
             throw Failure.refused(code: (reply["error"] as? [String: Any])?["code"] as? String ?? "unknown")
         }
+    }
+
+    /// The person's integration approve items in `state` (`open`, `closed`), newest first for closed ones.
+    private func approveItems(_ state: String) async throws -> [String: Any] {
+        var params: [String: Any] = ["state": state, "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100]
+        if state != "open" { params["order"] = "recent" }
+        return try await post("v1/read", ["op": "feed.list", "params": params])
     }
 
     private func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
@@ -100,7 +112,7 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
 extension CloudApprovalAnswer.Failure: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .notInFeed: CloudStrings.createApproveInFeed
+        case .notInFeed, .answered: CloudStrings.createApproveInFeed
         case .mismatch: CloudStrings.createApprovalMismatch
         case .refused(let code): "\(CloudStrings.createApproveInFeed) (\(code))"
         }
