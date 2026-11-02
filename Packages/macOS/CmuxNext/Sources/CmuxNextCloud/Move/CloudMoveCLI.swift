@@ -151,15 +151,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var newName: String?
         public var createKey: String
         public var tabKey: String
+        public var targetPane: String?
+        public var createTeam: String?
+        public var createSent: Bool = false
         public var environmentId: String?
         public var setup: CloudStartSetup?
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
-                    environmentId: String? = nil, setup: CloudStartSetup? = nil) {
+                    environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
+                    createTeam: String? = nil, createSent: Bool = false) {
             self.machine = machine
             self.newName = newName
             self.createKey = createKey
             self.tabKey = tabKey
+            self.targetPane = targetPane
+            self.createTeam = createTeam
+            self.createSent = createSent
             self.environmentId = environmentId
             self.setup = setup
         }
@@ -172,7 +179,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let start = CloudStartInfo(object: object)
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
                                  createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "",
-                                 environmentId: start.environmentId, setup: start.setup)
+                                 environmentId: start.environmentId, setup: start.setup, targetPane: object["target_pane"] as? String,
+                                 createTeam: object["create_team"] as? String, createSent: object["create_sent"] as? Bool ?? false)
         // An ok answer without its keys is no answer: a create or open without them is not idempotent.
         guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
@@ -184,6 +192,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// runs on `machine`, one the App just made for it, and the Mac workspace `workspace` picks it from now on.
     public func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
+    }
+
+    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-begin", "--key", key, "--account", account, "--name", name, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-sent", "--key", key, "--account", account, "--team", team, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-refused", "--key", key, "--account", account, "--create-key", createKey]), ())
+    }
+
+    public func startChatTargetPane(key: String, account: String, machine: String, pane: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "target-pane", "--key", key, "--account", account, "--machine", machine, "--pane", pane]), ())
     }
 
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).

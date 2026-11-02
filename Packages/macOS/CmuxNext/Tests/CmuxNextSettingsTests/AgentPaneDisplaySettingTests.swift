@@ -32,7 +32,7 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.code.family", fallback: nil, accepted: [.string("JetBrains Mono")], refused: [.number(3)]),
         Row(key: "agentPane.display.code.scale", fallback: nil, accepted: [.number(0.6), .number(1.25)],
             refused: [.number(0.2), .number(3)]),
-        Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
+        Row(key: "agentPane.display.sessionInfo.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
@@ -109,6 +109,19 @@ struct AgentPaneDisplaySettingTests {
         #expect(page(.string("yes")) == nil)
     }
 
+    /// The Session Info row was `agentPane.display.inspector.placement`: a file that still holds the
+    /// old key keeps its Push or Overlay on the page, and the new key wins when both are set.
+    @Test func theOldSessionInfoKeyStillApplies() {
+        let key = "agentPane.display.sessionInfo.placement"
+        func page(_ display: [String: JSONValue]) -> JSONValue? {
+            AgentPaneDisplaySetting(fileRoot: .object(["agentPane": .object(["display": .object(display)])])).values[key]
+        }
+        let old: JSONValue = .object(["placement": .string("push")])
+        #expect(page(["inspector": old]) == .string("push"))
+        #expect(page(["inspector": old, "sessionInfo": .object(["placement": .string("overlay")])]) == .string("overlay"))
+        #expect(page(["inspector": .object(["placement": .string("left")])]) == nil)
+    }
+
     @Test(arguments: [true, false])
     func theOldMinimapToggleAgreesAcrossSettingsAndTheChat(_ on: Bool) throws {
         let path = ["agentPane", "display", "minimap"]
@@ -130,7 +143,7 @@ struct AgentPaneDisplaySettingTests {
 
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
+        "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
         "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
