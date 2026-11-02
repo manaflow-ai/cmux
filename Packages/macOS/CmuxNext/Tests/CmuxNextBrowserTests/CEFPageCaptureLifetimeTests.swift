@@ -101,6 +101,44 @@ import Testing
         await quit.value
     }
 
+    /// A picture asked for while another call of the browser waits (the queued branch of `startDevTools`) is
+    /// checked again at its turn: the page hid meanwhile, so nothing is sent, and the line empties.
+    @Test func aQueuedThumbnailOfAPageThatHidMeanwhileIsRefusedAtItsTurn() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let order = rig.runtime.devToolsOrder
+        let ticket = order.take(Rig.browser) // a call that still waits to send
+        CaptureSpy.methods = []
+        let request = tab.beginThumbnail()
+        let thumbnail = Task { @MainActor () -> (any Error)? in
+            do { _ = try await request.image(); return nil } catch { return error }
+        }
+        tab.setContentVisible(false)
+        order.leave(ticket, of: Rig.browser)
+        #expect(await thumbnail.value as? BrowserTabError == .snapshotUnavailable)
+        #expect(CaptureSpy.screenshots.isEmpty, "a page hidden before its turn was pictured: \(CaptureSpy.methods)")
+        #expect(order.waiting(Rig.browser) == 0, "the refused picture kept its place in the line")
+    }
+
+    /// A picture asked for in one turn and awaited in a later one (the leave picture) keeps an answer that comes
+    /// in between: it was dropped, and the wait ran into its timeout.
+    @Test func anAnswerThatComesBeforeTheWaitIsKept() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.until { rig.runtime.devToolsOrder.isIdle(Rig.browser) }
+        CaptureSpy.methods = []
+        let request = tab.beginThumbnail()
+        try #require(CaptureSpy.screenshots.count == 1, "the picture was not asked for in the caller's turn")
+        let answer = try CEFDevToolsParamsOffMainTests.screenshotAnswer(width: 8, height: 8)
+        rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: CaptureSpy.nextMessage, success: true, json: answer))
+        let started = ContinuousClock.now
+        let image = try await request.image()
+        #expect(image.width == 8)
+        #expect(started.duration(to: .now) < .seconds(1), "the answer that came first was dropped")
+    }
+
     @Test func aClosedPageIsNeverPictured() async throws {
         let rig = try Rig()
         defer { rig.close() }
