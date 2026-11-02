@@ -140,7 +140,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("stop_lock_holder()");
     expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
     expect(command).toContain('flock -n "$lock" true');
-    expect(command).toContain('readlink -f "/proc/$lock_pid/exe"');
+    expect(command).toContain('exe=${exe%" (deleted)"}');
+    expect(command).toContain('case "$exe" in */acpmux)');
     expect(command).toContain('kill -KILL "$lock_pid"');
   });
 
@@ -167,6 +168,52 @@ describe("cmux-tui install and daemon commands", () => {
       });
       expect(stale.status).toBe(0);
     } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("settles a daemon from an image store after its executable was replaced", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-store-"));
+    const bin = join(home, "bin");
+    const store = join(home, "store");
+    mkdirSync(bin);
+    mkdirSync(store);
+    let daemonPid: number | undefined;
+    try {
+      mkdirSync(join(home, ".acpmux"));
+      mkdirSync(join(home, ".local", "bin"), { recursive: true });
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "0\n");
+      writeFileSync(join(bin, "timeout"), "#!/bin/sh\nshift\nexec \"$@\"\n");
+      writeFileSync(join(home, ".local", "bin", "acpmux"), "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      writeFileSync(join(bin, "flock"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(bin, "timeout"), 0o755);
+      chmodSync(join(home, ".local", "bin", "acpmux"), 0o755);
+      chmodSync(join(bin, "flock"), 0o755);
+      const daemonBin = join(store, "acpmux");
+      const pidFile = join(home, "daemon.pid");
+      const starter = join(bin, "start-daemon");
+      writeFileSync(daemonBin, readFileSync("/usr/bin/tail"));
+      chmodSync(daemonBin, 0o755);
+      writeFileSync(starter, `#!/bin/sh\n"${daemonBin}" -f /dev/null daemon run >/dev/null 2>&1 & echo $! > "${pidFile}"\n`);
+      chmodSync(starter, 0o755);
+      const starterProcess = spawn(starter, { stdio: "ignore" });
+      await new Promise<void>((resolve) => starterProcess.once("close", () => resolve()));
+      daemonPid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(daemonPid).toBeGreaterThan(0);
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), `${daemonPid}\n`);
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiDaemonSettleScript()], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(result.status).toBe(0);
+      expect(existsSync(`/proc/${daemonPid}`)).toBe(false);
+    } finally {
+      if (daemonPid !== undefined && existsSync(`/proc/${daemonPid}`)) {
+        try {
+          process.kill(daemonPid, "SIGKILL");
+        } catch {
+          // The settle script already reaped it.
+        }
+      }
       rmSync(home, { recursive: true, force: true });
     }
   });
