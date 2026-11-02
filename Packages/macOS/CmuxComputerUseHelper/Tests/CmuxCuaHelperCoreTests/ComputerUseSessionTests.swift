@@ -443,7 +443,8 @@ final class SocketClient: @unchecked Sendable {
             var chunk = [UInt8](repeating: 0, count: 4096)
             let count = Darwin.read(descriptor, &chunk, chunk.count)
             try #require(count > 0, "the helper must answer")
-            pending += try #require(buffer.append(Data(chunk.prefix(count))))
+            let lines = buffer.append(Data(chunk.prefix(count)))
+            pending += try #require(lines)
         }
         return try #require(HelperWire.object(pending.removeFirst()))
     }
