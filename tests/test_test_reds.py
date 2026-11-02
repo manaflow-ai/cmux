@@ -575,6 +575,13 @@ class GalleryHealth(unittest.TestCase):
                       slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)], known=[("x.y#z", WAIT)])
         self.assertEqual(reds.gallery_entries(head), ["agent-pane.narrow", "agent-pane.streaming-text"])
 
+    def test_the_base_replays_only_the_heads_red_states(self):
+        # Replaying whole entries re-rendered 1,308 cases for one shard's ~40 red states and ran past the job's timeout.
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT), ("agent-pane.narrow#effort", WAIT)],
+                      slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)], known=[("x.y#z", WAIT)])
+        self.assertEqual(reds.gallery_states(head), ["agent-pane.narrow#effort", "agent-pane.narrow#model-menu",
+                                                     "agent-pane.streaming-text#jump-during-stream"])
+
     def test_the_command_line_warns_on_base_reds_and_fails_on_its_own(self):
         with tempfile.TemporaryDirectory() as tmp:
             head, base = Path(tmp, "head.json"), Path(tmp, "base.json")
@@ -584,6 +591,8 @@ class GalleryHealth(unittest.TestCase):
             head.write_text(health(fresh=[("agent-pane.narrow#model-menu", WAIT)]))
             found = run("--entries")
             self.assertEqual((found.returncode, found.stdout.strip()), (0, "agent-pane.narrow"))
+            found = run("--states")
+            self.assertEqual((found.returncode, found.stdout.strip()), (0, "agent-pane.narrow#model-menu"))
             found = run("--base", str(base), "--annotate")
             self.assertEqual(found.returncode, 0, found.stdout + found.stderr)
             self.assertIn("::warning title=gallery health: base red::agent-pane.narrow#model-menu", found.stdout)
@@ -594,6 +603,7 @@ class GalleryHealth(unittest.TestCase):
             # A crash needs no replay: it is the head's whatever the base shows.
             head.write_text(health(fresh=[("a.b#c", "did not render: Target crashed")]))
             self.assertEqual(run("--entries").returncode, 1)
+            self.assertEqual(run("--states").returncode, 1)
             head.write_text(health())
             self.assertEqual(run("--entries").returncode, 2)
             head.unlink()

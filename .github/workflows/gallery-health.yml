@@ -153,8 +153,14 @@ jobs:
       # state. A state red the same way on the base is a warning; any other red state, a crashed
       # render, a health.json that is missing or cut short, a base render that gives no whole
       # result, and any red on a push (it has no base to compare with) fail the check.
+      # It replays only the red states, never their whole entries: replaying entries re-rendered
+      # 1,308 cases for one shard's ~40 red states (manifest --entries also matches by prefix, so
+      # agent-pane.composer pulled in every agent-pane.composer-* entry), ran past the job's
+      # timeout and left a cancelled job with no verdict. Its own budget makes a slow replay fail
+      # here, with the upload still to come, instead of cancelling the job.
       - name: Judge the red states against the base
         if: ${{ !cancelled() && steps.render.outcome == 'failure' }}
+        timeout-minutes: 15
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
@@ -176,12 +182,19 @@ jobs:
             exit 1
           fi
           [ "$rc" = 0 ] || exit 1
-          echo "replaying on base $BASE_SHA: $entries"
+          states=$(python3 "$classify" gallery --head "$head" --states)
+          echo "replaying on base $BASE_SHA: $states"
           # Everything but the checker goes back to the base, so only the webviews tree differs.
           git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
           bun install --frozen-lockfile
-          bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-manifest.json"
+          bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
+          # Every case (theme, width) of each red state, and nothing else. A state the base does not have
+          # renders nothing there, so the classifier calls it the head's own.
+          jq --arg states "$states" '($states | split(",")) as $red
+            | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
+            "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
+          echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json

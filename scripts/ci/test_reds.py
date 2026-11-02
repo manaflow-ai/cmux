@@ -32,12 +32,13 @@ Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per st
 writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
 is the base's only when the same state is red the same way on the base (any budget miss is one kind; a broken
 state's reason is its kind, numbers aside). A render that crashed, or a shard with no whole health.json, is the
-head's own. gallery-health.yml replays a pull request's red entries on the base it merged with and asks:
+head's own. gallery-health.yml replays a pull request's red states on the base it merged with and asks:
 
-    test_reds.py gallery --head HEAD/health.json --entries               the entries to replay on the base
+    test_reds.py gallery --head HEAD/health.json --entries               the entries of those states
+    test_reds.py gallery --head HEAD/health.json --states                the red states (entry#variant) it replays
     test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--annotate] [--json]
 
-with the same exit codes (`--entries` exits 1 when the head's red is its own whatever the base shows).
+with the same exit codes (`--entries` and `--states` exit 1 when the head's red is its own whatever the base shows).
 """
 from __future__ import annotations
 
@@ -903,9 +904,14 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
     return result
 
 
+def gallery_states(text: str | None) -> list[str]:
+    """The head's red states (`entry#variant`): the only states the base replays, every case of each."""
+    return sorted({name.split(": ", 1)[0] for name in gallery_read(text).failed})
+
+
 def gallery_entries(text: str | None) -> list[str]:
-    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base replays."""
-    return sorted({name.split(": ", 1)[0].rsplit("#", 1)[0] for name in gallery_read(text).failed})
+    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base's manifest names."""
+    return sorted({state.rsplit("#", 1)[0] for state in gallery_states(text)})
 
 
 def gallery_classify(head_text: str | None, base_text: str | None, base: str = "the base") -> Verdict | None:
@@ -929,12 +935,12 @@ def gallery_classify(head_text: str | None, base_text: str | None, base: str = "
 def gallery_main(args) -> int:
     read_text = lambda path: path.read_text(errors="replace") if path and path.is_file() else None
     head = read_text(args.head)
-    if args.entries:
+    if args.entries or args.states:
         found = gallery_read(head)
         if found.crashes or found.truncated:
             print("own red: " + "; ".join(found.crashes + found.truncated[:1]), file=sys.stderr)
             return 1
-        print(",".join(gallery_entries(head)))
+        print(",".join(gallery_states(head) if args.states else gallery_entries(head)))
         return 0 if found.failed else 2
     verdict = gallery_classify(head, read_text(args.base) if args.base else None, args.base_name)
     if args.json:
@@ -970,6 +976,7 @@ def main(argv: list[str] | None = None) -> int:
     gallery.add_argument("--base", type=Path)
     gallery.add_argument("--base-name", default="the base")
     gallery.add_argument("--entries", action="store_true", help="print the entries to replay on the base")
+    gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")
     gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
     gallery.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)

@@ -85,6 +85,18 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn('--entries "$entries"', run)
         self.assertIn("bun health.ts", run)
 
+    def test_the_base_replays_only_the_red_states_within_a_budget(self) -> None:
+        # Whole entries (matched by prefix) re-rendered 1,308 cases for ~40 red states and the job was cancelled
+        # at its timeout with no verdict.
+        judge = step("Judge the red states against the base")
+        run = judge["run"]
+        self.assertIn("gallery --head \"$head\" --states", run)
+        self.assertIn('"$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"', run)
+        self.assertLess(run.index("base-manifest.json"), run.index("bun health.ts"))
+        self.assertIn('--manifest "$RUNNER_TEMP/base-manifest.json"', run)
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertLess(int(judge["timeout-minutes"]), int(workflow["jobs"]["health"]["timeout-minutes"]))
+
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
