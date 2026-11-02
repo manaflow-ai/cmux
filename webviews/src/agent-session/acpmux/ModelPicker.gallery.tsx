@@ -74,11 +74,7 @@ const curated: ModelPickerProps = {
     .map((harness) => ({
       id: harness.id,
       name: harness.name,
-      models: harness.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        shortName: model.shortName,
-      })),
+      models: harness.models.map((model) => ({ id: model.id, name: model.name, shortName: model.shortName })),
       ...(topModelsFor(harness.id) ? { top: topModelsFor(harness.id) } : {}),
     })),
 };
@@ -185,11 +181,7 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
     ["deepagents", "DeepAgents"],
     ["poolside", "Poolside"],
     ["qoder", "Qoder CLI"],
-  ].map(([id, name]) => ({
-    id: id!,
-    name: name!,
-    models: [{ id: `${id}-default`, name: "Default" }],
-  })),
+  ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
 ];
 
 /// The open picker stays within the available anchor room on a tall stage, and its content
@@ -297,31 +289,15 @@ const quickSlider: ModelPickerProps = {
   },
 };
 
-/// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
+/// A started Claude chat can fork to Codex, excluding another Claude-family profile.
 const startedFork: ModelPickerProps = {
   ...quick,
   catalog: [
     ...curated.catalog,
-    {
-      ...curated.catalog.find((entry) => entry.id === "claude")!,
-      id: "claude-work",
-      name: "Claude (work)",
-    },
+    { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
-  fork: { to: () => undefined, ready: true },
-};
-
-const canonicalVariants: ModelPickerProps = {
-  ...startedFork,
-  catalog: [
-    ...startedFork.catalog,
-    {
-      ...curated.catalog.find((entry) => entry.id === "codex")!,
-      id: "codex-work",
-      name: "Codex (work)",
-    },
-  ],
+  fork: { to: () => undefined, ready: true, targets: new Set(["codex"]) },
 };
 
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
@@ -613,14 +589,6 @@ export default componentEntry<GalleryProps>({
         await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
       },
-    },
-    "canonical-harnesses-chat": {
-      props: canonicalVariants,
-      play: openQuick,
-    },
-    "canonical-harnesses-new-chat": {
-      props: { ...canonicalVariants, harnessFixed: false, fork: undefined, onHarness: () => undefined },
-      play: openQuick,
     },
     // Its Account row contains signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": {

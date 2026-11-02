@@ -188,6 +188,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // reattach after the next drop (V5-5).
             release(id)
             slots[id] = nil
+            cardViews[id] = nil
         }
         let live = sessionProvider?(tab, workspace.macID)
         if let host = hosts[tab.id], live == nil { return host }
@@ -212,6 +213,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
+        model.linkOpener = previous?.model.linkOpener
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
@@ -243,6 +246,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private func release(_ id: String) {
         let key = hostFrameKeys.removeValue(forKey: id)
         hosts.removeValue(forKey: id)?.model.session.stop()
+        cardViews[id] = nil
         stopWatching(id)
         indicators[id] = nil
         workspaceOwner[id] = nil
@@ -269,6 +273,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         for host in hosts.values { host.model.session.stop() }
         hosts = [:]
         slots = [:]
+        cardViews = [:]
         upgrade.reset()
         placeholderTabs = [:]
         workspaceOwner = [:]
@@ -291,6 +296,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
+        // A tapped web link opens beside the terminal, in this workspace (the Mac's Cmd-click).
+        host.model.linkOpener = context.openLink
         return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
     }
 
@@ -308,6 +315,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             }
         }
         slots[id] = nil
+        cardViews[id] = nil
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
         host.model.session.stop()
@@ -362,11 +370,36 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host(for: tab, in: workspace).model.focusComposer()
     }
 
+    /// Each tab's card view, made once per slot: a card body is a lookup.
+    private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
+
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
+        if let slot = slots[tab.id], let cached = cardViews[tab.id], cached.slot == ObjectIdentifier(slot),
+           hostMacs[tab.id] == workspace.macID { return cached.view }
+        // A card shown before its tab was prepared (or after its slot was
+        // cooled): its host and slot are made now, once.
         let host = host(for: tab, in: workspace)
         let slot = slot(for: tab.id, host: host)
+        // A new host (first card, or after a cool or a Mac swap) asks for the
+        // Mac's screen after this update, as `prepareCard` does.
+        Task { @MainActor [weak self, weak model = host.model] in
+            guard let self, let model else { return }
+            self.refreshScreenText(for: tab, model: model)
+        }
+        return cardView(tab.id, slot: slot)
+    }
+
+    func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
+        let host = host(for: tab, in: workspace)
+        _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
-        return AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+    }
+
+    private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
+        if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
+        let view = AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        cardViews[id] = (ObjectIdentifier(slot), view)
+        return view
     }
 
     /// A tab not opened in this launch shows the Mac's screen in its card
@@ -478,7 +511,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
-            TerminalTabAction(title: "Clear", systemImage: "clear") { model.sendControl("l") },
+            TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
+            // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
+            TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
+                model.clearScreenAndScrollback()
+            },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
     }

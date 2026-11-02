@@ -18,7 +18,9 @@
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
-  --ui-row-radius: 5px;
+  /* A row's highlight is concentric with its popup (design/grid.md section 1: the outer radius minus the
+     inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
+  --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The fade-in a dialog, its backdrop, a tooltip and the find pill take. A popup or menu has none:
      it opens in one frame (below). The motion scale's steps (pages/shared/desktop.css); the literal
@@ -26,6 +28,11 @@
   --ui-popup-open: var(--cmux-motion-micro, 120ms);
   /* The close: a fade, in every motion setting (the native fadeOut token). */
   --ui-popup-close: var(--cmux-motion-quick, 80ms);
+  /* A dialog's grow-in: a critically damped spring's shape (the native `appear` spring), no overshoot. */
+  --ui-dialog-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
+     (newtab/noEntry.css), as it does --ui-popup-open. */
+  --ui-dialog-open: var(--cmux-motion-standard, 180ms);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
@@ -58,16 +65,45 @@
   opacity: 0;
 }
 
-/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
-:where(.ui-dialog, .ui-backdrop) {
-  transition: opacity var(--ui-popup-open) ease-out;
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame), as
+   the native dialog does (WindowOverlayHost+Present): the dialog grows in from 0.97 while it fades in
+   and shrinks toward 0.98 as it fades out, faster; the backdrop eases in on the standard step (the
+   scrim token), so the page darkens in one even step. The scale is the `scale` property, never
+   `transform`, so a dialog that places itself with a transform (the Home palette and forms:
+   translateX(-50%)) keeps its place. A sheet (ui/Sheet, also .ui-dialog) only fades. The backdrop's
+   close is no longer than the dialog's: Base UI unmounts both when the dialog's own transitions end,
+   and a longer backdrop fade was cut off part way. Reduce Motion (the system's, or the app's
+   data-cmux-motion="reduced") keeps only the fades; "off" ends every transition (WebTheme). */
+:where(.ui-dialog) {
+  transition:
+    opacity var(--ui-popup-open) ease-out,
+    scale var(--ui-dialog-open) var(--ui-dialog-ease);
+}
+:where(.ui-backdrop) {
+  transition: opacity var(--ui-dialog-open) ease-out;
 }
 :where(.ui-dialog, .ui-backdrop)[data-starting-style],
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
   opacity: 0;
 }
+:where(.ui-dialog:not(.ui-sheet))[data-starting-style] {
+  scale: 0.97;
+}
+:where(.ui-dialog:not(.ui-sheet))[data-ending-style] {
+  scale: 0.98;
+}
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
   transition-duration: var(--ui-popup-close);
+}
+:where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-starting-style],
+:where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-ending-style] {
+  scale: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-dialog)[data-starting-style],
+  :where(.ui-dialog)[data-ending-style] {
+    scale: none;
+  }
 }
 
 /* Every popup is the liquid glass (.ui-glass, ui/glass/glass.css: Menu, Popover, ContextMenu,
@@ -129,6 +165,7 @@
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
   font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
@@ -245,7 +282,6 @@
 :where(.ui-menu-check) {
   display: inline-flex;
   align-items: center;
-  width: 12px;
   justify-content: center;
   line-height: 1;
 }
@@ -260,6 +296,98 @@
 }
 :where(.ui-submenu-chevron:dir(rtl)) {
   transform: rotate(-45deg);
+}
+
+/* EVERY MENU ON ONE GRID (leo-workspace design/menus.md, design/grid.md 5.3, schemas/menu-metrics).
+   Leo, 2026-10-30: "look for wastage"; 2026-10-22, on the right-click menu: "THERE'S SO MUCH BULLSHIT
+   PADDING AND WHATNOT LIKE ALL OVER THE FUCKIGN PLACE"; 2026-10-28: "there's so much unnecessary
+   padding that you just duplicate"; 2026-10-29: "misaligned checkmark :( can we all audit the
+   checkmarks and whatnot". A Menu or ContextMenu popup's rows, in every host (this sheet is the one
+   the agent pane loads too):
+   - the highlight 5 in from the popup's edge, radius 5, the row the menu row token high with no
+     padding above or below;
+   - a checkmark centred on the state column at 10, out of the row's flow, in a box no wider than its
+     glyph's (it reserves no gutter of its own);
+   - the label at AppKit's leading: 15, or 22 in a menu with a state column, so every row of one menu
+     starts its text on one line, checked, unchecked or plain; an icon sits at that leading in a 14
+     box and its label 6 after it (35 or 42), and a row without one keeps its label on that line.
+   Menus whose check is a trailing mark by design keep it there: the model picker menus
+   (.acpmux-quick-menu: Retry's, the composer's, New Tab's; design/model-picker.md), Claude Code's
+   mode menu (rows .acpmux-access-item, Leo 2026-10-19: "the check on the chosen row, as Claude's
+   model menu") and the Changes scope and chat filter lists (.acpmux-scope-list). Three classes and more, so a menu's older
+   paddings and gaps (ui.css, the agent pane's .acpmux-menu-item) give way to these in every host. */
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+  --ui-menu-icon-text: calc(var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap));
+  padding: var(--cmux-menu-highlight-inset);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-check) {
+  --ui-menu-lead: var(--cmux-menu-state-icon-x);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item {
+  position: relative;
+  box-sizing: border-box;
+  gap: var(--cmux-menu-icon-gap);
+  min-height: var(--ui-row-height);
+  padding-block: 0;
+  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item .ui-menu-check {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(
+    var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2
+  );
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cmux-menu-icon-size);
+  height: auto;
+  margin: 0;
+  order: 0;
+  line-height: 1;
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+  margin: 0;
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji))
+  .ui-menu-item:not(:has(> :is(.ui-menu-icon, .icon-menu-emoji))) {
+  padding-inline-start: calc(var(--ui-menu-lead) + var(--ui-menu-icon-text) - var(--cmux-menu-highlight-inset));
+}
+/* A row with a second line (a folder's path) keeps its first line on the row's middle. */
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item:has(.acpmux-menu-description) {
+  padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-group-label {
+  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-shortcut {
+  padding-inline-start: var(--cmux-menu-shortcut-gap);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-separator {
+  margin-inline: calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
+}
+
+/* A menu opened from a field-like trigger (a select, the saved environment's Host field) is that
+   field's drop-down (Leo 2026-10-30: "look for wastage"; leo-workspace design/menus.md): it opens at
+   the field's leading edge (Menu.tsx, align start) and is at least as wide as the field, Base UI's
+   --anchor-width, so a 560px field never opens a 200px menu. It grows past the field only for longer
+   rows, up to the window's width, so a long row (Appearance's painting titles) stays one menu row
+   high instead of wrapping onto two. Three classes, so a surface's own width caps
+   (.acpmux-location-menu's 200-320) give way to it in hosts that load this sheet before or after theirs. */
+.ui-popup.ui-menu.ui-menu-match-trigger {
+  box-sizing: border-box;
+  min-width: max(var(--anchor-width, 0px), 160px);
+  max-width: max(var(--anchor-width, 0px), calc(100vw - 16px));
 }
 
 /* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent

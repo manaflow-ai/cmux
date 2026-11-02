@@ -242,7 +242,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// The same after the phone replaced an unreadable stored key.
     public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"), identity: identity ?? mac)
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
     }
 }
 
@@ -327,7 +327,7 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes.
+/// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
@@ -348,6 +348,15 @@ private struct BannerHost: View {
         }
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation, value: state)
+        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+    }
+}
+
+/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
+/// included, ends the dismissal, so the next episode of the same state shows again.
+enum BannerDismissal {
+    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
+        state == dismissed ? dismissed : nil
     }
 }
 

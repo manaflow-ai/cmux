@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// timer). A workspace row never says Done and never shows how long its agent has worked: a
 /// finished, unread chat keeps only its quiet unread dot, a working one its spinner. What asks for
 /// the user (needs you, failed) still reads.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarRowNoDoneTests {
     private func workspace(_ chip: SidebarPriorityEntry.State?) -> SidebarWorkspace {
         var ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "Fix the build", lastActivity: Date())

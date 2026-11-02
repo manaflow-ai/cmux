@@ -156,10 +156,20 @@ enum Form {
     Request,
 }
 
+/// Who started B's chat `lane`.
+#[derive(Clone, Copy)]
+enum Started {
+    /// A, as the app starts a chat on a peer: a remote chat on B.
+    FromA,
+    /// B itself, as `acpmux` or `lane-place` start a lane there: B stops it from a peer link
+    /// only for its owner's own daemon (`remote_guard/cancel_owner.rs`).
+    OnB,
+}
+
 /// B's session `lane` runs an "until-cancel" turn with another agent's message queued behind it;
 /// A's person presses Stop on `b/lane`. B's log must show the agent message held by the Stop,
 /// and the message must still be queued after the stopped turn ended.
-async fn a_peers_person_stop_holds(form: Form, tag: &str) {
+async fn a_peers_person_stop_holds(form: Form, started: Started, tag: &str) {
     let b = hub();
     let home = std::env::temp_dir().join(format!("acpmux-pps-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
@@ -174,12 +184,23 @@ async fn a_peers_person_stop_holds(form: Form, tag: &str) {
     a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
     until_connected(&a, "b").await;
     let mut ca = client(a.clone(), true).await;
-    // Started from A, as the app starts a chat on a peer: B stops a remote chat only for a
-    // remote caller (`remote_guard.rs` `check_cancel_ownership`).
-    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
-        "_meta": {"acpmux": {"name": "lane", "peer": "b"}}});
-    let id = ca.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
     let mut cb = client(b.clone(), true).await;
+    let id = match started {
+        Started::FromA => {
+            let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "lane", "peer": "b"}}});
+            ca.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned()
+        }
+        Started::OnB => {
+            let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "lane"}}});
+            let id =
+                cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+            assert!(!b.resolve(&id).unwrap().meta().remote_origin, "B's own chat");
+            until_mirrored(&a, "b/lane").await;
+            id
+        }
+    };
     let turn = json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}],
         "_meta": {"acpmux": {"promptId": "p-turn"}}});
     cb.send(method::SESSION_PROMPT, turn).await;
@@ -216,14 +237,30 @@ async fn a_peers_person_stop_holds(form: Form, tag: &str) {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// Waits until `a` mirrors the peer's chat `key`.
+async fn until_mirrored(a: &Hub, key: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while a.resolve_remote(key).is_none() {
+        assert!(tokio::time::Instant::now() < deadline, "{key} was never mirrored");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn a_person_stop_notification_for_a_peers_chat_holds_the_agent_messages_there() {
-    a_peers_person_stop_holds(Form::Notification, "note").await;
+    a_peers_person_stop_holds(Form::Notification, Started::FromA, "note").await;
 }
 
 #[tokio::test]
 async fn a_person_stop_request_for_a_peers_chat_holds_the_agent_messages_there() {
-    a_peers_person_stop_holds(Form::Request, "req").await;
+    a_peers_person_stop_holds(Form::Request, Started::FromA, "req").await;
+}
+
+/// Leo's case: a lane the peer started itself, stopped from his Mac.
+#[tokio::test]
+async fn a_person_stop_of_a_lane_the_peer_started_holds_the_agent_messages_there() {
+    a_peers_person_stop_holds(Form::Notification, Started::OnB, "b-note").await;
+    a_peers_person_stop_holds(Form::Request, Started::OnB, "b-req").await;
 }
 
 /// A fake peer serving one session `lane`: its `initialize` lists `features`, and every

@@ -86,6 +86,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
+    /// The workspace's own color (workspace-metadata-v1 `color`), whatever icon it shows: the row's
+    /// leading rail or fill under `workspaceColors.indicatorStyle` (#25653).
+    public var color: GroupColor?
     /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
     /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
@@ -107,6 +110,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentBrand: String?
     /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
     public var agentIcon: SidebarAgentIcon?
+    /// The Chief operating this chat, resolved from acpmux ownership tags.
+    public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
@@ -134,9 +139,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The front tab's working directory, abbreviated (`~/src/app`): the
     /// bucket Group by Folder puts the row in. Nil when no tab reports one.
     public var folder: String?
-    /// A starting Cloud machine's stage (cx-lu8f): the row's machine label
-    /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
-    /// own workspace replaces the row. Nil for every other row.
+    /// A starting Cloud machine's stage (cx-lu8f), until the machine's own
+    /// workspace replaces the row: an expanded row's meta line shows it (a
+    /// compact row has no second line of its own, Leo 2026-10-30). Nil for
+    /// every other row.
     public var stage: String?
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
     /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
@@ -159,8 +165,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
-    /// The person's notes for the workspace (Edit Workspace Description…): its first line leads
-    /// the row's second line and the hover card shows it whole. Nil while unset.
+    /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
+    /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
     public var workspaceDescription: String?
     /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
     /// it and done-fold logic can use it. Nil while automatic.
@@ -183,6 +189,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         rowKind: WorkspaceRowKind? = nil,
         agentWorking: Bool = false,
         icon: WorkspaceIcon? = nil,
+        color: GroupColor? = nil,
         kind: SidebarWorkspaceKind = .terminal,
         kindBrand: String? = nil,
         unread: UnreadState = .none,
@@ -212,6 +219,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.rowKind = rowKind ?? kind.rowKind
         self.agentWorking = agentWorking
         self.icon = icon
+        self.color = color
         self.kind = kind
         self.kindBrand = kindBrand
         self.unread = unread

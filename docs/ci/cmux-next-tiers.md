@@ -117,9 +117,26 @@ A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `cmux-next.yml` counts as one only when, against the pull request's base
 (`--base-rev HEAD^1`), its change leaves every Mac job and every job one needs as
 it was: `on:` paths or `run-name`, or a job that runs only on Linux and that no Mac
-job needs (the `checks` job, a dispatch request). A changed Mac job, path routing,
-placement, the web bundles job, a top-level key, or a base that cannot be read runs
-every tier, as before (#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
+job needs (the `checks` job, a dispatch request). A job that never runs on a pull
+request adds no tier either: its `if:` requires a push, a dispatch, a branch ref or a
+dispatch input, or a job that does (the DEV landing compile, the fast Release gate, the
+nightly requests). The base push runs it. A change to one of the Mac jobs
+`WORKFLOW_JOB_TIERS` lists runs that job's own tiers:
+
+| job changed | tiers it runs |
+| --- | --- |
+| `swift-test` | swift test on every CmuxNext test target, with the generated-files check it folds in |
+| `daemon-test` | the daemon suites, with the generated-files check |
+| `generated-files` | generated |
+| `release-compile` | native and the Mac Release compile |
+| `app-compile-fleet` | native |
+| `cmux-scheme-compile` | native and the scheme compile |
+
+Before this, a change to the DEV compile's steps ran swift test, the daemon suites
+and every compile (#5424). The router runs every tier, as before, for: a change to a
+listed job's `if:`, a job added or removed, path routing, placement, the web bundles
+job, the fast tier or the canary, a top-level key, or a base that cannot be read
+(#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
 guards run actionlint and the CI unit tests. When the router itself changes,
 `Routing replay (router changes)` replays the last 30 merged PRs' changed files
 through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)
@@ -142,7 +159,18 @@ Every tier runs on:
   newest waits (a newer push replaces a waiting one), so a base compile break
   turns the base red within one compile of its commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
-  passed on a push. The owning lane fixes forward;
+  passed on a push. The owning lane fixes forward. The base Mac tier (daemon
+  tests, generated files, the Debug app scheme compile) is not on the push: it
+  runs at most once every 15 minutes, on the tip, in a `cmux-next base tier · <sha>`
+  dispatch that `cmux-next-base-tier-kick.yml` starts
+  (`scripts/ci/cmux_next_base_tier.py`, cmuxterm-hq#5424). Its tip holds every
+  landing since the last one, so each landing gets that verdict within about
+  15 minutes plus the run. When it fails, push attribution comments on the PRs
+  merged since it last passed (about ten in a busy window). To name one, push a
+  branch at a commit in that range and dispatch cmux-next.yml on it
+  (`gh workflow run cmux-next.yml --ref <branch>`), which runs every tier there;
+  halve the range until one PR is left. `vars.CMUX_NEXT_BASE_TIER_COALESCE = 0` puts the tier back on
+  every push;
 - a change to the manifest, the target graph, the router, the workflow or the
   test runner scripts, or to a file in the CmuxNext package that no target owns.
 
@@ -236,6 +264,21 @@ newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) 
 approving review from a call owner in `.github/defaults-call-owners.json` other than the
 author. A new setting whose default is off (false, null, `off`, `never`, `none`,
 `disabled` or empty) keeps what everyone had before it existed and passes on its own.
+
+## Warm sources
+
+Every compile, build or test job names the warm state it starts from in
+`.github/warm-sources.json`, beside the tiers above: kept DerivedData
+(`deriveddata-reuse`), the per-mini SwiftPM scratch (`spm-shared`), the fleet
+compiler-CAS nodes (`ssd-cas`), the DEV CAS seed (`dev-cas`), actions/cache on
+Blacksmith (`actions-cache`), the controller's warm Linux lanes (`linux-pool-warm`)
+and green-product reuse for the same tree (`product-reuse`). A job with none says
+why (`exempt`); one that compiles cold today says `cold: ...` until its cache is wired.
+`tests/test_ci_warm_sources.py` (release-notary guards) fails on a compile job missing
+from the table, an entry with neither, a source the job's steps do not wire, an
+exemption on a job that now wires a source, and an entry for a job that is gone. For
+a new job, `python3 tests/test_ci_warm_sources.py --suggest` prints the entry its
+steps give; each source's `runbook` says how to wire it.
 
 ## Measurements
 

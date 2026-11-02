@@ -123,6 +123,8 @@ enum HomeConversationStrings {
 
     /// The draft row's title and the page's name (Messages' "New Message").
     static var composeTitle: String { String(localized: "home.compose.title", defaultValue: "New Message", bundle: .module) }
+    /// The x on the list's New Message row and the action that discards the draft.
+    static var closeNewMessage: String { String(localized: "home.compose.close", defaultValue: "Close New Message", bundle: .module) }
     /// The To: field's VoiceOver label.
     static var composeSearch: String {
         String(localized: "home.compose.search", defaultValue: "Name or email address", bundle: .module)

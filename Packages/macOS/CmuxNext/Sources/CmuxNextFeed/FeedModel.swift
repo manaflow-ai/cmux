@@ -23,8 +23,8 @@ public final class FeedModel {
     /// Bumps once per change of anything shown: a reader that needs more than the row edits
     /// (the Inbox groups) observes this.
     public private(set) var version = 0
-    @ObservationIgnored private var listeners: [Int: @MainActor (FeedRowChanges) -> Void] = [:]
-    @ObservationIgnored private var nextListener = 0
+    /// The list subscriptions, held weakly: a released one leaves on its own, on any thread.
+    @ObservationIgnored private let listeners = NSHashTable<FeedListSubscription>.weakObjects()
     @ObservationIgnored private var inboxMemo: (version: Int, now: Date, filter: FeedInboxFilter, groups: FeedInboxGroups)?
     @ObservationIgnored private var visibleMemo: (version: Int, items: [FeedItem])?
     /// The last refusal, for the panel's notice; cleared on the next send.
@@ -145,10 +145,9 @@ public final class FeedModel {
     /// moved (relative times). A subscriber reads the rows it
     /// has not seen yet with ``listCount`` and ``listItem(at:)`` when it starts.
     public func observeList(_ body: @escaping @MainActor (FeedRowChanges) -> Void) -> FeedListSubscription {
-        nextListener += 1
-        let key = nextListener
-        listeners[key] = body
-        return FeedListSubscription { [weak self] in self?.listeners[key] = nil }
+        let subscription = FeedListSubscription(body)
+        listeners.add(subscription)
+        return subscription
     }
 
     /// An intent on this item still waits for the owner.
@@ -253,8 +252,22 @@ public final class FeedModel {
 
     /// Replaces the local reports projection after a durable mailbox read.
     /// This does not alter feed owner state or triage intents.
+    /// The most reports the basket shows (and the app keeps): the newest. The mailbox is
+    /// read from its start, and every report ever sent to this account stayed in memory
+    /// and became a row of the basket's stack view.
+    public static let reportsLimit = 200
+
     public func replaceReports(_ reports: [FeedReport]) {
-        self.reports = reports.sorted { $0.createdAt > $1.createdAt }
+        self.reports = Array(reports.sorted { $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id > $1.id }
+            .prefix(Self.reportsLimit))
+    }
+
+    /// Shows `rows` (the newest `reportsLimit`) and returns the ones shown, by id: the caller keeps
+    /// only those, so a mailbox read from its start never holds every report it ever had.
+    @discardableResult
+    public func replaceReports(_ rows: [String: FeedReport]) -> [String: FeedReport] {
+        replaceReports(Array(rows.values))
+        return Dictionary(uniqueKeysWithValues: reports.map { ($0.id, $0) })
     }
 
     // MARK: - Owner data
@@ -318,7 +331,7 @@ public final class FeedModel {
         let (changes, changed) = ledger.update(ids, confirmed: confirmed, pending: pending, user: user, device: device,
                                                now: now, forced: forcing ? touched : [])
         // Every commit reaches the list: no row edits still means `now` moved (relative times).
-        for listener in listeners.values { listener(changes) }
+        for listener in listeners.allObjects { listener.body?(changes) }
         guard changed else { return }
         version &+= 1
         let next = FeedSummary(counts: ledger.counts, listIsEmpty: ledger.list.count == 0, hasUnread: ledger.unread > 0)
@@ -341,22 +354,18 @@ public nonisolated struct FeedSummary: Sendable, Equatable {
 }
 
 /// A ``FeedModel/observeList(_:)`` registration; ends on ``cancel()`` or when released.
+///
+/// The model holds it weakly and the subscription holds the body, so a release on any thread ends
+/// it (#26698: a deinit that ended it only on the main thread left a released one registered).
 @MainActor
 public final class FeedListSubscription {
-    private var end: (@MainActor () -> Void)?
+    fileprivate private(set) var body: (@MainActor (FeedRowChanges) -> Void)?
 
-    init(end: @escaping @MainActor () -> Void) {
-        self.end = end
+    init(_ body: @escaping @MainActor (FeedRowChanges) -> Void) {
+        self.body = body
     }
 
     public func cancel() {
-        end?()
-        end = nil
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { end?() }
+        body = nil
     }
 }

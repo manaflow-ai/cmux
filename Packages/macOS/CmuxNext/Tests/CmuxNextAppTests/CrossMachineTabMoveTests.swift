@@ -105,7 +105,26 @@ struct CrossMachineTabMoveTests {
 
         /// The other machine's tab matching `match` in the target workspace, once its store shows it.
         func machineTab(_ match: (TabModel) -> Bool) async throws -> TabModel {
-            try await poll("no matching tab on the other machine") {
+            let deadline = ContinuousClock.now + .seconds(20)
+            // A move's reply can precede the store applying its rename. Read after the
+            // daemon's barrier so the creation event alone cannot satisfy this lookup.
+            // The barrier and lookup share one deadline. Leaving the group cancels and
+            // joins the observation wait or deadline task, including on caller cancellation.
+            let daemon = self.machine.daemon
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                defer { group.cancelAll() }
+                group.addTask {
+                    try Task.checkCancellation()
+                    try await daemon.appliedThroughSyncBarrier()
+                    try Task.checkCancellation()
+                }
+                group.addTask {
+                    try await ContinuousClock().sleep(until: deadline)
+                    throw DaemonError.timedOut("the other machine's store did not reach the move's reply")
+                }
+                _ = try await group.next()
+            }
+            return try await poll("no matching tab on the other machine", until: deadline) {
                 self.machine.daemon.store.workspaces.first { $0.id == self.target.id }?.screens.flatMap(\.panes).flatMap(\.tabs).first(where: match)
             }
         }
@@ -118,9 +137,10 @@ struct CrossMachineTabMoveTests {
             return !present()
         }
 
-        private func poll<T>(_ message: String, _ value: () -> T?) async throws -> T {
-            let deadline = ContinuousClock.now + .seconds(20)
-            while value() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        private func poll<T>(_ message: String, until deadline: ContinuousClock.Instant = ContinuousClock.now + .seconds(20), _ value: () -> T?) async throws -> T {
+            try Task.checkCancellation()
+            while value() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+            try Task.checkCancellation()
             return try #require(value(), Comment(rawValue: message))
         }
     }
@@ -130,33 +150,45 @@ struct CrossMachineTabMoveTests {
     static func withMachines(_ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-xmove-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
         let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-mac-\(UUID().uuidString.prefix(6).lowercased())",
-                                                      stateDirectory: root.appendingPathComponent("mac-state")), environment: environment)
+                                                      stateDirectory: root.appendingPathComponent("mac-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
         let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-vm-\(UUID().uuidString.prefix(6).lowercased())",
-                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
+                                                     stateDirectory: root.appendingPathComponent("vm-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
+        let macOwner = AppTestDaemonOwner(mac)
+        let vmOwner = AppTestDaemonOwner(vm)
         _ = NSApplication.shared
-        let vmSocket = try await vm.endpointProvider().socketPath
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
-        }
-        services.windows.restoreWhenLoaded()
         let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
         services.machines.add(machine)
-        machine.daemon.start(remote: { vmSocket })
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+            let panels = NSApp.windows.filter { services.palette.owns($0) }
+            services.palette.hide()
+            for panel in panels { panel.close() }
+            AppHarnessWindows.closeThoseThisTestOpened()
+        }
 
         let result: Result<Void, any Error>
         do {
+            let vmSocket = try await vmOwner.endpointProvider().socketPath
+            try Task.checkCancellation()
+            services.daemon.start {
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: macOwner.endpointProvider)
+            }
+            services.windows.restoreWhenLoaded()
+            machine.daemon.start(remote: { vmSocket })
             let deadline = ContinuousClock.now + .seconds(60)
             func macPane() -> PaneModel? { services.daemon.store.workspaces.first?.screens.first?.panes.first }
-            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let pane = try #require(macPane(), "this Mac's daemon has no pane")
             let macConnection = try #require(services.daemon.connection)
             let vmConnection = try #require(machine.daemon.connection, "the other machine did not connect")
@@ -165,16 +197,21 @@ struct CrossMachineTabMoveTests {
             func target() -> WorkspaceModel? {
                 machine.daemon.store.workspaces.first { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } }
             }
-            while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while target() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
             try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
             result = .success(())
         } catch {
             result = .failure(error)
         }
-        await CloudMoveTests.end(services.daemon)
-        await CloudMoveTests.end(machine.daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
+        // task-owner: joined teardown survives cancellation, stops both reconnect loops before
+        // closing windows, and reaps each owner even when startup never exposed a connection.
+        reaped = await Task { @MainActor in
+            await machine.daemon.shutdownConnectionAndWait()
+            let macReaped = await macOwner.stop(services)
+            let vmReaped = await vmOwner.reap()
+            return macReaped && vmReaped
+        }.value
         try result.get()
     }
 }

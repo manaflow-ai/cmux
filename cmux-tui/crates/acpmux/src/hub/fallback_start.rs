@@ -124,6 +124,7 @@ pub(super) struct ConversationMark {
     agent_session_id: Option<String>,
     agent_session_family: Option<String>,
     previous_agent_session_ids: Vec<String>,
+    retired_agent_session_ids: Vec<String>,
     claude_unstored: bool,
     claude_profile: Option<String>,
     rehydrate: bool,
@@ -136,6 +137,7 @@ impl ConversationMark {
             agent_session_id: m.agent_session_id.clone(),
             agent_session_family: m.agent_session_family.clone(),
             previous_agent_session_ids: m.previous_agent_session_ids.clone(),
+            retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             claude_unstored: m.claude_unstored,
             claude_profile: m.claude_profile.clone(),
             rehydrate: session.rehydrate.load(std::sync::atomic::Ordering::SeqCst),
@@ -149,11 +151,30 @@ impl ConversationMark {
             m.agent_session_id = self.agent_session_id;
             m.agent_session_family = self.agent_session_family;
             m.previous_agent_session_ids = self.previous_agent_session_ids;
+            m.retired_agent_session_ids = self.retired_agent_session_ids;
             m.claude_unstored = self.claude_unstored;
             m.claude_profile = self.claude_profile;
         }
         session.rehydrate.store(self.rehydrate, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+/// Whether a failover onto profile `to` (`profile`) is skipped: it runs through the local
+/// CodeRouter (the built-in `cmux` profile, or any profile bound to the built-in `cmux` route) and
+/// the chat is on a Cloud machine (`cloud_host`) or came over a remote connection
+/// (`remote_origin`). Such a chat stays on its own profile and its error names no fallback: a
+/// Cloud machine runs no CodeRouter, and is signed in from the Mac (Leo, 2026-10-31: "STOP USING
+/// CODEROUTER"). A Mac's own chats keep the fallback.
+pub(crate) fn coderouter_fallback_skipped(
+    cloud_host: bool,
+    remote_origin: bool,
+    to: &str,
+    profile: &crate::config::HarnessProfile,
+) -> bool {
+    let coderouter = to == crate::config::CMUX_ROUTER_PROFILE
+        || profile.env.get(crate::routes::PROFILE_ROUTE_KEY).map(String::as_str)
+            == Some(crate::routes::CMUX_ROUTE_ID);
+    coderouter && (cloud_host || remote_origin)
 }
 
 /// The key of the note in a turn error's data: a bound route's failure already puts its own
@@ -193,6 +214,35 @@ pub(super) fn say_fallback(e: &mut RpcError) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cloud_or_remote_chat_never_falls_over_onto_the_coderouter() {
+        let profile = |env: &[(&str, &str)]| crate::config::HarnessProfile {
+            kind: crate::config::HarnessKind::ClaudeStdio,
+            argv: vec!["claude".into()],
+            env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            description: None,
+            fallback: None,
+            family: Some("claude".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let plain = profile(&[]);
+        let routed = profile(&[(crate::routes::PROFILE_ROUTE_KEY, crate::routes::CMUX_ROUTE_ID)]);
+        // On a Cloud machine, or for a remote connection's chat: neither the `cmux` profile nor
+        // a profile on the `cmux` route.
+        for (cloud, remote) in [(true, false), (false, true), (true, true)] {
+            assert!(coderouter_fallback_skipped(cloud, remote, "cmux", &plain));
+            assert!(coderouter_fallback_skipped(cloud, remote, "direct", &routed));
+            // Another fallback (the subrouter pool, a direct login) still takes the turn.
+            assert!(!coderouter_fallback_skipped(cloud, remote, "claude-sr", &plain));
+        }
+        // A Mac's own chat keeps it.
+        assert!(!coderouter_fallback_skipped(false, false, "cmux", &plain));
+        assert!(!coderouter_fallback_skipped(false, false, "direct", &routed));
+    }
 
     #[test]
     fn the_turn_error_names_the_fallback_that_could_not_start() {

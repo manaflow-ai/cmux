@@ -490,4 +490,31 @@ grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "
 [[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "exports whose inputs kept moving were handed on: $(find "$tmp/mac-out" -type f)"
 grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
 
+# 26. The namespace lint's safe rewrite (a Swift file under Packages/) lands on a tip an unrelated
+#     commit moved, and waits when the move touched Packages/, its inputs.
+setup_swift() {
+  setup_next
+  lane_commit "lane adds a namespace type" Packages/a/A.swift "public enum A {}"
+  rm -rf "$tmp/bot"; git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo "public struct A { public init() {} }" > Packages/a/A.swift \
+    && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+}
+setup_swift
+lane_commit "lane edits the readme" README.md "readme v2"
+run > "$tmp/out" 2>&1 || fail "a namespace rewrite did not land past an unrelated move: $(cat "$tmp/out")"
+[[ "$(remote_show Packages/a/A.swift)" == "public struct A { public init() {} }" ]] \
+  || fail "the namespace rewrite did not land: $(remote_show Packages/a/A.swift)"
+setup_swift
+lane_commit "lane edits another type" Packages/a/B.swift "public struct B {}"
+if run > "$tmp/out" 2>&1; then fail "a namespace rewrite whose inputs moved passed the run"; fi
+[[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite made for an older Packages/ landed"
+# A reviewed exemption added to either baseline on the tip holds the rewrite too (#29577).
+for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-package-conventions-baseline.txt; do
+  setup_swift
+  lane_commit "lane exempts A" "$baseline" "Packages/a/A.swift:A"
+  if run > "$tmp/out" 2>&1; then fail "a namespace rewrite passed past a $baseline move"; fi
+  [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
+done
+
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or wait"

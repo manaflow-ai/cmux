@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// A huge paste, end to end. The composer keeps a paste of more than 20 lines as a "Pasted text"
+// A huge paste, end to end. The composer keeps a paste of more than 750 words as a "Pasted text"
 // chip and sends it as its own ACP text block after the typed one, marked `_meta.cmux.pasted`
 // (#23396). acpmux records the prompt's text blocks joined with a newline as `user_message.text`
 // and each marked block's UTF-16 range in it as `user_message.pasted` (hub/session.rs
@@ -11,7 +11,12 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { ComposerAttachment, PromptBlock } from "../src/agent-session/acpmux/attachments";
+import {
+  inlineTokenIds,
+  withoutInlineTokens,
+  type ComposerAttachment,
+  type PromptBlock,
+} from "../src/agent-session/acpmux/attachments";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
@@ -268,9 +273,12 @@ function drawn(row: AcpmuxRow) {
     ),
   );
   const body = transcriptHost.querySelector(".cv-user__text")!;
+  // A prompt whose attachments the composer placed draws in its recorded order, inside one inline
+  // content run (InlinePromptContent.tsx): its parts are that run's.
+  const run = body.querySelector(":scope > .cv-user__inline-content") ?? body;
   return {
     clamped: body.classList.contains("is-clamped"),
-    parts: [...body.children].map((part): Record<string, string | null | undefined> =>
+    parts: [...run.children].map((part): Record<string, string | null | undefined> =>
       part.classList.contains("cv-user__typed")
         ? { typed: part.textContent }
         : {
@@ -305,7 +313,7 @@ async function roundTrip(composed: Sent) {
     const before = drawn(pending);
     const record = daemon.echo(1);
     await sending;
-    await until(() => users().length === 1 && users()[0]!.id === "user-1", "acpmux's echo in the transcript");
+    await until(() => users().length === 1 && users()[0]!.promptId === "p-paste", "acpmux's echo in the transcript");
     const echoed = users()[0]!;
     expect(echoed.pending).toBeFalsy();
     const after = drawn(echoed);
@@ -315,10 +323,12 @@ async function roundTrip(composed: Sent) {
   }
 }
 
-/// 2,300 lines of a build log: far over the composer's 20-line chip limit.
+/// 2,300 lines of a build log: far over the composer's 750-word chip limit.
 const LOG = Array.from({ length: 2300 }, (_, index) => `error at frame ${index + 1}: cannot resolve module`).join("\n");
-/// A shorter paste, 25 lines, still a chip.
-const TRACE = Array.from({ length: 25 }, (_, index) => `  at handler${index + 1} (server.ts:${index + 10})`).join("\n");
+/// A shorter paste, 260 lines (780 words), still a chip.
+const TRACE = Array.from({ length: 260 }, (_, index) => `  at handler${index + 1} (server.ts:${index + 10})`).join(
+  "\n",
+);
 /// Typed text with a character of two UTF-16 units before the paste, so a range counted in code
 /// points (or bytes) would land off by one.
 const TYPED = "why does the build fail? 🧪";
@@ -326,8 +336,11 @@ const linesLabel = (n: number) => translate("transcript.pastedLines", { n, count
 
 test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn the same before and after acpmux's echo", async () => {
   const composed = await compose(TYPED, [LOG]);
-  expect(composed.text).toBe(TYPED);
+  // The paste sits in the prompt where it went, after the typed text.
+  expect(withoutInlineTokens(composed.text)).toBe(TYPED);
+  expect(composed.text.startsWith(TYPED)).toBe(true);
   expect(composed.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
+  expect(inlineTokenIds(composed.text)).toEqual(composed.attachments.map((chip) => chip.id));
 
   const { blocks, record, pending, echoed, before, after } = await roundTrip(composed);
   // The wire: the typed block, then the paste as its own block, marked.
@@ -362,8 +375,10 @@ test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn
 
 test("two pastes with nothing typed come back as two chips in the order they were pasted, before and after the echo", async () => {
   const composed = await compose("", [LOG, TRACE]);
-  expect(composed.text).toBe("");
+  // Nothing typed: the prompt is the two pastes, in the order they went in.
+  expect(withoutInlineTokens(composed.text)).toBe("");
   expect(composed.attachments.map((chip) => chip.kind)).toEqual(["pasted", "pasted"]);
+  expect(inlineTokenIds(composed.text)).toEqual(composed.attachments.map((chip) => chip.id));
 
   const { blocks, record, pending, before, after } = await roundTrip(composed);
   expect(blocks).toEqual([
@@ -382,7 +397,7 @@ test("two pastes with nothing typed come back as two chips in the order they wer
   const chips = after.parts.filter((part) => !("typed" in part) || part.typed?.trim());
   expect(chips).toEqual([
     { name: "error at frame 1: cannot resolve module", lines: linesLabel(2300), open: "false" },
-    { name: "at handler1 (server.ts:10)", lines: linesLabel(25), open: "false" },
+    { name: "at handler1 (server.ts:10)", lines: linesLabel(260), open: "false" },
   ]);
   expect(before).toEqual(after);
 });

@@ -45,6 +45,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { TurnActionsContext, chatLoginCommand } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { signedOutHarnesses } = await import("../src/agent-session/acpmux/signIn");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -99,12 +100,23 @@ test("a signed-out harness offers Sign in again and Switch model", async () => {
   expect(button("Copy error")).toBeDefined();
 });
 
-test("a profile's own login command wins over the health row's", () => {
+test("the model picker's signed-out harnesses include an expired sign-in", () => {
+  expect(
+    signedOutHarnesses([
+      { id: "claude", auth: "expired", login: "claude auth login" },
+      { id: "codex", auth: "signedOut", login: "codex login" },
+      { id: "grok", auth: "unknown", login: "grok login" },
+      { id: "opencode", auth: "signedIn" },
+    ]),
+  ).toEqual({ claude: "claude auth login", codex: "codex login" });
+});
+
+test("the health row's account-home-qualified login wins over the catalog fallback", () => {
   expect(
     chatLoginCommand([{ id: "claude-sr", name: "Claude", models: [], auth: { login: "sr login" } }], "claude-sr", {
       id: "claude-sr",
       login: "claude auth login",
     }),
-  ).toBe("sr login");
+  ).toBe("claude auth login");
   expect(chatLoginCommand([], "codex", undefined)).toBeUndefined();
 });

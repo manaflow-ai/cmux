@@ -30,7 +30,8 @@ struct SubagentMainPaneRoutingTests {
             return placed
         }
         tabs.locate = { _ in nil }
-        tabs.paneWidth = { _ in width }
+        // Nothing on the chat's right yet: the column RightColumnPlacement reads has only the chat's width.
+        tabs.rightColumn = { _ in .init(sourceWidth: width) }
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         tabs.wireHeader(model, key: chat)
         return (model, asked, tabs)
@@ -44,7 +45,7 @@ struct SubagentMainPaneRoutingTests {
         #expect(header.openSubagent(session, "reviewer", false))
         #expect(asked.mainPane.map(\.chat) == ["chat-tab"], "the width check kept main pane layout from placing it in the column on its right")
         #expect(asked.mainPane.map(\.focus) == [false])
-        #expect(AgentSubagentPanes.session(session).tab(for: "reviewer", isOpen: { _ in true }) == "subagent-tab")
+        #expect(AgentSubagentPanes.session("\(session):chat-tab").tab(for: "reviewer", isOpen: { _ in true }) == "subagent-tab")
         withExtendedLifetime(tabs) {}
     }
 

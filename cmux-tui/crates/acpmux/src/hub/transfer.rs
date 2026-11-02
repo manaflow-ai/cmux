@@ -39,6 +39,11 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        anyhow::ensure!(
+            self.store_deferred(session),
+            "could not store the chat's newest tool output"
+        );
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
@@ -126,6 +131,8 @@ impl Hub {
         meta.agent_session_family = None;
         meta.parent_id = None;
         meta.fork_seq = None;
+        meta.fork_before = None;
+        meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
@@ -238,6 +245,8 @@ impl Hub {
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
+            // The source's subagent retries stayed there: their prompts do not wait here.
+            self.drop_unsent_subagent_retries(&session);
         }
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
@@ -247,6 +256,7 @@ impl Hub {
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.update_live_session_index(&session);
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -411,6 +421,7 @@ impl Hub {
             self.store.close_log(&meta.id);
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
+            self.remove_cached_closed_summary(&meta.id);
             let _ = self.store.delete(&meta.id);
         }
     }

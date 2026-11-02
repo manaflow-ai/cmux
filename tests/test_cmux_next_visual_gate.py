@@ -5,6 +5,7 @@ state files load; and nightly.yml wires the gate in front of publish-nightly."""
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import json
 import os
@@ -755,6 +756,102 @@ class AwaitGateTests(unittest.TestCase):
         self.assertEqual((verdict, blocks), ("fail", True))
         self.assertEqual(looks[-1], 50 * 60)
 
+    def test_the_last_look_is_on_the_budget_and_a_later_hold_counts_for_nothing(self):
+        queue, hold = 5 * 60, 10 * 60
+        held = [gate_job("completed", "failure", "mac", marker="success")]
+        running = [gate_job("in_progress", runner="mac")]
+        # Looks drift off the minute (each read takes time): the last one is still on the budget.
+        now, looks = [0.0], []
+
+        def fetch():
+            looks.append(now[0])
+            now[0] += 3
+            return self.OTHERS + (held if now[0] > hold - 1 else running)
+        verdict, blocks, _ = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold,
+                                                  clock=lambda: now[0],
+                                                  sleep=lambda s: now.__setitem__(0, now[0] + s))
+        self.assertEqual((verdict, blocks), ("fail", True))
+        self.assertEqual(looks[-1], hold)
+        # A read asked for just before the budget that answers well after it holds nothing.
+        now = [0.0]
+
+        def slow():
+            now[0] += 590 if now[0] == 0 else 20
+            return self.OTHERS + (held if now[0] > hold else running)
+        verdict, blocks, why = self.mode.await_gate(slow, "visual-gate-nightly", queue, hold,
+                                                    clock=lambda: now[0], sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
+        # A hold seen only well past the budget (a slow read, a stalled runner) holds nothing.
+        clock = iter([0.0, hold + 60, hold + 60, hold + 60])
+        verdict, blocks, why = self.mode.await_gate(lambda: self.OTHERS + held, "visual-gate-nightly", queue, hold,
+                                                    clock=lambda: next(clock), sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
+        # An unreadable API near the budget is retried only up to it, not for five more minutes.
+        now, looks = [hold - 10.0], []
+
+        def failing():
+            looks.append(now[0])
+            raise RuntimeError("HTTP 502")
+        start = iter([0.0])
+        verdict, blocks, _ = self.mode.await_gate(failing, "visual-gate-nightly", queue, hold,
+                                                  clock=lambda: next(start, now[0]),
+                                                  sleep=lambda s: now.__setitem__(0, now[0] + s))
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertEqual(looks, [hold - 10, hold])
+
+    def test_the_budget_runs_from_the_signed_dmg_check_by_githubs_clock(self):
+        # The verdict job queued 8 min for its own Linux runner after the DMG check finished: the
+        # 10 min run out 2 min after it starts, and a hold counts only if the gate finished in time.
+        queue, hold, dmg_done = 5 * 60, 10 * 60, 1_000_000.0
+        stamp = lambda s: dt.datetime.fromtimestamp(s, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dmg = {"id": 2, "name": "Verify final nightly DMG (arm64)", "status": "completed",
+               "conclusion": "success", "completed_at": stamp(dmg_done)}
+
+        def run(gate_for, wall_start=dmg_done + 8 * 60):
+            now, looks = [0.0], []
+
+            def fetch():
+                looks.append(now[0])
+                return self.OTHERS + [dmg] + gate_for(wall_start + now[0])
+            result = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold, since="Verify final nightly DMG",
+                                          clock=lambda: now[0], wall=lambda: wall_start + now[0],
+                                          sleep=lambda s: now.__setitem__(0, now[0] + s))
+            return result, looks
+
+        running = [gate_job("in_progress", runner="mac")]
+        (verdict, blocks, _), looks = run(lambda wall: running)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertEqual(looks[-1], 2 * 60)
+        # Finished with a hold 9 min after the DMG check, before this job could even start: it counts.
+        early = dict(gate_job("completed", "failure", "mac", marker="success"), completed_at=stamp(dmg_done + 540))
+        (verdict, blocks, _), looks = run(lambda wall: [early], wall_start=dmg_done + 30 * 60)
+        self.assertEqual((verdict, blocks), ("fail", True))
+        self.assertEqual(looks, [0.0])
+        # Finished with a hold 11 min after it: too late to hold anything.
+        late = dict(early, completed_at=stamp(dmg_done + 660))
+        (verdict, blocks, why), _ = run(lambda wall: [late], wall_start=dmg_done + 12 * 60)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
+        # A slow read near the budget is not counted twice: a gate that finished with a hold inside
+        # the budget still holds when the read that sees it takes 20 s.
+        inside = dict(early, completed_at=stamp(dmg_done + 595))
+        now = [0.0]
+        wall_start = dmg_done + 580
+
+        def slow_read():
+            now[0] += 20
+            return self.OTHERS + [dmg, inside]
+        verdict, blocks, _ = self.mode.await_gate(slow_read, "visual-gate-nightly", queue, hold,
+                                                  since="Verify final nightly DMG", clock=lambda: now[0],
+                                                  wall=lambda: wall_start + now[0], sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("fail", True))
+        # The DMG check still running (a re-run's view) or absent: the budget runs from now.
+        (verdict, blocks, _), looks = run(lambda wall: [], wall_start=dmg_done)
+        self.assertEqual(self.mode.all_finished_at([dict(dmg, status="in_progress")], "Verify final"), None)
+        self.assertEqual(self.mode.all_finished_at([], "Verify final"), None)
+
     def test_an_unreadable_api_blocks_nothing_and_a_blip_is_retried(self):
         (verdict, blocks, why), looks = self.poll(lambda now: RuntimeError("HTTP 502"))
         self.assertEqual((verdict, blocks), ("unavailable", False))
@@ -790,6 +887,35 @@ class AwaitGateTests(unittest.TestCase):
             self.mode.github_jobs("o/r", "", "42", "2", get=get)()
         with self.assertRaises(RuntimeError):
             self.mode.github_jobs("o/r", "token", "42", "2", get=lambda url: {"message": "Not Found"})()
+
+    def test_outside_enforce_the_cli_waits_for_nothing(self):
+        # Only enforce runs the gate's hold step, so a report-mode verdict can never hold the build:
+        # publication must not wait for the Mac gate at all (no token is read, nothing is polled).
+        for mode in ("report", "off", "Report"):
+            with self.subTest(mode=mode):
+                done = subprocess.run([sys.executable, str(SCRIPT), "await-gate", "--run-id", "1", "--mode", mode],
+                                      capture_output=True, text=True, timeout=60,
+                                      env={"PATH": "/usr/bin:/bin", "GH_TOKEN": "unused"})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(done.stdout.split(), ["verdict=report", "blocks=false"])
+                self.assertIn("::notice title=nightly-next visual gate::", done.stderr)
+
+    def test_a_hold_bounds_a_running_gate_past_the_signed_build(self):
+        # Attempt 1 starts once the signed build is ready: a gate running then gets at most the hold,
+        # a gate still queued at most the queue budget, and publication goes ahead after either.
+        queue, hold = 5 * 60, 10 * 60
+        for jobs, last in (([gate_job("in_progress", runner="mac")], hold), ([gate_job("queued")], queue)):
+            now = [0.0]
+            looks = []
+
+            def fetch(jobs=jobs):
+                looks.append(now[0])
+                return self.OTHERS + jobs
+            verdict, blocks, _ = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold,
+                                                      clock=lambda: now[0],
+                                                      sleep=lambda s: now.__setitem__(0, now[0] + s))
+            self.assertEqual((verdict, blocks), ("unavailable", False))
+            self.assertEqual(looks[-1], last)
 
     def test_the_cli_without_a_token_blocks_nothing_and_says_so(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -999,28 +1125,59 @@ class WiringTests(unittest.TestCase):
         following = re.search(r"\n  [a-z0-9-]+:\n", rest[len(name) + 3:])
         return rest[:following.start() + len(name) + 3] if following else rest
 
-    def test_publish_nightly_needs_the_gates_verdict_not_the_mac_job(self):
+    def jobs(self):
+        """Return the workflow's top-level job bodies and their direct needs."""
+        starts = list(re.finditer(r"(?m)^  ([a-z0-9-]+):\n", self.nightly))
+        jobs = {}
+        for i, match in enumerate(starts):
+            body = self.nightly[match.end():starts[i + 1].start() if i + 1 < len(starts) else None]
+            needs_match = re.search(r"(?m)^    needs:\s*(.+)$", body)
+            raw = needs_match.group(1).strip() if needs_match else ""
+            if raw.startswith("[") and raw.endswith("]"):
+                needs = [item.strip() for item in raw[1:-1].split(",") if item.strip()]
+            elif raw:
+                needs = [raw]
+            else:
+                needs = []
+            jobs[match.group(1)] = needs
+        return jobs
+
+    def test_sign_and_publish_jobs_never_depend_on_visual_jobs_transitively(self):
+        jobs = self.jobs()
+        visual = {name for name in jobs if "visual-gate" in name}
+        targets = {name for name in jobs if re.search(r"(?:^|-)(?:sign|publish)(?:-|$)", name)}
+        self.assertTrue(targets)
+        for target in sorted(targets):
+            seen = set()
+            pending = list(jobs[target])
+            while pending:
+                dependency = pending.pop()
+                if dependency in seen:
+                    continue
+                seen.add(dependency)
+                self.assertNotIn(dependency, visual, f"{target} directly depends on visual job {dependency}")
+                pending.extend(jobs.get(dependency, []))
+            self.assertTrue(seen.isdisjoint(visual), f"{target} transitively depends on visual jobs: {seen & visual}")
+
+    def test_publish_nightly_does_not_need_visual_jobs(self):
         publish = self.job("publish-nightly")
         needs = [name.strip() for name in
                  publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0].split(",")]
-        # A gate queued for a runner taken after the pick could hold publication for a day: publish
-        # waits on the Linux job that stops waiting after the queue budget, never on the Mac job.
-        self.assertIn("visual-gate-nightly-verdict", needs)
+        # Visual coverage is advisory: a display or Linux queue can never hold the feed.
+        self.assertNotIn("visual-gate-nightly-verdict", needs)
+        self.assertNotIn("route-visual-gate-nightly", needs)
         self.assertNotIn("visual-gate-nightly", needs)
-        self.assertNotIn("needs.visual-gate-nightly.", publish)
-        # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks this
-        # run's own build only, never a recovered one (judged by its own verdict).
+        self.assertNotIn("needs.visual-gate-nightly", publish)
+        # In every visual mode publication depends only on signed and verified build artifacts.
         condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
-        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks != 'true'", own.split("((", 1)[1])
         self.assertNotIn("visual-gate-nightly", recovered)
-        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks == 'true' || "
-                      "needs.route-visual-gate-nightly.outputs.mode == 'invalid'", publish)
-        self.assertIn('[ "$OWN_GATE_BLOCKS" != true ]', publish)
+        self.assertNotIn("visual-gate-nightly-verdict.outputs.blocks", own)
+        self.assertNotIn("route-visual-gate-nightly.outputs.mode", own)
+        self.assertNotIn("OWN_GATE_BLOCKS", publish)
 
-    def test_a_gate_mode_that_cannot_be_resolved_holds_this_runs_build(self):
-        # The gate's own misconfiguration fails closed: the resolver failing gives `invalid`, which
-        # runs no gate and holds this run's build, instead of a skipped verdict job that publishes.
+    def test_a_gate_mode_that_cannot_be_resolved_stays_advisory(self):
+        # A mode error is visible and skips visual coverage, but cannot hold the signed build.
         body = self.step_body("route-visual-gate-nightly", "Resolve the visual gate mode")
         for code, mode in ((2, "invalid"), (1, "invalid"), (0, "report")):
             with tempfile.TemporaryDirectory() as tmp, self.subTest(code=code):
@@ -1044,10 +1201,10 @@ class WiringTests(unittest.TestCase):
             self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", self.job(name))
         publish = self.job("publish-nightly")
         needs = publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0]
-        self.assertIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
+        self.assertNotIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
         condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own = condition.split(" || (needs.recover-nightly-next-notarization")[0]
-        self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
+        self.assertNotIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
 
     def test_the_verdict_job_is_skipped_with_the_gate_and_reads_only_actions(self):
         verdict = self.job("visual-gate-nightly-verdict")
@@ -1056,11 +1213,17 @@ class WiringTests(unittest.TestCase):
         def line(job, key):
             return next(l.strip() for l in job.splitlines() if l.startswith(f"    {key}:"))
 
-        self.assertEqual(line(verdict, "if"), line(gate, "if"))
-        self.assertEqual(line(verdict, "needs"), line(gate, "needs"))
+        # The gate's `if`, after the signed build's own check: one of its two signing paths is always
+        # skipped, so an implicit success() would skip this advisory verdict job.
+        gate_if = line(gate, "if").removeprefix("if: ")
+        self.assertEqual(line(verdict, "if"),
+                         f'if: "!cancelled() && needs.verify-final-dmg-nightly.result == \'success\' && {gate_if}"')
+        # The gate's needs, plus the signed build's last check: publication's wait for the gate
+        # starts only once the build is ready, so it never runs beside the build for nothing.
+        self.assertEqual(line(verdict, "needs"), line(gate, "needs").replace("]", ", verify-final-dmg-nightly]"))
         # A Linux runner of its own, never the gate's Mac.
         runs_on = line(verdict, "runs-on")
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
         self.assertNotIn("route-visual-gate-nightly", runs_on)
         perms = verdict[verdict.index("    permissions:\n"):verdict.index("    outputs:\n")]
         self.assertEqual(re.findall(r"^      ([a-z-]+): ", perms, re.MULTILINE), ["contents", "actions"])
@@ -1068,8 +1231,11 @@ class WiringTests(unittest.TestCase):
         self.assertIn("actions: read", perms)
         self.assertNotIn("environment:", verdict)
         self.assertNotIn("secrets.", verdict)
-        # Bounded: the queue budget plus the gate's own timeout plus a margin.
-        self.assertIn("--queue-budget-minutes 15 --gate-timeout-minutes 75", verdict)
+        # Bounded: on attempt 1 at most 10 min past the signed build (5 for a gate still queued); a
+        # re-run, which starts the gate beside this job, the queue budget plus the gate's own timeout.
+        self.assertIn('budget=(--queue-budget-minutes 5 --hold-minutes 10 --since-job "Verify final nightly DMG")', verdict)
+        self.assertIn("budget=(--queue-budget-minutes 15 --gate-timeout-minutes 75)", verdict)
+        self.assertIn("GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}", verdict)
         self.assertIn("timeout-minutes: 75", gate)
         self.assertEqual(int(re.search(r"timeout-minutes: (\d+)", verdict).group(1)), 100)
         self.assertIn("persist-credentials: false", verdict)
@@ -1077,10 +1243,31 @@ class WiringTests(unittest.TestCase):
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)
         # A held build fails this job too, so "Re-run failed jobs" retries it with the gate instead
         # of keeping a successful job's stale `blocks=true`.
-        hold = verdict[verdict.index("- name: Fail with the gate when it holds the build"):]
+        hold = verdict[verdict.index("- name: Record failed advisory verdict"):]
         self.assertIn("if: steps.await.outputs.blocks == 'true'", hold.splitlines()[1])
         self.assertIn("exit 1", hold)
-        self.assertLess(verdict.index("id: await"), verdict.index("- name: Fail with the gate when it holds the build"))
+        self.assertLess(verdict.index("id: await"), verdict.index("- name: Record failed advisory verdict"))
+
+    def test_the_wait_is_short_on_attempt_1_and_whole_on_a_re_run(self):
+        body = self.step_body("visual-gate-nightly-verdict",
+                              "Wait for the visual gate, at most 10 min past the signed build")
+        for attempt, expected in (("1", ["--queue-budget-minutes", "5", "--hold-minutes", "10", "--since-job",
+                                         "Verify", "final", "nightly", "DMG"]),
+                                  ("2", ["--queue-budget-minutes", "15", "--gate-timeout-minutes", "75"])):
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(attempt=attempt):
+                tmp = Path(tmp)
+                fake = tmp / "scripts/ci/nightly_next_canary_mode.py"
+                fake.parent.mkdir(parents=True)
+                fake.write_text("import sys\nprint('args=' + ' '.join(sys.argv[1:]))\n")
+                out = tmp / "output"
+                done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True,
+                                      timeout=60, env=dict(os.environ, GITHUB_OUTPUT=str(out), GITHUB_RUN_ID="9",
+                                                           GITHUB_RUN_ATTEMPT=attempt, GITHUB_REPOSITORY="o/r",
+                                                           GATE_MODE="enforce"))
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                args = out.read_text().split("args=", 1)[1].split()
+                self.assertEqual(args[args.index("--mode"):args.index("--mode") + 2], ["--mode", "enforce"])
+                self.assertEqual(args[-len(expected):], expected)
 
     def test_the_gate_marks_the_build_it_holds_in_a_step_the_verdict_job_reads(self):
         gate = self.job("visual-gate-nightly")
@@ -1089,25 +1276,26 @@ class WiringTests(unittest.TestCase):
         # The gate's own outputs stay for the report job.
         self.assertIn("blocks: ${{ steps.verdict.outputs.blocks }}", gate)
         report = self.job("report-visual-gate-nightly")
-        self.assertIn("HELD: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}", report)
+        self.assertNotIn("HELD:", report)
 
-    def test_a_recovered_build_is_judged_by_its_own_verdict(self):
+    def test_recovery_keeps_visual_verdicts_advisory(self):
         find = self.job("find-nightly-next-recovery")
         self.assertIn("issues: read", find)
-        self.assertIn("nightly_next_canary_mode.py verdicts --issue-title \"nightly-next visual gate\"", find)
-        self.assertIn("visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}", find)
+        self.assertNotIn("Read the visual gate's verdicts", find)
         job = self.job("recover-nightly-next-notarization")
         self.assertIn("run: bash scripts/ci/nightly-steps/recover-continue-pending-notarization.sh",
                       (ROOT / ".github/workflows/nightly.yml").read_text())
-        self.assertIn("VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}", job)
-        self.assertIn("VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}", job)
+        self.assertNotIn("VISUAL_GATE_MODE", job)
+        self.assertNotIn("VISUAL_GATE_VERDICTS", job)
         # The step's shell lives in its script (nightly.yml's size limit).
         recover = (ROOT / "scripts/ci/nightly-steps/recover-continue-pending-notarization.sh").read_text()
-        admit = recover.index("nightly_next_canary_mode.py admit")
-        # After the manifest names the build, before anything is notarized or stapled.
-        self.assertLess(recover.index('source "$dir/manifest.env"'), admit)
-        self.assertLess(admit, recover.index("./scripts/ci/notarize-nightly-dmg.sh"))
-        self.assertIn('--build-sha "$BUILD_SHA"', recover[admit:admit + 300])
+        # Recovery remains gated by the manifest, lineage, notarization and feed checks;
+        # it has no visual publication gate. Keep that positive ordering explicit.
+        self.assertNotIn("nightly_next_canary_mode.py admit", recover)
+        self.assertLess(recover.index('source "$dir/manifest.env"'),
+                        recover.index("./scripts/ci/notarize-nightly-dmg.sh"))
+        self.assertLess(recover.index("./scripts/ci/notarize-nightly-dmg.sh"),
+                        recover.index('echo "accepted=true"'))
 
     def test_every_judged_build_is_recorded(self):
         report = self.job("report-visual-gate-nightly")
@@ -1144,7 +1332,7 @@ class WiringTests(unittest.TestCase):
 
     def test_every_exit_code_of_the_gate_records_a_verdict(self):
         # Actions runs `run:` under `bash -e`: a failed gate must still write its verdict, or
-        # enforce never holds the build it failed.
+        # enforce marks the advisory job when it fails, but never controls publication.
         body = self.step_body("visual-gate-nightly", "Run the visual gate")
         for code, verdict, blocks in ((0, "pass", "false"), (1, "fail", "true"), (3, "unavailable", "false"),
                                       (2, "unavailable", "false")):
@@ -1169,26 +1357,13 @@ class WiringTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual(out.read_text().split(), ["verdict=unavailable", "blocks=false"])
 
-    def test_a_bad_gate_variable_never_stops_a_recovery_nor_admits_a_failed_build(self):
-        find = self.job("find-nightly-next-recovery")
-        step = find[find.index("- name: Read the visual gate's verdicts"):]
-        self.assertIn("continue-on-error: true", step[:step.index("run: |")])
-        body = self.step_body("find-nightly-next-recovery", "Read the visual gate's verdicts")
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            resolver = tmp / "scripts/ci/nightly_next_canary_mode.py"
-            resolver.parent.mkdir(parents=True)
-            resolver.write_text("import sys\nif sys.argv[1] == 'resolve':\n    sys.exit(2)\nprint('{}')\n")
-            out = tmp / "output"
-            done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True, timeout=60,
-                                  env=dict(os.environ, GITHUB_OUTPUT=str(out)))
-            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            # Read as enforce: a recovered build the gate recorded as failed is still refused.
-            self.assertEqual(out.read_text().split(), ["mode=enforce", "verdicts={}"])
-
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")
         self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE", route)
+        resolver = (ROOT / "scripts/ci/nightly-steps/visual-gate-resolve-mode.sh").read_text()
+        recovery_resolver = (ROOT / "scripts/ci/nightly-steps/visual-gate-read-verdicts.sh").read_text()
+        self.assertIn("--enforce-after never --default-enforce-after never", resolver)
+        self.assertIn("--enforce-after never --default-enforce-after never", recovery_resolver)
         self.assertIn("scripts/ci/cmux_next_media_runner.py", route)
         job = self.job("visual-gate-nightly")
         self.assertIn("scripts/cmux-next/visual-gate/visual_gate.py", job)

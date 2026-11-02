@@ -31,7 +31,10 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
     await browser?.close();
   });
 
-  const long = "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest";
+  // Longer than the 720px row at any body size, so the title-only row overflows and must run to the
+  // time column rather than end where its text happens to end.
+  const long =
+    "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest of the fleet after that";
   const cards: ChatCard[] = [
     { sessionId: "a", title: long, harness: "claude", age: "6m", state: "idle" },
     {
