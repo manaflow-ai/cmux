@@ -183,7 +183,7 @@ public nonisolated enum SidebarEdits {
     static func createGroup(
         _ id: GroupID,
         name: String,
-        color: GroupColor,
+        color: GroupTint,
         workspaces ids: [WorkspaceID],
         anchor target: WorkspaceID? = nil,
         index: Int? = nil,
@@ -209,7 +209,8 @@ public nonisolated enum SidebarEdits {
         })
         let held = groupsWithMembers(sections)
         let removed = removeWorkspaces(joining, from: &sections)
-        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
+        var group = SidebarGroup(id: id, name: SidebarGroup.named(name), workspaces: removed)
+        group.tint = color
         sections[s].nodes.insert(.group(group), at: min(max(index ?? insertion, 0), sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id, emptiedFrom: held)
         return true
