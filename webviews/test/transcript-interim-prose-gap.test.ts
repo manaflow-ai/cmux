@@ -6,8 +6,8 @@
 // In gallery entry agent-pane.interim-prose-gap (a running turn's opened run: a command, a short
 // note, "Ran 2 commands" opened, a note, a command; turns.ts mergeShortNotes folds the notes into
 // the run), measured in Chromium in light and dark:
-// - each note (`.cv-tool-note`) has the run's block gap (24 on the grid; 12px `--cv-note-gap` on base
-//   before the grid) between its text box and the row above it, and as much to the row below it;
+// - each note (`.cv-tool-note`) has the run gap (16, design/transcript-spacing.md rule 4; 24 on the
+//   grid before it, 12px `--cv-note-gap` before the grid) between its text box and the row above it, and as much to the row below it;
 // - every other gap in the run (between its tool rows, around the run) is the same as in the
 //   `tight` variant, which draws the earlier 3px.
 // design/chat-transcript.md "Notes between tool rows".
@@ -26,10 +26,10 @@ await requireBrowserLane("transcript-interim-prose-gap.test.ts", async () => {
     { name: "Catppuccin Mocha", file: "dark" },
   ];
   /** The room above and below a note, CSS px (conversation.css `--cv-note-gap`). */
-  // On the transcript grid (design/grid.md 5.5) a run stacks its rows and notes with the block gap,
-  // so a note has the run's 24 above and below it: more room than #30400's 12, which this test held
-  // on base, and the same as between any two blocks of the run.
-  const NOTE_GAP = gridLength("gap-block");
+  // Prose by a run of one-line rows sits the run gap from it (design/transcript-spacing.md rule 4;
+  // Leo, 2026-11-02: "now there's sometimes too much spacing between tool calls"), so a note has 16
+  // above and below it: more room than #30400's 12, less than the block gap's 24.
+  const NOTE_GAP = gridLength("gap-run");
   const TOLERANCE = 0.5;
 
   try {

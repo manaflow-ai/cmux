@@ -11,6 +11,10 @@ export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
 export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
+/// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
+/// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
+/// "now there's sometimes too much spacing between tool calls".
+export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
 /// line, then the block gap to whatever comes next.
@@ -85,6 +89,9 @@ export function transcriptGap(previous: number, next: number): number {
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
   // The live line under a run is one more line of it (#29965): flush too.
   if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
+  // A run and the reply's prose around it sit 16 apart, either way.
+  if ((previous === MARK_STEP && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && next === MARK_STEP))
+    return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

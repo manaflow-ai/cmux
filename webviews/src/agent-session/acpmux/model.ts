@@ -8,6 +8,7 @@ import {
   restBand,
   tailGap,
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   transcriptGap,
@@ -1124,9 +1125,9 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
 /// the plain status gap above and below it.
 const NOTE_LINE = 20;
-/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
-/// otherwise flush (conversation.css `.cv-tool-note`).
-const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
+/// The room above and below a note (#30400's --cv-note-gap): the run gap, as for any prose by a run,
+/// since a run's lines are otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_RUN_GAP * chromeScale;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * noteGap() : 26;

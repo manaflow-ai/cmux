@@ -5,7 +5,12 @@ import {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
+  MARK_MESSAGE,
+  MARK_PROMPT,
+  MARK_STEP,
+  transcriptGap,
 } from "./transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -161,4 +166,16 @@ test("the live line sits flush under a run of one-line rows: 22 apart top to top
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);
   expect(waiting.tops[1]! - waiting.heights[0]!).toBe(TRANSCRIPT_BLOCK_GAP);
+});
+
+// A run of one-line rows sits 16 from the prose over and under it, as chatgpt.com draws it
+// (design/transcript-spacing.md rule 4; Leo, 2026-11-02: "now there's sometimes too much spacing
+// between tool calls"); a prompt keeps its turn gap and the run's own rows stay flush.
+test("a run and the reply's prose sit the run gap apart, either way", () => {
+  expect(TRANSCRIPT_RUN_GAP).toBe(16);
+  expect(transcriptGap(MARK_STEP, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_MESSAGE, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_STEP, MARK_STEP)).toBe(0);
+  expect(transcriptGap(MARK_STEP, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
 });

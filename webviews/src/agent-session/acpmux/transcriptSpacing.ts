@@ -71,7 +71,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 38.375,
     tolerance: 1,
     source: "11 + 16 + 11.375; chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
-    pending: "transcript spacing: room around runs (16 to prose)",
   },
   {
     id: "prose-to-step",
@@ -79,7 +78,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 38.375,
     tolerance: 1,
     source: "as step-to-prose (claude.ai 10 and 10, chatgpt.com 16 and 16: symmetric)",
-    pending: "transcript spacing: room around runs (16 to prose)",
   },
   {
     id: "step-pitch",
