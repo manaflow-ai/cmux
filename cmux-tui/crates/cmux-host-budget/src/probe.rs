@@ -1,4 +1,4 @@
-//! Part of `host_pressure.rs`: the real host's readings. The parsers of Linux's
+//! The real host's readings. The parsers of Linux's
 //! `/proc` files and the perf-level fold are plain functions, so every platform
 //! tests them.
 
@@ -9,7 +9,8 @@ pub struct HostProbe;
 
 impl Probe for HostProbe {
     fn sample(&self) -> Sample {
-        let logical_cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u32);
+        let logical_cpus = std::thread::available_parallelism()
+            .map_or(1, |n| u32::try_from(n.get()).unwrap_or(u32::MAX));
         platform::sample(logical_cpus)
     }
 }
@@ -164,7 +165,7 @@ mod platform {
         } == 0;
         let bytes = buf.get(..size.min(buf.len())).filter(|_| ok)?;
         let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
-        Some(String::from_utf8_lossy(&bytes[..end]).into_owned())
+        Some(String::from_utf8_lossy(bytes.get(..end).unwrap_or(bytes)).into_owned())
     }
 
     /// `vm_stat`'s Swapouts (pages) in bytes.

@@ -520,6 +520,32 @@ test("a turn's end keeps a reply's room: a folded reply to the person keeps it, 
   expect(keepsReplyRoom({ ...reply, streaming: true }, next)).toBe(false);
 });
 
+test("a note folded between tool rows is estimated as the lines it wraps to at the column's width", () => {
+  // turns.ts mergeShortNotes folds the note into the run; conversation.css `.cv-tool-note` draws it on
+  // 20px lines with the 12px note gap above and below (cmux#31148).
+  const shell = (id: string) => ({
+    kind: "tool",
+    text: "Bash",
+    tool: { id, title: "Bash", kind: "execute", status: "completed", command: "git status" },
+  });
+  const run = (note: string) => [
+    { id: "run", version: 1, at: 0, kind: "activity", items: [shell("a"), { kind: "note", text: note }, shell("b")] },
+  ];
+  const at = (note: string, width: number) => layoutConversation(run(note) as never, width).heights[0]!;
+  // A short note is one 20px line between its gaps; the run's rows and the gaps are the rest.
+  const oneLine = at("Checking the tests.", 720);
+  const long = "Now the tests pass, so the next step is the migration and its rollback path. ".repeat(4);
+  // A long note wraps: its extra lines are 20px each, more of them in a narrow pane.
+  const wide = at(long, 720) - oneLine;
+  const narrow = at(long, 360) - oneLine;
+  expect(wide).toBeGreaterThanOrEqual(20);
+  expect(wide % 20).toBe(0);
+  expect(narrow % 20).toBe(0);
+  expect(narrow).toBeGreaterThan(wide);
+  // The note wraps with `white-space: normal`: a newline in a short note draws as a space, one line.
+  expect(at("Checking\nthe tests.", 720)).toBe(oneLine);
+});
+
 // A code card's estimate (model.ts codeCardHeight) follows what the card draws.
 const codeWidth = 600;
 const codeChars = (room: number) => Math.floor(room / currentChatMetrics().codeCharWidth);
