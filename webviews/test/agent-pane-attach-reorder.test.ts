@@ -107,6 +107,17 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     const first = (await chips.nth(0).boundingBox())!;
     const last = (await chips.nth(2).boundingBox())!;
+    // Every slide the strip starts, recorded in the page as it starts (a 160 ms slide may be over
+    // before the test could look for it).
+    await page.evaluate(() => {
+      const record: string[] = [];
+      Object.assign(window, { slidesStarted: record });
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (this: Element, ...args: Parameters<Element["animate"]>) {
+        if (this.closest(".acpmux-attachment-slot:not([data-dragging])")) record.push(this.className);
+        return animate.apply(this, args);
+      };
+    });
     await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
     await page.mouse.down();
     await page.mouse.move(first.x + first.width / 2 + 10, first.y + first.height / 2, { steps: 3 });
@@ -131,14 +142,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     expect(Math.abs(ride.center - pointerX) < 2 || Math.abs(ride.right - ride.stripRight) < 2).toBe(true);
     // The chips it passed slide to their new slots instead of jumping there.
     expect(
-      await page.evaluate(
-        () =>
-          [
-            ...document.querySelectorAll(
-              ".acpmux-attachments .acpmux-attachment-slot:not([data-dragging]) .acpmux-attachment",
-            ),
-          ].flatMap((chip) => chip.getAnimations()).length,
-      ),
+      await page.evaluate(() => (window as unknown as { slidesStarted: string[] }).slidesStarted.length),
     ).toBeGreaterThan(0);
     await page.mouse.up();
     expect(await order(page)).toEqual(["400", "500", "300"]);

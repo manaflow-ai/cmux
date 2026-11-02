@@ -61,8 +61,21 @@ export function slides(
   return out;
 }
 
-/// The settle running on a chip, so the next drag can stop it (and only it) when it picks the chip up.
-const settling = new WeakMap<HTMLElement, Animation>();
+/// Slides `chip` from `delta` back to its slot, additively over whatever already moves it.
+function slide(chip: HTMLElement, delta: number) {
+  chip.animate?.([{ translate: `${delta}px 0` }, { translate: "0 0" }], {
+    duration: SLIDE_MS,
+    easing: SLIDE_EASING,
+    composite: "add",
+  });
+}
+
+/// Ends every slide and settle on `chip` at once (the ones this file starts: script animations, never
+/// the chip's own CSS animations or transitions, which may loop).
+function finishSlides(chip: HTMLElement) {
+  for (const animation of chip.getAnimations?.() ?? [])
+    if (!(animation instanceof CSSAnimation) && !(animation instanceof CSSTransition)) animation.finish();
+}
 
 /// The chip inside a slot: what moves on screen (the slot itself draws nothing, display: contents).
 const chipOf = (slot: HTMLElement) => slot.querySelector<HTMLElement>(".acpmux-attachment") ?? slot;
@@ -153,12 +166,10 @@ export function useStripReorder(
     if (!strip || !was) return;
     const chips = chipsById(strip, live.current.ids);
     if (!reducedMotion())
-      for (const { id, delta } of slides(was, slotLefts(chips), ride.current?.id))
-        chips.get(id)?.animate?.([{ translate: `${delta}px 0` }, { translate: "0 0" }], {
-          duration: SLIDE_MS,
-          easing: SLIDE_EASING,
-          composite: "add",
-        });
+      for (const { id, delta } of slides(was, slotLefts(chips), ride.current?.id)) {
+        const chip = chips.get(id);
+        if (chip) slide(chip, delta);
+      }
     follow.current();
   }, [order, strip]);
   useEffect(() => {
@@ -184,13 +195,7 @@ export function useStripReorder(
       if (!chip) return;
       const offset = Number.parseFloat(chip.style.translate) || 0;
       chip.style.translate = "";
-      if (!offset || reducedMotion() || !chip.animate) return;
-      const animation = chip.animate([{ translate: `${offset}px 0` }, { translate: "0 0" }], {
-        duration: SLIDE_MS,
-        easing: SLIDE_EASING,
-        composite: "add",
-      });
-      settling.set(chip, animation);
+      if (offset && !reducedMotion()) slide(chip, offset);
     };
     const down = (event: PointerEvent) => {
       if (!live.current.onReorder || event.button !== 0 || live.current.ids.length < 2) return;
@@ -211,8 +216,8 @@ export function useStripReorder(
           // No active pointer to capture (a synthetic one): the drag goes on without capture.
         }
         const chip = chipsById(strip, live.current.ids).get(press.id);
-        // A settle still running from the last drag stops: the chip is picked up where it is drawn.
-        if (chip) settling.get(chip)?.finish();
+        // A slide or settle still running on it stops: the chip is picked up where its slot is.
+        if (chip) finishSlides(chip);
         const left = chip ? chip.getBoundingClientRect().left : press.x;
         ride.current = { id: press.id, pointerX: event.clientX, grab: press.x - left };
         setDragging(press.id);
