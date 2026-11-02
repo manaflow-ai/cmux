@@ -128,6 +128,29 @@ import Testing
         #expect(tab.pageReady)
     }
 
+    /// reopen-browser-plain-keys cycle B, second finding (REOPEN VIDEO 7660): the restored page's navigation starts after
+    /// Chromium created the browser, so keys sent on at the browser's creation reached the empty document the
+    /// navigation then replaced. The page is ready for keys once its first document committed (or failed to load).
+    @Test func aTabIsReadyForKeysOnceItsFirstDocumentCommitted() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        var reported = 0
+        tab.onAttached = { reported += 1 }
+        host.ensureCreated(tab)
+        let request = try #require(runtime.pendingWindows.keys.first)
+        runtime.handle(.afterCreated(browser: 16, request: request, window: 1))
+        #expect(!tab.pageReady, "keys sent on when the browser exists reach the empty document the restore replaces")
+        #expect(reported == 0)
+        runtime.handle(.loadStart(browser: 16, url: "https://example.com/", fromPost: false))
+        #expect(tab.pageReady)
+        #expect(reported == 1, "the tab did not say its first document committed")
+        runtime.handle(.loadStart(browser: 16, url: "https://example.com/next", fromPost: false))
+        #expect(reported == 1, "a later navigation ended a hold again")
+    }
+
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
