@@ -523,9 +523,9 @@ impl Reporter {
 }
 
 /// Whether a notification may leave the Mac under the current per-chat policy.
-/// Terminal program notifications remain a legacy Mac-wide surface; an
-/// agent-derived terminal hook without a session binding fails closed once a
-/// per-chat policy is configured.
+/// Terminal program and native harness notifications remain a Mac-wide
+/// surface. Their trusted classifier supplies a daemon notification ID and
+/// excludes conversation tabs before reporting; acpmux events need a chat ID.
 fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent) -> bool {
     if !state.available {
         return false;
@@ -533,7 +533,11 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
     if event.session_id.as_deref().is_some_and(|id| state.blocked.contains(id)) {
         return false;
     }
-    if state.configured && event.session_id.is_none() && event.agent.as_deref() != Some("Terminal") {
+    if state.configured
+        && event.session_id.is_none()
+        && event.notification_id.is_none()
+        && event.agent.as_deref() != Some("Terminal")
+    {
         return false;
     }
     true
@@ -701,6 +705,41 @@ mod tests {
 
         let terminal = NotifyEvent { agent: Some("Terminal".into()), ..NotifyEvent::default() };
         assert!(exposure_allows(&state, &terminal));
+    }
+
+    #[test]
+    fn exposure_policy_keeps_native_terminal_agent_notifications() {
+        use crate::notify_content::Place;
+        use crate::notify_terminal::TerminalClassifier;
+
+        let state = SessionExposure {
+            configured: true,
+            blocked: ["unrelated-chat".to_owned()].into_iter().collect(),
+            ..SessionExposure::default()
+        };
+        let places = Places::default();
+        let mut map = PlaceMap::default();
+        map.surfaces.insert(
+            7,
+            Place {
+                workspace_id: "ws_a".into(),
+                workspace: "Project".into(),
+                tab_id: "s7".into(),
+                terminal: true,
+            },
+        );
+        places.set(map);
+        for agent in ["Claude", "Codex"] {
+            let mut classifier = TerminalClassifier::default();
+            let event = json!({"event":"notification","notification":41,"surface":7,
+                               "source":"agent","title":format!("{agent} finished"),
+                               "body":"Ready","desktop":true});
+            let notification = classifier.handle_at(&event, &places, Instant::now()).unwrap();
+            assert_eq!(notification.agent.as_deref(), Some(agent));
+            assert_eq!(notification.session_id, None);
+            assert_eq!(notification.notification_id.as_deref(), Some("41"));
+            assert!(exposure_allows(&state, &notification));
+        }
     }
 
     #[test]
