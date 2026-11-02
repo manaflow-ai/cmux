@@ -26,7 +26,7 @@ public enum MobileHostEvent: Sendable, Equatable {
     case phoneDown(sessionID: String, reason: String)
     /// The host's durable per-chat Remote Control policy, including sessions blocked by a
     /// malformed or unavailable policy read.
-    case sessionExposureState(configured: Bool, sessions: [String], blockedSessions: [String])
+    case sessionExposureState(available: Bool, configured: Bool, sessions: [String], blockedSessions: [String])
     /// The host could not apply a per-chat Remote Control intent.
     case sessionExposureError(sessionID: String, allowed: Bool, reason: String)
     /// A phone proved keys this Mac has not approved: ask the user (``MobileHostPairedDevices``).
@@ -81,9 +81,9 @@ public enum MobileHostEvent: Sendable, Equatable {
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
         case "session_exposure_state":
-            guard let configured = wire.configured, let sessions = wire.sessions,
+            guard let available = wire.available, let configured = wire.configured, let sessions = wire.sessions,
                   let blockedSessions = wire.blockedSessions else { return nil }
-            self = .sessionExposureState(configured: configured,
+            self = .sessionExposureState(available: available, configured: configured,
                                          sessions: sessions,
                                          blockedSessions: blockedSessions)
         case "session_exposure_error":
@@ -130,6 +130,7 @@ public enum MobileHostEvent: Sendable, Equatable {
         var path: String?
         var mediaPath: String?
         var configured: Bool?
+        var available: Bool?
         var allowed: Bool?
         var sessions: [String]?
         var blockedSessions: [String]?

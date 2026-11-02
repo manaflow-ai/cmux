@@ -110,6 +110,7 @@ public final class IPhoneHostService {
     private(set) var sessionExposureConfigured = false
     private(set) var exposedSessionIDs: Set<String> = []
     private(set) var blockedSessionIDs: Set<String> = []
+    private(set) var sessionExposureAvailable = false
     private(set) var sessionExposureKnown = false
     private(set) var sessionExposureRevision = 0
     /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
@@ -217,11 +218,13 @@ public final class IPhoneHostService {
                 sessionExposureConfigured = next.sessionExposureConfigured
                 exposedSessionIDs = next.exposedSessionIDs
                 blockedSessionIDs = next.blockedSessionIDs
+                sessionExposureAvailable = next.sessionExposureAvailable
                 sessionExposureKnown = next.sessionExposureKnown
                 if next.sessionExposureKnown != before.sessionExposureKnown
                     || next.sessionExposureConfigured != before.sessionExposureConfigured
                     || next.exposedSessionIDs != before.exposedSessionIDs
-                    || next.blockedSessionIDs != before.blockedSessionIDs {
+                    || next.blockedSessionIDs != before.blockedSessionIDs
+                    || next.sessionExposureAvailable != before.sessionExposureAvailable {
                     sessionExposureRevision &+= 1
                 }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }

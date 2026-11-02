@@ -33,6 +33,8 @@ extension IPhoneHostService {
                                            allowed: settings.snapshot.mobile.allowIPhoneConnections,
                                            sessionID: sessionID, exposureConfigured: sessionExposureConfigured,
                                            exposedSessionIDs: exposedSessionIDs,
+                                           blockedSessionIDs: blockedSessionIDs,
+                                           exposureAvailable: sessionExposureAvailable,
                                            exposureKnown: sessionExposureKnown,
                                            revision: sessionExposureRevision)
         }
@@ -43,6 +45,8 @@ extension IPhoneHostService {
                                            allowed: settings.snapshot.mobile.allowIPhoneConnections,
                                            sessionID: nil, exposureConfigured: sessionExposureConfigured,
                                            exposedSessionIDs: exposedSessionIDs,
+                                           blockedSessionIDs: blockedSessionIDs,
+                                           exposureAvailable: sessionExposureAvailable,
                                            exposureKnown: sessionExposureKnown,
                                            revision: sessionExposureRevision)
         }
@@ -53,21 +57,21 @@ extension IPhoneHostService {
     nonisolated static func remoteControlState(signedIn: Bool, servesPhones: Bool, allowed: Bool,
                                                sessionID: String? = nil, exposureConfigured: Bool = false,
                                                exposedSessionIDs: Set<String> = [], exposureKnown: Bool = true,
+                                               blockedSessionIDs: Set<String> = [],
+                                               exposureAvailable: Bool = true,
                                                revision: Int = 0) -> AgentPaneRemoteControl.State? {
         guard signedIn, servesPhones else { return nil }
         let on: Bool
         if !allowed {
             on = false
         } else if let sessionID {
-            on = exposureKnown ? (exposureConfigured ? exposedSessionIDs.contains(sessionID) : allowed) : false
-        } else if sessionID != nil {
+            on = exposureKnown && exposureAvailable
+                ? (exposureConfigured ? !blockedSessionIDs.contains(sessionID) : allowed)
+                : false
+        } else {
             // A running host has not supplied an authoritative policy yet; do not present an
             // exposed chat while that state is unknown. New-tab/legacy callers retain master
             // fallback because they have no session to authorize.
-            on = false
-        } else {
-            // Before the first per-chat choice, preserve the legacy Mac-wide behavior. A new tab
-            // has no session id yet and therefore follows this branch as well.
             on = allowed
         }
         return AgentPaneRemoteControl.State(on: on, revision: revision)

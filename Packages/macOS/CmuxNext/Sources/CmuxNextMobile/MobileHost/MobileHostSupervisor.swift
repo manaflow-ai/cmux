@@ -218,10 +218,12 @@ public actor MobileHostSupervisor {
 
     private func resolveExposureRequests(for event: MobileHostEvent) {
         switch event {
-        case let .sessionExposureState(configured, sessions, _):
-            let exposed = Set(sessions)
+        case let .sessionExposureState(available, configured, _, blockedSessions):
+            let blocked = Set(blockedSessions)
             let resolved = exposureWaiters.compactMap { id, waiter in
-                ((configured ? exposed.contains(waiter.sessionID) : true) == waiter.allowed) ? id : nil
+                (available && (waiter.allowed
+                    ? (configured ? !blocked.contains(waiter.sessionID) : true)
+                    : blocked.contains(waiter.sessionID))) ? id : nil
             }
             for id in resolved {
                 guard let waiter = exposureWaiters[id] else { continue }

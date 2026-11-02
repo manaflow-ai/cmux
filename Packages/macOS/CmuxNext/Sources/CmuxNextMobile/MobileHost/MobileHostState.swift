@@ -32,6 +32,7 @@ public struct MobileHostState: Sendable, Equatable {
     public var sessionExposureConfigured = false
     public var exposedSessionIDs: Set<String> = []
     public var blockedSessionIDs: Set<String> = []
+    public var sessionExposureAvailable = false
     public var sessionExposureKnown = false
 
     public init(phase: Phase = .off) {
@@ -44,6 +45,7 @@ public struct MobileHostState: Sendable, Equatable {
         switch event {
         case .connecting:
             phase = .connecting
+            sessionExposureAvailable = false
             sessionExposureKnown = false
         case .online(let device, let team):
             phase = .online
@@ -51,14 +53,17 @@ public struct MobileHostState: Sendable, Equatable {
             teamID = team
         case .waiting(let reason, _):
             phase = .waiting(reason)
+            sessionExposureAvailable = false
             sessionExposureKnown = false
         case .removed:
             phase = .removed
             phones = []
+            sessionExposureAvailable = false
             sessionExposureKnown = false
         case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
-        case let .sessionExposureState(configured, sessions, blockedSessions):
+        case let .sessionExposureState(available, configured, sessions, blockedSessions):
+            sessionExposureAvailable = available
             sessionExposureConfigured = configured
             exposedSessionIDs = Set(sessions)
             blockedSessionIDs = Set(blockedSessions)
@@ -93,6 +98,7 @@ public struct MobileHostState: Sendable, Equatable {
     public mutating func reset(to phase: Phase) {
         self.phase = phase
         phones = []
+        sessionExposureAvailable = false
         sessionExposureKnown = false
     }
 }
