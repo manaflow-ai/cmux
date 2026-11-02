@@ -136,7 +136,8 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// space's (none stored, or one that is gone: deleted, or not mirrored back yet). Nil `spaces`: every stored space
     /// counts. So no item is ever left out of every window; one whose space comes back (Reopen) returns to it.
     public static func owningRoom(_ room: String?, spaces: Set<String>?) -> String {
-        room ?? defaultRoom
+        guard let room, room == defaultRoom || spaces?.contains(room) ?? true else { return defaultRoom }
+        return room
     }
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,

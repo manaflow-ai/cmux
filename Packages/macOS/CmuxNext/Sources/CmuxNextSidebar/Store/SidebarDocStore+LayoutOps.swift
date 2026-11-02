@@ -57,13 +57,17 @@ extension SidebarDocStore {
     /// Group `group` moved to space `room` (Move Group to Space): its stored space follows, so it stays in `room` once
     /// no workspace of it lists there (an empty group lists only in its own space).
     public func moveGroup(_ group: GroupID, toSpace room: String) {
-        _ = (group, room)
+        let id = item(group: group)
+        guard case .group? = records.items[id]?.body, records.items[id]?.room != room else { return }
+        send(ops: [["op": "group.update", "id": id, "patch": ["profile": room]]], title: Self.moveTitle, undoable: false)
     }
 
     /// The ops of `moveSpace`: a group's space is its `profile` (`group.update`), a link's, tab's or app's `extra.room`.
     static func spaceOps(from: String, into to: String, records: SidebarDocRecords) -> [[String: Any]] {
-        _ = (from, to, records)
-        return []
+        records.items.values.filter { $0.room == from }.sorted { $0.id < $1.id }.compactMap { item -> [String: Any]? in
+            if case .group = item.body { return ["op": "group.update", "id": item.id, "patch": ["profile": to]] }
+            return item.body.belongsToASpace ? ["op": "item.update", "id": item.id, "patch": ["room": to]] : nil
+        }
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op
