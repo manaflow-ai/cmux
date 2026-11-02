@@ -104,6 +104,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
     let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
+    /// The background the next DevTools starts with (`cmux_shim_devtools_set_background`).
+    let devToolsSetBackground: @convention(c) (Int32, UInt32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
@@ -360,6 +362,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
         setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
+        devToolsSetBackground = try r("cmux_shim_devtools_set_background")
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
