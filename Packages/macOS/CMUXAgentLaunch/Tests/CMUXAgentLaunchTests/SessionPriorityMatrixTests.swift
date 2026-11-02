@@ -89,6 +89,23 @@ struct SessionPriorityMatrixTests {
         #expect(throws: SessionPriorityMatrixError.invalidModel("opus; rm -rf")) {
             try decode(#"{"urgent": {"easy": {"model": "opus; rm -rf"}}}"#)
         }
+        // A trailing line feed would end the typed resume command early.
+        #expect(throws: SessionPriorityMatrixError.invalidModel("opus\n")) {
+            try decode(#"{"urgent": {"easy": {"model": "opus\n"}}}"#)
+        }
+    }
+
+    /// ICU, which `String.range(of:options: .regularExpression)` runs on older macOS releases,
+    /// lets a plain `$` match before a final line terminator; the pattern must not.
+    @Test func modelPatternRejectsATrailingLineTerminatorUnderICU() throws {
+        let regex = try NSRegularExpression(pattern: SessionPriorityMatrix.modelPattern)
+        func matches(_ model: String) -> Bool {
+            regex.firstMatch(in: model, range: NSRange(model.startIndex..., in: model)) != nil
+        }
+        #expect(matches("claude-opus-4.1:beta"))
+        for model in ["opus\n", "opus\r\n", "opus\r", "opus\u{85}", "opus\u{2028}"] {
+            #expect(!matches(model), "\(model.debugDescription)")
+        }
     }
 
     @Test func canonicalStringRoundTrips() throws {
