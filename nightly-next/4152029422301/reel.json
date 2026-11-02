@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4152029422301",
+  "notes": "notes/4152029422301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26770,
+      "title": "cmux NEXT: connect the GitHub App from Settings Accounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28410,
+      "title": "feat: native chat toolbar menus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31498,
+      "title": "cmux NEXT model picker: list every catalog harness, installed or not",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32538,
+      "title": "Agent pane: an approved guest message keeps \"<name> (guest)\" over its bubble",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32554,
+      "title": "cloud: expose a verify-only Native network owner RPC",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32548,
+      "title": "base red: the arm64-only recorder gives the Release step its build-root script (release-notary red since #32514)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32546,
+      "title": "base red: move #28052's pane-reach geometry into CmuxNextSidebar",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32558,
+      "title": "cmux-next tests: the hang sampler also samples the daemons the run's tests started",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
