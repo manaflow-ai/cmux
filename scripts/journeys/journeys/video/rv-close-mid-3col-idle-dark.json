@@ -68,11 +68,6 @@
   },
   {
    "do": "action",
-   "action": "column.widthOneThird",
-   "title": "set-up: the focused column 1/3 of the viewport"
-  },
-  {
-   "do": "action",
    "action": "newColumn",
    "title": "set-up: newColumn"
   },
@@ -99,6 +94,21 @@
   },
   {
    "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "action",
+   "action": "focusLeft",
+   "title": "set-up: focus the column on the left"
+  },
+  {
+   "do": "action",
+   "action": "focusLeft",
+   "title": "set-up: focus the column on the left"
   },
   {
    "do": "action",
