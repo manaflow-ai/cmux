@@ -91,6 +91,13 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
             && websocket.token_rotated >= crate::daemon::TOKEN_ROTATION,
         "cannot restart with an unsaved --token override; the daemon is still running"
     );
+    // A network listen opted in with `--insecure-network-listen` lasts one run: the restarted
+    // daemon reads only config.json and would refuse the address, leaving no daemon. Refuse
+    // before stopping this one unless the saved opt-in covers it.
+    let bound: Vec<std::net::SocketAddr> = listen.parse().into_iter().collect();
+    crate::server::ws_auth::check_listen(listen, &bound, websocket.allow_insecure_network).map_err(
+        |e| e.context("cannot restart: the daemon runs with --insecure-network-listen, which a restart does not keep; the daemon is still running"),
+    )?;
     if websocket.listen == listen {
         return Ok(());
     }

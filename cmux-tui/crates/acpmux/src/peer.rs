@@ -1393,7 +1393,13 @@ impl Peer {
                 return Ok(());
             }
             let (frames, text) = me.received.read();
-            tracing::info!(peer = %me.name, frame_bytes = frames, text_bytes = text, "connected to {}", me.url);
+            tracing::info!(
+                peer = %me.name,
+                frame_bytes = frames,
+                text_bytes = text,
+                "connected to {}",
+                lift_query_token(&me.url).0
+            );
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
