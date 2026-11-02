@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4145363708701",
+  "notes": "notes/4145363708701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32265,
+      "title": "fix(gallery): spacing plays follow the layout grid (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32182,
+      "title": "acpmux: a model switch during a turn applies when it ends, never stopping it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32312,
+      "title": "acpmux tests: a chat's usageStats reads the 400K autocompact window acpmux started it with (base red from #31936)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32305,
+      "title": "cmux-cloud-start-core: the Cloud start's harness login decision in Rust, served over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32309,
+      "title": "fix(cloud): explain signed-out first-send refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32302,
+      "title": "base red: gallery health shift rows for the artifact panel's narrowing, the push and flaky plays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32295,
+      "title": "cmux-next: classic upgrade simulation connects as the app does; classic groups keep their order (#28425)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32294,
+      "title": "perf(sidebar): Cmd-N's new row takes a spare view made before the key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32292,
+      "title": "fix(nightly): heartbeat the nightly-next publish lease with a 15-minute TTL",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32319,
+      "title": "ci(nightly): the warm builder keeps its Swift package state instead of re-fetching every package",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32320,
+      "title": "ci(nightly): the release notes read light PR pages back an hour, not heavy ones back a day",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32303,
+      "title": "base red: the CLI coverage test exercises workspace group create --reuse (#32097)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32280,
+      "title": "api: development forwards Cloud chat trajectories to cmux-platform; installs pass the SSO gate there too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32304,
+      "title": "fix(next): a pinned Reduce Transparency reaches the window backdrop, so captures show translucency",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32264,
+      "title": "base red: MCP group and sub-session status tests follow #32196's no-spinner tool rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32241,
+      "title": "perf(launch): the first turn after a reopen's first window does less main-thread work: known == for Equatable ObservationStreams, Home unread without the display model (REOPEN-F7 part B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32300,
+      "title": "Cloud: a hold answered elsewhere is not answered again; bound the suite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32286,
+      "title": "cmux NEXT: a hidden page its release kept is asked again on the planner's deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32282,
+      "title": "base red: read_paths test drops qualifications in scope and a redundant clone (clippy -D warnings, from #32177)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
