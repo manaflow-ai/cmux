@@ -149,7 +149,7 @@ canary_crash_loop() {
   rollback_upgrade canary-target-unhealthy
 }
 
-if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
+if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && { setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1 || { [ -x /home/cmux/.cmux/bin/cmux-tui ] && [ ! -x /root/.cmux/bin/cmux-tui ]; }; }; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
 # A crash-looping daemon is between restarts some of the time. Without a
 # live child, its carrier contract cannot be proven; retry after inspecting it.

@@ -125,9 +125,11 @@ install command, the pin check, the daemon launch and every driver-side
 the layout off the machine, so both kinds of machine are served by one driver
 and neither can end up with its binary in a home its sessions cannot reach
 (`/root` is 0700). The chosen layout is written to `/etc/cmux/daemon-layout`.
-A machine whose work user exists but cannot use its home or cannot `sudo -n`
-takes the root layout too: a degraded machine that works beats a
-crash-looping daemon or a session trapped unprivileged.
+A machine whose work user exists but cannot use its home takes the root layout
+too. So does one whose work user cannot `sudo -n`, unless the only daemon binary
+is in the work user's home. That machine keeps the work user: its owner may
+require a sudo password on purpose, and root has no binary to run. A crash-looping
+daemon is the one outcome the selector must never choose.
 
 ## State model and synchronization invariants
 

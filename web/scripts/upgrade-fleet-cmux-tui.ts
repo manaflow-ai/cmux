@@ -29,7 +29,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CMUX_TUI_STATE_MOUNT_HELPER_PATH, readImageManifest } from "./devbox-image-common";
-import { cmuxTuiInstallCommand, parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiInstallCommand, parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const argValues = (name: string): string[] =>
   process.argv.flatMap((arg, index) => (arg === name && process.argv[index + 1] ? [process.argv[index + 1]] : []));
@@ -106,7 +106,7 @@ const launch = [
 
 async function run(id: string, command: string): Promise<string> {
   try {
-    const result = await freestyle.vms.ref(id).exec({ command: `sudo -n sh -c ${shellQuote(command)}`, timeoutMs: 60_000 });
+    const result = await freestyle.vms.ref(id).exec({ command, timeoutMs: 60_000, linuxUser: "root" });
     return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
   } catch (error) {
     return `ERR ${error instanceof Error ? error.message : String(error)}`;
