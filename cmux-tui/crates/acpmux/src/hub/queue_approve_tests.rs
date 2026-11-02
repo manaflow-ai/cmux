@@ -106,6 +106,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         client: "cap-test",
         prompt_id: id,
         control: Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         interrupt: false,
         interrupt_turn: None,

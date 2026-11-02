@@ -212,7 +212,6 @@ async fn a_raw_failure_while_the_chat_closes_leaves_it_not_retryable() {
 fn by_person() -> crate::hub::auto_resume::retry_turn::RetryBy {
     crate::hub::auto_resume::retry_turn::RetryBy {
         control: crate::hub::Control::Local,
-        cloud_mobile: false,
         trust_gate: false,
         full_access_device: None,
         from: None,
