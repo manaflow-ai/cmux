@@ -2,8 +2,6 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    private static let codexPermissionEvidenceChunkBytes = 64 * 1024
-
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         CodexResumePermissionPolicy().hasExplicitPermissions(in: launchCommand)
     }
@@ -72,11 +70,11 @@ extension CMUXCLI {
         mapped: ClaudeHookSessionRecord?,
         transcriptPath: String? = nil,
         currentPID: Int? = nil
-    ) -> AgentHookLaunchCommandRecord? {
+    ) async -> AgentHookLaunchCommandRecord? {
         guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
             return nil
         }
-        return selectedAgentHookResumeLaunchCommand(
+        return await selectedAgentHookResumeLaunchCommand(
             kind: kind,
             current: current,
             mapped: mapped,
@@ -91,13 +89,13 @@ extension CMUXCLI {
         mapped: ClaudeHookSessionRecord?,
         transcriptPath: String?,
         currentPID: Int?
-    ) -> AgentHookLaunchCommandRecord? {
+    ) async -> AgentHookLaunchCommandRecord? {
         let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
             && ompLaunchCaptureIsUnavailable(current)
         if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
-                    ? repairedCodexLaunchCommand(
+                    ? await repairedCodexLaunchCommand(
                         preserved, transcriptPath: transcriptPath, observedAt: current?.capturedAt
                     )
                     : preserved
@@ -109,7 +107,7 @@ extension CMUXCLI {
            currentPID == mapped?.pid,
            !codexLaunchHasExplicitPermissions(current),
            codexLaunchHasExplicitPermissions(mapped?.launchCommand) {
-            return repairedCodexLaunchCommand(
+            return await repairedCodexLaunchCommand(
                 mapped?.launchCommand, transcriptPath: transcriptPath, observedAt: current?.capturedAt
             )
         }
@@ -142,7 +140,7 @@ extension CMUXCLI {
             return current ?? mapped?.launchCommand
         }()
         guard kind == "codex" else { return selected }
-        return repairedCodexLaunchCommand(
+        return await repairedCodexLaunchCommand(
             selected,
             transcriptPath: transcriptPath,
             observedAt: current?.capturedAt
@@ -270,7 +268,7 @@ extension CMUXCLI {
         _ launchCommand: AgentHookLaunchCommandRecord?,
         transcriptPath: String?,
         observedAt: TimeInterval? = nil
-    ) -> AgentHookLaunchCommandRecord? {
+    ) async -> AgentHookLaunchCommandRecord? {
         guard let launchCommand else { return nil }
         guard !launchCommand.arguments.isEmpty else { return launchCommand }
         guard let capturedAt = observedAt ?? launchCommand.capturedAt,
@@ -279,47 +277,10 @@ extension CMUXCLI {
         }
         let policy = CodexResumePermissionPolicy()
         guard policy.requiresTranscriptEvidence(for: launchCommand) else { return launchCommand }
-        return policy.repairing(launchCommand, with: codexPermissionArguments(
+        return policy.repairing(launchCommand, with: await CodexResumePermissionEvidenceReader().permissionArguments(
             transcriptPath: transcriptPath,
             before: capturedAt
         ))
     }
 
-    private func codexPermissionArguments(
-        transcriptPath: String,
-        before capturedAt: TimeInterval
-    ) -> [String] {
-        // This runs in the separate hook-producing CLI process, before sending
-        // the binding update, never in the app's socket server or UI actor.
-        let expandedPath = (transcriptPath as NSString).expandingTildeInPath
-        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
-        defer { try? handle.close() }
-        guard let endOffset = try? handle.seekToEnd() else { return [] }
-        let policy = CodexResumePermissionPolicy()
-        var offset = endOffset
-        var pending = Data()
-        while offset > 0 {
-            let byteCount = min(UInt64(Self.codexPermissionEvidenceChunkBytes), offset)
-            offset -= byteCount
-            do {
-                try handle.seek(toOffset: offset)
-            } catch {
-                return []
-            }
-            guard let chunk = try? handle.read(upToCount: Int(byteCount)) else { return [] }
-            pending.insert(contentsOf: chunk, at: pending.startIndex)
-            while let newline = pending.lastIndex(of: 0x0A) {
-                let lineStart = pending.index(after: newline)
-                let line = Data(pending[lineStart...])
-                pending.removeSubrange(newline...)
-                if let arguments = policy.permissionArguments(
-                    from: line,
-                    before: capturedAt
-                ) {
-                    return arguments
-                }
-            }
-        }
-        return policy.permissionArguments(from: pending, before: capturedAt) ?? []
-    }
 }

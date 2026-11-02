@@ -18,10 +18,15 @@ public actor CodexResumePermissionEvidenceReader {
     ///   - transcriptPath: The transcript file to read; a leading tilde is expanded.
     ///   - capturedAt: Exclusive upper bound for the turn timestamp.
     /// - Returns: Permission flags, or an empty array if no complete eligible record is available.
+    ///
+    /// Only complete records in the tail window are used. Evidence outside that
+    /// window is left unknown; callers keep explicit settings rather than infer
+    /// permissions from a truncated record.
     public func permissionArguments(
         transcriptPath: String,
         before capturedAt: TimeInterval
     ) -> [String] {
+        guard maximumBytes > 0 else { return [] }
         let expandedPath = (transcriptPath as NSString).expandingTildeInPath
         let descriptor = open(expandedPath, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return [] }
@@ -33,18 +38,21 @@ public actor CodexResumePermissionEvidenceReader {
         }
         defer { try? handle.close() }
         guard let endOffset = try? handle.seekToEnd() else { return [] }
+        let lowerBound = endOffset > UInt64(maximumBytes) ? endOffset - UInt64(maximumBytes) : 0
         let policy = CodexResumePermissionPolicy()
         var offset = endOffset
         var pending = Data()
-        while offset > 0 {
-            let byteCount = min(UInt64(64 * 1024), offset)
+        while offset > lowerBound {
+            guard !Task.isCancelled else { return [] }
+            let byteCount = min(UInt64(64 * 1024), offset - lowerBound)
             offset -= byteCount
             do {
                 try handle.seek(toOffset: offset)
             } catch {
                 return []
             }
-            guard let chunk = try? handle.read(upToCount: Int(byteCount)) else { return [] }
+            guard let chunk = try? handle.read(upToCount: Int(byteCount)),
+                  chunk.count == Int(byteCount) else { return [] }
             pending.insert(contentsOf: chunk, at: pending.startIndex)
             while let newline = pending.lastIndex(of: 0x0A) {
                 let lineStart = pending.index(after: newline)
@@ -58,6 +66,8 @@ public actor CodexResumePermissionEvidenceReader {
                 }
             }
         }
+        // The first buffered line is complete only when the scan reached byte 0.
+        guard lowerBound == 0 else { return [] }
         return policy.permissionArguments(from: pending, before: capturedAt) ?? []
     }
 }

@@ -68,5 +68,9 @@ let repaired = policy.repairing(launch, with: ["-a", "never", "-s", "workspace-w
 // repaired.arguments retains the explicit sandbox and gains only approval.
 ```
 
-The hook-producing CLI owns file I/O and skips the transcript entirely when
-`requiresTranscriptEvidence(for:)` is false.
+The hook-producing CLI skips the transcript when
+`requiresTranscriptEvidence(for:)` is false. Otherwise it awaits
+`CodexResumePermissionEvidenceReader`, an actor that scans at most the last
+4 MiB. Only complete records inside that window can supply evidence. If none
+qualifies, recovery leaves the captured arguments unchanged; it never infers
+permissions from a truncated record. Tests can inject a smaller byte budget.

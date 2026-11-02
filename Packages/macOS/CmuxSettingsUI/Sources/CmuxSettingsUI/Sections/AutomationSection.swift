@@ -382,7 +382,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.codexLaunchCommand"),
                 String(localized: "settings.automation.codex.launchCommand", defaultValue: "Codex Launch Command", bundle: .module),
-                subtitle: String(localized: "settings.automation.codex.launchCommand.subtitle", defaultValue: "Custom command for new and restored Codex terminals. Runs in your login shell. Leave empty to use PATH.", bundle: .module)
+                subtitle: String(localized: "settings.automation.codex.launchCommand.subtitle", defaultValue: "Custom command for new and restored Codex terminals. Shell commands use your login shell; executable files run directly. Leave empty to use PATH.", bundle: .module)
             ) {
                 TextField(
                     String(localized: "settings.automation.codex.launchCommand.placeholder", defaultValue: "e.g. subcodex", bundle: .module),

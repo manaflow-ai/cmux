@@ -144,57 +144,6 @@ Tune the idle window and live-terminal limit from Settings, or set them in `~/.c
 
 ## Custom surface resume commands
 
-### Codex shell launchers
-
-Set **Settings > Automation > Codex Launch Command** to a command prefix such as
-`subcodex` when Codex needs a shell function or wrapper to prepare its environment.
-The equivalent `cmux.json` setting is:
-
-```json
-{
-  "automation": {
-    "codexLaunchCommand": "subcodex"
-  }
-}
-```
-
-Command prefixes run through the user's interactive login shell, so functions in
-the shell profile are available. A function must call `codex` through `PATH` so
-the cmux shim can register the actual Codex PID and inject hooks. For example:
-
-```sh
-subcodex() (
-    export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-    HTTPS_PROXY="$MY_CODEX_PROXY" codex "$@"
-)
-```
-
-Export `CODEX_HOME` when selecting a Codex account, including the default account
-when the shell also carries Claude routing variables. This makes the current
-account explicit to launch capture. If the launcher adds options such as
-`--no-daemon`, add them only when absent from the forwarded arguments: saved
-launch arguments can already contain them on resume.
-
-cmux restores its Codex shim's PATH priority after loading the login profile, so
-profile changes such as Homebrew's `shellenv` do not bypass session tracking.
-
-An exact executable launcher-script path is also supported, including paths with
-spaces. Launcher scripts must likewise call `codex` through `PATH`. This setting
-selects a launcher, not a replacement final binary: a command that directly invokes
-an absolute Codex binary bypasses the shim and does not receive its session
-tracking or fork instrumentation. Existing `CMUX_CUSTOM_CODEX_PATH` handling is
-unchanged.
-
-cmux forwards Codex arguments separately, including
-`resume <session-id>` and the saved permission and sandbox options. Hooks and
-surface tracking remain enabled. The setting applies when opening or restoring
-terminals, including previously saved Codex sessions; it does not rewrite their
-transcripts or IDs. Existing terminals keep their launch environment until reopened.
-Leave the setting empty for normal executable resolution. A configured command
-that fails returns its error rather than falling back to ordinary Codex.
-
-### Per-surface commands
-
 Use `cmux surface resume set --shell <command>` to attach a resume command to the current terminal surface. Public CLI and socket-created commands are kept for inspection and manual restore by default. To auto-run one on restore, set it from the terminal's **Resume Commands** context menu and approve the prompt, or change its signed command prefix in **Settings > Terminal > Resume Commands**. A CLI or socket request never shows that prompt; its reply carries `approval_required: true` when the command still needs approval in cmux.
 
 Approvals are prefix-based and signed by cmux. They also bind the working directory and exact environment values when present. A process can propose a command, but it cannot make that command sticky without the user choosing Auto-Restore or Ask Each Time in cmux.

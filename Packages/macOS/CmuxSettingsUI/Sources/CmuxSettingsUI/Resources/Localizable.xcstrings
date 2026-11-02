@@ -16927,55 +16927,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom command for new and restored Codex terminals. Runs in your login shell. Leave empty to use PATH."
+            "value": "Custom command for new and restored Codex terminals. Shell commands use your login shell; executable files run directly. Leave empty to use PATH."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر مخصص لطرفيات Codex الجديدة والمستعادة. يُنفَّذ في صدفة تسجيل الدخول. اتركه فارغًا لاستخدام PATH."
+            "value": "أمر مخصص لطرفيات Codex الجديدة والمستعادة. تستخدم أوامر الصدفة صدفة تسجيل الدخول؛ وتُشغَّل الملفات التنفيذية مباشرة. اتركه فارغًا لاستخدام PATH."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eigener Befehl für neue und wiederhergestellte Codex-Terminals. Wird in Ihrer Login-Shell ausgeführt. Leer lassen, um PATH zu verwenden."
+            "value": "Eigener Befehl für neue und wiederhergestellte Codex-Terminals. Shell-Befehle nutzen Ihre Login-Shell; ausführbare Dateien starten direkt. Leer lassen, um PATH zu verwenden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comando personalizado para terminales Codex nuevos y restaurados. Se ejecuta en su shell de inicio de sesión. Déjelo vacío para usar PATH."
+            "value": "Comando personalizado para terminales Codex nuevos y restaurados. Los comandos de shell usan su shell de inicio de sesión; los ejecutables se ejecutan directamente. Déjelo vacío para usar PATH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commande personnalisée pour les terminaux Codex nouveaux et restaurés. Exécutée dans votre shell de connexion. Laissez vide pour utiliser PATH."
+            "value": "Commande personnalisée pour les terminaux Codex nouveaux et restaurés. Les commandes shell utilisent votre shell de connexion ; les exécutables sont lancés directement. Laissez vide pour utiliser PATH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規および復元した Codex ターミナルで使うカスタムコマンドです。ログインシェルで実行されます。PATH を使う場合は空欄にしてください。"
+            "value": "新規および復元した Codex ターミナルで使うカスタムコマンドです。シェルコマンドはログインシェルで、実行ファイルは直接実行されます。PATH を使う場合は空欄にしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Codex 터미널과 복원된 Codex 터미널에 사용할 사용자 지정 명령입니다. 로그인 셸에서 실행됩니다. PATH를 사용하려면 비워 두세요."
+            "value": "새 Codex 터미널과 복원된 Codex 터미널에 사용할 사용자 지정 명령입니다. 셸 명령은 로그인 셸에서, 실행 파일은 직접 실행됩니다. PATH를 사용하려면 비워 두세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建和恢复 Codex 终端时使用的自定义命令。在您的登录 shell 中运行。留空则使用 PATH。"
+            "value": "新建和恢复 Codex 终端时使用的自定义命令。shell 命令在您的登录 shell 中运行；可执行文件直接运行。留空则使用 PATH。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建與還原 Codex 終端機時使用的自訂指令。在您的登入 shell 中執行。留空則使用 PATH。"
+            "value": "新建與還原 Codex 終端機時使用的自訂指令。shell 指令在您的登入 shell 中執行；執行檔則直接執行。留空則使用 PATH。"
           }
         }
       }
