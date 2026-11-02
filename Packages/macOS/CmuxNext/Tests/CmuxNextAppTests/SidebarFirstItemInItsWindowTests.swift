@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 @testable import CmuxNextSidebar
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -27,6 +28,9 @@ struct SidebarFirstItemInItsWindowTests {
         case homeItemClick
         /// The Cmd-1 action run by name for window B (the palette, the menu): no event, B is the active window.
         case selectNumberAction
+        /// Cmd-1 as the journey sends it (`debug.key` with `window` B) in an app that is not active: no
+        /// window is key before or after the key, and the key has no event origin.
+        case debugKeyInactiveApp
 
         var testDescription: String { rawValue }
     }
@@ -92,6 +96,10 @@ struct SidebarFirstItemInItsWindowTests {
                 services.keyWindowSource = { [weak windowB] in windowB?.window }
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "1"))
                 services.keyWindowSource = { [weak windowA] in windowA?.window }
+            case .debugKeyInactiveApp:
+                services.keyWindowSource = { nil }
+                let reply = DebugKey.send(["key": .string("1"), "modifiers": .array([.string("cmd")]), "window": .string(idB)], services: services)
+                #expect(reply["handled_by"]?.stringValue == "app", "debug.key Cmd-1 in window B: \(reply)")
             }
 
             // Window B shows its own Home, selected in its sidebar; window A is as it was.
