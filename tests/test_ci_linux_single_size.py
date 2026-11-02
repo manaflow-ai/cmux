@@ -152,7 +152,7 @@ SINGLE_SIZE: dict[str, int] = {
     "pr-design-spec-check.yml": 0,
     "pr-media-prune.yml": 1,
     "pr-perf-section-check.yml": 0,
-    "pr-red-checks-comment.yml": 1,
+    "pr-red-checks-comment.yml": 0,
     "presence.yml": 1,
     "r2-binaries-prune.yml": 1,
     "r2-cache-prune.yml": 1,
