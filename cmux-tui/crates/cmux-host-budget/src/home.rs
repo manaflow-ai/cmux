@@ -3,9 +3,10 @@
 //! crate (cmux-app-ffi), whose crates must be GPL-compatible permissive or
 //! first-party GPL (scripts/cmux-next/check_app_crate_licenses.py).
 //!
-//! Unix keeps `dirs::home_dir`'s rule exactly: `$HOME` when it is set and not
-//! empty, else the home directory in the passwd entry of the effective user
-//! (`getpwuid_r`), else none. Other platforms use `std::env::home_dir`.
+//! Unix keeps `dirs::home_dir`'s rule (dirs-sys 0.5) exactly: `$HOME` when it
+//! is set and not empty, else the home directory in the passwd entry of the
+//! real user (`getuid`, `getpwuid_r`), else none; Android, iOS and Emscripten
+//! read no passwd entry. Other platforms use `std::env::home_dir`.
 
 #[cfg(unix)]
 use std::ffi::OsString;
@@ -19,10 +20,6 @@ pub fn home_dir() -> Option<PathBuf> {
     }
     #[cfg(not(unix))]
     {
-        #[allow(
-            deprecated,
-            reason = "std::env::home_dir is correct on Windows since Rust 1.86 and is undeprecated in later releases"
-        )]
         std::env::home_dir()
     }
 }
@@ -36,10 +33,11 @@ pub(crate) fn home_from(
     home.filter(|h| !h.is_empty()).map(PathBuf::from).or_else(passwd)
 }
 
-/// The home directory of the effective user's passwd entry, as `dirs-sys`
-/// reads it: a buffer of `_SC_GETPW_R_SIZE_MAX` bytes (512 when the system
-/// gives no size); none on an error, a missing entry or an empty directory.
-#[cfg(unix)]
+/// The home directory of the real user's passwd entry, as `dirs-sys` reads it:
+/// `getuid`, a buffer of `_SC_GETPW_R_SIZE_MAX` bytes (512 when the system
+/// gives no size), no retry; none on an error, a missing entry or an empty
+/// directory.
+#[cfg(all(unix, not(any(target_os = "android", target_os = "ios", target_os = "emscripten"))))]
 pub(crate) fn passwd_home() -> Option<PathBuf> {
     use std::ffi::CStr;
     use std::os::unix::ffi::OsStringExt;
@@ -52,10 +50,10 @@ pub(crate) fn passwd_home() -> Option<PathBuf> {
     let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
     let mut result: *mut libc::passwd = std::ptr::null_mut();
     // SAFETY: `passwd`, `buf` (of `buf.len()` bytes) and `result` are valid
-    // storage for the call; geteuid has no preconditions.
+    // storage for the call; getuid has no preconditions.
     let rc = unsafe {
         libc::getpwuid_r(
-            libc::geteuid(),
+            libc::getuid(),
             &raw mut passwd,
             buf.as_mut_ptr(),
             buf.len(),
@@ -69,6 +67,12 @@ pub(crate) fn passwd_home() -> Option<PathBuf> {
     // to the end of this function.
     let dir = unsafe { CStr::from_ptr(passwd.pw_dir) }.to_bytes();
     (!dir.is_empty()).then(|| PathBuf::from(OsString::from_vec(dir.to_vec())))
+}
+
+/// Android, iOS and Emscripten: no passwd entry, as dirs-sys.
+#[cfg(all(unix, any(target_os = "android", target_os = "ios", target_os = "emscripten")))]
+pub(crate) fn passwd_home() -> Option<PathBuf> {
+    None
 }
 
 #[cfg(all(test, unix))]
