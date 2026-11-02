@@ -1,0 +1,55 @@
+{
+ "id": "video-sck-probe2",
+ "priority": "P1",
+ "title": "Recorder fault probe 2: a plain AppKit app, own-window ScreenCaptureKit with a window filter and a display filter",
+ "why": "In cmux the window-filter stream gives frames only when a page child window changes (Cmd-T), not for terminal output or a split (probe round 1, cmux24 and cmux22). This plain app shows whether a window filter misses ordinary layer updates on these minis, and whether a display filter with the own window sees them.",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 150,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvq"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "sck_probe",
+   "seconds": 9
+  },
+  {
+   "do": "type",
+   "text": "echo rvq-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvq-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvq-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

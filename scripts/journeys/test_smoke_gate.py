@@ -110,7 +110,9 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
     if not os.path.exists(os.path.join(tmp, "open-p0.txt")):
         open(os.path.join(tmp, "open-p0.txt"), "w").write("# no open P0 journeys\n")
-    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger")})
+    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger"),
+                "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
+                "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -665,6 +667,57 @@ class FailingStep(unittest.TestCase):
             steps.insert(1, {"do": "expect", "ok": False, "error": "real", "title": "t"})
             (d / "result.json").write_text(json.dumps({"steps": steps}))
             self.assertEqual(mod.failing_step(Path(tmp))["error"], "real")
+
+
+class VideoGoldens(unittest.TestCase):
+    """VIDEO EXTRA item 9: a .pass needs every listed golden video case passed, and never failed, on the build."""
+
+    def test_no_list_blocks_nothing_and_the_ledger_decides(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.VIDEO_GOLDENS, mod.GOLDEN_LEDGER = Path(tmp) / "goldens.txt", Path(tmp) / "ledger"
+            self.assertEqual(mod.golden_blockers("J"), [])  # no list yet: no golden, nothing blocks
+            mod.VIDEO_GOLDENS.write_text("# case judge golden finding owner\nrouting-split routing /g/a F1 o\n")
+            self.assertIn("no golden PASS", mod.golden_blockers("J")[0][1])
+            mod.GOLDEN_LEDGER.mkdir()
+            rows = [{"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": True},
+                    {"case": "routing-split", "status": "pass", "build_job": "OTHER", "kit_dirty": False}]
+            (mod.GOLDEN_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertEqual(len(mod.golden_blockers("J")), 1)  # a dirty kit's pass and another build's do not count
+            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": False}) + "\n")
+            self.assertEqual(mod.golden_blockers("J"), [])
+            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"case": "routing-split", "status": "fail", "build_job": "J", "out": "/r"}) + "\n")
+            self.assertIn("FAILED on J", mod.golden_blockers("J")[0][1])
+            self.assertEqual(mod.golden_list()[0], "listed")
+            # A list read once is what the check judges, whatever the file says later.
+            self.assertEqual(mod.golden_blockers("J", ("listed", [])), [])
+            self.assertIn("unreadable", mod.golden_blockers("J", ("unreadable: denied", []))[0][1])
+            mod.VIDEO_GOLDENS = Path(tmp) / "gone.txt"
+            self.assertEqual(mod.golden_list(), ("missing", []))
+
+    def test_a_listed_golden_without_a_pass_holds_back_the_pass_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:  # the golden check runs after the committed-gate check
+                self.assertIn("has no golden PASS on job123", open(os.path.join(tmp, "out", "video-goldens.txt")).read())
+
+    def test_both_blockers_are_reported_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("some-p0 kit@1 owner S\n")
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "open-p0.txt")))
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "video-goldens.txt")))
 
 
 class OpenP0(unittest.TestCase):
@@ -2080,6 +2133,28 @@ class Loads(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         listed = subprocess.run([sys.executable, str(HERE / "run.py"), "--list"], capture_output=True, text=True, timeout=120)
         self.assertIn("smoke-dogfood", listed.stdout)
+
+
+class GoldenListReadTests(unittest.TestCase):
+    """golden_list: only a missing file means 'no list'; a dangling symlink or bad UTF-8 blocks (review at 77ee5e82e93)."""
+
+    def _with(self, path):
+        gate = load_gate()
+        gate.VIDEO_GOLDENS = path
+        return gate.golden_list()
+
+    def test_missing_dangling_and_bad_encoding(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.assertEqual(self._with(d / "none.txt")[0], "missing")
+            (d / "link.txt").symlink_to(d / "gone.txt")
+            self.assertTrue(self._with(d / "link.txt")[0].startswith("unreadable"))
+            (d / "bad.txt").write_bytes(b"\xff\xfe case\n")
+            self.assertTrue(self._with(d / "bad.txt")[0].startswith("unreadable"))
+            (d / "ok.txt").write_text("# c\nrouting-smoke-seq routing g f o\n")
+            self.assertEqual(self._with(d / "ok.txt"), ("listed", [["routing-smoke-seq", "routing", "g", "f", "o"]]))
 
 
 if __name__ == "__main__":

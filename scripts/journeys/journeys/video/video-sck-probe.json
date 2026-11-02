@@ -1,0 +1,143 @@
+{
+ "id": "video-sck-probe",
+ "priority": "P1",
+ "title": "Recorder fault probe: which changes make ScreenCaptureKit deliver own-window frames, in cmux and in a plain probe app",
+ "why": "The recorder (debug.motion record_*) gave 0 frames on cmux24 and cmux18 (2026-11-02), and frames only after Cmd-T for SHORTCUT FRAMES. This probe counts frames after each kind of change in the app, then runs a plain AppKit probe app with the same stream set-up.",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 200,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvp"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "video_start",
+   "name": "sck-probe-app",
+   "seconds": 40,
+   "lead": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "video_count",
+   "as": "still-2s"
+  },
+  {
+   "do": "type",
+   "text": "for i in $(seq 1 300); do echo line $i; sleep 0.01; done",
+   "enter": true
+  },
+  {
+   "do": "wait",
+   "seconds": 4
+  },
+  {
+   "do": "video_count",
+   "as": "terminal-output-4s"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "speed",
+    "value": "normal"
+   }
+  },
+  {
+   "do": "key",
+   "title": "split (layout change)",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "video_count",
+   "as": "split-2s"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-T (new tab page)",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "video_count",
+   "as": "cmd-t-2s"
+  },
+  {
+   "do": "video_stop",
+   "name": "sck-probe-app",
+   "tail": 0.2
+  },
+  {
+   "do": "sck_probe",
+   "seconds": 9
+  },
+  {
+   "do": "type",
+   "text": "echo rvp-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvp-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvp-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

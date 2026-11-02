@@ -1,0 +1,273 @@
+{
+  "id": "routing-cmdn-ctrlbt-at-once-nf",
+  "priority": "P1",
+  "title": "Routing B: Cmd-N, Ctrl-` and a line with no wait: the line runs in the new terminal only (no film: the verdict is the app's and the daemon's state)",
+  "why": "P0 #29530 (Cmd-N's New Tab hold took Ctrl-`), #30827",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 120,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "b1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "b1-ws"
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "b1"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RB1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "B1: Cmd-N, Ctrl-` and the line all at once: the line ran in the new terminal only",
+      "since": "b1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RB1-${nonce}-42",
+            "on": "new:b1",
+            "attempt": "B1",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RB1-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "b2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "b2-ws"
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "b2"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RB2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "B2: Cmd-N, Ctrl-` and the line all at once: the line ran in the new terminal only",
+      "since": "b2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RB2-${nonce}-42",
+            "on": "new:b2",
+            "attempt": "B2",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RB2-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 2
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "b3"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "b3-ws"
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "b3"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RB3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "B3: Cmd-N, Ctrl-` and the line all at once: the line ran in the new terminal only",
+      "since": "b3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RB3-${nonce}-42",
+            "on": "new:b3",
+            "attempt": "B3",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RB3-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 3
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "b4"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "b4-ws"
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "b4"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RB4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "B4: Cmd-N, Ctrl-` and the line all at once: the line ran in the new terminal only",
+      "since": "b4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RB4-${nonce}-42",
+            "on": "new:b4",
+            "attempt": "B4",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RB4-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 4
+          }
+        }
+      ]
+    }
+  ]
+}
