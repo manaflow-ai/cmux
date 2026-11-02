@@ -2,7 +2,7 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the team-messaging
 //! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.

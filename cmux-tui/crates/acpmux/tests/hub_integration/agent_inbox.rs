@@ -905,7 +905,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     assert!(refused.is_err_and(|e| e.contains("inbox.not_found")));
     // A connection of no chat (the person's) is told team messaging is off, as before.
     let person = c.request(method::MUX_TEAM_INBOX, json!({})).await;
-    assert!(person.is_err_and(|e| e.contains("team messaging is disabled")));
+    assert!(person.is_err_and(|e| e.contains("team messaging is off")));
 }
 
 /// A chat whose agent was started with no cmux tools (`ACPMUX_AGENT_TOOLS=0`) cannot read an inbox:
