@@ -135,7 +135,7 @@ def run_frames(args, count, cols=90, rows=30, timeout=30):
 class Grammar(unittest.TestCase):
     def test_python_3_9(self):
         """The minis run /usr/bin/python3 3.9.6: no newer syntax."""
-        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "test_tuikit.py"):
+        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "pace_probe.py", "test_tuikit.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 ast.parse(f.read(), filename=name, feature_version=(3, 9))
 
@@ -191,6 +191,62 @@ class Gradient(unittest.TestCase):
         text = frames(data)[0].decode("utf-8")
         row = "\x1b[12;3H" + "".join(e["char"] for e in lay["wide"])
         self.assertIn(row, text)
+
+    def test_pace_modes_keep_the_frames_and_seed(self):
+        """Every pace mode draws the same frames."""
+        base = ["gradient", "--frames", "12", "--fake-clock", "--seed", "4", "--duration", "0"]
+        outs = [run_frames(base + ["--pace", mode], 12)[0] for mode in tuikit.PACE_MODES]
+        self.assertEqual(frames(outs[0]), frames(outs[1]))
+        self.assertEqual(frames(outs[0]), frames(outs[2]))
+        with self.assertRaises(ValueError):
+            tuikit.Pacer(120, "nap")
+
+    def test_pacer_modes_on_a_fake_clock(self):
+        """A sleep that wakes 1 ms late: sleep mode starts the frame 1 ms late; hybrid sleeps to 2 ms
+        before the due time and polls the rest; spin never sleeps. The clock moves 0.1 ms a read."""
+        class Fake:
+            def __init__(self):
+                self.now, self.sleeps = 100.0, []
+
+            def clock(self):
+                self.now += 0.0001
+                return self.now
+
+            def sleep(self, seconds):
+                self.sleeps.append(seconds)
+                self.now += seconds + 0.001
+
+        for mode, sleeps, late in (("sleep", 1, 0.001), ("hybrid", 1, 0.0), ("spin", 0, 0.0)):
+            fake = Fake()
+            pacer = tuikit.Pacer(100, mode, 2.0, clock=fake.clock, sleep=fake.sleep)
+            got = pacer.wait(1)  # due 10 ms after the start
+            self.assertEqual(len(fake.sleeps), sleeps, mode)
+            self.assertAlmostEqual(got, late, delta=0.0003, msg=mode)
+            self.assertEqual(pacer.before, 0.0)
+            if mode == "hybrid":
+                self.assertAlmostEqual(fake.sleeps[0], 0.008, delta=0.0003)
+        fake = Fake()
+        pacer = tuikit.Pacer(100, "sleep", clock=fake.clock, sleep=fake.sleep)
+        fake.now += 1.0  # a second behind: drawn at once, counted as late before the wait, schedule restarts
+        self.assertAlmostEqual(pacer.wait(0), 1.0, delta=0.001)
+        self.assertAlmostEqual(pacer.before, 1.0, delta=0.001)
+        self.assertEqual((pacer.base, fake.sleeps), (0, []))
+        self.assertAlmostEqual(pacer.start, fake.now, delta=0.0002)
+
+    def test_pace_probe_reports_each_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([PY, os.path.join(HERE, "pace_probe.py"), "--seconds", "0.5", "--out", tmp,
+                                   "--only", "sleep,hybrid,spin,taskpolicy-B-pid+sleep"],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            lines = [l for l in done.stdout.splitlines() if l.startswith("TUI-KIT-PACE-VARIANT ")]
+            self.assertEqual([l.split()[1] for l in lines], ["sleep", "hybrid", "spin", "taskpolicy-B-pid+sleep"])
+            data = load_json(os.path.join(tmp, "pace.json"))
+        for name in ("sleep", "hybrid", "spin"):  # structure only: the timing is the host's, the probe's output
+            r = data["results"][name]
+            self.assertGreater(r["frames"], 0, name)
+            for key in ("p50", "p95", "p99", "max", "late_hist", "nvcsw", "nivcsw", "draw_max", "darwin_bg"):
+                self.assertIn(key, r)
 
     def test_fps_must_be_positive(self):
         done = subprocess.run([PY, KIT, "gradient", "--fps", "0", "--frames", "1", "--size", "10x5"],
