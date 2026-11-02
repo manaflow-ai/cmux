@@ -53,7 +53,7 @@ fn a_chunk_in_flight_at_the_capture_still_reaches_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_chunk, settled: false, end: 6, size: None },
+        Seen { digest: screen_with_chunk, settled: false, end: 6, size: None, upload: false },
         false,
     );
     push(&log, b"chunk");
@@ -62,7 +62,7 @@ fn a_chunk_in_flight_at_the_capture_still_reaches_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_chunk, settled: true, end: 11, size: None },
+        Seen { digest: screen_with_chunk, settled: true, end: 11, size: None, upload: false },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -83,7 +83,7 @@ fn bytes_after_the_capture_still_reach_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_one, settled: true, end: 4, size: None },
+        Seen { digest: screen_with_one, settled: true, end: 4, size: None, upload: false },
         false,
     );
     push(&log, b"three");
@@ -91,7 +91,7 @@ fn bytes_after_the_capture_still_reach_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_one, settled: true, end: 13, size: None },
+        Seen { digest: screen_with_one, settled: true, end: 13, size: None, upload: false },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -110,7 +110,7 @@ fn a_redraw_of_exactly_the_stored_bytes_waits_in_memory() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 6, size: None },
+        Seen { digest: 5, settled: true, end: 6, size: None, upload: false },
         false,
     );
     let redraw = b"\x1b[20;3H\x1b[?25h";
@@ -119,7 +119,7 @@ fn a_redraw_of_exactly_the_stored_bytes_waits_in_memory() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 15, size: None },
+        Seen { digest: 5, settled: true, end: 15, size: None, upload: false },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -144,7 +144,7 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
         &store,
         &not_a_folder,
         &log,
-        Seen { digest: 1, settled: true, end: 6, size: None },
+        Seen { digest: 1, settled: true, end: 6, size: None, upload: false },
         false,
     );
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
@@ -178,7 +178,7 @@ fn held_redraw_bytes_stay_bounded() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 6, size: None },
+        Seen { digest: 5, settled: true, end: 6, size: None, upload: false },
         false,
     );
     let redraws = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1024];
@@ -187,7 +187,7 @@ fn held_redraw_bytes_stay_bounded() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 0, size: None },
+        Seen { digest: 5, settled: true, end: 0, size: None, upload: false },
         false,
     );
     let state = log.state.lock().unwrap();
@@ -257,7 +257,7 @@ fn a_flood_past_the_cap_falls_back_to_the_snapshot() {
         &store,
         &directory,
         &log,
-        Seen { digest: 1, settled: true, end: 0, size: None },
+        Seen { digest: 1, settled: true, end: 0, size: None, upload: false },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -282,7 +282,7 @@ fn a_tail_that_does_not_continue_keeps_no_bytes() {
         &store,
         &directory,
         &log,
-        Seen { digest: 1, settled: true, end: 11, size: None },
+        Seen { digest: 1, settled: true, end: 11, size: None, upload: false },
         false,
     );
     let state = log.state.lock().unwrap();
@@ -304,7 +304,7 @@ fn held_redraws_past_the_idle_cap_fall_back_to_the_snapshot() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 6, size: None },
+        Seen { digest: 5, settled: true, end: 6, size: None, upload: false },
         false,
     );
     log.state.lock().unwrap().store_failed();
@@ -313,7 +313,7 @@ fn held_redraws_past_the_idle_cap_fall_back_to_the_snapshot() {
         &store,
         &directory,
         &log,
-        Seen { digest: 5, settled: true, end: 0, size: None },
+        Seen { digest: 5, settled: true, end: 0, size: None, upload: false },
         false,
     );
     let (pending, dirty) = {
@@ -408,4 +408,37 @@ fn a_reconnect_during_a_snapshot_write_still_asks_for_a_snapshot() {
     let retry = log.state.lock().unwrap().snapshot_retry_in();
     let _ = std::fs::remove_dir_all(&directory);
     assert!(retry.is_some(), "the snapshot of the old screen cleared the reconnect's request");
+}
+
+/// An unfinished Kitty image upload changes nothing the content digest sees
+/// (the screen's text, size, history and cursor stay): its bytes are not
+/// redraws and must reach the tail, not wait in memory up to the idle cap
+/// and then fall back to a snapshot that cannot be taken while the upload is
+/// too large to replay (an_unreplayable_screen_does_not_stop_the_tail failed
+/// 1 run in about 10 on the fleet this way).
+#[test]
+fn an_unfinished_upload_is_not_held_as_a_redraw() {
+    let directory = directory("upload-hold");
+    let store = OutputStore::new(None);
+    let log = log(b"screen");
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 6, size: None, upload: false },
+        false,
+    );
+    let chunk = b"\x1b_Ga=t,f=100,m=1;AAAA\x1b\\";
+    push(&log, chunk);
+    // Same digest (the upload is invisible), the capture saw it in flight.
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 6 + chunk.len() as u64, size: None, upload: true },
+        false,
+    );
+    let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(stored.ends_with(chunk), "the upload's bytes were held as a redraw");
 }
