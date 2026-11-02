@@ -92,6 +92,7 @@ public final class MessagesLabHomeView: NSView {
             let next = newValue.isFinite ? min(max(newValue, 0.5), 2) : 1
             guard next != controller.host.contentZoom else { return }
             controller.host.contentZoom = next
+            applyColumnZoom()
             applyZoomBounds()
             controller.followWindowScale()
             // The field moved with the zoom (the host is now frame / zoom tall) without a frame change here: lay out
@@ -100,6 +101,20 @@ public final class MessagesLabHomeView: NSView {
             layoutSubtreeIfNeeded()
             controller.onFieldTopChange?()
         }
+    }
+
+    /// cmux: the zoom whose bubble column this chat keeps on screen at every zoom
+    /// (https://github.com/manaflow-ai/cmux/issues/28978): `zoom` magnifies the text, the bubbles and the field, and
+    /// the column they wrap in stays as wide as at this zoom. The Chief chat sets its most zoomed-out level, the widest
+    /// column; nil keeps MessagesLab's own column, which narrows as the zoom grows. Set it before the chat lays out:
+    /// rows re-wrap on the next width change.
+    public var widestColumnZoom: CGFloat? {
+        didSet { applyColumnZoom() }
+    }
+
+    /// `Metrics.columnZoom` for this zoom and `widestColumnZoom`.
+    private func applyColumnZoom() {
+        Metrics.columnZoom = widestColumnZoom.map { zoom / $0 } ?? 1
     }
 
     public override func setFrameSize(_ newSize: NSSize) {

@@ -640,7 +640,9 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachments[data-reorder] .acpmux-attachment-slot .acpmux-attachment {
   cursor: grab;
 }
+/* The dragged chip rides the pointer over the others (stripReorder.ts sets its translate). */
 .acpmux-attachment-slot[data-dragging] .acpmux-attachment {
+  z-index: var(--layer-raised);
   cursor: grabbing;
   opacity: 0.85;
   transform: translateY(-2px);

@@ -3,8 +3,8 @@
 // transparent over a wallpaper, so the box was a thin film over the art (beige glass). Since #24593
 // (2026-10-23) the box is the chat composer's shared glass: over art the theme's solid surface as a
 // translucent tint (a surface, not a film; glass is never opaque), solid only under Reduce
-// Transparency (composer-glass.test.ts holds the chat card to the same). Its suggestions are menu rows, the same height,
-// corners and inset as every other menu in the pane. Focus is quiet (Lawrence 10-14): it keeps the
+// Transparency (composer-glass.test.ts holds the chat card to the same). Its suggestions are popup rows: a menu row's height,
+// the popup's 4 inset and the shared row radius (design/grid.md 5.3). Focus is quiet (Lawrence 10-14): it keeps the
 // box's rim and never takes the theme accent (newtab-quiet-focus.test.ts).
 //
 // The page is the pane's real stylesheets plus markup in the shape NewTabScreen renders. The
@@ -105,7 +105,11 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         await page.close();
       });
 
-      test("a suggestion row is a menu row: the same height, corners and inset", async () => {
+      // A suggestion row is a popup row on the 4 grid (leo-workspace design/grid.md 5.3 and section 1):
+      // a menu's row height, but the popup's 4 padding and a concentric --ui-row-radius corner (4).
+      // Menus on AppKit's lines keep their own 5 inset and radius 5 (cmux#28611), so the rows are held
+      // to the shared row tokens rather than to a menu item's corners.
+      test("a suggestion row is a popup row: a menu row's height, the row radius and the popup inset", async () => {
         const page = await open(TEXT);
         const metrics = (row: string, list: string) =>
           page.evaluate(
@@ -116,9 +120,25 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
             },
             [row, list],
           );
-        expect(await metrics("#row", "#rows")).toEqual(await metrics("#item", "#menu"));
+        // The tokens, resolved by a probe in the popup: the row height, --ui-row-radius and
+        // --ui-popup-padding.
+        const tokens = await page.evaluate(() => {
+          const probe = document.createElement("div");
+          probe.style.cssText =
+            "height: var(--ui-row-height); border-radius: var(--ui-row-radius); padding-top: var(--ui-popup-padding)";
+          document.querySelector("#menu")!.append(probe);
+          const style = getComputedStyle(probe);
+          const result = { height: style.height, radius: style.borderTopLeftRadius, inset: style.paddingTop };
+          probe.remove();
+          return result;
+        });
+        expect(tokens.radius, "the shared row radius is concentric with the popup: 8 - 4").toBe("4px");
+        expect(tokens.inset).toBe("4px");
+        const menuRow = await metrics("#item", "#menu");
+        expect(tokens.height).toBe(menuRow.height);
+        expect(await metrics("#row", "#rows")).toEqual(tokens);
         // The classic template's suggestions (NewTabPage's omnibar) are the same rows (batch 2).
-        expect(await metrics("#omni-row", "#omni")).toEqual(await metrics("#item", "#menu"));
+        expect(await metrics("#omni-row", "#omni")).toEqual(tokens);
         const corner = (id: string) => page.$eval(id, (node) => getComputedStyle(node).borderTopLeftRadius);
         expect(await corner("#omni")).toBe(await corner("#menu"));
         await page.close();

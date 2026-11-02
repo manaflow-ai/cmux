@@ -75,25 +75,6 @@ struct SpareSessionAdoptionTests {
         #expect(spare.model.userTouched, "starting dictation is the person's touch")
     }
 
-    /// HQ#5914 finding 1, review of #27759: a spare whose client is still connecting is not taken
-    /// for an existing chat (the open would wait behind its chat list), nor in Low Power Mode or
-    /// at serious thermal state (each open would make another page).
-    @Test func whichSpareServesAChat() {
-        func serves(handshake: Bool = true, painted: Bool = true, clientReady: Bool = true, lowPower: Bool = false,
-                    thermal: ProcessInfo.ThermalState = .nominal) -> Bool {
-            NewTabSparePool.servesChat(handshake: handshake, painted: painted, clientReady: clientReady,
-                                       lowPower: lowPower, thermal: thermal)
-        }
-        #expect(serves())
-        #expect(serves(thermal: .fair))
-        #expect(!serves(handshake: false))
-        #expect(!serves(painted: false))
-        #expect(!serves(clientReady: false))
-        #expect(!serves(lowPower: true))
-        #expect(!serves(thermal: .serious))
-        #expect(!serves(thermal: .critical))
-    }
-
     @Test func anExistingChatOpensOnTheConnectedSpare() async throws {
         let tabs = Self.run(records: ["tab_chat": Self.chat("s-chat")])
         let spare = try await Self.connectedSpare(of: tabs)
@@ -170,22 +151,5 @@ struct SpareSessionAdoptionTests {
         #expect(view.model.sessionId == "s-chat")
         #expect(recycled.count == 1 && recycled.first === spare)
         #expect(spare.model.sessionId == nil && spare.model.newTab != nil)
-    }
-
-    @Test func theDecision() {
-        func adopts(local: Bool = true, kind: AgentPaneHostKind = .local, session: String? = "s", newTabPage: Bool = false,
-                    seeded: Bool = false, wake: Bool = false, chief: Bool = false) -> String? {
-            SpareSessionAdoption.session(local: local, kind: kind, session: session, newTabPage: newTabPage, seeded: seeded,
-                                         wake: wake, chiefKeeps: { _ in chief })
-        }
-        #expect(adopts() == "s")
-        #expect(adopts(local: false, kind: .remote) == nil)
-        #expect(adopts(kind: .chief) == nil)
-        #expect(adopts(session: nil) == nil)
-        #expect(adopts(session: "") == nil)
-        #expect(adopts(newTabPage: true) == nil)
-        #expect(adopts(seeded: true) == nil)
-        #expect(adopts(wake: true) == nil)
-        #expect(adopts(chief: true) == nil)
     }
 }

@@ -622,9 +622,11 @@ html[data-cmux-page="changelog"] {
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cls-rows { display: grid; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
-/* A day still loading holds about the three rows a day has, so the days under it barely move
-   when its rows arrive (gallery shift baselines many-builds and nightly-history). */
-.cls .clj-placeholder { height: calc(3 * var(--cls-line) + 2 * var(--ds-space-1)); }
+/* A day still loading holds about the rows it will have (SheetPage placeholderRows, `--cls-rows`),
+   so the days under it barely move when its rows arrive. */
+.cls .clj-placeholder {
+  height: calc(var(--cls-rows, 3) * var(--cls-line) + (var(--cls-rows, 3) - 1) * var(--ds-space-1));
+}
 .cls-row { display: grid; grid-template-columns: var(--cls-line) minmax(0, 1fr); gap: var(--ds-space-3); align-items: start; }
 .cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
 .cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
