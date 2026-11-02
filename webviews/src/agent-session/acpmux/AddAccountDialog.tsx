@@ -14,7 +14,7 @@ export function AddAccountDialog({
   onAdded,
 }: {
   add(account: NewChatAccount): Promise<void>;
-  kinds?: string[];
+  kinds?: ("direct-subscription" | "direct-api-key")[];
   onClose(): void;
   onAdded(): void;
 }) {
@@ -25,21 +25,10 @@ export function AddAccountDialog({
   const sending = useRef(false);
   const [error, setError] = useState<string>();
   const subscription = kind === "direct-subscription";
-  const relayed = kind === "local-coderouter" || kind === "cmux-router";
   const fields: { name: keyof NewChatAccount; label: StringKey; required?: boolean }[] = [
     { name: "id", label: "picker.accountId", required: true },
     { name: "name", label: "environment.name" },
     ...(subscription ? [{ name: "accountHome" as const, label: "picker.accountHome" as const }] : []),
-    ...(!subscription && !relayed && kind !== "direct-api-key"
-      ? [
-          ...(kind !== "custom-openai"
-            ? [{ name: "anthropicBaseUrl" as const, label: "picker.accountAnthropicUrl" as const }]
-            : []),
-          ...(kind !== "custom-anthropic"
-            ? [{ name: "openaiBaseUrl" as const, label: "picker.accountOpenaiUrl" as const }]
-            : []),
-        ]
-      : []),
     ...(kind === "direct-api-key"
       ? [{ name: "secret" as const, label: "picker.accountSecret" as const, required: true }]
       : []),

@@ -11,15 +11,11 @@ export type NewChatAccount = {
   kind: string;
   name?: string;
   accountHome?: string;
-  anthropicBaseUrl?: string;
-  openaiBaseUrl?: string;
   secret?: string;
 };
 
 /// A chat's route choices and its active binding; no active route means the harness login.
 export type ChatAccountList = {
-  /** The daemon owns the available route kinds and their defaults. */
-  kinds?: string[];
   accounts: ChatAccount[];
   active?: string;
   scope?: string;
@@ -69,7 +65,6 @@ export const ownRouteOf = (accounts: ChatAccounts, sessionId: string) => ({
 export function readChatAccounts(reply: unknown): ChatAccountList {
   const raw = (reply && typeof reply === "object" ? reply : {}) as {
     routes?: unknown;
-    kinds?: unknown;
     active?: { routeId?: unknown; scope?: unknown } | null;
   };
   const accounts: ChatAccount[] = [];

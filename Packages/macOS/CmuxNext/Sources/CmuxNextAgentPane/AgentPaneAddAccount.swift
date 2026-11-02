@@ -8,7 +8,7 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
     public let fields: [String: String]
 
     init?(params: [String: Any]?) {
-        let allowed: Set<String> = ["id", "kind", "name", "accountHome", "anthropicBaseUrl", "openaiBaseUrl", "secret"]
+        let allowed: Set<String> = ["id", "kind", "name", "accountHome", "secret"]
         guard let params, Set(params.keys).isSubset(of: allowed),
               let fields = params as? [String: String],
               let id = fields["id"], !id.isEmpty, id.utf8.count <= 128,

@@ -1419,7 +1419,6 @@ export function QuickModelMenu({
       {addingAccount && account?.accounts.add && (
         <AddAccountDialog
           add={account.accounts.add}
-          kinds={accounts.list?.kinds}
           onClose={() => setAddingAccount(false)}
           onAdded={() => {
             setAddingAccount(false);
