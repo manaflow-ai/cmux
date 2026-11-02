@@ -55,9 +55,9 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
   });
 
   /// The two New Tab designs: the one-input screen (the default) and the classic page (`layout` "a").
-  /// The screen's field is the composer's Markdown prompt: `field` is its editable element, which
-  /// takes the keyboard, and a pasted image is a chip at its place in the text (the default inline
-  /// view), not in the strip.
+  /// Both fields are the composer's Markdown prompt: `field` is its editable element, which takes the
+  /// keyboard. On the screen a pasted image is a chip at its place in the text (the default inline
+  /// view); the classic page shows it in its strip.
   const designs = [
     {
       design: "screen",
@@ -67,7 +67,7 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
     },
     {
       design: "classic",
-      field: ".acpmux-newtab-field",
+      field: ".acpmux-newtab-field .ProseMirror",
       chips: ".acpmux-newtab-box .acpmux-attachment-image",
       context: { layout: "a" },
     },
@@ -120,11 +120,10 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
 
   const inField = (page: Page, design: Design) =>
     page.evaluate((selector) => document.activeElement?.matches(selector) === true, design.field);
+  // The words in the prompt (a ready image chip holds no text): both designs' fields are the composer's
+  // Markdown prompt.
   const fieldText = (page: Page, design: Design) =>
-    design.design === "classic"
-      ? page.locator(design.field).inputValue()
-      : // The words in the prompt (a ready image chip holds no text).
-        page.locator(design.field).evaluate((node) => node.textContent ?? "");
+    page.locator(design.field).evaluate((node) => node.textContent ?? "");
 
   /// Dispatches the paste the app's Paste sends to the focused element (the page, when nothing has
   /// the keyboard), carrying `clipboard`; a PNG drawn in the page stands for a copied image.

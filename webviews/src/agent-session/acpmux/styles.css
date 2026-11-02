@@ -184,12 +184,15 @@
    lines continue across stacked parts). */
 .acpmux-newtab{--acpmux-newtab-mark:26px}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
-.acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
+.acpmux-newtab-row{display:flex;align-items:center;gap:10px;min-height:56px;padding:0 8px 0 18px;cursor:text}
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
-.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content)}
-.acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
+/* The field is the chat composer's prompt editor (MarkdownField, markdownField.css), sized as the row's one line: one line keeps the row 56 px tall; a long prompt wraps and grows to the composer's line cap, then scrolls (the New Tab screen's .nt-field). */
+.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((56px - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:56px;max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--acpmux-newtab-pad-block)),40vh);margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md-placeholder{left:0;right:0;top:var(--acpmux-newtab-pad-block);color:var(--acpmux-composer-placeholder)}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md{min-height:1lh;font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
 .acpmux-newtab-switch{flex:none;display:flex;gap:2px;margin:0;min-width:0;border:0;padding:3px;border-radius:15px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
 .acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap}
 .acpmux-newtab-kind:hover{color:var(--agent-text)}
