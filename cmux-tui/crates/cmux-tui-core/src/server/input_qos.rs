@@ -70,8 +70,8 @@ pub(super) fn note_thread_qos(role: &'static str) {
 #[inline(always)]
 pub(super) fn note_thread_qos(_role: &'static str) {}
 
-/// The QoS a connection thread last recorded (test hook).
-#[cfg(test)]
+/// The QoS a connection thread last recorded (test hook; the QoS tests run on macOS).
+#[cfg(all(test, target_os = "macos"))]
 pub(super) fn observed_thread_qos(role: &'static str) -> Option<u32> {
     OBSERVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(role).copied()
 }
