@@ -238,4 +238,36 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(claimed, "the first create's reply ended the second press's claim")
         }
     }
+
+    /// The person clicks the pane that already has the focus after asking for a new workspace (review of #32098). The
+    /// click moves no focus generation (the responder does not change), but it is their next intent: it ends the claim,
+    /// and the keys typed after it are that pane's at once. Before, they still took the new workspace's lane and were
+    /// dropped when it never showed. The keys typed before the click stay the new workspace's: none runs in the pane.
+    @Test func keysTypedAfterAClickOnTheFocusedPaneReachThatPane() async throws {
+        var replayed: [String] = []
+        try await Self.withWindow(replay: { event, _, _ in replayed.append(event.characters ?? "") }) { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new workspace opened no key hold")
+            let before = router.interceptKeyDown(try Self.key("a", keyCode: 0, in: h.window), in: h.window)
+            #expect(before, "the hold did not take a key typed for the new workspace")
+            let generation = h.controller.focus.state.generation
+            // The click the app's one mouse-down subscription reports (AppServices), on the pane that has the focus.
+            let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 300, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
+                                                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            coordinator.personActed(in: h.window, event: click)
+            #expect(h.controller.focus.state.generation == generation, "the click moved the focus generation; this test needs a no-op click")
+            #expect(!h.window.pendingCreationOwnsKeyboard, "the click did not end the person's claim")
+            var delivered: [String] = []
+            for (characters, code) in [("b", UInt16(11)), ("c", UInt16(8))] {
+                if !router.interceptKeyDown(try Self.key(characters, keyCode: code, in: h.window), in: h.window) { delivered.append(characters) }
+            }
+            coordinator.resolve(ticket, landed: false, in: h.window) // the new workspace never shows
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            delivered += replayed
+            #expect(delivered == ["b", "c"], "the keys typed after the click did not reach the clicked pane in order: \(delivered)")
+        }
+    }
 }
