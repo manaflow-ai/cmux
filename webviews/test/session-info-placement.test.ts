@@ -203,7 +203,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
             lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
           }).toEqual({
-            unasked: width >= 740 ? unasked : false,
+            unasked: width >= 740,
             placement: "push",
             besideChat: true,
             insidePane: true,

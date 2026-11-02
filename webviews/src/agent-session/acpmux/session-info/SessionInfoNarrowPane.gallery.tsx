@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery entry notes, not shipped UI.
 // Session Info in a narrow agent pane (cmuxterm-hq#6137; Leo, 2026-11-02: "THE FUCKING SESSION INFO NOT
 // FUCKING PUSH THE LAYOUT LEFT"). A 370px pane (a split of a 740pt window) and a 528px one cannot hold
 // a readable chat beside the panel, so a saved open state leaves the chat alone; the toggle opens it,
