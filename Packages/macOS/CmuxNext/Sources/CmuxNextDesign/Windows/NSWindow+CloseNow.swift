@@ -16,7 +16,7 @@ extension NSWindow {
     ///
     /// ```swift
     /// window.closeWithoutButtonFlash()                             // Ctrl-Cmd-W, the menu, a script
-    /// window.closeWithoutButtonFlash(requiresCloseButton: false)   // Close All: every window
+    /// window.closeWithoutButtonFlash(requiresCloseButton: false)   // a window with no close button too
     /// ```
     ///
     /// - Parameter requiresCloseButton: Only a window whose style has a close button closes (the button's rule).
