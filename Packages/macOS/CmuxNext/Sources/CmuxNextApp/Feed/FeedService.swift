@@ -225,19 +225,10 @@ final class FeedService {
 
     private func applyReports(_ page: AcpmuxMailboxPage) {
         for message in page.messages {
-            reportRows[message.id] = FeedReport(
-                id: message.id,
-                sender: message.sender,
-                body: message.body,
-                createdAt: message.createdAt
-            )
+            reportRows[message.id] = FeedReport(id: message.id, sender: message.sender, body: message.body, createdAt: message.createdAt)
         }
-        model.replaceReports(Array(reportRows.values))
         // Only what the basket shows stays: a long-lived mailbox is read page by page from its start.
-        if reportRows.count > FeedModel.reportsLimit {
-            let kept = Set(model.reports.map(\.id))
-            reportRows = reportRows.filter { kept.contains($0.key) }
-        }
+        reportRows = model.replaceReports(reportRows)
     }
 
     private func observe(_ event: FeedSourceEvent) {

@@ -262,6 +262,14 @@ public final class FeedModel {
             .prefix(Self.reportsLimit))
     }
 
+    /// Shows `rows` (the newest `reportsLimit`) and returns the ones shown, by id: the caller keeps
+    /// only those, so a mailbox read from its start never holds every report it ever had.
+    @discardableResult
+    public func replaceReports(_ rows: [String: FeedReport]) -> [String: FeedReport] {
+        replaceReports(Array(rows.values))
+        return Dictionary(uniqueKeysWithValues: reports.map { ($0.id, $0) })
+    }
+
     // MARK: - Owner data
 
     func handle(_ event: FeedSourceEvent) {
