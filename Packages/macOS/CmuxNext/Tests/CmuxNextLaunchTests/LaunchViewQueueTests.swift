@@ -38,6 +38,20 @@ import Testing
         #expect(tabs.shown == ["tab"], "shown once, by its first request's post")
     }
 
+    /// NEWTAB PER-FRAME (STATUS 6416): the app's show asks the queue again (the pane shows its selection:
+    /// `AgentTabContent`, `AgentTabStore.deferAtLaunch`). The tab's post had taken it out of the queue, so that
+    /// ask posted it again: the view was never made before completion, and the pane showed its selection
+    /// (a focus reduce, an input-journal entry) on every frame until then (272 of 300 entries).
+    @Test func aPostedTabsShowMakesItsViewWhenItAsksAgain() {
+        let s = StartupTestScheduler(), tabs = AskingAgainTabs()
+        #expect(tabs.ask("tab", startup: s.startup))
+        s.startup.firstFrameCommitted()
+        for _ in 0..<6 { s.fire() }
+        #expect(tabs.answers == [false], "the tab's post showed it and its show waited again: \(tabs.answers)")
+        #expect(s.startup.log.records.count == 1, "the tab was posted \(s.startup.log.records.count) times")
+        #expect(!tabs.queue.isWaiting("tab"))
+    }
+
     @Test func aTabShownAfterTheFirstFrameBeforeCompletionWaitsForAPost() {
         let s = StartupTestScheduler(), tabs = LaunchViewTabs()
         s.startup.firstFrameCommitted()
@@ -118,5 +132,21 @@ private final class LaunchViewTabs {
     /// Asks whether `key`'s view waits; its show records `key`.
     func ask(_ key: String, focused: Bool, paneGate: LaunchReveal? = nil, startup: StartupScheduler?) -> Bool {
         queue.waitsAtLaunch(key, focused: focused, paneGate: paneGate, startup: startup) { [weak self] in self?.shown.append(key) }
+    }
+}
+
+/// A queue whose tabs' show asks it again, as the app's does (the pane shows its selection, which asks
+/// ``LaunchViewQueue/waitsAtLaunch(_:focused:paneGate:startup:show:)`` whether the view is made now).
+@MainActor
+private final class AskingAgainTabs {
+    let queue = LaunchViewQueue()
+    /// The answers of the asks made from the shows, in order.
+    var answers: [Bool] = []
+
+    func ask(_ key: String, startup: StartupScheduler) -> Bool {
+        queue.waitsAtLaunch(key, focused: true, paneGate: nil, startup: startup) { [weak self] in
+            guard let self else { return }
+            answers.append(ask(key, startup: startup))
+        }
     }
 }
