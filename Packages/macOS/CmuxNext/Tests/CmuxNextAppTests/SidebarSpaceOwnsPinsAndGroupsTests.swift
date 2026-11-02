@@ -162,12 +162,57 @@ import Testing
         let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
         let ws1 = SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1")
         let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.group(SidebarGroup(id: GroupID("itm_pp"), name: "itm_pp", workspaces: [ws1]))])]
-        let arranged = projection.arrange(window, drag: Self.drag(room: Self.home))
-        let nodes = arranged.flatMap(\.nodes)
-        let groups = Set(nodes.compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
-        #expect(groups == ["itm_pp", "itm_pc"], "\(groups)")
-        let links = nodes.flatMap(\.listedItems).map(\.id)
-        #expect(links.contains("itm_pl"), "the child group's link is gone: \(links)")
+        // In Default and in Work alike (the review at 80d23843): the child stores no space, so it follows its parent.
+        for room in [Self.home, Self.work] {
+            let arranged = projection.arrange(window, drag: Self.drag(room: room))
+            let nodes = arranged.flatMap(\.nodes)
+            let groups = Set(nodes.compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
+            #expect(groups == ["itm_pp", "itm_pc"], "\(room): \(groups)")
+            let links = nodes.flatMap(\.listedItems).map(\.id)
+            #expect(links.contains("itm_pl"), "\(room): the child group's link is gone: \(links)")
+        }
+    }
+
+    /// New Subgroup stores no space (`SidebarDocSubgroupPlan`): a group that stores none under another group follows
+    /// that parent, in a band and in a machine section. Work's empty group `itm_wp` holds the unscoped empty `itm_ws`;
+    /// This Mac's Work group `itm_mw` holds the unscoped empty `itm_mu`.
+    @Test func aSubgroupThatStoresNoSpaceFollowsItsParent() {
+        let records = SidebarDocRecords(sections: [
+            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_wp": Self.group("itm_wp", Self.custom, room: Self.work),
+            "itm_ws": SidebarDocItem(id: "itm_ws", section: Self.custom, parent: "itm_wp",
+                                     body: .group(name: "itm_ws", color: nil, icon: nil, collapsed: false)),
+            "itm_mw": Self.group("itm_mw", Self.machine, room: Self.work),
+            "itm_mu": SidebarDocItem(id: "itm_mu", section: Self.machine, parent: "itm_mw",
+                                     body: .group(name: "itm_mu", color: nil, icon: nil, collapsed: false)),
+            "itm_1": SidebarDocItem(id: "itm_1", section: Self.machine, body: .workspace(Self.ref("ws-1"))),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_wp", kind: "group", section: Self.custom, item: "itm_wp"),
+            SidebarDocRow(key: "itm_ws", kind: "group", section: Self.custom, parent: "itm_wp", depth: 1, item: "itm_ws"),
+            SidebarDocRow(key: "itm_mw", kind: "group", section: Self.machine, item: "itm_mw"),
+            SidebarDocRow(key: "itm_mu", kind: "group", section: Self.machine, parent: "itm_mw", depth: 1, item: "itm_mu"),
+            SidebarDocRow(key: "itm_1", kind: "item", section: Self.machine, item: "itm_1", ref: Self.ref("ws-1")),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
+        let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1"))])]
+        func band(_ room: String) -> Set<String> {
+            Set(projection.arrange(window, drag: Self.drag(room: room)).flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
+        }
+        #expect(band(Self.work) == ["itm_wp", "itm_ws"], "\(band(Self.work))")
+        #expect(band(Self.home).isEmpty, "\(band(Self.home))")
+
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
+                                                                        resourceID: ResourceID(rawValue: "ws-1"), name: "ws-1")]))
+        func machine(_ room: String) -> [String] {
+            SidebarDocSections(document: { nil }).sections(projection, session: Self.session, workspaces: store.workspaces, room: room)
+                .compactMap { $0.group?.id.rawValue }
+        }
+        #expect(machine(Self.work) == ["itm_mw", "itm_mu"], "\(machine(Self.work))")
+        #expect(machine(Self.home).isEmpty, "\(machine(Self.home))")
     }
 
     static let gone = "prof_gone"
