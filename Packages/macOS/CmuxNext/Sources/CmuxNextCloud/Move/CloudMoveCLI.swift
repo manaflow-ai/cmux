@@ -194,12 +194,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
     }
 
-    public func startChatCreateBegin(key: String, account: String, name: String) async throws -> (Answer, Void) {
-        (try await run(["link", "start-chat", "create-begin", "--key", key, "--account", account, "--name", name]), ())
+    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-begin", "--key", key, "--account", account, "--name", name, "--create-key", createKey]), ())
     }
 
-    public func startChatCreateSent(key: String, account: String, team: String) async throws -> (Answer, Void) {
-        (try await run(["link", "start-chat", "create-sent", "--key", key, "--account", account, "--team", team]), ())
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-sent", "--key", key, "--account", account, "--team", team, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-refused", "--key", key, "--account", account, "--create-key", createKey]), ())
     }
 
     public func startChatTargetPane(key: String, account: String, machine: String, pane: String) async throws -> (Answer, Void) {

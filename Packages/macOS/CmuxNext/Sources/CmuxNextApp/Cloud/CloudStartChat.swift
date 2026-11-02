@@ -169,6 +169,7 @@ struct CloudStartChat {
         let context = AppActionContext(services: services)
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
         if let targetPane {
+            _ = try await CloudMachineWorkspace.existing(in: machine.daemon.store, notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title)))
             guard let found = CloudMachineWorkspace.targetAnchor(targetPane, in: machine.daemon.store) else {
                 throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
             }

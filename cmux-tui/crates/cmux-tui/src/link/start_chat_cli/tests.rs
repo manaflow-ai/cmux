@@ -26,9 +26,18 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
     let scratch = scratch();
     let path = ledger_in(scratch.path());
     let key = key();
-    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats"), json!({"ok": true}));
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "billed-team"), json!({"ok": true}));
-    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2"), json!({"ok": true}));
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
     Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other-vm")).expect("bind");
     let retry = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
         "user": ME, "machines": [{"id": "other-vm", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
@@ -43,6 +52,43 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
         plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
         "created-vm"
     );
+}
+
+#[test]
+fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let original = Keys::of(&key);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
+        true
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
+    let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
+        "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["machine"], Value::Null);
+    assert_eq!(fresh["new_name"], "cloud-chats-2");
+    assert_ne!(fresh["create_key"], original.create);
+    assert_eq!(fresh["tab_key"], original.tab);
+    let new_key = fresh["create_key"].as_str().expect("rotated key");
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", new_key)["ok"], true);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_key"], new_key);
+    assert_eq!(plan(&path, &request)["create_sent"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, new_key)["ok"], true);
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other")).expect("bind");
+    let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    assert_eq!(plan(&path, &request)["machine"], "other");
 }
 
 #[test]

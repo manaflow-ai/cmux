@@ -65,8 +65,9 @@ use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
-cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME\n       \
-cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM\n       \
+cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
@@ -108,15 +109,25 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             _ => None,
         },
-        "create-begin" => match (flags.key(), flags.account(), flags.one("--name")) {
-            (Some(key), Some(account), Some(name)) => {
-                Some(create_begin(&ledger, &key, account, name))
+        "create-begin" => {
+            match (flags.key(), flags.account(), flags.one("--name"), flags.one("--create-key")) {
+                (Some(key), Some(account), Some(name), Some(create_key)) => {
+                    Some(create_begin(&ledger, &key, account, name, create_key))
+                }
+                _ => None,
             }
-            _ => None,
-        },
-        "create-sent" => match (flags.key(), flags.account(), flags.one("--team")) {
-            (Some(key), Some(account), Some(team)) => {
-                Some(create_sent(&ledger, &key, account, team))
+        }
+        "create-sent" => {
+            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
+                (Some(key), Some(account), Some(team), Some(create_key)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key))
+                }
+                _ => None,
+            }
+        }
+        "create-refused" => match (flags.key(), flags.account(), flags.one("--create-key")) {
+            (Some(key), Some(account), Some(create_key)) => {
+                Some(create_refused(&ledger, &key, account, create_key))
             }
             _ => None,
         },
@@ -296,13 +307,18 @@ pub(super) fn plan_with(
     if request.environment.as_deref().is_some_and(|id| !valid_environment(id)) {
         return refused("bad_request", "the environment is not a cloud environment id (env_...)");
     }
-    let keys = Keys::of(&request.key);
+    let mut keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
     match Ledger::update(ledger, |pins| pins.pending_create(&send)) {
         Ok(Some(pending)) => {
-            return json!({"ok": true, "machine": null, "new_name": pending.name,
+            if let Some(key) = &pending.create_key {
+                keys.create = key.clone();
+            }
+            if !pending.refused {
+                return json!({"ok": true, "machine": null, "new_name": pending.name,
             "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
             "tab_key": keys.tab, "remote_place": keys.place});
+            }
         }
         Ok(None) => {}
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
@@ -766,17 +782,30 @@ pub(super) fn pin(
     }
 }
 
-fn create_begin(ledger: &Path, key: &str, account: &str, name: &str) -> Value {
-    match Ledger::update(ledger, |pins| pins.begin_create(&Send::new(key, account), name)) {
-        Ok(()) => json!({"ok": true}),
+fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.begin_create(&Send::new(key, account), name, create_key)
+    }) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no matching create key"),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }
 
-fn create_sent(ledger: &Path, key: &str, account: &str, team: &str) -> Value {
-    match Ledger::update(ledger, |pins| pins.mark_create_sent(&Send::new(key, account), team)) {
+fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+    }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pending create"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+fn create_refused(ledger: &Path, key: &str, account: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.refuse_create(&Send::new(key, account), create_key)) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no matching pending create"),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }

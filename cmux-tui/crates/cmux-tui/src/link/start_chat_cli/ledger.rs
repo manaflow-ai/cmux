@@ -103,6 +103,10 @@ pub(crate) struct PendingCreate {
     pub(crate) team: Option<String>,
     #[serde(default)]
     pub(crate) sent: bool,
+    #[serde(default)]
+    pub(crate) refused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) create_key: Option<String>,
 }
 
 impl PendingCreate {
@@ -148,9 +152,19 @@ impl Ledger {
         self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
     }
 
-    pub(crate) fn begin_create(&mut self, send: &Send, name: &str) {
-        if self.pending_create(send).is_some() {
-            return;
+    pub(crate) fn begin_create(&mut self, send: &Send, name: &str, key: &str) -> bool {
+        if let Some(pending) = self.pending_creates.iter_mut().find(|pending| pending.is(send)) {
+            if pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key {
+                return false;
+            }
+            if pending.refused {
+                pending.name = name.to_string();
+                pending.refused = false;
+            }
+            return true;
+        }
+        if super::Keys::of(send.key()).create != key {
+            return false;
         }
         self.pending_creates.push(PendingCreate {
             key: send.key.clone(),
@@ -158,20 +172,46 @@ impl Ledger {
             name: name.to_string(),
             team: None,
             sent: false,
+            refused: false,
+            create_key: None,
         });
         let over = self.pending_creates.len().saturating_sub(LIMIT);
         self.pending_creates.drain(..over);
+        true
     }
 
-    pub(crate) fn mark_create_sent(&mut self, send: &Send, team: &str) -> bool {
+    pub(crate) fn mark_create_sent(&mut self, send: &Send, team: &str, key: &str) -> bool {
         let Some(pending) = self.pending_creates.iter_mut().rev().find(|pending| pending.is(send))
         else {
             return false;
         };
+        if pending.refused
+            || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
+        {
+            return false;
+        }
         if !pending.sent {
             pending.team = Some(team.to_string());
             pending.sent = true;
         }
+        true
+    }
+
+    /// Only a definitive refusal permits another paid create. Fence delayed answers by the key
+    /// they refused, so a cancelled attempt cannot rotate a newer attempt's key.
+    pub(crate) fn refuse_create(&mut self, send: &Send, key: &str) -> bool {
+        let Some(pending) = self.pending_creates.iter_mut().find(|pending| pending.is(send)) else {
+            return false;
+        };
+        if pending.refused
+            || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
+        {
+            return false;
+        }
+        pending.create_key = Some(format!("cloud-start-chat-{}", uuid::Uuid::new_v4()));
+        pending.refused = true;
+        pending.sent = false;
+        pending.team = None;
         true
     }
 
