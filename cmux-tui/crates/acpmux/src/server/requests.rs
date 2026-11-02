@@ -1576,7 +1576,9 @@ async fn dispatch_request(
                 Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
                 let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-                let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later)).await?;
+                let new = admitted
+                    .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
+                    .await?;
                 (new, admitted.warning.clone())
             };
             attach(hub, conn, &new.id);
