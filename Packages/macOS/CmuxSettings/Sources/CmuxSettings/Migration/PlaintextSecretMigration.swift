@@ -31,7 +31,9 @@ public import Foundation
 public enum PlaintextSecretMigration {
     /// The result of a migration attempt, surfaced for logging and tests.
     public enum Outcome: Equatable, Sendable {
-        /// `cmux.json` does not exist or could not be read; nothing to do.
+        /// `cmux.json` does not exist or could not be read (including when the
+        /// config writer lock could not be taken); nothing to do. A later launch
+        /// retries.
         case noConfigFile
         /// The file parsed but does not contain the plaintext key; nothing to do.
         case noPlaintextKey
@@ -81,11 +83,34 @@ public enum PlaintextSecretMigration {
         fileManager: FileManager = .default
     ) -> Outcome {
         guard !plaintextKeyPath.isEmpty else { return .noPlaintextKey }
-        guard fileManager.fileExists(atPath: configURL.path),
-              let data = try? Data(contentsOf: configURL) else {
+        guard fileManager.fileExists(atPath: configURL.path) else {
             return .noConfigFile
         }
-        guard let root = parseObject(data) else {
+        // Like JSONConfigStore, edit the file a symlinked cmux.json points at,
+        // under the lock every cmux writer of that file takes.
+        let writeURL = JSONConfigStore.resolvedWriteURL(for: configURL, fileManager: fileManager)
+        // Look for the key before locking: the lock creates a sidecar beside the
+        // target that is never removed, so launches with nothing to scrub skip it.
+        // Everything below re-reads under the lock.
+        guard let unlockedData = try? Data(contentsOf: writeURL) else {
+            return .noConfigFile
+        }
+        guard let unlockedRoot = parseObject(unlockedData) else {
+            return .parseFailedLeftIntact
+        }
+        guard lookup(plaintextKeyPath, in: unlockedRoot) != nil else {
+            return .noPlaintextKey
+        }
+        guard let writeLock = try? JSONConfigWriteLock.acquireBlocking(target: writeURL) else {
+            return .noConfigFile
+        }
+        defer { writeLock.release() }
+        guard let data = try? Data(contentsOf: writeURL) else {
+            return .noConfigFile
+        }
+        let sanitizer = JSONCSanitizer()
+        guard let root = parseObject(data),
+              let source = try? sanitizer.sourceText(from: data) else {
             return .parseFailedLeftIntact
         }
         guard let leaf = lookup(plaintextKeyPath, in: root) else {
@@ -108,15 +133,13 @@ public enum PlaintextSecretMigration {
             }
         }
 
-        backUp(configURL: configURL, timestamp: backupTimestamp, fileManager: fileManager)
+        backUp(writeURL, besideConfigAt: configURL, timestamp: backupTimestamp, fileManager: fileManager)
 
-        var newRoot = root
-        removeAndPrune(plaintextKeyPath, in: &newRoot)
-        if let rewritten = try? JSONSerialization.data(
-            withJSONObject: newRoot,
-            options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? rewritten.write(to: configURL, options: .atomic)
+        // Remove only the key's text so comments, key order and string escapes
+        // stay as the user wrote them.
+        if let edited = try? JSONCPathEditor().remove(path: plaintextKeyPath, in: source),
+           let rewritten = try? sanitizer.encodedSource(edited, preserving: data) {
+            try? JSONConfigAtomicPublisher().publish(rewritten, to: writeURL, expected: data)
         }
         return outcome
     }
@@ -245,28 +268,19 @@ public enum PlaintextSecretMigration {
         return node
     }
 
-    /// Removes the value at `path`, then prunes any parent objects that became
-    /// empty as a result.
-    private static func removeAndPrune(_ path: [String], in root: inout [String: Any]) {
-        guard let first = path.first else { return }
-        if path.count == 1 {
-            root.removeValue(forKey: first)
-            return
-        }
-        guard var child = root[first] as? [String: Any] else { return }
-        removeAndPrune(Array(path.dropFirst()), in: &child)
-        if child.isEmpty {
-            root.removeValue(forKey: first)
-        } else {
-            root[first] = child
-        }
-    }
-
     // MARK: - Backup
 
-    private static func backUp(configURL: URL, timestamp: String, fileManager: FileManager) {
+    /// Copies the file's contents, not a symlink to it, so the backup still
+    /// holds the secret after the target is scrubbed. The backup stays beside
+    /// `cmux.json` rather than inside a dotfiles repo the link may point into.
+    private static func backUp(
+        _ sourceURL: URL,
+        besideConfigAt configURL: URL,
+        timestamp: String,
+        fileManager: FileManager
+    ) {
         let backupURL = configURL.deletingPathExtension()
             .appendingPathExtension("\(timestamp).bak")
-        try? fileManager.copyItem(at: configURL, to: backupURL)
+        try? fileManager.copyItem(at: sourceURL, to: backupURL)
     }
 }

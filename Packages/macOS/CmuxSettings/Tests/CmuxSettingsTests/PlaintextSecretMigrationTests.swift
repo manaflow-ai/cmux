@@ -18,8 +18,10 @@ struct PlaintextSecretMigrationTests {
     }
 
     private func object(at url: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        // The scrub keeps the file's comments, so read it as JSONC.
+        guard let data = try? Data(contentsOf: url),
+              let sanitized = try? JSONCSanitizer().sanitize(data) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: sanitized)) as? [String: Any]
     }
 
     @Test func noFileIsNoOp() {
@@ -50,6 +52,21 @@ struct PlaintextSecretMigrationTests {
         #expect(saved.isEmpty)
         // File untouched (no backup made for a no-op).
         #expect(object(at: url)?["automation"] as? [String: Any] != nil)
+    }
+
+    @Test func absentKeyDoesNotCreateWriterLockSidecar() {
+        // The sidecar is never deleted, so a launch with nothing to scrub must
+        // not leave one beside the config (or inside a dotfiles repo it links to).
+        let url = makeConfig(#"{"automation":{"portBase":9100}}"#)
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .noPlaintextKey)
+        #expect(!FileManager.default.fileExists(atPath: url.path + ".cmux-write.lock"))
     }
 
     @Test func copiesPlaintextAndScrubsWhenSecretEmpty() throws {

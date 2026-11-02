@@ -29,6 +29,12 @@ struct JSONConfigWriteLock: Sendable {
         }
     }
 
+    /// Blocks the calling thread until the lock is granted. For synchronous
+    /// launch-time writers that run before any async store exists.
+    static func acquireBlocking(target: URL) throws -> JSONConfigWriteLock {
+        try JSONConfigWriteLock(blockingTarget: target)
+    }
+
     private init(blockingTarget target: URL) throws {
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(),
