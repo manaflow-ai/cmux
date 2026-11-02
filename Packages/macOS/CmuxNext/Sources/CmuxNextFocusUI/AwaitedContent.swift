@@ -14,7 +14,7 @@ public struct AwaitedContent: Equatable, Sendable {
     public let kind: Kind
 
     /// Its held keys go to its terminal by a lane (also at the hold's bound, by the daemon when its view never came).
-    public var hasTerminalLane: Bool { true }
+    public var hasTerminalLane: Bool { kind == .terminal }
 
     public init(tab: String, kind: Kind) {
         (self.tab, self.kind) = (tab, kind)
@@ -41,7 +41,7 @@ public struct AwaitedContent: Equatable, Sendable {
         if let pane {
             // The common case first (every key-down asks): the content shows.
             if pane.shownTab == tab, pane.shownKind == kind { return nil }
-            guard pane.selectedTab == tab, pane.selectedIsLiveTerminal else { return nil }
+            guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
         } else if !paneInTopology {
             return nil
         }
@@ -54,5 +54,7 @@ public struct AwaitedContent: Equatable, Sendable {
     /// Whether a page hold keeps a key: every key once one is held (the order stays), a plain key and a chord no app
     /// binding takes (the page's own keys), and a page action (``pageActions``). An app shortcut that does not need the
     /// page (Ctrl-Tab, Cmd-T, Cmd-1) acts at once while the hold is empty: a cold tab passed on the way never delays it.
-    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool { true }
+    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool {
+        !holdIsEmpty || !isChord || command.map(pageActions.contains) ?? true
+    }
 }

@@ -34,6 +34,8 @@ public final class CreationInputBuffer {
     /// The focused terminal tab this hold waits to show (a reopened window, a workspace shown cold): its keys run again
     /// once that terminal has the keyboard (REOPEN-F4, port of #31707). Nil for a creation's hold.
     public var awaitedTab: String?
+    /// The awaited content is a page (no terminal): every key but a close waits for it (REOPEN-F4 browser case).
+    public var awaitsPage = false
 
     public var isResolved: Bool { pending.isEmpty }
     /// A creation opened in this hold: only its reply (or the request timeout) ends it.
