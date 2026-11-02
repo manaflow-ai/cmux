@@ -118,6 +118,14 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
             if (name === "Match case") {
+              console.log(
+                await button.evaluate((element) => ({
+                  active: element.matches(":active"),
+                  pressed: element.matches('[aria-pressed="true"]'),
+                  disabled: element.matches(":disabled"),
+                  html: element.outerHTML,
+                })),
+              );
               expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
             }
             expect(await button.boundingBox()).toEqual(box);
