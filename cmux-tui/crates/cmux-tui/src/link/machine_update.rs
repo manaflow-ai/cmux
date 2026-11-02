@@ -232,19 +232,11 @@ fn update(request: &Request) -> Result<Value, Failed> {
         return Err(failed);
     }
     let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
-    let created = machine_gate::call(
-        socket,
-        json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
-               "name": "cmux machine update"}),
-    );
-    let terminal = match created {
-        Ok(data) => data["terminal_id"].as_str().map(str::to_owned),
-        Err(error) => {
+    let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
+        Ok(terminal) => terminal,
+        Err(failed) => {
             let _ = super::sync_cli::delete_remote(socket, &staged);
-            return Err(Failed::new(
-                "machine_update_failed",
-                format!("the update did not start: {error}"),
-            ));
+            return Err(failed);
         }
     };
     let outcome = wait_for_outcome(socket, &result, daemon_pid);
@@ -258,6 +250,86 @@ fn update(request: &Request) -> Result<Value, Failed> {
     let _ = super::sync_cli::delete_remote(socket, &staged);
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
+}
+
+/// How long to wait before each look at a machine whose answer to the start
+/// was lost, and so how many tries the start gets.
+const LOST_START_BACKOFF: [Duration; 3] =
+    [Duration::from_secs(5), Duration::from_secs(10), Duration::from_secs(20)];
+
+/// Starts the apply step in a detached terminal: its terminal id (None when
+/// the daemon named none, or the answer was lost but the step had begun).
+///
+/// A daemon that refuses fails the update. An answer that never came (a
+/// timeout, a close, an answer past the limit) does not say whether the
+/// terminal started: the apply step may already have replaced the daemon,
+/// which ends the connection. So each time the machine is looked at again
+/// after a backoff: a step that began goes on to wait for its outcome, and
+/// one that did not is started again. Still lost after every try is
+/// `machine_unreachable`, a quiet retry for the app, not a failure.
+fn start(
+    socket: &Path,
+    argv: &[String],
+    folder: &str,
+    staged: &str,
+    result: &str,
+    daemon_pid: u64,
+) -> Result<Option<String>, Failed> {
+    let request = json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
+                         "name": "cmux machine update"});
+    let mut lost = String::new();
+    for (attempt, backoff) in std::iter::once(None).chain(LOST_START_BACKOFF.map(Some)).enumerate()
+    {
+        if let Some(backoff) = backoff {
+            std::thread::sleep(backoff);
+            let seen = AfterLostStart {
+                daemon_pid: machine_gate::identify(socket).map(|now| now["pid"].as_u64()),
+                outcome_written: read_outcome(socket, result).is_some(),
+                staged_present: super::sync_cli::remote_kind(socket, staged)
+                    .map_or(true, |kind| kind.is_some()),
+            };
+            if lost_start_began(&seen, daemon_pid) {
+                return Ok(None);
+            }
+        }
+        match machine_gate::call_checked(socket, request.clone()) {
+            Ok(data) => return Ok(data["terminal_id"].as_str().map(str::to_owned)),
+            Err(machine_gate::CallFailure::Refused(why)) => {
+                return Err(Failed::new(
+                    "machine_update_failed",
+                    format!("the update did not start: {why}"),
+                ));
+            }
+            Err(machine_gate::CallFailure::Lost(why)) => {
+                lost = format!("{why} (try {})", attempt + 1);
+            }
+        }
+    }
+    Err(Failed::new(
+        "machine_unreachable",
+        format!("the update did not start: {lost}; it is tried again later"),
+    ))
+}
+
+/// What a machine shows a while after a start whose answer was lost.
+struct AfterLostStart {
+    /// The pid `identify` names: `Some(None)` for an answer without one,
+    /// None when the daemon did not answer.
+    daemon_pid: Option<Option<u64>>,
+    /// The apply step's outcome file holds a final state.
+    outcome_written: bool,
+    /// The staged build is still at its staged path (true when unknown).
+    staged_present: bool,
+}
+
+/// Whether the apply step began despite the lost answer: it wrote its
+/// outcome, renamed the staged build over the binary, or the daemon it
+/// was to replace no longer answers or is another process. Only the same
+/// daemon still serving, the staged build in place and no outcome mean it
+/// never ran, so starting it again cannot run it twice (and its update lock
+/// would refuse a second run anyway).
+fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
+    seen.outcome_written || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
 }
 
 /// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
