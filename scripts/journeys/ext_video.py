@@ -384,7 +384,7 @@ def step_sck_probe(j, step):
     work = os.path.join(os.path.dirname(here), "sckprobe")
     exe_dir = os.path.join(work, "SCKProbe.app", "Contents", "MacOS")
     os.makedirs(exe_dir, exist_ok=True)
-    built = subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-O", os.path.join(here, "sck_probe.swift"),
+    built = subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-O", "-target", "arm64-apple-macos14.4", os.path.join(here, "sck_probe.swift"),
                             "-o", os.path.join(exe_dir, "SCKProbe")], capture_output=True, text=True, timeout=300)
     if built.returncode:
         raise D.StepError(f"sck_probe: build failed: {built.stderr[-600:]}")
