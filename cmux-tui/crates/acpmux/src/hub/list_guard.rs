@@ -723,6 +723,7 @@ mod tests {
             (false, 0, 0, Vec::new()),
             0,
             Duration::ZERO,
+            false,
             Snapshot::serialize(&rows),
         );
         let first: Value =
