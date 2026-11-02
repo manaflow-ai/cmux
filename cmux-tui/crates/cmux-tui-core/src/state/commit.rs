@@ -50,7 +50,11 @@ impl Mux {
                 operation,
                 fingerprint,
                 expected_revision,
-                |transaction| apply(transaction, &state),
+                |transaction| {
+                    let changes = apply(transaction, &state);
+                    self.run_state_commit_after_apply_hook();
+                    changes
+                },
             )?;
             if !commit.replayed {
                 state.resource_revision = commit.revision;
@@ -142,4 +146,23 @@ pub(crate) fn workspace_identity(
         .context("workspace has no live slot")?;
     let workspace = &state.workspaces[index];
     Ok((workspace.key.clone(), workspace.public_id.clone()))
+}
+
+impl Mux {
+    /// Runs `hook` in each state mutation after its apply step, inside its
+    /// open registry transaction.
+    #[cfg(test)]
+    pub(crate) fn set_state_commit_after_apply_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.state_commit_after_apply.lock().unwrap() = hook;
+    }
+
+    fn run_state_commit_after_apply_hook(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.state_commit_after_apply.lock().unwrap().clone() {
+            hook();
+        }
+    }
 }
