@@ -442,6 +442,14 @@ def referenced_secrets(value: Any) -> set[str]:
     return names
 
 
+FORK_PR_BLACKSMITH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
+EPHEMERAL_MIRROR_TERM = re.compile(
+    r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
+    r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
+
+
 def _routing_environment(environment: object) -> bool:
     """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
     if environment in (None, "", "ci-routing-agent"):
@@ -518,6 +526,9 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
             if alternatives and alternatives[0] == fork:
                 alternatives = alternatives[1:]
+            # A fork pull request's Blacksmith branch is outside this exception, like the fork branch above.
+            if alternatives and FORK_PR_BLACKSMITH.fullmatch(alternatives[0]):
+                alternatives = alternatives[1:]
             if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
                 alternatives = alternatives[1:]
             text = " || ".join(alternatives)
@@ -541,7 +552,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
-            # The overflow switch's failover (tests/test_ci_blacksmith_linux_failover.py) may precede the retry size.
+            # A retry may read the ephemeral LINUX_RUNNER mirror, bounded to Blacksmith labels
+            # (tests/test_ci_runner_pool_reconcile.py), then the overflow switch's failover
+            # (tests/test_ci_blacksmith_linux_failover.py), then the retry size.
+            if tail and EPHEMERAL_MIRROR_TERM.fullmatch(tail[0]):
+                tail = tail[1:]
             switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
                         and tail[0].split(" && ", 1)[1] in paid)
             if not (len(tail) == 1 and tail[0] in paid or switched or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
