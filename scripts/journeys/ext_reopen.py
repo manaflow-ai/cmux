@@ -117,6 +117,15 @@ class Cua:
             self.proc.kill()
 
 
+def cua_call(tool, args, timeout=30):
+    """One CuaDriver tool call in its OWN session (`cua-driver call`): the recording session's per-action
+    before/after screenshots (0.5-2.6 s per action while a film runs) do not apply to it. Returns (sent wall, done
+    wall, answer)."""
+    sent = time.time()
+    done = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=timeout)
+    return sent, time.time(), ((done.stdout or "") + (done.stderr or ""))[-300:]
+
+
 def _windows_of(cua, pid):
     """The app's on-screen layer-0 windows (CuaDriver list_windows), frontmost first."""
     result = cua.tool("list_windows", {}, check=False)
@@ -720,17 +729,17 @@ def _type_markers(j, cua, pid, before, rects, record):
                 post_click(sx, sy)
                 mark["click_path"] = "CGEventPost HID"
             else:
-                cua.tool("click", {"pid": pid, "window_id": wid, "x": sx - origin["x"], "y": sy - origin["y"]}, check=False)
-                mark["click_path"] = "cua click"
+                _s, _d, mark["click_answer"] = cua_call("click", {"pid": pid, "window_id": wid, "x": sx - origin["x"],
+                                                                  "y": sy - origin["y"], "delivery_mode": "foreground"})
+                mark["click_path"] = "cua call click (own session, foreground HID)"
             mark["click_done_wall"] = time.time()
         if record.get("can_post_events"):
             mark["key_sent_wall"], mark["key_done_wall"] = post_key()
             mark["key_path"] = "CGEventPost HID"
         else:
-            mark["key_sent_wall"] = time.time()
-            cua.tool("press_key", {"pid": pid, "window_id": wid, "key": MARKER_KEY, "delivery_mode": "foreground"}, check=False)
-            mark["key_done_wall"] = time.time()
-            mark["key_path"] = "cua press_key (foreground HID)"
+            mark["key_sent_wall"], mark["key_done_wall"], mark["key_answer"] = cua_call(
+                "press_key", {"pid": pid, "window_id": wid, "key": MARKER_KEY, "delivery_mode": "foreground"})
+            mark["key_path"] = "cua call press_key (own session, foreground HID)"
         marks.append(mark)
     return marks
 
