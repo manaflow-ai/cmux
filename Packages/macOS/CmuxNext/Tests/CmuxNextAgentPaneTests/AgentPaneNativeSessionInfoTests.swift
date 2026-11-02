@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -299,6 +300,33 @@ struct AgentPaneNativeSessionInfoTests {
             break
         }
         view.close()
+    }
+
+    /// On the old host (no page host: a dev-server page, `agent.pageHost` off) the panel's actions reach
+    /// the page as scripts. They must run: `?.action?(…)` was a syntax error, so the panel's own close
+    /// (Esc) never told the page, which kept Session Info open and its header toggle lit after a close.
+    @Test func oldHostActionScriptsRunAndReachThePage() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+        var sent = []; var hosted = [];
+        var window = { cmuxAcpmuxSessionInfo: { action: function (v) { sent.push(v); }, host: function (v) { hosted.push(v); } } };
+        """)
+        for script in [AgentPaneSessionInfo.actionScript("close"),
+                       AgentPaneSessionInfo.actionScript("environment.menu", rect: CGRect(x: 1, y: 2, width: 3, height: 4)),
+                       AgentPaneSessionInfo.hostScript(true)] {
+            context.exception = nil
+            context.evaluateScript(script)
+            #expect(context.exception == nil, "\(script)")
+        }
+        #expect(context.evaluateScript("sent.length")?.toInt32() == 2)
+        #expect(context.evaluateScript("sent[0]")?.toString() == "close")
+        #expect(context.evaluateScript("sent[1].id + ':' + sent[1].rect.bottom")?.toString() == "environment.menu:6")
+        #expect(context.evaluateScript("hosted[0]")?.toBool() == true)
+        // A page with no Session Info bridge yet ignores them.
+        context.evaluateScript("window = {};")
+        context.exception = nil
+        context.evaluateScript(AgentPaneSessionInfo.actionScript("close"))
+        #expect(context.exception == nil)
     }
 
     /// The panel is AppKit (no SwiftUI host): its lines follow the model, and a line's or a button's
