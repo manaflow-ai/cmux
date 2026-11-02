@@ -12,8 +12,12 @@ extension AgentPaneView {
         hideRemoteApprovalsOff()
         let machine = approvals?.label ?? Self.remoteApprovalsThisMachine
         remoteApprovals = approvals
-        let restart: (String, @MainActor (AgentPaneNotice) -> Void)? = approvals == nil ? nil : (Self.remoteApprovalsRestart, { [weak self] in self?.restartWithApprovals($0) })
-        showApprovalsNotice(title: Self.remoteApprovalsOffTitle(machine), detail: Self.remoteApprovalsOffDetail(machine), button: restart)
+        // Separate button and action, not an optional (label, closure) tuple: Swift 6.3's SIL
+        // lowering traps converting that tuple's closure to its @MainActor form (signal 5).
+        var restart: (@MainActor (AgentPaneNotice) -> Void)?
+        if approvals != nil { restart = { [weak self] notice in self?.restartWithApprovals(notice) } }
+        showApprovalsNotice(title: Self.remoteApprovalsOffTitle(machine), detail: Self.remoteApprovalsOffDetail(machine),
+                            button: restart == nil ? nil : Self.remoteApprovalsRestart, action: restart)
     }
 
     /// Peer-route approvals: a peer of this Mac's agent daemon did not count this Mac's allow.
@@ -31,15 +35,17 @@ extension AgentPaneView {
         peerApprovalsReason = reason
         switch reason {
         case .notEnrolled(let peer):
-            let enroll: (String, @MainActor (AgentPaneNotice) -> Void)? = model.transport.peerApprover?.enroll == nil ? nil : (Self.peerApprovalsEnroll, { [weak self] in self?.enrollThisMac($0) })
-            showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsOffDetail, button: enroll)
+            var enroll: (@MainActor (AgentPaneNotice) -> Void)?
+            if model.transport.peerApprover?.enroll != nil { enroll = { [weak self] notice in self?.enrollThisMac(notice) } }
+            showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsOffDetail,
+                                button: enroll == nil ? nil : Self.peerApprovalsEnroll, action: enroll)
         case .onceOnly:
-            showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil)
+            showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil, action: nil)
         }
     }
 
-    private func showApprovalsNotice(title: String, detail: String?, button: (String, @MainActor (AgentPaneNotice) -> Void)?) {
-        remoteApprovalsNotice = AgentPaneNotice(id: "remoteApprovals", title: title, detail: detail, button: button?.0, action: button?.1)
+    private func showApprovalsNotice(title: String, detail: String?, button: String?, action: (@MainActor (AgentPaneNotice) -> Void)?) {
+        remoteApprovalsNotice = AgentPaneNotice(id: "remoteApprovals", title: title, detail: detail, button: button, action: action)
         pushPaneNotices()
     }
 

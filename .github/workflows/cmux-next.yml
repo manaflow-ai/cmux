@@ -187,6 +187,7 @@ on:
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - schemas/layout-grid/layout-grid.json
+      - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
       - tests/test_layout_grid.py
       - webviews/src/pages/shared/desktop.css
@@ -472,6 +473,7 @@ on:
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - schemas/layout-grid/layout-grid.json
+      - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
       - tests/test_layout_grid.py
       - webviews/src/pages/shared/desktop.css

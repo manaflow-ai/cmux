@@ -642,7 +642,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-transcript-icon-box: calc(16px * var(--cmux-interface-scale, 1)); /* Tool thinking and status row leading box. */
   --grid-transcript-text-gap: calc(24px * var(--cmux-interface-scale, 1)); /* Text start relative to the column lead. */
   --grid-gap-block: calc(24px * var(--cmux-interface-scale, 1)); /* Gap between transcript blocks. */
-  --grid-gap-turn: calc(32px * var(--cmux-interface-scale, 1)); /* Gap between transcript turns. */
+  --grid-gap-turn: calc(32px * var(--cmux-interface-scale, 1)); /* Gap between transcript turns (settled-spacing: turn-gap). */
   --grid-gap-inner: calc(12px * var(--cmux-interface-scale, 1)); /* Gap inside a transcript tool group. */
   --grid-gap-composer: calc(16px * var(--cmux-interface-scale, 1)); /* Gap from the last transcript block to the composer. */
   --grid-gap-foot: calc(4px * var(--cmux-interface-scale, 1)); /* Gap from the composer box to its quiet row. */
