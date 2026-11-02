@@ -15,17 +15,19 @@ import CmuxNextCompat
 nonisolated final class IconRasters: Sendable {
     /// The app-wide cache: immutable bitmaps keyed by value, no app state (arch exception
     /// plans/cmux-next/arch-exceptions/icon-rasters.json: ~105 callers of the static `NSImage.icon` API).
-    static let shared = IconRasters()
+    fileprivate static let shared = IconRasters()
 
     /// The scales a chrome glyph is drawn at: every Mac display is 1x or 2x.
     static let scales: [CGFloat] = [1, 2]
 
-    /// What is drawn: the icon's name and style, or the SF Symbol it stands for. The pack and its family overlay are
-    /// fixed before the first icon draws (`IconPack.useOverlay`), so a name and style always resolve to one drawing.
+    /// What is drawn: the icon's name and style, or the SF Symbol it stands for, and the pack's family overlay: with
+    /// those a key always resolves to one drawing.
     struct Glyph: Hashable {
         let name: String
         let style: IconStyle
         let symbol: String?
+        /// The pack family overlay in use (`IconPack.useOverlay`), so a bitmap drawn before it changes is not reused.
+        var overlay: String? = IconPack.overlay
     }
 
     struct Key: Hashable {
@@ -153,5 +155,12 @@ nonisolated final class IconRasters: Sendable {
             NSGraphicsContext.current = previous
         }
         return context.makeImage()
+    }
+}
+
+extension NSImage {
+    /// The shared bitmaps (``IconRasters``) of `glyph` at `side` points: only `NSImage.icon` reaches the cache.
+    nonisolated static func rasterIcon(_ glyph: IconRasters.Glyph, side: CGFloat, resolve: () -> IconResolution) -> NSImage {
+        IconRasters.shared.image(glyph, side: side, resolve: resolve)
     }
 }
