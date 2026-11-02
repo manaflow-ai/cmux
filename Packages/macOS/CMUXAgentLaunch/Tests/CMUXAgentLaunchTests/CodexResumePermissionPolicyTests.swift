@@ -66,6 +66,15 @@ struct CodexResumePermissionPolicyTests {
         #expect(policy.requiresTranscriptEvidence(for: launch))
     }
 
+    @Test("Recovered options precede the prompt separator", arguments: [
+        ["-a", "never", "-s", "workspace-write"], ["--yolo"]
+    ])
+    func recoveredOptionsPrecedePrompt(arguments: [String]) {
+        let prompt = ["--", "--yolo", "two words", "literal $(false)"]
+        let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex"] + prompt)
+        #expect(policy.repairing(launch, with: arguments).arguments == ["codex"] + arguments + prompt)
+    }
+
     @Test("Bypass evidence fills missing fields without overriding an explicit sandbox")
     func bypassEvidence() {
         let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex", "--sandbox=read-only"])
