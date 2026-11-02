@@ -114,10 +114,10 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
+            await page.mouse.down();
             await button.evaluate((element) => {
               element.dataset.pressActive = "true";
             });
-            await page.mouse.down();
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
             if (name === "Match case") {
