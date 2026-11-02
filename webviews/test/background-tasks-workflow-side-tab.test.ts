@@ -86,25 +86,12 @@ await requireBrowserLane("background-tasks-workflow-side-tab.test.ts", async () 
       await openPanel(page);
       expect(await page.locator(".acpmux-workflow-side-tab").count()).toBe(0);
       // The panel is on top where it sits: what is at its middle is the panel itself.
-      const probe = await page.locator(".acpmux-bg").evaluate((panel) => {
+      const onTop = await page.locator(".acpmux-bg").evaluate((panel) => {
         const box = panel.getBoundingClientRect();
         const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        const chain: string[] = [];
-        for (let el: Element | null = hit; el && chain.length < 10; el = el.parentElement) {
-          const style = getComputedStyle(el);
-          chain.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 70)} z=${style.zIndex} pos=${style.position} pe=${style.pointerEvents} op=${style.opacity} tf=${style.transform}`);
-        }
-        const r = (e: Element) => { const b = e.getBoundingClientRect(); return `${b.left.toFixed(0)},${b.top.toFixed(0)} ${b.width.toFixed(0)}x${b.height.toFixed(0)}`; };
-        const ps = getComputedStyle(panel);
-        return {
-          onTop: Boolean(hit && panel.contains(hit)),
-          panel: `${r(panel)} pos=${ps.position} z=${ps.zIndex} pe=${ps.pointerEvents} op=${ps.opacity} tf=${ps.transform} anim=${ps.animationName}`,
-          chain,
-          siblings: [...(panel.parentElement?.children ?? [])].map((c) => `${c.tagName.toLowerCase()}.${String(c.className).slice(0, 50)} ${r(c)} z=${getComputedStyle(c).zIndex} pos=${getComputedStyle(c).position}`),
-        };
+        return Boolean(hit && panel.contains(hit));
       });
-      if (!probe.onTop) console.log("PROBE " + JSON.stringify(probe, null, 1));
-      expect(probe.onTop).toBe(true);
+      expect(onTop).toBe(true);
       await openSideTab(page);
       expect(await page.locator(".acpmux-bg").count()).toBe(0);
     } finally {
