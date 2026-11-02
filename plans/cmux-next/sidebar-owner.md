@@ -250,6 +250,13 @@ their members' text column while the existing rail and edge geometry stays uncha
 marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
 alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
 
+Two-line rows (2026-11-02, fix forward of #27598): the title still centers on its capitals, but the
+second and meta lines stack under the title's line box again, and a collapsed two-line row's icon and
+trailing marks center on the whole row (only an expanded row puts them on the title's line). Leo
+2026-10-14: "wait that's not centered? why is it superscript?" (`SidebarStatusGlyphCenterTests`); Leo
+2026-10-20 on one- and two-line rows' spacing (`SidebarRowLineSpacingTests`). Takes back only those two
+side effects of 2ea3aa86e3f; the grid columns stay.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
