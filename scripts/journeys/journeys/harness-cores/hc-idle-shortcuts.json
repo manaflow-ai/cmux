@@ -1,0 +1,76 @@
+{
+ "id": "hc-idle-shortcuts",
+ "priority": "P1",
+ "title": "HARNESS CORES: the app idle for 200 s after launch (is the Shortcuts load tied to the fresh .caphost bundle, and does it stop?)",
+ "why": "HARNESS CORES (STATUS 7767, lead follow-up 2): BackgroundShortcutRunner / siriactionsd load in capture leases. Read-only: the host side is observed by ps and the unified log.",
+ "source": "HARNESS CORES (agent harness-cores)",
+ "budget_seconds": 250,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, no close warning, new columns share the strip",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rv-xtpa-split-1pane-idle-dark"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "wait",
+   "seconds": 200,
+   "title": "idle: the host-side load is observed from outside (ps, unified log)"
+  },
+  {
+   "do": "type",
+   "text": "echo hc-idle-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "hc-idle-${nonce}"
+    },
+    {
+     "app_text_line": "hc-idle-${nonce}"
+    },
+    {
+     "frame_text": "hc-idle-${nonce}"
+    }
+   ]
+  }
+ ]
+}
