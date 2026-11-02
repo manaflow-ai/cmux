@@ -234,8 +234,8 @@ final class CloudService {
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        // The app server link: this Mac's `cmux link`, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=1` the Native
-        // device route (#28947) with `cmux link` as its fallback when Native does not start.
+        // The app server link: the Native device route (#28947) with `cmux link` as its fallback when Native
+        // does not start, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=0` this Mac's `cmux link` alone.
         let linkBuild = LaunchIdentity.current().build
         let cmuxLink = CloudLinkLauncher.forApp(build: linkBuild, relay: relay)
         let launcher: (any CloudLinkLaunching)?

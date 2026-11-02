@@ -57,12 +57,13 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
 }
 
 
-/// The app server link's Native device route, opt-in with `CMUX_NEXT_CLOUD_NATIVE_LINK=1`, with this Mac's
-/// `cmux link` for an install whose Native route fails to start (a team the Worker has no Native mesh for
-/// answers 400), so turning Native on never leaves such a team with no machine. The fallback holds until
-/// sign-out (``archive(install:)``), and `onFallback` says why it was taken. Not the default: a team with
-/// a Native mesh can still hold machines made on the direct transport, whose `connect_info` has no Native
-/// network, and the Native link cannot dial those (cmux#28950 review at 30a7996aabee).
+/// The app server link's Native device route, the default (`CMUX_NEXT_CLOUD_NATIVE_LINK=0` turns it off),
+/// with this Mac's `cmux link` for an install whose Native route fails to start (a team the Worker has no
+/// Native mesh for answers 400), so Native never leaves such a team with no machine. The fallback holds until
+/// sign-out (``archive(install:)``), and `onFallback` says why it was taken. Native is the default because it
+/// is the only route that reaches a Worker machine today: `connect_info` answers no gateway, VPC endpoint or
+/// public address, so `cmux link` over the relay finds no route to any machine ("refused the dial:
+/// unreachable"), while a vm-api machine's Native network routes through the enrolled mesh tunnel.
 @MainActor
 public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let native: any CloudLinkLaunching
@@ -80,9 +81,9 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
         return bundled?[key] ?? ProcessInfo.processInfo.environment[key]
     }
 
-    /// Which route the app server link takes: `=1` Native first, anything else `cmux link`.
+    /// Which route the app server link takes: `=0` `cmux link`, anything else (unset included) Native first.
     public nonisolated static func choice(setting: String? = CloudNativeFirstLauncher.setting) -> Choice {
-        setting == "1" ? .native : .link
+        setting == "0" ? .link : .native
     }
 
     public init(native: any CloudLinkLaunching, link: (any CloudLinkLaunching)?,
