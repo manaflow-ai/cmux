@@ -307,3 +307,40 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   expect(window.document.activeElement).toBe(opener);
   opener.remove();
 });
+
+test("the preview's Pin control follows its parent state, and galleries stay opt-in", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const artifact = { kind: "markdown" as const, lang: "md", code: "# Review\n\nTwo warnings." };
+  const changes: boolean[] = [];
+
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const draw = (pinned: boolean, allowPin = true) =>
+    act(() =>
+      root!.render(
+        <ArtifactPanel
+          artifact={artifact}
+          pinned={pinned}
+          sourceTitle="Chat A"
+          onPinChange={allowPin ? (value) => changes.push(value) : undefined}
+          onClose={() => {}}
+        />,
+      ),
+    );
+
+  draw(false);
+  expect(button("Pin")?.getAttribute("aria-pressed")).toBe("false");
+  act(() => button("Pin")!.click());
+  expect(changes).toEqual([true]);
+  draw(true);
+  expect(button("Unpin")?.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector(".acpmux-artifact-source")?.textContent).toBe("Pinned · Chat A");
+  act(() => button("Unpin")!.click());
+  expect(changes).toEqual([true, false]);
+
+  draw(false, false);
+  expect(host.querySelector(".acpmux-artifact-source")).toBeNull();
+  expect(button("Pin")).toBeUndefined();
+  expect(button("Unpin")).toBeUndefined();
+});
