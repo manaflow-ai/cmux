@@ -187,6 +187,7 @@ impl Ledger {
         };
         if pending.refused
             || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
+            || (pending.sent && pending.team.as_deref() != Some(team))
         {
             return false;
         }
