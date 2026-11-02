@@ -11,6 +11,15 @@ import Foundation
 public nonisolated final class FocusMachine {
     private let handle: OpaquePointer
 
+    /// One reduction's reply: whether the focus changed, the effects to apply, and what the
+    /// window's address bar memory (Chrome's per-tab omnibox focus, kept by the machine) asks:
+    /// `omnibarReturn`, queue ``returnToOmnibar`` after this event's effects; `returnsToOmnibar`,
+    /// this event is that queued return (the address bar restores its edit instead of selecting all).
+    public typealias Reduction = (changed: Bool, effects: [FocusEffect], omnibarReturn: Bool, returnsToOmnibar: Bool)
+
+    /// The event that asks for a remembered tab's address bar back.
+    public static let returnToOmnibar = FocusEvent.focusTarget(.addressBar, source: .programmatic)
+
     public init() {
         handle = cmux_focus_new()
     }
@@ -22,7 +31,7 @@ public nonisolated final class FocusMachine {
     /// Reduces `event` and refreshes `state` (its topology and focus-mode
     /// set follow the machine's own changes). Nil when the ABI refused it
     /// (a wire mismatch; the state is unchanged).
-    public func send(_ event: FocusEvent, into state: inout FocusState) -> (changed: Bool, effects: [FocusEffect])? {
+    public func send(_ event: FocusEvent, into state: inout FocusState) -> Reduction? {
         if case .topology(let topology) = event { return set(topology, into: &state) }
         var wire = FocusWire()
         var encoded = wire.event(event)
@@ -38,7 +47,7 @@ public nonisolated final class FocusMachine {
         return result
     }
 
-    private func set(_ topology: FocusTopology, into state: inout FocusState) -> (changed: Bool, effects: [FocusEffect])? {
+    private func set(_ topology: FocusTopology, into state: inout FocusState) -> Reduction? {
         var wire = FocusWire()
         var panes: [CmuxFocusPane] = []
         var tabs: [CmuxFocusTab] = []
@@ -84,6 +93,31 @@ public nonisolated final class FocusMachine {
         state.topology = topology
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return result
+    }
+
+    // MARK: Close Tab aim (PaneCloseAim)
+
+    /// The focused pane moved from `from` to the machine's focused pane; returns the move's serial.
+    func paneMoved(from: String?) -> UInt64 {
+        guard let from else { return cmux_focus_pane_moved(handle, nil, 0, 0) }
+        return Array(from.utf8).withUnsafeBufferPointer { cmux_focus_pane_moved(handle, $0.baseAddress, $0.count, 1) }
+    }
+
+    /// The frame that shows move `serial` was presented at `time` (seconds of system uptime).
+    func framePresented(_ serial: UInt64, at time: Double) {
+        cmux_focus_frame_presented(handle, serial, time)
+    }
+
+    /// `press` closed the last tab of `pane`.
+    func paneEmptied(_ pane: String, by press: PaneCloseAim.Press) {
+        Array(pane.utf8).withUnsafeBufferPointer {
+            cmux_focus_pane_emptied(handle, $0.baseAddress, $0.count, press.time, press.isKey ? 1 : 0, press.isRepeat ? 1 : 0)
+        }
+    }
+
+    /// Whether `press` is aimed at a pane a close emptied, not at the machine's focused pane.
+    func aimsAtEmptiedPane(_ press: PaneCloseAim.Press) -> Bool {
+        cmux_focus_aims_at_emptied_pane(handle, press.time, press.isKey ? 1 : 0, press.isRepeat ? 1 : 0) != 0
     }
 
     /// `layout.closeFocus`, the successor rule when the focused pane closes:
@@ -150,7 +184,7 @@ public nonisolated final class FocusMachine {
 
     // MARK: Reply
 
-    private func read(_ reply: UnsafePointer<CmuxFocusReply>?, into state: inout FocusState) -> (changed: Bool, effects: [FocusEffect])? {
+    private func read(_ reply: UnsafePointer<CmuxFocusReply>?, into state: inout FocusState) -> Reduction? {
         guard let reply = reply?.pointee else { return nil }
         let bytes = reply.strings
         let length = Int(reply.strings_len)
@@ -180,6 +214,7 @@ public nonisolated final class FocusMachine {
             state.underlying = Self.resolved(reply.underlying, string)
             state.context = .init(bits: reply.context)
             state.isBrowserFocusModeActive = reply.browser_focus_mode_active != 0
+            state.typingTab = string(reply.typing_tab)
         }
         guard reply.ok != 0 else { return nil }
         var effects: [FocusEffect] = []
@@ -196,7 +231,7 @@ public nonisolated final class FocusMachine {
                 }
             }
         }
-        return (reply.changed != 0, effects)
+        return (reply.changed != 0, effects, reply.omnibar_return != 0, reply.returns_to_omnibar != 0)
     }
 
     /// Keeps the view's topology and focus-mode set equal to the machine's.
