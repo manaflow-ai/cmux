@@ -116,13 +116,16 @@ public struct HomeLiveRunChange: Hashable, Sendable {
     public var turn: IdempotencyKey?
     /// `running`, `done`, `failed` or `cancelled` (TRAJECTORIES.md Run.status).
     public var status: String
+    /// Persisted agent-message steps accompanying this run update.
+    public var agentRun: HomeAgentRun?
 
-    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?, status: String) {
+    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?, status: String, agentRun: HomeAgentRun? = nil) {
         self.conversation = conversation
         self.author = author
         self.run = run
         self.turn = turn
         self.status = status
+        self.agentRun = agentRun
     }
 }
 

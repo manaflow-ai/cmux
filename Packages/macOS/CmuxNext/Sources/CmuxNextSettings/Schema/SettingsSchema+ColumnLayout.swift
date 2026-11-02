@@ -98,6 +98,15 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 keywords: ["scroll", "command", "modifier", "wheel", "trackpad", "columns", "rows", "strip", "pan", "horizontal"]
             ),
             SettingDescriptor(
+                ColumnLayoutSettings.pagesHandleCommandScrollPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.pagesHandleCommandScroll", "Web Pages Get Command + Scroll First"),
+                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help",
+                                        "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."),
+                summary: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.summary", "Figma and Excalidraw keep Command + Scroll zoom"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.pagesHandleCommandScrollFallback),
+                keywords: ["scroll", "command", "zoom", "figma", "excalidraw", "browser", "web", "page", "columns", "pan"]
+            ),
+            SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),

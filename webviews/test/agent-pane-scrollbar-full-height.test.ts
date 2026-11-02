@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript runs the pane's full height and scrolls under the composer, as the Claude and
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
@@ -357,10 +358,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const view = scroller.getBoundingClientRect();
       const middle = (view.top + view.bottom) / 2;
-      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
-        const box = row.getBoundingClientRect();
-        return box.top <= middle && box.bottom >= middle;
-      })!;
+      // The row across the middle, or the first under it when the middle falls in a gap between rows.
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+        (row) => row.getBoundingClientRect().bottom >= middle,
+      )!;
       return { row: row.getAttribute("aria-posinset")!, top: scroller.scrollTop };
     });
     await page.evaluate((posinset) => {

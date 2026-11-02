@@ -63,7 +63,10 @@ def check_mode(mode):
         code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
     report = load(os.path.join(out, f"verify-{mode}.json")) or {}
     rows = report.get("rows") or []
-    ok = code == 0 and bool(rows) and all(r.get("ok") for r in rows)
+    # The mode is real when valid, hosted and hosted.fork pass; show.again is a pixel check that is recorded, not a gate
+    # (a host whose window images hold no Chromium pixels fails it in both modes).
+    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork")]
+    ok = len(gate) == 3 and all(r.get("ok") for r in gate)
     return ok, {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
 

@@ -177,13 +177,28 @@ const selectionIsEmpty = (value: Selection | undefined) => !value || (value.opti
 /// option's preview beside the list.
 export const hasPreviews = (item: Item): boolean => item.options.some((option) => option.preview !== undefined);
 
+/// The two buttons a yes-or-no ask draws as (QuestionCard), as indexes into its one item's options:
+/// one single-choice question offering exactly the permission's own Allow and Deny (`answerOption`,
+/// `rejectOption`), with no Other and no previews, like the daemon's folder trust card. Undefined
+/// for any other ask, which keeps its option list, Skip and Submit.
+export function consentChoice(question: AgentQuestion): { accept: number; reject: number } | undefined {
+  const [item, ...more] = question.items;
+  if (!item || more.length > 0 || item.multiSelect || item.allowsOther || item.options.length !== 2) return undefined;
+  if (hasPreviews(item)) return undefined;
+  const { answerOption, rejectOption } = question.source;
+  const accept = item.options.findIndex((option) => option.id === answerOption);
+  const reject = item.options.findIndex((option) => option.id === rejectOption);
+  return accept < 0 || reject < 0 || accept === reject ? undefined : { accept, reject };
+}
+
 export const isPending = (question: AgentQuestion): boolean => question.state.kind === "pending";
 
 /// The first item's prompt, for notifications, previews and search.
 export const questionSummary = (question: AgentQuestion): string => question.items[0]?.prompt ?? "";
 
-/// The catalog key of the line an unanswered ask leaves (its `{prompt}` is `questionSummary`): how it
-/// ended when the record says (`CancelReason`), else "Not answered". The card and Copy read the same.
+/// The catalog key of the line Copy gives an unanswered ask (its `{prompt}` is `questionSummary`): how
+/// it ended when the record says (`CancelReason`), else "Not answered". The card says the same
+/// outcome (`question.outcome.*`) under the question.
 export const cancelledKey = (
   question: AgentQuestion,
 ): "question.skipped" | "question.stopped" | "question.cancelled" => {

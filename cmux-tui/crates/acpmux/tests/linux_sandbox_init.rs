@@ -2,6 +2,11 @@
 //! timeout; each child has a twenty-second alarm that bounds waits.
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// Starts no acpmux and no agent: only python3 children (kept on the bare PATH).
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -47,8 +52,7 @@ fn spawn(args: &[&str], fd: RawFd) -> Child {
 }
 
 fn spawn_with_extra(args: &[&str], fd: RawFd, extra_fd: Option<RawFd>) -> Child {
-    let exe = env!("CARGO_BIN_EXE_acpmux");
-    let mut command = Command::new(exe);
+    let mut command = Command::new(daemon_env::bin());
     command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     command.env("NO_PROXY", "*").env("no_proxy", "*");
     if let Some(extra_fd) = extra_fd {

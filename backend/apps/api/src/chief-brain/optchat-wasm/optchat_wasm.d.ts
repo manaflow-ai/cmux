@@ -16,6 +16,13 @@ export class OptChat {
      */
     append(): number;
     /**
+     * A memory tool with no effect outside the memory (chief-kernel
+     * `call_pure`; section 13, export 2): `zoom` or `date`, its arguments
+     * as JSON, and `ctx_json` (`{utc_offset_minutes}`). `date` reads the
+     * store's `date(i)`. Any other tool throws: the host runs it.
+     */
+    callPure(store: any, name: string, args_json: string, ctx_json: string): string;
+    /**
      * Where the memory stands, as JSON for `resume`: `{t, low, view, compact_view, merging, compact_merging}`.
      */
     checkpoint(): string;
@@ -104,11 +111,37 @@ export class OptChat {
 export function finishLine(cut: string, line: string): string;
 
 /**
+ * The reply and outcome ledgers as a pure fold (chief-kernel
+ * `ledger::ledger_apply`; section 13, export 3): applies one event to the
+ * state at `ctx_json.now_ms` and answers `{state, intents}` as JSON. The
+ * host stores the state and performs each intent (`schedule`, `notice`,
+ * `post`) with its key, in one transaction with its own rows.
+ */
+export function ledgerApply(state_json: string, event_json: string, ctx_json: string): string;
+
+/**
+ * The system text of a Chief turn, exactly as the Mac host renders it
+ * (chief-kernel `render_system`; cloud-chief-durable-DESIGN.md section 13,
+ * export 1). `profile_json`: `{person?, instructions?, channels?, record?}`;
+ * `engine`: `claude`, `codex`, `pi-durable`, ...; `tools_json`: `{mode?,
+ * chief?, profile_tool?, chiefs_tool?}`. Throws on bad JSON, an unknown
+ * engine, or a cli engine without its launcher path.
+ */
+export function renderSystem(profile_json: string, engine: string, tools_json: string): string;
+
+/**
  * The size loop (section 4.3) on the replies so far (JSON array of strings):
  * JSON `{accept: string} | {retry: string} | {fail: true}`. `room` is the
  * request's `room` (default NODE).
  */
 export function sizeCheck(tries_json: string, room?: number | null): string;
+
+/**
+ * The Chief's tool specs for `engine` (`pi-durable`, ...) and a grant
+ * (`{tools?: [names]}`), as JSON `[{name, description, json_schema, replay:
+ * "safe" | "once"}]` (chief-kernel `tools::specs`; section 13, export 2).
+ */
+export function toolSpecs(engine: string, grant_json: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -116,8 +149,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_optchat_free: (a: number, b: number) => void;
     readonly finishLine: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly ledgerApply: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly optchat_append: (a: number) => [number, number, number];
     readonly optchat_appendIn: (a: number, b: any) => [number, number, number];
+    readonly optchat_callPure: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
     readonly optchat_checkpoint: (a: number) => [number, number];
     readonly optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
     readonly optchat_complete: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -138,7 +173,9 @@ export interface InitOutput {
     readonly optchat_view: (a: number) => [number, number];
     readonly optchat_viewSize: (a: number) => number;
     readonly optchat_zoom: (a: number, b: any, c: number, d: number) => [number, number, number, number];
+    readonly renderSystem: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly sizeCheck: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly toolSpecs: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

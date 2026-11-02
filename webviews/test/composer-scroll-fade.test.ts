@@ -86,7 +86,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
         // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
-        // At most 20 of them, under 2,000 characters: a larger paste is a chip (pastedText.ts).
+        // At most 20 of them, under 750 words: a larger paste is a chip (pastedText.ts).
         const lines = Array.from(
           { length: count },
           (_, i) =>
@@ -137,16 +137,19 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
   const ROW = ".acpmux-composer .acpmux-attachments";
   const CHIP = ".acpmux-composer .acpmux-attachment-pasted";
 
-  /// Pastes `count` texts of 30 lines each, every one a Pasted text chip (over pastedText.ts's 20
-  /// lines), so the attachment row holds `count` more chips.
+  /// Pastes `count` texts of 110 lines each (770 words), every one a Pasted text chip (over
+  /// pastedText.ts's 750 words), so the attachment row holds `count` more chips.
+  /// The row is Settings' attachment strip (the default inline view puts chips in the text), so the
+  /// strip is turned on first.
   async function pasteChips(page: Page, count: number) {
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
     await page.locator(EDITABLE).click();
     const held = await page.locator(CHIP).count();
     for (let chip = held + 1; chip <= held + count; chip++) {
       await page.evaluate(
         ({ selector, chip }) => {
           const data = new DataTransfer();
-          const lines = Array.from({ length: 30 }, (_, i) => `pasted ${chip} line ${i + 1}: the retry rules.`);
+          const lines = Array.from({ length: 110 }, (_, i) => `pasted ${chip} line ${i + 1}: the retry rules.`);
           data.setData("text/plain", lines.join("\n"));
           document
             .querySelector(selector)!
@@ -420,7 +423,9 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const box = (await page.locator(ROW).boundingBox())!;
         const chip = (await page.locator(CHIP).first().boundingBox())!;
         const y = chip.y + chip.height / 2;
-        const sides = [box.x + 1, box.x + box.width - 1];
+        // Two pixels in from each end: the row runs to the composer box's edge, so its outermost
+        // pixel is the box's one-device-pixel rim, which brightens on focus (#23745), not the fade.
+        const sides = [box.x + 2, box.x + box.width - 2];
         // Nothing lies over the faded sides: a point in each hits the row's own chips.
         const hits = await page.evaluate(
           ({ row, sides, y }) => {

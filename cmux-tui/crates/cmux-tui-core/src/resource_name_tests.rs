@@ -89,6 +89,34 @@ fn workspace_name_source_auto_replaces_only_an_auto_name() {
     assert_eq!(emptied.name_source, NameSource::Auto);
 }
 
+/// The app sends the default name it showed (`workspace-151`) with a create, and older daemons
+/// recorded every requested name as the user's (#26680). Never renamed, that name is still
+/// unnamed: the automatic namer may replace it. A person's later rename stays pinned.
+#[test]
+fn workspace_name_source_auto_replaces_a_created_default_name() {
+    let mut created = workspace("workspace-151", NameSource::User, 0);
+    auto(0).apply_workspace(&mut created, "Fix Login".into(), GENERATION).unwrap();
+    assert_eq!(created.name, "Fix Login");
+    assert_eq!(created.name_source, NameSource::Auto);
+    assert_eq!(created.name_revision, 1);
+
+    let mut renamed = workspace("workspace-151", NameSource::User, 1);
+    assert!(auto(1).apply_workspace(&mut renamed, "Fix Login".into(), GENERATION).is_err());
+    let mut home = workspace("~", NameSource::User, 0);
+    assert!(auto(0).apply_workspace(&mut home, "Fix Login".into(), GENERATION).is_err());
+    let mut lookalike = workspace("workspace-1a", NameSource::User, 0);
+    assert!(auto(0).apply_workspace(&mut lookalike, "Fix Login".into(), GENERATION).is_err());
+}
+
+#[test]
+fn workspace_name_source_requested_default_name_is_auto() {
+    assert_eq!(NameSource::for_requested_workspace_name(None), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-151")), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("Billing")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("~")), NameSource::User);
+}
+
 #[test]
 fn workspace_name_source_stale_revision_and_generation_fail() {
     let mut target = workspace("workspace-1", NameSource::Auto, 3);

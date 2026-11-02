@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import type { CloudEntitlements } from "./domains/cloud-plan.ts"
+import { CLOUD_RESTRICTED, cloudPlanId, companyPlanKey, PAID_PLAN_LIMITS, type CloudEntitlements } from "./domains/cloud-plan.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 
@@ -54,25 +54,41 @@ export class CloudEntitlementStore implements CloudEntitlements {
     this.record(team, plan, now)
   }
 
-  /** The paid plan id, null for none, undefined when the plan service is unavailable. */
+  /**
+   * The team's entitlement key (cloud-plan.ts paidPlanLimits), null for none, undefined when the
+   * plan service is unavailable. As classic Cloud reads it: the paid plan, then the operator's
+   * `cmuxVmPlan` over it (cloudPlanId), and on a personal team of a verified company account the
+   * company grant (companyPlanKey). Billing and the model router keep reading the paid plan alone.
+   */
   private async read(team: string, principal: Principal): Promise<string | null | undefined> {
     const user = principal.user!
     // A personal team pays through its owner's personal plan (inference/route.ts does the same).
     const personal = team === personalTeamIdFor(user)
-    const stackUser = personal ? (principal.stack_user_id ?? (await this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).stackUserOf(user)) ?? undefined) : undefined
-    if (personal && !stackUser) return null
-    const answer = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).inferencePlan(team, user, stackUser)
-    if (!answer.ok) return undefined
-    return answer.paid ? (answer.plan ?? null) : null
+    const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+    const stackUser = personal ? (principal.stack_user_id ?? (await users.stackUserOf(user)) ?? undefined) : undefined
+    // The company grant follows the owner's verified email (UserDO's record), never a client claim.
+    const company = personal && (await users.cloudCompanyAccount(user))
+    if (personal && !stackUser) return companyPlanKey(company, null)
+    const teams = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
+    const [answer, grant] = await Promise.all([teams.inferencePlan(team, user, stackUser), teams.cloudVmPlan(team, stackUser)])
+    if (!answer.ok || !grant.ok) return undefined
+    // The raw cmuxPlan, not the router's exact-match paid flag: classic normalizes it (" Max " is max) for machines.
+    const own = cloudPlanId(answer.plan ?? null, grant.vm_plan)
+    // A set plan that grants nothing (a restriction, an unknown id) is kept as such: it also blocks the stub plan.
+    // Only a web plan id counts from the record: the company keys are granted here alone, never read from metadata.
+    return companyPlanKey(company, own) ?? (own === null ? null : Object.hasOwn(PAID_PLAN_LIMITS, own) ? own : CLOUD_RESTRICTED)
   }
 
-  private record(team: string, plan: string | null, at: number) {
+  /** Records a read that started at `at`; a read that started before a newer recorded one changes nothing (concurrent refreshes). */
+  record(team: string, plan: string | null, at: number) {
+    const hit = this.memo.get(team)
+    if (hit && hit.at > at) return
     this.memo.set(team, { plan, at })
     if (plan !== null) {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_entitlement (team TEXT PRIMARY KEY, plan TEXT NOT NULL, checked_at INTEGER NOT NULL)`)
-      this.sql.exec(`INSERT INTO cloud_entitlement (team, plan, checked_at) VALUES (?, ?, ?) ON CONFLICT (team) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at`, team, plan, at)
+      this.sql.exec(`INSERT INTO cloud_entitlement (team, plan, checked_at) VALUES (?, ?, ?) ON CONFLICT (team) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_entitlement.checked_at`, team, plan, at)
     } else if (this.hasTable()) {
-      this.sql.exec(`DELETE FROM cloud_entitlement WHERE team = ?`, team)
+      this.sql.exec(`DELETE FROM cloud_entitlement WHERE team = ? AND checked_at <= ?`, team, at)
     }
   }
 

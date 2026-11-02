@@ -373,7 +373,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.connectorAnchorY ?? 0) // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
@@ -527,9 +527,6 @@ final class RowCell: UICollectionViewCell {
     /// frame rounded to whole device pixels in the window, as Messages clips its bubble (clipTypingBody).
     let typingClip = CALayer()
     var dots: [CALayer] = []
-    // cmux: working is a constant-opacity spinner, never dots or a breathing bubble.
-    let typingSpinner = RowCell.makeTypingSpinner()
-    var typingSpinnerActive = false
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
     let typingDiscs = [CALayer(), CALayer()]
@@ -546,6 +543,8 @@ final class RowCell: UICollectionViewCell {
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -630,8 +629,12 @@ final class RowCell: UICollectionViewCell {
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
-    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
-    private func scoped<T>(_ body: () -> T) -> T { Fixture.withRenderScale(renderScale, body) }
+    /// cmux: the palette of the window view that shows this cell (its chat's theme and Chat Colors, PaletteScope), set
+    /// with `renderScale`; nil draws with the process palette.
+    var paletteBox: PaletteBox?
+    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it), and
+    /// (cmux) its view's palette.
+    private func scoped<T>(_ body: () -> T) -> T { PaletteScope.with(paletteBox) { Fixture.withRenderScale(renderScale, body) } }
 
     /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
     private var contentGroupOpacity = true
@@ -684,7 +687,24 @@ final class RowCell: UICollectionViewCell {
         // uses them: fewer layers per new cell during a fast fling.
         contentView.layer.addSublayer(fillContainer)
         contentView.layer.addSublayer(bitmap)
-        // cmux: the shared working arc replaces the upstream dots.
+        for i in 0..<3 {
+            let d = CALayer()
+            d.actions = noActions
+            // Dot levels (Fixture.typingColors; tintTypingDiscs follows a palette or key state change).
+            d.backgroundColor = typing.dotDim.cgColor
+            d.cornerRadius = 3.25
+            let hi = CALayer()
+            hi.actions = noActions
+            hi.backgroundColor = typing.dotLit.cgColor
+            hi.cornerRadius = 3.25
+            hi.opacity = 0
+            hi.name = "hi"
+            d.addSublayer(hi)
+            let c = RowDraw.typingDotCenter(i)
+            d.frame = CGRect(x: c.x - 3.25, y: c.y - 3.25, width: 6.5, height: 6.5)
+            hi.frame = d.bounds
+            dots.append(d)
+        }
         for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) {
             l.actions = noActions
             l.frame = r
@@ -732,7 +752,6 @@ final class RowCell: UICollectionViewCell {
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
-        stopTypingSpinner() // cmux: recycle/offscreen rows own no working loop.
         typingInsertedAt = -.infinity
     }
 
@@ -841,6 +860,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
@@ -1033,6 +1054,8 @@ final class RowCell: UICollectionViewCell {
         let t0 = CACurrentMediaTime()
         // Each row at its cell's scale (two window views at two scales can share a pass).
         let specs = q.map(\.1), scales = q.map(\.3)
+        // cmux: each row in its own view's palette (two views with different Chat Colors can share a pass).
+        let palettes = q.map(\.0.paletteBox)
         var images = [CGImage?](repeating: nil, count: specs.count)
         // Per row: its drawing time on its worker (ms), for the display change's evidence.
         var rowMs = [Double](repeating: 0, count: specs.count)
@@ -1041,13 +1064,18 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                    if let slot = out.checkedIndex(i) { out[slot] = image }
+                }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }
             }
         }
         let t1 = CACurrentMediaTime()
-        for ((s, sc), img) in zip(zip(specs, scales), images) { if let img { RowBitmaps.shared.insert([(s, img)], scale: sc) } }
+        for (k, ((s, sc), img)) in zip(zip(specs, scales), images).enumerated() {
+            if let img { RowBitmaps.shared.insert([(s, img)], scale: sc, generation: Fixture.generation(of: palettes[checked: k] ?? nil)) }
+        }
         let t2 = CACurrentMediaTime()
         if displayPass || DisplayTiming.flushOpen {
             DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
@@ -1098,7 +1126,6 @@ final class RowCell: UICollectionViewCell {
         let c = t.fill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
         typingBody.fillColor = c
-        typingSpinner.strokeColor = t.dotLit.cgColor // cmux: keep the typing palette.
         let dim = t.dotDim.cgColor, lit = t.dotLit.cgColor
         for d in dots {
             d.backgroundColor = dim
@@ -1112,7 +1139,7 @@ final class RowCell: UICollectionViewCell {
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
-        guard on else { stopTypingSpinner(); return } // cmux: idle rows cannot keep a working loop.
+        guard on else { return }
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
         // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
         // left). The iOS app (ios/Sources/ChatColumn.swift, typing.pop) scales about the small tail
@@ -1143,8 +1170,7 @@ final class RowCell: UICollectionViewCell {
             typingContainer.insertSublayer(typingClip, at: 0)
         }
 #endif
-        // cmux: use the working spinner in the same bubble and layer order.
-        if typingSpinner.superlayer == nil { typingContainer.addSublayer(typingSpinner) }
+        dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
 #if os(iOS) && !targetEnvironment(macCatalyst)
         let discParent = typingContainer
 #else
@@ -1621,8 +1647,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+            // cmux: under Reduce Motion or with Home animations off the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.holdsTypingStill { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1633,8 +1659,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
-        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+        // cmux: no breathing under Reduce Motion or with Home animations off, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.holdsTypingStill { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1736,7 +1762,7 @@ final class RowCell: UICollectionViewCell {
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.holdsTypingStill && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif

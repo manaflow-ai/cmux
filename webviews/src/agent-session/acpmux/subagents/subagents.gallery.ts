@@ -177,6 +177,21 @@ const openSummary = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"));
 };
 
+/** Runs `play` with the summary card's Open subagents in panes switch on: only then does a click
+ * open a pane. The switch lives in the frame's localStorage, shared by every variant in the same
+ * browser, so it is cleared afterwards, else each later agent-pane variant starts with it on. */
+const withPanes = (play: (ctx: PlayContext) => Promise<void>) => async (ctx: PlayContext) => {
+  try {
+    await openSummary(ctx);
+    const toggle = ctx.find({ selector: ".acpmux-summary-autoopen input" }) as HTMLInputElement;
+    if (!toggle.checked) await ctx.click({ selector: ".acpmux-summary-autoopen input" });
+    await ctx.waitFor(() => toggle.checked);
+    await play(ctx);
+  } finally {
+    ctx.document.defaultView?.localStorage.removeItem("cmux.acpmux.subagentPanes");
+  }
+};
+
 /** The card's row for subagent `name`. */
 const cardRow = (ctx: PlayContext, name: string) =>
   [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-summary-card .acpmux-summary-agent")].find(
@@ -489,10 +504,11 @@ export default agentPaneEntry({
       play: openSummary,
     },
     "pane-open": {
-      note: "With a host that opens subagent panes: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
+      note: "With Open subagents in panes on and a host that opens them: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
       snapshot: CODEX,
       native: { "chat.subagentPane": { opened: true } },
-      play: async (ctx) => {
+      play: withPanes(async (ctx) => {
+        await ctx.click({ selector: ".acpmux-summary-button" });
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read b" });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
@@ -502,14 +518,13 @@ export default agentPaneEntry({
         const call = log.find((entry) => entry.method === "chat.subagentPane");
         if (call?.params?.focus !== true) throw new Error("a click must focus the subagent's pane");
         if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("the chat pane switched to the subagent");
-      },
+      }),
     },
     "card-open-pane": {
-      note: "A card row with a host that opens subagent panes: the app shows that subagent's pane; the card stays.",
+      note: "A card row with Open subagents in panes on: the app shows that subagent's pane; the card stays.",
       snapshot: CODEX,
       native: { "chat.subagentPane": { opened: true } },
-      play: async (ctx) => {
-        await openSummary(ctx);
+      play: withPanes(async (ctx) => {
         await ctx.click({ selector: '.acpmux-summary-agent[title="Read a"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>
@@ -517,7 +532,7 @@ export default agentPaneEntry({
         );
         if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
           throw new Error("the card closed");
-      },
+      }),
     },
     "card-open-child": {
       note: "A card row shows that subagent: its own view, its row marked current; nested ones indented.",

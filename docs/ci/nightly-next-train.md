@@ -14,7 +14,7 @@ runtime (PR 6) plug into it and are not here.
 | `NIGHTLY_NEXT_TRAIN_K` | 4 | Builds per bisection round (1 to 8). |
 | `NIGHTLY_NEXT_TRAIN_ROUNDS` | 3 | Bisection rounds before the train gives up (1 to 6). |
 | `NIGHTLY_NEXT_TRAIN_CAP_MINUTES` | 120 | Wall-clock cap for one train (30 to 300). |
-| `NIGHTLY_NEXT_TRAIN_RUNNER` | `vars.MACOS_RUNNER_26`, then `blacksmith-6vcpu-macos-26` (never a GitHub-hosted Mac) | Runner of the candidate Release compile: a fleet pool label, or empty. |
+| `NIGHTLY_NEXT_TRAIN_RUNNER` | empty: `vars.CI_SIDE_LANE_RUNNER` alone | An owned pool label the candidate Release compile takes first, while one of its runners is idle (`pick-train-runner`, `scripts/ci/nightly_build_runner.py`); otherwise `vars.CI_SIDE_LANE_RUNNER`, then the moving Blacksmith macOS 26 label. Never a GitHub-hosted Mac. A compile an owned runner refuses is re-run by the drive and takes Blacksmith. |
 | `NIGHTLY_NEXT_TRAIN_CAR_GUARD` | `scripts/ci/nightly-next-car-guard.sh` when it exists | Per-car guard command (design PR 3). Exit 0 keeps the car, 1 quarantines it, anything else is a warning. |
 
 The defaults are the design's (k = 4, 2-hour cap). They are open calls for Leo,

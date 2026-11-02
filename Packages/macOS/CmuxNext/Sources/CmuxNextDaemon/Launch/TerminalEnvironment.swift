@@ -93,8 +93,11 @@ public struct TerminalEnvironment: Sendable {
     ///   VMs and containers lack it, and `clear`/`htop` fail there with
     ///   "unknown terminal type". `TERMINFO` is not set.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
-    /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
-    ///   (neovim and others).
+    /// - `TERM_PROGRAM=ghostty` identifies the terminal for feature detection
+    ///   (neovim and others). `TERM_PROGRAM_VERSION` stays unset because cmux
+    ///   forwards TUI mouse reports instead of providing Ghostty's native
+    ///   selection path; advertising a Ghostty version makes Codex disable its
+    ///   copy-on-select fallback.
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
     /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
     public static func hasInstalledGhosttyTerminfo(
@@ -108,11 +111,10 @@ public struct TerminalEnvironment: Sendable {
 
     public func ghostty(
         resourcesDirectory: String?,
-        version: String?,
+        version _: String?,
         fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
-        if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
         if Self.hasInstalledGhosttyTerminfo(fileExists: fileExists) { env["TERM"] = "xterm-ghostty" }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         return env

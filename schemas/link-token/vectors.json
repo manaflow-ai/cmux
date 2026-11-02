@@ -507,6 +507,101 @@
           }
         }
       ]
+    },
+    {
+      "name": "owner_claim",
+      "note": "vmk owner (cmux-platform#89): the caller's owner answer for this one dial, gone with the token once it expires or is replayed. A token without vmk grants no owner answer.",
+      "kid": "test-k2",
+      "sign_with": "test-k2",
+      "make": null,
+      "claims": {
+        "iss": "cmux:cloud:test",
+        "aud": "host_h0000000000000000001",
+        "sub": "inst_i0000000000000000001",
+        "svc": [
+          "daemon",
+          "ssh"
+        ],
+        "epoch": 1,
+        "iat": 1790000000,
+        "exp": 1790000300,
+        "jti": "jti0000000000000000013",
+        "team": "team_t0000000000000000001",
+        "vmk": "owner"
+      },
+      "token": "eyJhbGciOiJFZERTQSIsImtpZCI6InRlc3QtazIiLCJ0eXAiOiJjbXV4LWxpbmsrand0In0.eyJzdmMiOlsiZGFlbW9uIiwic3NoIl0sImVwb2NoIjoxLCJ0ZWFtIjoidGVhbV90MDAwMDAwMDAwMDAwMDAwMDAwMSIsInZtayI6Im93bmVyIiwiaXNzIjoiY211eDpjbG91ZDp0ZXN0IiwiYXVkIjoiaG9zdF9oMDAwMDAwMDAwMDAwMDAwMDAwMSIsInN1YiI6Imluc3RfaTAwMDAwMDAwMDAwMDAwMDAwMDEiLCJpYXQiOjE3OTAwMDAwMDAsImV4cCI6MTc5MDAwMDMwMCwianRpIjoianRpMDAwMDAwMDAwMDAwMDAwMDAxMyJ9.NR_DCLgOcCrrFN8cAfU2jEhn8q-UIM44jSbVTGD9TX4wCx1qyMp7Y47rWN4HWLEMiErHl6rVZUZWhOFGj6bXAQ",
+      "verify": [
+        {
+          "aud": "host_h0000000000000000001",
+          "epoch": 1,
+          "now": 1790000010,
+          "keyset": "both",
+          "seen": [],
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "aud": "host_h0000000000000000001",
+          "epoch": 1,
+          "now": 1790000300,
+          "keyset": "both",
+          "seen": [],
+          "expect": {
+            "ok": false,
+            "error": "expired"
+          }
+        },
+        {
+          "aud": "host_h0000000000000000001",
+          "epoch": 1,
+          "now": 1790000010,
+          "keyset": "both",
+          "seen": [
+            "jti0000000000000000013"
+          ],
+          "expect": {
+            "ok": false,
+            "error": "replay"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bad_vmk",
+      "note": "Correctly signed, but vmk is neither owner nor team.",
+      "kid": "test-k2",
+      "sign_with": "test-k2",
+      "make": "raw_sign",
+      "claims": {
+        "iss": "cmux:cloud:test",
+        "aud": "host_h0000000000000000001",
+        "sub": "inst_i0000000000000000001",
+        "svc": [
+          "daemon",
+          "ssh"
+        ],
+        "epoch": 1,
+        "iat": 1790000000,
+        "exp": 1790000300,
+        "jti": "jti0000000000000000014",
+        "team": "team_t0000000000000000001",
+        "vmk": "admin"
+      },
+      "token": "eyJhbGciOiJFZERTQSIsImtpZCI6InRlc3QtazIiLCJ0eXAiOiJjbXV4LWxpbmsrand0In0.eyJzdmMiOlsiZGFlbW9uIiwic3NoIl0sImVwb2NoIjoxLCJ0ZWFtIjoidGVhbV90MDAwMDAwMDAwMDAwMDAwMDAwMSIsInZtayI6ImFkbWluIiwiaXNzIjoiY211eDpjbG91ZDp0ZXN0IiwiYXVkIjoiaG9zdF9oMDAwMDAwMDAwMDAwMDAwMDAwMSIsInN1YiI6Imluc3RfaTAwMDAwMDAwMDAwMDAwMDAwMDEiLCJpYXQiOjE3OTAwMDAwMDAsImV4cCI6MTc5MDAwMDMwMCwianRpIjoianRpMDAwMDAwMDAwMDAwMDAwMDAxNCJ9.jlNL0CKr6Ag-ZABO_e4rRqwE9w1QddSCmTu7vumZfvXXkzXIXZNHi9TOKN2gJmkca-6iFqVamU3_RHSRsmkkAA",
+      "verify": [
+        {
+          "aud": "host_h0000000000000000001",
+          "epoch": 1,
+          "now": 1790000010,
+          "keyset": "both",
+          "seen": [],
+          "expect": {
+            "ok": false,
+            "error": "malformed"
+          }
+        }
+      ]
     }
   ]
 }

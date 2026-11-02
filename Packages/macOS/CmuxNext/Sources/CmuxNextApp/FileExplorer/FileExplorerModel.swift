@@ -1,4 +1,5 @@
 import CmuxNextFiles
+import CmuxNextOnboarding
 import Foundation
 import Observation
 import CmuxNextFilesUI
@@ -21,6 +22,10 @@ final class FileExplorerModel {
     var selection: URL?
     /// The root could not be read (the system's message); nil while it lists.
     private(set) var failure: String?
+    /// The root is in a privacy-protected folder the person has not asked to see this session
+    /// (LAUNCH-NO-TCC-PROMPTS): nothing is listed or watched there until ``setRoot(_:asked:)``
+    /// with `asked`, the section's Show Contents button.
+    private(set) var held = false
 
     @ObservationIgnored private let lister: any DirectoryListing
     @ObservationIgnored private let git: any MarkdownGitRunning
@@ -37,12 +42,26 @@ final class FileExplorerModel {
     /// The folders the running watch covers, and its task.
     @ObservationIgnored private var watched: [URL] = []
     @ObservationIgnored private var watching: Task<Void, Never>?
+    /// Whether a folder is privacy-protected (``inProtectedFolder(_:)``; a fake in tests).
+    @ObservationIgnored private let isProtected: @MainActor (URL) -> Bool
+    /// Protected folders the person asked to see: these and the folders inside them list.
+    @ObservationIgnored private var asked: Set<URL> = []
 
+    /// - Parameter isProtected: Whether a folder is privacy-protected; by default the one
+    ///   protected-folder list, by the folder's spelling.
     init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner(),
-         watcher: any FileTreeWatching = FileTreeWatcher()) {
+         watcher: any FileTreeWatching = FileTreeWatcher(),
+         isProtected: @escaping @MainActor (URL) -> Bool = { FileExplorerModel.inProtectedFolder($0) }) {
         self.lister = lister
         self.git = git
         self.watcher = watcher
+        self.isProtected = isProtected
+    }
+
+    /// Whether `folder` is in a privacy-protected folder (~/Downloads, ~/Desktop, iCloud Drive,
+    /// another volume), by its spelling: resolving it would read inside.
+    nonisolated static func inProtectedFolder(_ folder: URL) -> Bool {
+        PrivacyFolder.containing(folder.standardizedFileURL.path, homePath: NSHomeDirectory()) != nil
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -66,8 +85,10 @@ final class FileExplorerModel {
         }
     }
 
-    /// Shows the tree of `folder`; the same folder only re-reads it.
-    func setRoot(_ folder: URL) async {
+    /// Shows the tree of `folder`; the same folder only re-reads it. A privacy-protected folder
+    /// the person has not asked for is held (``held``): it is not read.
+    /// - Parameter asked: The person asked to see this folder (Show Contents).
+    func setRoot(_ folder: URL, asked: Bool = false) async {
         let folder = folder.standardizedFileURL
         if folder != root {
             root = folder
@@ -75,12 +96,26 @@ final class FileExplorerModel {
             expanded = []
             selection = nil
         }
+        if asked { self.asked.insert(folder) }
+        let mayRead = !isProtected(folder) || self.asked.contains { folder == $0 || folder.path.hasPrefix($0.path + "/") }
+        guard mayRead else {
+            held = true
+            generation += 1
+            failure = nil
+            children = [:]
+            rows = []
+            watching?.cancel()
+            watching = nil
+            watched = []
+            return
+        }
+        held = false
         await reload()
     }
 
     /// Lists the root and every expanded folder again (the folder may have changed since).
     func reload() async {
-        guard let root else { return }
+        guard let root, !held else { return }
         generation += 1
         let mine = generation
         var listed: [URL: [FileEntry]] = [:]

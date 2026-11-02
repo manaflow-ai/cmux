@@ -47,7 +47,26 @@ if grep -Eq '^ +SPARKLE_PRIVATE_KEY: \$\{\{ secrets\.' "$WORKFLOW"; then
   echo "FAIL: nightly.yml passes SPARKLE_PRIVATE_KEY directly; use scripts/ci/nightly-sparkle-key.sh"
   exit 1
 fi
-if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -lt 3 ]; then
+# Run blocks moved into scripts/ci/nightly-steps (#25879, #26196) still count:
+# only the scripts nightly.yml actually runs, and each one that signs must use it.
+step_scripts=()
+while IFS= read -r name; do
+  step_scripts+=("$ROOT_DIR/scripts/ci/nightly-steps/$name")
+done < <(grep -oE 'scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh' "$WORKFLOW" | sed 's#.*/##' | sort -u)
+for script in "${step_scripts[@]}"; do
+  # A step script that signs (it reads SPARKLE_PRIVATE_KEY) must take it from the helper.
+  case "$(grep -c 'SPARKLE_PRIVATE_KEY' "$script")" in
+    0) ;;
+    *)
+      grep -Eq 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"' "$script" || {
+        echo "FAIL: $(basename "$script") reads SPARKLE_PRIVATE_KEY without scripts/ci/nightly-sparkle-key.sh"
+        exit 1
+      } ;;
+  esac
+done
+helper_calls="$(cat "$WORKFLOW" "${step_scripts[@]}" \
+  | grep -cE 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"')"
+if [ "$helper_calls" -lt 3 ]; then
   echo "FAIL: nightly.yml must derive the embedded key and sign every appcast through the helper"
   exit 1
 fi

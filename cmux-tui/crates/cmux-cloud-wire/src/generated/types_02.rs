@@ -5,6 +5,141 @@
 use super::*;
 
 wire_enum! {
+    GroupPlacementKind {
+        Local = "local",
+        Mini = "mini",
+        CloudVm = "cloud_vm",
+    }
+}
+
+pub type GroupWorkspaceId = String;
+
+/// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPoster {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPosterMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPosterMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
+/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPreview {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPreviewMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPreviewMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeChief {
+    pub id: ChiefId,
+    pub owner_user: String,
+    pub display_name: String,
+    pub is_default: bool,
+    pub brain: LitCloud,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_place: Option<Option<ChiefBrainPlace>>,
+    pub main_conversation: Option<ConversationId>,
+    pub harness: Option<String>,
+    pub rev: WireNumber,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub archived_at: Option<Timestamp>,
+}
+
+/// rev after the op; seq and message_id for a new message; change is the committed Change.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeConversationCommit {
+    pub rev: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<MessageId>,
+    pub change: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeConversationSettings {
+    pub wake_policy: HomeConversationSettingsWakePolicy,
+    pub agent_budget: HomeConversationSettingsAgentBudget,
+    pub history_visible: HomeConversationSettingsHistoryVisible,
+}
+
+wire_enum! {
+    HomeConversationSettingsWakePolicy {
+        Auto = "auto",
+        Mentions = "mentions",
+        All = "all",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeConversationSettingsAgentBudget {
+    pub turns: i64,
+    pub gap_ms: i64,
+}
+
+wire_enum! {
+    HomeConversationSettingsHistoryVisible {
+        All = "all",
+        SinceJoin = "since_join",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeConversationSummary {
+    pub id: ConversationId,
+    pub owner: String,
+    pub title: String,
+    pub participants: Vec<HomeParticipant>,
+    pub last_seq: i64,
+    pub rev: i64,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<HomeMessage>,
+    pub read_cursors: BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<HomeConversationSummaryState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<HomeConversationSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invites: Option<Vec<HomeInvite>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<i64>,
+    /// A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+}
+
+wire_enum! {
+    HomeConversationSummaryState {
+        Active = "active",
+        Archived = "archived",
+    }
+}
+
+wire_enum! {
     HomeDeliveryState {
         Queued = "queued",
         Sent = "sent",
@@ -753,149 +888,4 @@ pub struct RunWithBody {
     pub error: Option<RunError>,
     pub outcome: Option<RunWithBodyOutcome>,
     pub body: Body,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyTrigger {
-    pub id: Option<TriggerId>,
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delivery_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyOutcome {
-    pub goal_met: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-}
-
-pub type ServerCapability = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkBinding {
-    pub state: LitConfirmed,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub confirmed_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkProof {
-    #[serde(rename = "signedAt")]
-    pub signed_at: i64,
-    pub nonce: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkReservation {
-    pub state: LitReserved,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum ServerNetworkState {
-    ServerNetworkReservation(ServerNetworkReservation),
-    ServerNetworkBinding(ServerNetworkBinding),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-/// A Cloud machine snapshot.
-pub type SnapshotId = String;
-
-wire_enum! {
-    /// `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28).
-    SshCertClass {
-        Human = "human",
-        Agent = "agent",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SshPresenceProof {
-    pub install: InstallId,
-    pub nonce: String,
-    pub signature: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app_attest: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnection {
-    pub id: SsoConnectionId,
-    pub kind: LitOidc,
-    pub state: SsoConnectionState,
-    pub domains: Vec<EmailDomain>,
-    pub oidc: SsoConnectionOidc,
-    pub secret_set: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_generation: Option<i64>,
-    pub jit: SsoConnectionJit,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-wire_enum! {
-    SsoConnectionState {
-        Draft = "draft",
-        Active = "active",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionOidc {
-    pub issuer: String,
-    pub client_id: String,
-    pub scopes: Vec<String>,
-    pub authorization_endpoint: Option<String>,
-    pub token_endpoint: Option<String>,
-    pub jwks_uri: Option<String>,
-}
-
-wire_enum! {
-    SsoConnectionJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionJitDefaultRole,
-}
-
-pub type SsoConnectionId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Step {
-    Sleep(StepSleep),
-    Note(StepNote),
-    Op(StepOp),
-    Machine(StepMachine),
-    Agent(StepAgent),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepSleep {
-    pub r#type: LitSleep,
-    pub seconds: i64,
 }

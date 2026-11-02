@@ -1,12 +1,12 @@
 import AppKit
 
-/// cmux: the pointing hand over a link in the transcript (Lawrence 2026-10-19: "when i hover on
-/// link it needs to turn into cursor pointer"): text links, Markdown links and link cards, the
-/// same hit test a click uses (`ChatController.linkURL(at:)`), so a refused link keeps the arrow.
-/// The tracking area covers the visible transcript only, and only while the window is key, so the
-/// pointer costs nothing while the person types or works in another window.
+/// cmux: the transcript shows the arrow over its links too, as native macOS apps do (user
+/// 2026-10-30: "change all pointers back to cursor-default"; this replaces the pointing hand of
+/// Lawrence 2026-10-19). The tracking area reports pointer moves to the pane (`onPointerMoved`)
+/// and covers the visible transcript only, and only while the window is key, so the pointer costs
+/// nothing while the person types or works in another window.
 extension TranscriptDocumentView {
-    /// Marks the link-hover tracking area among the view's areas.
+    /// Marks the pointer tracking area among the view's areas.
     private static let linkHoverKey = "cmux.linkHover"
 
     override func updateTrackingAreas() {
@@ -19,38 +19,12 @@ extension TranscriptDocumentView {
     // Not passed up the responder chain: the pane host's own hover (the field's attachments)
     // has its own tracking area.
     override func mouseMoved(with event: NSEvent) {
-        updateLinkCursor(event, always: false)
         controller?.onPointerMoved?(window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
-    override func cursorUpdate(with event: NSEvent) { updateLinkCursor(event, always: true) }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
     override func mouseExited(with event: NSEvent) {
-        if overLink { overLink = false; NSCursor.arrow.set() }
         controller?.onPointerMoved?(nil)
     }
-
-    /// Whether the pointer is over a link now (the hand is set).
-    private var overLink: Bool {
-        get { objc_getAssociatedObject(self, linkHoverStateKey.address) as? Bool ?? false }
-        set { objc_setAssociatedObject(self, linkHoverStateKey.address, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// Sets the hand over a link, else the arrow (`always`: on entering, else only when the
-    /// pointer just left a link).
-    private func updateLinkCursor(_ event: NSEvent, always: Bool) {
-        guard let controller else { return }
-        let point = controller.host.convert(event.locationInWindow, from: nil)
-        let onLink = controller.linkURL(at: point) != nil
-        if onLink { NSCursor.pointingHand.set() } else if overLink || always { NSCursor.arrow.set() }
-        overLink = onLink
-    }
 }
-
-/// The associated-object key of ``TranscriptDocumentView``'s link-hover state (an extension
-/// cannot add a stored property to the vendored view). Only the address of this one
-/// immutable object is used, so there is no shared mutable state.
-private final class LinkHoverStateKey: Sendable {
-    var address: UnsafeRawPointer { UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque()) }
-}
-private let linkHoverStateKey = LinkHoverStateKey()

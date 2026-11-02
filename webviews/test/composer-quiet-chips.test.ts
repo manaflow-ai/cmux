@@ -214,9 +214,10 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
         await page.close();
       });
 
-    // Keyboard focus gives the focused button the hover's pill, with no edge, and keeps its outline:
-    // every bar button, + included (Leo 2026-10-19).
-    test(`${engine}: keyboard focus pills the focused button only, ringless, with its outline`, async () => {
+    // Keyboard focus gives the focused button the hover's pill, with no edge and no outline: every bar
+    // button, + included (Leo 2026-10-19). The outline went with #23745 (Leo 2026-10-21: no focus
+    // rings in the agent pane; the pill alone marks a focused button).
+    test(`${engine}: keyboard focus pills the focused button only, ringless, with no outline`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       for (const [name, selector] of Object.entries(BAR)) {
         // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
@@ -228,7 +229,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
         expect(focused.length, `${name} has keyboard focus`).toBe(1);
         expect(focused[0]!.filled, `${name}: focus draws the pill`).toBe(true);
         expect(focused[0]!.edge, `${name}: no edge around the focused pill`).toBe("none");
-        expect(focused[0]!.outline, `${name}: the focus outline stays`).not.toBe("none");
+        expect(focused[0]!.outline, `${name}: no focus outline`).toBe("none");
         expect(
           controls.filter((each) => each.pill && !each.focused).map((each) => each.label),
           `${name}: no other button pills`,

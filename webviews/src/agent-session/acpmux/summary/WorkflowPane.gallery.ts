@@ -1,13 +1,14 @@
 // l10n-allow-file: gallery fixture (a sample prompt, reply, workflow and agent names), not shipped UI.
 // A Claude workflow in the whole pane (Labs `workflowLabs`): its card where it started in the
 // transcript (WorkflowCard.tsx) and Session Info open beside it, whose Background tasks lists the
-// run's phases and agents (inspector/WorkflowTasks.tsx). Both read the same fold data: a
+// run's phases and agents (session-info/WorkflowTasks.tsx). Both read the same fold data: a
 // workflow's events fed through the real subagent fold (workflowFixture.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 const PROMPT = "Show me how dynamic workflows work by running a small one";
@@ -28,6 +29,18 @@ const paneSnapshot = (stage: WorkflowFixtureStage) => {
     { isWorking: stage === "running", title: "Dynamic workflows" },
   );
 };
+const realPaneSnapshot = (running: boolean) => {
+  const elapsedMs = running ? 8_760 : 10_780;
+  const started = elapsedMs / 60_000;
+  return chat(
+    [
+      user("Run a two-phase workflow: two agents count files, then one reports the count.", started + 0.2),
+      row(SUBAGENTS, started, { subagents: realWorkflowFixture(GALLERY_NOW, elapsedMs) }),
+      ...(!running ? [assistant("The Count and Report phases finished; all three agents completed.", 0)] : []),
+    ],
+    { isWorking: running, title: "File count workflow" },
+  );
+};
 /// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
@@ -42,12 +55,12 @@ export default agentPaneEntry({
   height: 720,
   covers: [
     "agent-session/acpmux/summary/WorkflowCard.tsx",
-    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/session-info/WorkflowTasks.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
   ],
   variants: {
     running: {
-      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Up next: Judge.",
+      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Judge as a plain pending row.",
       snapshot: paneSnapshot("running"),
       native,
       workflowLabs: true,
@@ -56,6 +69,20 @@ export default agentPaneEntry({
     finished: {
       note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-run": {
+      note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 10s elapsed.",
+      snapshot: realPaneSnapshot(false),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-running": {
+      note: "Labs: the transcript card and Session Info Background tasks render the real Claude Workflow replay while Report runs.",
+      snapshot: realPaneSnapshot(true),
       native,
       workflowLabs: true,
       play: shown,

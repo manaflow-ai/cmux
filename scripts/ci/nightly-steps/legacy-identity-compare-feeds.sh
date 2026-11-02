@@ -2,6 +2,11 @@
 # nightly.yml legacy-identity-target: "Compare the cmux NEXT feed with the old feed".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# Full commit SHAs every copied build must contain (space-separated);
+# unset means no requirement, and then the kill switch
+# NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
 set -euo pipefail
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
@@ -90,7 +95,7 @@ done
 : > failures.txt
 number="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY" || echo "::warning::could not search for the failure issue; counting no failures" >&2)"
 if [ -n "$number" ]; then
-  { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } > failures.txt \
+  { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; python3 ./scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/issues/$number/comments" --field body; } > failures.txt \
     || echo "::warning::could not read the failure issue #$number; counting no failures"
 fi
 # Every commit in NIGHTLY_LEGACY_REQUIRED_COMMITS must be in the

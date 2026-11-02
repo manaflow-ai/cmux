@@ -101,7 +101,11 @@ impl TurnEnded {
 /// state sequence the resolution must exceed), `timeoutMs`, and `turnEnded`
 /// (`{turnId, startedAt}`: a session also resolves once that turn ended,
 /// `turnEnded`).
-pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn wait(
+    hub: &Arc<Hub>,
+    params: &Value,
+    caller: Option<&str>,
+) -> Result<Value, RpcError> {
     let until: Vec<Until> = match params.get("until").and_then(Value::as_array) {
         Some(a) if !a.is_empty() => a
             .iter()
@@ -133,7 +137,7 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         .unwrap_or_default();
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
-        for s in hub.all_session_summaries() {
+        for s in hub.live_session_summaries() {
             let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
             if (Until::Running.matches(&s) || slot)
                 && let Some(id) = s.get("sessionId").and_then(Value::as_str)
@@ -158,6 +162,25 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         return Ok(json!({"sessions": [], "timedOut": false, "resolved": []}));
     }
     let mut events = hub.subscribe();
+    // A caller must name a lane and wait for completion, not merely watch global activity.
+    let completion =
+        turn_ended.is_some() || until.iter().any(|u| matches!(u, Until::Ready | Until::Done));
+    let completion_ids: Vec<String> = ids
+        .iter()
+        .filter(|id| {
+            turn_ended.as_ref().is_none_or(|ended| {
+                hub.resolve(id)
+                    .ok()
+                    .and_then(|s| s.turn())
+                    .is_some_and(|t| t.turn_id == ended.turn_id)
+            })
+        })
+        .cloned()
+        .collect();
+    let _lane_wait = hub.lane_report_wait(
+        if completion && !keys.is_empty() { caller } else { None },
+        &completion_ids,
+    );
     // Counted from its subscription until it answers or its request ends.
     let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
@@ -209,6 +232,19 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         let (rows, resolved) = evaluate(hub);
         let finished = if all { resolved.len() == ids.len() } else { !resolved.is_empty() };
         if finished {
+            if !keys.is_empty() {
+                let consumed: Vec<Value> = resolved
+                    .iter()
+                    .filter(|row| {
+                        turn_ended.as_ref().is_none_or(|ended| {
+                            row.pointer("/lastTurn/turnId").and_then(Value::as_str)
+                                == Some(ended.turn_id.as_str())
+                        })
+                    })
+                    .cloned()
+                    .collect();
+                hub.lane_report_wait_read(caller, &consumed);
+            }
             return Ok(json!({"sessions": rows, "resolved": resolved, "timedOut": false}));
         }
         let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));

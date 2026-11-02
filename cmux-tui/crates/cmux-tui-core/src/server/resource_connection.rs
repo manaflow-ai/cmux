@@ -238,6 +238,7 @@ pub(super) fn handle_resource_connection_message(
             }
         }
         ResourceOperation::SessionEvents => {
+            super::incognito_orphans::close_orphaned(mux, client);
             match prepare_session_event_stream(mux, client, writer, &request) {
                 Ok((result, start)) => {
                     if !send_resource_response(writer, id, operation, Ok(result)) {
@@ -279,6 +280,7 @@ pub(super) fn handle_resource_connection_message(
             }
         }
         ResourceOperation::SessionSnapshot => {
+            super::incognito_orphans::close_orphaned(mux, client);
             let result = resource_session_snapshot(mux, client, &request.selectors);
             send_resource_response(writer, id, operation, result)
         }
@@ -302,11 +304,29 @@ pub(super) fn handle_resource_connection_message(
                 "connection-owned operation fell through to the transport-independent router"
             );
             let operation = request.envelope.operation;
+            let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool) == Some(true);
+            let claim = if operation == ResourceOperation::WorkspaceCreate && ephemeral {
+                super::incognito_orphans::begin_move(mux, true)
+            } else if super::incognito_orphans::moves_content(operation) {
+                super::incognito_orphans::begin_move(mux, false)
+            } else {
+                None
+            };
             let handled = crate::resource_router::handle_parsed_resource_request(mux, request);
             crate::debug_spans::mark("router.answered");
             match handled {
-                Ok(response) => {
+                Ok(mut response) => {
+                    if let Some(claim) = claim
+                        && super::incognito_orphans::answered_ok(&response)
+                    {
+                        claim.finish(mux, client);
+                    }
+                    super::incognito_orphans::note_create(
+                        mux, client, operation, ephemeral, &response,
+                    );
                     activity::note_resource_input(mux, client, operation, &response);
+                    // A remote device's reply leaves out incognito rows (#31210).
+                    super::incognito_remote::prune_reply(mux, client, &mut response);
                     writer.send_control(&response).is_ok()
                 }
                 // Only a response that cannot be encoded fails here.

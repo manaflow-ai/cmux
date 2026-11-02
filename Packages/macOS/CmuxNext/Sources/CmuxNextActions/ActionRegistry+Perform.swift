@@ -39,7 +39,17 @@ extension ActionRegistry {
                 return route.perform { refuse($0) }
             }
         }
-        guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
+        guard let action = action(for: id), isAvailable(id, for: invocation) else { return false }
+        guard action.isEnabled() else {
+            // A person's run of an action a recovery covers (Sign In for a signed-out Cloud action)
+            // takes that way past the reason, then runs; every other caller is refused as before.
+            guard let recovery = personRecovery(for: id, invocation) else { return false }
+            signposted(id, index: action.timingIndex, invocation) {
+                settle()
+                recovery.run(canonicalID(for: id), invocation)
+            }
+            return true
+        }
         if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
         let missing = descriptor(for: id).map { descriptor in
             descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }

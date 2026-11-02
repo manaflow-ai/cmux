@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -115,22 +116,51 @@ extension AgentPaneView {
     /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
     /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``), and
     /// records where the files of the person's drop or paste are, for the page's
-    /// `chat.attach.dropped` (``AgentPaneDroppedPaths``).
+    /// `chat.attach.dropped` (``AgentPaneDroppedPaths``), and what the person's drop, paste or pick
+    /// in the file input says about where they came from, for `chat.attach.source`.
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
-            guard let self, AgentPanePersonInput.currentIsPerson else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            guard let self else { return }
+            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
+            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
+            // pane's table of posting processes (no system call).
+            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+            model.transport.gestures.record(click: false)
             model.droppedPaths.stash(urls, kind: .drop)
+            let drag = NSPasteboard(name: .drag)
+            // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
+            model.droppedPaths.stashSource(
+                urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
+                madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
-            guard AgentPanePersonInput.currentIsPerson else { return }
-            self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
+            guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
+            let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
+            model.droppedPaths.stash(urls, kind: .paste)
+            model.droppedPaths.stashSource(
+                urls, items: NSPasteboard.general.pasteboardItems?.count ?? 0,
+                claimed: AttachmentSource.claimed(on: .general), kind: .paste)
+        }
+        // The files the person picked in the file input's open panel (+ > Attach files): only their
+        // own metadata can say where they came from, so the record holds their URLs and no claim.
+        // WebKit opens the panel only for a user-activated file input, and the person picks the
+        // files, so page script can't fill it either. Where they are is kept as for a drop (a chat
+        // on this Mac links them in place), and the pick is the person's gesture, as a drop is: the
+        // click that opened the panel may be long past its lifetime once they choose, which refused
+        // the upload of every picked file (Retry on each tile).
+        let chosen: @MainActor ([URL]) -> Void = { [weak self] urls in
+            guard let self else { return }
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
+            model.droppedPaths.stash(urls, kind: .choose)
+            model.droppedPaths.stashSource(urls, items: urls.count, claimed: nil, kind: .choose)
         }
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
         if let page {
-            (page.onFilesDropped, page.onPaste) = (dropped, pasted)
+            (page.onFilesDropped, page.onPaste, page.onFilesChosen) = (dropped, pasted, chosen)
             // Both engines: the page host relays the report (a Chromium page's menu waits for it).
             page.addMessageHandler(Self.contextMenuHandler) { [weak self] body in
                 self?.receiveContextMenuReport(body)
@@ -142,6 +172,7 @@ extension AgentPaneView {
             return
         }
         if let view = webView as? AgentPaneWKWebView { (view.onFilesDropped, view.onPaste) = (dropped, pasted) }
+        fileChooser?.onChosen = chosen
         // Never add the handler twice (WebKit throws).
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
@@ -157,6 +188,8 @@ extension AgentPaneView {
         page?.contextMenuEditor = nil
         page?.onFilesDropped = nil
         page?.onPaste = nil
+        page?.onFilesChosen = nil
+        fileChooser?.onChosen = nil
         (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil
         (webView as? AgentPaneWKWebView)?.onFilesDropped = nil
         (webView as? AgentPaneWKWebView)?.onPaste = nil
@@ -166,9 +199,16 @@ extension AgentPaneView {
     /// report from a message's More button (`popUp`) opens that message's menu under the button now.
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
+            let popupID = (body as? [String: Any])?["popupId"] as? String
+            // After the page's message returns, from a run-loop callout, never a main-actor Task: a
+            // menu that tracks inside a main-queue job holds the main queue until it closes, and the
+            // click that closes it then waits for everything queued meanwhile (Leo, 2026-10-29).
+            if let seq = (body as? [String: Any])?["forkDestinations"] as? Int {
+                MainRunLoopBlock.perform { [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor, popupID: popupID) }
+                return
+            }
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor, popupID: popupID) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
@@ -184,18 +224,62 @@ extension AgentPaneView {
     }
 
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
-    /// same items, under the button (`anchor`, CSS px in the page's viewport).
-    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect) {
+    /// same items, under the button (`anchor`, CSS px in the page's viewport), or above it with no
+    /// room below.
+    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect, popupID: String?) {
+        // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
+        defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
         guard let target, view.window != nil else { return }
         let menu = NSMenu()
         fillContextMenu(menu, target: target, selection: nil)
         guard !menu.items.isEmpty else { return }
+        popUp(menu, from: anchor, in: view)
+    }
+
+    /// Opens `menu` from the page's button at `anchor` (CSS px in the page's viewport) in `view`:
+    /// under it, or above it when the window has no room below (`AgentPaneContextMenu.popUpOrigin`).
+    private func popUp(_ menu: NSMenu, from anchor: CGRect, in view: NSView) {
+        guard let window = view.window else { return }
         // View points per CSS px, as the page host (`uiScale` times its zoom) or the pane's WebKit view shows it.
         let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
             ?? webView.pageZoom * webView.magnification
-        let left = anchor.minX * zoom, bottom = anchor.maxY * zoom + 2
-        menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+        // The page's viewport runs down from the view's top.
+        let top = anchor.minY * zoom, height = anchor.height * zoom
+        let local = CGRect(x: anchor.minX * zoom, y: view.isFlipped ? top : view.bounds.height - top - height,
+                           width: anchor.width * zoom, height: height)
+        let button = window.convertToScreen(view.convert(local, to: nil))
+        // The display holding the button, not the window's main one: a window across two displays
+        // would clamp the menu onto the other display, away from its button.
+        let origin = AgentPaneContextMenu.popUpOrigin(
+            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            window: window.convertToScreen(window.contentLayoutRect))
+        menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
+    }
+
+    /// The page lit the opener of the menu `popupID` names (`messageMenu.ts`); it goes dark now.
+    private func reportMessageMenuClosed(_ popupID: String?) {
+        guard let popupID, let data = try? JSONEncoder().encode(popupID) else { return }
+        let id = String(decoding: data, as: UTF8.self)
+        evaluateScript("window.dispatchEvent(new CustomEvent('cmux-message-menu-closed', {detail: \(id)}))")
+    }
+
+    func popUpForkMenu(through seq: Int? = nil, anchor: CGRect? = nil, popupID: String? = nil) {
+        // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
+        defer { reportMessageMenuClosed(popupID) }
+        let view: NSView = page?.focusView ?? webView
+        guard view.window != nil else { return }
+        let menu = AgentForkMenu.menu { [weak self] destination in
+            var params = ["placement": destination.rawValue]
+            if let seq { params["throughSeq"] = String(seq) }
+            self?.runMessageAction(seq == nil ? "chat.forkTo" : "chat.fork", params)
+        }
+        menu.themeRows(in: themeScope.fullStrength)
+        guard let anchor else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            return
+        }
+        popUp(menu, from: anchor, in: view)
     }
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
@@ -207,6 +291,7 @@ extension AgentPaneView {
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
+            quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
@@ -221,20 +306,24 @@ extension AgentPaneView {
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
     }
 
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, []) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
-        AgentPanePersonInput.record(model.transport.gestures)
-        evaluateScript("window.cmuxAcpmuxActions?.['chat.fork']?.({ throughSeq: \(seq) });")
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
+        if NSEvent.modifierFlags.contains(.option) {
+            popUpForkMenu(through: seq)
+        } else {
+            runMessageAction("chat.fork", ["throughSeq": String(seq)])
+        }
     }
 }

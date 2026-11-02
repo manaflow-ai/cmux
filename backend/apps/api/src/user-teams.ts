@@ -1,9 +1,11 @@
 import type { Principal } from "@cmux/ownership"
 import { USER_TEAMS_LIST_MAX } from "@cmux/protocol"
-import { personalTeamIdFor } from "./domains/user.ts"
+import { personalTeamIdFor, stackTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
+import { stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
+import type { StackEvent, StackSyncReply } from "./team-stack-sync.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
 type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
@@ -20,6 +22,56 @@ const membershipOf = async (env: Env, team: string, user: string): Promise<Membe
   } catch (e) {
     logged("team list membership unreachable", e)
     return "unreachable"
+  }
+}
+
+/** What user.teams.list reads Stack with: the Worker's server client and the shared pace of Stack reads (tests pass fakes). */
+export interface UserTeamsDeps {
+  readonly stack: Pick<StackServer, "listUserTeams"> | undefined
+  /** One token of the shared Stack read pace (stack-server.ts stackReadPace); false = not now. */
+  readonly pace: () => Promise<boolean>
+  readonly now: () => number
+}
+const defaultDeps = (env: Env): UserTeamsDeps => ({ stack: stackServer(env), pace: () => stackReadPace(env), now: () => Date.now() })
+
+/** How often one person's Stack teams are compared with TeamDO. */
+const HEAL_WINDOW_MS = 10 * 60_000
+/** When each person's Stack teams were last read, per isolate: a soft limit (the shared pace and TeamDO's delivery dedupe bound the rest). */
+const healedAt = new Map<string, number>()
+const HEALED_MAX = 10_000
+
+/**
+ * The person's Stack teams as cmux ids (to their Stack ids), read at most once per HEAL_WINDOW_MS and only
+ * with a pace token; empty when not read now. A Stack team whose webhook deliveries never reached TeamDO
+ * (one made before the mirror existed, or events Stack never sent) is otherwise never listed: its TeamDO
+ * does not know its members (prod 2026-10-29: Home listed no teammates).
+ */
+const stackTeamsOf = async (env: Env, p: Principal, deps: UserTeamsDeps): Promise<Map<string, string>> => {
+  const stackUser = p.stack_user_id
+  if (!deps.stack || !stackUser) return new Map()
+  const now = deps.now()
+  const last = healedAt.get(p.user!)
+  if (last !== undefined && now - last < HEAL_WINDOW_MS) return new Map()
+  if (!(await deps.pace().catch(() => false))) return new Map()
+  if (healedAt.size >= HEALED_MAX) healedAt.clear()
+  healedAt.set(p.user!, now)
+  try {
+    const ids = await deps.stack.listUserTeams(stackUser)
+    return new Map(ids.map((id) => [stackTeamIdFor(env.STACK_PROJECT_ID, id), id] as const))
+  } catch (e) {
+    logged("team list stack teams unreadable", e)
+    return new Map()
+  }
+}
+
+/** A full sync of one Stack team in its TeamDO (team-stack-sync.ts), as a team.updated delivery would run it; one per person per window. */
+const syncTeam = async (env: Env, team: string, stackTeam: string, user: string, now: number): Promise<void> => {
+  try {
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> }
+    const reply = await stub.stackWebhook(team, { svix_id: `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`, type: "team.updated", stack_team: stackTeam, urgent: true })
+    console.log(JSON.stringify({ msg: "team list synced a stack team", team, outcome: reply.ok ? reply.outcome : reply.reason }))
+  } catch (e) {
+    logged("team list stack sync failed", e)
   }
 }
 
@@ -45,13 +97,16 @@ const ssoRequiredIn = async (env: Env, p: Principal, team: string): Promise<bool
  * TeamDO that does not answer (the personal one too) sets `incomplete`, and its shared team is left
  * out; so is every team past USER_TEAMS_LIST_MAX.
  */
-export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult> => {
+export const listUserTeams = async (env: Env, p: Principal, deps: UserTeamsDeps = defaultDeps(env)): Promise<ReadResult> => {
   if (p.kind !== "session" || !p.user || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "user.teams.list is for a person's session" }
   const user = p.user
   const personal = personalTeamIdFor(user)
   const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { homeTeamsOf(entity: string): Promise<Array<{ team: string; kind: string }>> }
-  const index = (await stub.homeTeamsOf(user)).filter((e) => e.team !== personal && TEAM_ID.test(e.team))
-  const candidates = index.slice(0, USER_TEAMS_LIST_MAX).map((e) => e.team)
+  const indexed = (await stub.homeTeamsOf(user)).filter((e) => e.team !== personal && TEAM_ID.test(e.team)).map((e) => e.team)
+  // Stack's own list joins the index, so a team TeamDO never mirrored is synced below and listed.
+  const fromStack = await stackTeamsOf(env, p, deps)
+  const index = [...new Set([...indexed, ...fromStack.keys()])]
+  const candidates = index.slice(0, USER_TEAMS_LIST_MAX)
   let incomplete = index.length > candidates.length
   const own = await membershipOf(env, personal, user)
   if (own === "unreachable") incomplete = true
@@ -63,7 +118,13 @@ export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult>
     const batch = candidates.slice(i, i + LIST_CONCURRENCY)
     const answers = await Promise.all(
       batch.map(async (team) => {
-        const m = await membershipOf(env, team, user)
+        let m = await membershipOf(env, team, user)
+        const stackTeam = fromStack.get(team)
+        // Stack lists the person in a team TeamDO does not confirm: sync that team from Stack, then ask again.
+        if (m === null && stackTeam !== undefined) {
+          await syncTeam(env, team, stackTeam, user, deps.now())
+          m = await membershipOf(env, team, user)
+        }
         return m && m !== "unreachable" ? { m, sso: await ssoRequiredIn(env, p, team) } : { m, sso: false as const }
       })
     )

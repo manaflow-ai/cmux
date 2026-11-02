@@ -136,9 +136,10 @@ impl Mux {
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
                             name: mux.moved_tab_workspace_name(name.as_deref(), state),
-                            name_source: crate::resource_name::NameSource::for_requested(
-                                name.is_some(),
-                            ),
+                            name_source:
+                                crate::resource_name::NameSource::for_requested_workspace_name(
+                                    name.as_deref(),
+                                ),
                             name_revision: 0,
                             screens: Vec::new(),
                             active_screen: 0,

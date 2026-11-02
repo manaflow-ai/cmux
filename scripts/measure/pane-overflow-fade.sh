@@ -31,9 +31,14 @@ if ! python3 - "$HEAD_SHA" "$SOURCE_REMOTE" <<'PY_FETCH'
 import subprocess
 import sys
 
+# A depth flag only in an already-shallow checkout: in a developer's full clone it
+# would make every worktree sharing the git directory shallow.
+is_shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                            capture_output=True, text=True, check=False).stdout.strip() == "true"
+depth = ["--depth=8"] if is_shallow else []
 try:
     result = subprocess.run(
-        ["git", "-c", "fetch.parallel=1", "fetch", "--depth=8",
+        ["git", "-c", "fetch.parallel=1", "fetch", *depth,
          "--no-tags", "--no-recurse-submodules", sys.argv[2], sys.argv[1]],
         check=False,
         timeout=150,

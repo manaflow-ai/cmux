@@ -42,6 +42,11 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
         help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
         default: true, code: "ChromeTunables.tabRowTools")
+    /// Native content-supplied controls in the shared tab row; off while the migration series lands.
+    public static let nativeRowTools = Tunable<Bool>.toggle(
+        "chrome.tabs.nativeRowTools", .tabs, "Native chat tools in the tab row",
+        help: "Render content-supplied chat tools as native tab-row buttons. Off: the page owns its controls.",
+        default: false, code: "ChromeTunables.nativeRowTools")
     // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
     public static let interfaceSize = Tunable<Bool>.toggle(
         "chrome.interfaceSize", .shape, "Interface size",
@@ -74,7 +79,7 @@ public nonisolated enum ChromeTunables {
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, interfaceSize.descriptor]
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }

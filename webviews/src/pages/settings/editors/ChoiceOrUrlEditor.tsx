@@ -25,6 +25,15 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
   const [addressPicked, setAddressPicked] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // A new stored value (a Reset, a host update) ends the address being typed and the pick of the
+  // address field that went with the old one.
+  const [seen, setSeen] = useState(JSON.stringify(value ?? null));
+  if (seen !== JSON.stringify(value ?? null)) {
+    setSeen(JSON.stringify(value ?? null));
+    setAddressPicked(false);
+    setDraft(null);
+    setProblem(null);
+  }
   const showAddress = stored !== null || addressPicked;
   const commit = () => {
     if (draft === null) return;
@@ -74,6 +83,14 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
             aria-invalid={problem !== null}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && (draft !== null || problem !== null)) {
+                // Cancels the edit: blur must not commit what was typed.
+                event.stopPropagation();
+                setDraft(null);
+                setProblem(null);
+              }
+            }}
           />
           {problem && (
             <span className="field-error" role="alert">

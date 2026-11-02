@@ -10,7 +10,9 @@
 //! and ended without naming it leaves a check; when it is due and no turn
 //! runs, one retry turn starts on an `[untold]` note that names it. After that
 //! it is dropped and logged: the host never posts on the Chief's behalf ("no
-//! fake messages"), and a Chief that still says nothing gets no loop.
+//! fake messages"), and a Chief that still says nothing gets no loop. A
+//! subagent Chief sends back to work (tell, restart, resume) leaves too: its
+//! next report is the one to tell.
 
 use std::time::{Duration, Instant};
 
@@ -45,6 +47,17 @@ impl Brain {
             ..Untold::default()
         });
         self.save();
+    }
+
+    /// Chief sent subagent `id` back to work (a tell, restart or resume): it
+    /// runs again, and its next report is the one to tell, so this one asks
+    /// for no post (persona replay, Oct 28: "this ping is noise").
+    pub(super) fn outcome_resumed(&mut self, id: &str) {
+        let before = self.state.untold.len();
+        self.state.untold.retain(|u| u.id != id);
+        if self.state.untold.len() != before {
+            self.save();
+        }
     }
 
     /// The owner took Chief post `op`: every subagent it names is told.

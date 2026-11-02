@@ -18,7 +18,7 @@ import "../../src/agent-session/acpmux/composerLocation.css";
 import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/summary/summary.css";
 import "../../src/agent-session/acpmux/subagents/subagents.css";
-import "../../src/agent-session/acpmux/inspector/inspector.css";
+import "../../src/agent-session/acpmux/session-info/sessionInfo.css";
 
 globalThis.__cmuxPaneStrings ??= (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
 setPaneLanguage("en");

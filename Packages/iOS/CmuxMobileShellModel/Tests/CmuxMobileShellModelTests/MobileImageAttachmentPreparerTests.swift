@@ -27,6 +27,19 @@ struct MobileImageAttachmentPreparerTests {
         )
     }
 
+    @Test func sourceOverFormerEightMiBLimitIsReencodedAndAccepted() async throws {
+        let sourceURL = try makeNoisyImageFixture(width: 2_400, height: 2_400)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        #expect(
+            ((try FileManager.default.attributesOfItem(atPath: sourceURL.path)[.size] as? NSNumber)?.intValue ?? 0)
+                > MobileImageAttachmentPreparer.maximumEncodedBytes
+        )
+
+        let prepared = try #require(await MobileImageAttachmentPreparer().prepare(url: sourceURL))
+        #expect(prepared.data.count <= MobileImageAttachmentPreparer.maximumEncodedBytes)
+        #expect(["png", "jpg"].contains(prepared.format))
+    }
+
     private func makeImageFixture(width: Int, height: Int) throws -> URL {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let context = try #require(CGContext(
@@ -46,6 +59,47 @@ struct MobileImageAttachmentPreparerTests {
         let image = try #require(context.makeImage())
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-image-preparer-\(UUID().uuidString).png")
+        let destination = try #require(CGImageDestinationCreateWithURL(
+            url as CFURL,
+            "public.png" as CFString,
+            1,
+            nil
+        ))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return url
+    }
+
+    private func makeNoisyImageFixture(width: Int, height: Int) throws -> URL {
+        var bytes = Data(count: width * height * 4)
+        bytes.withUnsafeMutableBytes { raw in
+            var state: UInt32 = 0x1234_5678
+            for index in stride(from: 0, to: raw.count, by: 4) {
+                state = state &* 1_664_525 &+ 1_013_904_223
+                raw[index] = UInt8(truncatingIfNeeded: state >> 24)
+                state = state &* 1_664_525 &+ 1_013_904_223
+                raw[index + 1] = UInt8(truncatingIfNeeded: state >> 24)
+                state = state &* 1_664_525 &+ 1_013_904_223
+                raw[index + 2] = UInt8(truncatingIfNeeded: state >> 24)
+                raw[index + 3] = 255
+            }
+        }
+        let provider = try #require(CGDataProvider(data: bytes as CFData))
+        let image = try #require(CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-image-preparer-noisy-\(UUID().uuidString).png")
         let destination = try #require(CGImageDestinationCreateWithURL(
             url as CFURL,
             "public.png" as CFString,

@@ -30,14 +30,42 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 batch.next = .decide(facts, box)
                 return batch
+            case .status(_, let relayID, let path):
+                guard socket.statusRead.begin() else {
+                    // A refresh may overlap the initial read. Refuse just this request through
+                    // the bounded inbound path; never open another connection or close the pane.
+                    socket.receiveLocalReply(Self.statusError(relayID: relayID))
+                    batch.outcomes.append(.sent)
+                    continue
+                }
+                // task-owner: one read per socket, ending within two seconds; its slot is released
+                // on every exit. A closed socket drops the result through the normal inbound path.
+                Task.detached(priority: .utility) {
+                    defer { socket.statusRead.end() }
+                    let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
+                                                                   deadline: .seconds(2))
+                    let reply = result.flatMap {
+                        AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": relayID, "result": $0])
+                    } ?? Self.statusError(relayID: relayID)
+                    // The regular inbound path bounds queued bytes/frames, resolves the relay id,
+                    // and applies the status reply shape before anything reaches the page.
+                    socket.receiveLocalReply(reply)
+                }
+                batch.outcomes.append(.sent)
             }
         }
         return batch
     }
 
+    nonisolated private static func statusError(relayID: Int) -> String {
+        "{\"jsonrpc\":\"2.0\",\"id\":\(relayID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
+    }
+
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
-    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
-    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, tests/cases/check.json).
+    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids. The
+    /// Rust copy of these rules (cmux-agent-pane-policy `check_frame`) runs the cases in its
+    /// tests/cases/check.json; no Swift test reads that file, so a rule here needs its own Swift
+    /// test (the transport tests, for example `AgentPaneForkRelayTests`).
     nonisolated enum Checked: Sendable {
         case refuse(AcpmuxPaneMethods.Decision, spend: String?)
         case frame(Facts, FrameBox)
@@ -69,6 +97,10 @@ extension AgentPaneTransport {
                 return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil)
             }
             relayID = next
+        }
+        if method == "_acpmux/status", let pageID, let relayID, let path = snapshot.socketPath,
+           !snapshot.remoteWire {
+            return .status(pageID: pageID, relayID: relayID, path: path)
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)

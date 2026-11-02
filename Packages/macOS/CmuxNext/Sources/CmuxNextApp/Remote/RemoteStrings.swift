@@ -23,8 +23,13 @@ enum RemoteStrings {
     static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }
     static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
+    static var signInToCheck: String { String(localized: "remote.joined.signInToCheck", defaultValue: "Sign in to cmux to check this machine.", table: "Remote", bundle: .module) }
+    static var checkStopped: String { String(localized: "remote.joined.checkStopped", defaultValue: "The check stopped before it finished. Try again.", table: "Remote", bundle: .module) }
+    // The Touch ID or password confirm's reasons for Settings' switches that widen another machine's access (SettingsPageProvider.widen).
+    static var fullAccessConfirmReason: String { String(localized: "settings.personGate.fullAccessReason", defaultValue: "turn on Full access, so another machine's chats can edit files and run commands on this Mac without asking", table: "Remote", bundle: .module) }
+    static var vmHostConfirmReason: String { String(localized: "settings.personGate.vmHostReason", defaultValue: "turn on Dedicated agent machine, so this Mac's chats run on that Cloud machine without the sandbox", table: "Remote", bundle: .module) }
     static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
-    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module) }
+    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Choose Connect to Machine in the command palette, or pass --machine <name>.", table: "Remote", bundle: .module) }
     static var workspaceNotOnSSHMachine: String { String(localized: "remote.failed.workspaceNotSSH", defaultValue: "This workspace does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static var tabNotOnSSHMachine: String { String(localized: "remote.failed.tabNotSSH", defaultValue: "This tab does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static func unknownMachine(_ name: String) -> String { String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name) }
@@ -43,6 +48,9 @@ enum RemoteStrings {
     static func invalidPath(_ path: String) -> String { String(format: String(localized: "remote.failed.path", defaultValue: "“%@” is not a usable path. Use a plain path, optionally starting with ~/.", table: "Remote", bundle: .module), path) }
     static var noPinnedBuild: String { String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module) }
     static func unsupportedPlatform(_ name: String) -> String { String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name) }
+    static var retry: String { String(localized: "remote.recovery.retry", defaultValue: "Retry", table: "Remote", bundle: .module) }
+    static var copyError: String { String(localized: "remote.recovery.copyError", defaultValue: "Copy Error", table: "Remote", bundle: .module) }
+    static var checkMachine: String { String(localized: "remote.recovery.checkMachine", defaultValue: "Check Machine", table: "Remote", bundle: .module) }
     static var connectTitle: String { String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module) }
     static var notARemoteGroup: String { String(localized: "remote.removeGroup.notAGroup", defaultValue: "This machine is not a remote group.", table: "Remote", bundle: .module) }
     static var newGroupTitle: String { String(localized: "remote.newGroup.title", defaultValue: "New Remote Group", table: "Remote", bundle: .module) }
@@ -98,7 +106,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
-            if let failure = session.daemonFailure { return daemonFailed(failure) }
+            if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
             return session.lastError
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
@@ -113,7 +121,15 @@ enum RemoteStrings {
         case .installing:
             return String(localized: "remote.status.installing", defaultValue: "Installing cmux-tui…", table: "Remote", bundle: .module)
         case .installFailed(let message), .failed(let message):
-            return message
+            return plainFailure(message, machine: session.host.label)
+        }
+    }
+
+    static func plainFailure(_ raw: String, machine: String) -> String {
+        switch RemoteFailureCause(raw) {
+        case .sessionInUse: String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
+        case let .cause(cause): String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
+        case .unknown: String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
         }
     }
 
@@ -124,19 +140,11 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected, .reconnecting: session.daemonFailure ?? session.lastError
+        case .connecting, .connected, .reconnecting: session.daemonFailure?.error ?? session.lastError
         case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
-    }
-
-    /// The header detail of a machine whose cmux-tui did not start; `error`
-    /// is the daemon's error and the link's output.
-    static func daemonFailed(_ error: String) -> String {
-        String(format: String(localized: "remote.status.daemonFailed",
-                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
-                              table: "Remote", bundle: .module), error)
     }
 
     /// The one-time notice of a browser tab opened in another machine's

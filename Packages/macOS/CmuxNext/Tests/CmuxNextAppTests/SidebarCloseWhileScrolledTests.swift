@@ -3,13 +3,14 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Two closes in quick succession in a scrolled sidebar (cx-y2uf5): the second, above the
 /// viewport, re-anchors it (rows and offset shift together), while the first close's row is
 /// still closing its slot. That row must shift with the rest, or it jumps by the shift against
 /// its neighbors and keeps closing toward its old place.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarCloseWhileScrolledTests {
     /// The local machine's section with the workspaces `ids`.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -37,7 +38,7 @@ struct SidebarCloseWhileScrolledTests {
         window.isReleasedWhenClosed = false
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(window.screen != nil)
         sidebar.layoutSubtreeIfNeeded()
         let list = sidebar.list

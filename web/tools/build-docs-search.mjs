@@ -13,6 +13,7 @@ import {
 import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
 import cliReference from "../data/next-docs/cli-reference.generated.json";
+import paletteReference from "../data/next-docs/palette-reference.generated.json";
 import settingsReference from "../data/next-docs/settings-reference.generated.json";
 import { headingId, nextDocPages } from "../data/next-docs/pages";
 
@@ -360,7 +361,15 @@ function nextDocsContent(href) {
   if (page.generated === "cli") {
     for (const noun of cliReference.nouns) {
       heading(`cmux ${noun.noun}`);
-      for (const verb of noun.verbs) text(`${verb.command} ${verb.title}`);
+      for (const verb of noun.verbs) text(`${verb.command} ${verb.title}${verb.mcpTool ? ` ${verb.mcpTool}` : ""}`);
+    }
+  }
+  if (page.generated === "palette" || page.generated === "shortcuts") {
+    for (const section of paletteReference.sections) {
+      const rows = section.entries.filter((entry) => page.generated === "palette" || entry.shortcut);
+      if (rows.length === 0) continue;
+      heading(section.title);
+      for (const entry of rows) text([entry.title, entry.shortcut, entry.command].filter(Boolean).join(" "));
     }
   }
   if (page.generated === "settings") {

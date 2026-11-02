@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::PairingCode;
+use cmux_json::JsonSet as _;
 
 pub const MAX_WAIT_MS: u64 = 10 * 60 * 1000;
 pub const MAX_CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -61,7 +62,7 @@ pub fn begin_request(
     let mut public_info = json!({"name":info["name"],"platform":info["platform"],
         "os_version":info["os_version"],"arch":info["arch"],"cmux_version":info["cmux_version"]});
     if let Some(capabilities) = info.get("capabilities") {
-        public_info["capabilities"] = capabilities.clone();
+        public_info.set("capabilities", capabilities.clone());
     }
     Ok(json!({"public_jwk":public_jwk,"wg_public_key":wg_public,"info":public_info,
         "issued_at":issued_at,"signature":signature}))

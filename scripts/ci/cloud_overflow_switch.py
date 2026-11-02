@@ -37,6 +37,16 @@ blacksmith-* label is changed, so a lane someone deliberately pointed
 elsewhere is left alone. Nothing here touches the lane switches
 (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...): minis-first routing
 never changes, only where overflow goes.
+
+Signing jobs read their runner from the variables in
+signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
+MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py). The switch
+never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
+jobs wait for Blacksmith), an override that names a reused machine for one is
+refused, and an older record that still names one as switched to an owned
+pool is not re-applied. Turning overflow back on still puts back the value a
+record names.
 """
 
 from __future__ import annotations
@@ -58,6 +68,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+import signing_runner_variables  # noqa: E402
 
 API = "https://api.github.com"
 UTC = dt.timezone.utc
@@ -79,14 +90,20 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # lane goes through e2e_runner_pool.py, the iOS lane through
 # MACOS_RUNNER_IOS) and MACOS_RUNNER_BACKGROUND is GitHub-hosted, so neither
 # is here; CI_CLOUD_FAILOVER can add one.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+# MACOS_RUNNER_26 is not either: signing jobs run on it, so it never names an owned
+# mini (SIGNING_VARIABLES below). On 2026-10-28 the failover pointed it at the std
+# pool and turned cmux-next-guards.yml's signing-runner-variables red on every PR.
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR", "MACOS_RUNNER_DUAL_XCODE")
+# The variables signing jobs take their runner from: the switch writes only an
+# ephemeral label (blacksmith-* or ubuntu-*) to these, or puts back a recorded value.
+SIGNING_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
 SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
-# so a restore never guesses what a variable held.
-OVERRIDABLE_VARIABLES = (*SWITCHED_VARIABLES, "MACOS_RUNNER_TESTS")
+# so a restore never guesses what a variable held. MACOS_RUNNER_26 stays
+# nameable, but only with an ephemeral (ubuntu-*) value.
+OVERRIDABLE_VARIABLES = (*SWITCHED_VARIABLES, "MACOS_RUNNER_26", "MACOS_RUNNER_TESTS")
 
 # Blacksmith Linux started 35,454 jobs on 2026-09-27 with a queue p90 of 13 s;
 # 18 waited more than a minute. A probe still queued after 5 minutes is far
@@ -153,6 +170,11 @@ def parse_record(raw: str | None) -> dict[str, Any] | None:
     return record
 
 
+def signing_safe(name: str, value: str | None) -> bool:
+    """Whether the switch may write `value` to `name`: anything, unless signing jobs read `name`."""
+    return signing_runner_variables.allowed_value(name, value)
+
+
 def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[dict[str, str], list[str]]:
     """What each overflow variable points at while Blacksmith is down, and any problems.
 
@@ -188,8 +210,15 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                 elif cloud_label(value.strip()):
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a Blacksmith label; "
                                     "ignored")
+                elif not signing_safe(name, value):
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}; signing jobs run on "
+                                    f"{name}, so it may only name blacksmith-* or ubuntu-*; ignored")
                 else:
                     values[name] = value.strip()
+    for name in [name for name, value in values.items() if not signing_safe(name, value)]:
+        # Nothing above should produce one; this is the backstop the tests pin.
+        problems.append(f"the failover for {name} is {values.pop(name)}, not an ephemeral runner; signing jobs "
+                        "run on it, so it is left alone")
     if any(name not in LINUX_VARIABLES for name in values):
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
@@ -203,12 +232,13 @@ def plan_off(current: Mapping[str, str | None], failover: Mapping[str, str]) -> 
     unset (its readers fall back to Blacksmith) or a blacksmith-* label.
     CI_PAID_MACOS_OVERFLOW changes when it is not already 1. A variable
     already at its failover is not recorded, so turning overflow back on
-    never "restores" a value this switch did not set.
+    never "restores" a value this switch did not set. A variable signing jobs
+    read never gets a label other than blacksmith-* or ubuntu-*.
     """
     changed: dict[str, dict[str, str | None]] = {}
     for name, after in failover.items():
         before = (current.get(name) or "").strip() or None
-        if before == after:
+        if before == after or not signing_safe(name, after):
             continue
         if name != PAID_OVERFLOW_VARIABLE and before is not None and not cloud_label(before):
             continue
@@ -251,7 +281,10 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
 
     A value still at the recorded ``before`` value was never switched, so it
     is safe to apply its recorded failover. Any other value is either already
-    at ``after`` or was edited by someone else and is left alone.
+    at ``after`` or was edited by someone else and is left alone. A record
+    written before signing variables were kept ephemeral may name one with an
+    owned ``after``; that is never applied (on 2026-10-28 a retry re-applied
+    MACOS_RUNNER_26 eight minutes after it was put back by hand).
     """
     resumes: list[Resume] = []
     for name, change in sorted((record.get("changed") or {}).items()):
@@ -263,6 +296,10 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
             continue
         now = (current.get(name) or "").strip() or None
         if now == after:
+            continue
+        if not signing_safe(name, after):
+            resumes.append(Resume(name, after, f"signing jobs run on {name}, and {after} is not an ephemeral "
+                                  "runner; left alone"))
             continue
         if now == before:
             resumes.append(Resume(name, after))

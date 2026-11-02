@@ -23,10 +23,8 @@ on:
       baseline_run:
         description: "run id whose chief-evals artifact is the baseline (default: the last feat-cmux-next run that has one)"
         default: ""
-permissions:
-  actions: read
-  contents: read
-  id-token: write
+# Write scopes are job-scoped (tests/test_ci_workflow_permissions_are_job_scoped.py).
+permissions: {}
 # One run at a time, never cancelled: the branch moves every few minutes, and
 # a cancelled run scores nothing.
 concurrency:
@@ -34,8 +32,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   evals:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
+    permissions:
+      # gh run download of the baseline run's chief-evals artifact.
+      actions: read
+      contents: read
+      # The tailnet join's OIDC token (tailscale/github-action oauth-client-id + audience).
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -44,11 +48,18 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: Native/OptChat/optchat-chief
+          # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
+          cache-bin: false
       - name: Build the eval runner and cases
         working-directory: Native/OptChat/optchat-chief
         run: |
           cargo build --locked --example chief_eval
-          cargo test --locked --no-run $(ls tests/eval_*.rs | sed -E 's#tests/(.*)\.rs#--test \1#')
+          eval_tests=()
+          for file in tests/eval_*.rs; do
+            name="${file#tests/}"
+            eval_tests+=(--test "${name%.rs}")
+          done
+          cargo test --locked --no-run "${eval_tests[@]}"
       - name: Deterministic cases (no model call)
         working-directory: Native/OptChat/optchat-chief
         run: evals/run.sh --no-model
@@ -119,3 +130,6 @@ jobs:
           name: chief-evals
           path: ${{ runner.temp }}/chief-evals
           if-no-files-found: ignore
+          # A later run diffs against it; the baseline is report-only, so a run
+          # more than 3 days after the last one just shows no diff.
+          retention-days: 3

@@ -8,12 +8,14 @@ import SwiftUI
 /// Where a tapped notification opens (verify/rich-push.md, "Tap routing"),
 /// decided from what the phone knows now.
 enum NotificationTarget: Equatable {
-    /// That Mac's Chief conversation, on Home.
-    case chief
+    /// The named Home conversation, if the route supplies one; nil opens the Mac Chief.
+    case chief(conversationID: String?)
     /// The agent's chat.
     case chat(AgentChatDestination)
     /// A workspace at one of its tabs: a terminal, a browser tab, an agent tab.
     case workspace(id: String, tabID: String?)
+    /// The Workspaces list (a cloud group link that names no workspace).
+    case workspaces
     /// The Mac's tree has not arrived yet: try again when it does.
     case wait
     /// Nothing more exact is known: the Feed.
@@ -30,12 +32,23 @@ enum NotificationTarget: Equatable {
                        phase: (String) -> MacDataMachine.Phase,
                        canLink: (String) -> Bool,
                        expired: Bool) -> NotificationTarget {
-        if route.kind == "chief" { return .chief }
+        if route.kind == "chief" { return .chief(conversationID: route.conversationID) }
         // A terminal notification opens its terminal, never a chat bound elsewhere.
         // A terminal agent's event (no acpmux session, its terminal's tab) opens its terminal too.
-        let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace)?.tabs
-            .contains { $0.id == route.tabID && $0.kind == .terminal } == true
-        if route.kind != "terminal", !terminalTab, let destination = chat(route) { return .chat(destination) }
+        let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace).map { ws in
+            (route.mac == nil || ws.macID == route.mac)
+                && ws.tabs.contains { $0.id == route.tabID && $0.kind == .terminal }
+        } == true
+        if route.kind != "terminal", !terminalTab, let destination = chat(route) {
+            // The chat resolver already uses the source Mac. Its tree can arrive
+            // ahead of the workspace cache, so accept a missing cache entry;
+            // reject a cached entry that proves a different Mac owns this chat.
+            if let sourceMac = route.mac, let owner = workspace(destination.workspaceID)?.macID {
+                if owner == sourceMac { return .chat(destination) }
+            } else {
+                return .chat(destination)
+            }
+        }
         if let id = route.workspaceID, let ws = workspace(id), route.mac == nil || ws.macID == route.mac {
             let tab = route.tabID.flatMap { tab in ws.tabs.contains(where: { $0.id == tab }) ? tab : nil }
             if tab != nil || route.kind == "terminal" || route.tabID == nil { return .workspace(id: ws.id, tabID: tab) }
@@ -57,6 +70,12 @@ extension ShellModel {
     /// tab. Returns false while the Mac's tree has not arrived, so the shell
     /// tries again when it does.
     func openRoute(_ route: NotificationRoute) -> Bool {
+        if let cloud = route.cloud {
+            cancelRestore()
+            tab = .home
+            cloudChats = CloudChatsPresentation(attention: cloud)
+            return true
+        }
         // Signed in, but the live link is not attached yet (a cold launch while
         // the account settles): no Mac's tree can be read, so `decide` would
         // settle for the Feed. Wait instead; ShellView tries again once the link is
@@ -66,6 +85,7 @@ extension ShellModel {
             tab = .feed
             return false
         }
+        if let link = route.link { return openLink(link) } // ShellModel+Links.swift
         // The notification's Mac (one link per Mac): its link opens now if it
         // was idle, so the chat and its answers reach that Mac. Chief follows
         // the focused Mac, so a Chief notification also moves the focus there.
@@ -74,50 +94,65 @@ extension ShellModel {
         }
         let target = NotificationTarget.decide(
             route,
-            chat: { [live] in live?.destination(sessionID: $0.sessionID, workspaceID: $0.workspaceID, tabID: $0.tabID) },
+            chat: { [live] in live?.destination(sessionID: $0.sessionID, workspaceID: $0.workspaceID, tabID: $0.tabID, macID: $0.mac) },
             workspace: { [store] in store.workspace(id: $0) },
             phase: { [store] in store.macDataPhase($0) },
             canLink: { [live] in live?.canLink(macID: $0) ?? false },
             expired: NotificationRouter.shared.isExpired()
         )
         switch target {
-        case .chief:
-            tab = .home
-            var path = NavigationPath()
-            path.append(ChiefRoute(place: .mac))
-            homePath = path
-        case .chat(let destination):
-            tab = .feed
-            feedPath = [destination]
-        case .workspace(let id, let tabID):
-            guard let workspace = store.workspace(id: id) else {
-                // Defensive only: `decide` read this same store a moment ago on the
-                // main actor. Should it ever be gone, the Feed, never a wait.
-                tab = .feed
-                toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
-                return true
-            }
-            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
-            store.markSeen(workspace.id)
-            tab = .workspaces
-            if workspacesPath.last?.id == workspace.id {
-                // Its page is already up, maybe on another tab: build it again on this one.
-                workspacesPath = []
-                Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
-            } else {
-                workspacesPath = [workspace]
-            }
         case .wait:
             tab = .feed
             return false
         case .feed:
             tab = .feed
             toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
+        case .workspace(let id, _) where store.workspace(id: id) == nil:
+            // Defensive only: `decide` read this same store a moment ago on the
+            // main actor. Should it ever be gone, the Feed, never a wait.
+            tab = .feed
+            toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
+        default:
+            open(target: target)
         }
         return true
     }
 
-    private func macName(_ id: String?) -> String? {
+    /// Shows a decided target: a named conversation on Home, a chat on the Feed, or a workspace.
+    func open(target: NotificationTarget) {
+        switch target {
+        case .chief(let conversationID):
+            tab = .home
+            // The notification's own conversation: the Mac Chief, the Cloud
+            // Chief, or another conversation of the Mac's Home list.
+            homePath = NavigationPath(chiefConversation: conversationID)
+        case .chat(let destination):
+            tab = .feed
+            feedPath = [destination]
+        case .workspace(let id, let tabID):
+            guard let workspace = store.workspace(id: id) else { return }
+            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
+            store.markSeen(workspace.id)
+            tab = .workspaces
+            if !workspacesPath.isEmpty {
+                // A workspace page is up (this one, maybe on another tab, or another
+                // workspace's): build the stack again with this page. Replacing the
+                // shown page in place leaves the old one on screen while the app is
+                // in front (a link tapped in a chat).
+                workspacesPath = []
+                Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+            } else {
+                workspacesPath = [workspace]
+            }
+        case .workspaces:
+            tab = .workspaces
+            workspacesPath = []
+        case .wait, .feed:
+            tab = .feed
+        }
+    }
+
+    func macName(_ id: String?) -> String? {
         guard let id else { return nil }
         return store.teams.flatMap(\.macs).first { $0.id == id }?.name
     }

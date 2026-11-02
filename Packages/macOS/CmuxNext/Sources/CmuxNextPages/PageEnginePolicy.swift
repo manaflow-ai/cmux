@@ -58,9 +58,11 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
 nonisolated extension PageDescriptor {
     /// Why this page cannot run in Chromium yet, nil when it can (``PageEnginePolicy``).
     public var chromiumBlocker: PageWebKitReason? {
-        if id == Self.agentPageID { return .agentChat }
+        if isAgentPage { return .agentChat }
         return nil
     }
+
+    var isAgentPage: Bool { id == Self.agentPageID }
 
     /// The agent page's id (its descriptor lives in CmuxNextAgentPane, above this module).
     private static let agentPageID = "cmux.agent"

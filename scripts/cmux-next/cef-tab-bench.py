@@ -20,6 +20,19 @@ pane), `page_ms` (the first frame after the page's first contentful paint or loa
 main-thread spans (cef.create_window, cef.tab_add, ...) and the frame intervals with the display's
 refresh period. The summary gives p50/p95/max per case and the refresh rate: judge in frames.
 
+Three arms of the new Chromium tab (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
+visible_ms, page_ms and key_ms:
+
+  warm   the light cold_pane runs: Cmd-Shift-L in a fresh pane after `settle()` (1.2 s), so the spare
+         Chromium window is ready
+  quick  two quick presses, per round in a fresh terminal workspace: Cmd-Shift-L (debug.key, not timed), then at
+         once the timed Cmd-Shift-L, with no wait for the spare window to refill
+  cold   cold, no wait: the launch's first Cmd-Shift-L right after the socket answers (no first-workspace wait,
+         no warm-up wait), and per round the timed Cmd-Shift-L right after `debug.cef drop_spare` closed the spare
+
+The bench's HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
+`HEADLINE cef-tab visible_ms = <arm> arm ...`; the warm arm alone never stands for the bench.
+
 `--sessions light,stress`: after the light rounds, builds STRESS (scripts/cmux-next/perf-stress-session.py:
 60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
 terminals) and runs the cases that need no split in the measured workspace's focused pane.
@@ -35,6 +48,9 @@ Local, on a built app (never on a laptop in use):
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
+import bench_arms  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -43,6 +59,9 @@ parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pa
 parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
 parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
 parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
+parser.add_argument("--arms", default="warm,quick,cold",
+                    help="the arms to time (bench_arms.py): warm (the cold_pane runs), quick (a press right after a "
+                         "press), cold (the launch's first press, and a press right after the spare was dropped)")
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -62,6 +81,9 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 CASES = [c for c in opts.cases.split(",") if c]
+ARMS = [a for a in opts.arms.split(",") if a]
+if set(ARMS) - set(bench_arms.ARMS):
+    parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
 LAUNCHED = []
 app = None
 
@@ -160,6 +182,23 @@ def settle():
     time.sleep(1.2)  # test harness: the page loads and Chromium goes idle before the next input
 
 
+def create(params, case, session, rnd, arm=None):
+    """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
+    result = rpc("debug.new_tab", params, timeout=30) or {}
+    result.update({"case": case, "session": session, "round": rnd})
+    if arm:
+        result["arm"] = arm
+    result["visible_frame"] = frame_of(result, "visible_ms")
+    result["page_frame"] = frame_of(result, "page_ms")
+    spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
+    print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
+          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} page={result.get('page_ms')} "
+          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
+          f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
+          f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
+    return result
+
+
 def bench_case(case, window, session, rnd):
     if case in ("second_pane", "third_pane", "url_cold"):
         if not split(window):
@@ -171,18 +210,67 @@ def bench_case(case, window, session, rnd):
         params.update({"run": "openBrowser.webkit"})
     elif case == "webkit_url":
         params.update({"run": "openBrowser.webkit", "url": "file://" + PAGE})
-    result = rpc("debug.new_tab", params, timeout=30) or {}
-    result.update({"case": case, "session": session, "round": rnd})
-    result["visible_frame"] = frame_of(result, "visible_ms")
-    result["page_frame"] = frame_of(result, "page_ms")
-    spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
-    print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
-          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} page={result.get('page_ms')} "
-          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
-          f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
-          f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
+    result = create(params, case, session, rnd)
     settle()
     return result
+
+
+NEW_BROWSER = {"action": "bench_create", "command": "new_browser"}
+
+
+def arm_quick(window, rnd):
+    """Two quick presses in a fresh terminal workspace: the first Cmd-Shift-L (debug.key, not timed) takes the ready
+    spare, the timed one follows at once, before the spare window can refill."""
+    if not terminal_workspace(f"cef-tab-quick-{rnd}"):
+        return {"case": "arm_quick", "session": "light", "round": rnd, "arm": "quick", "error": "no focused terminal"}
+    settle()
+    key("l", ["command", "shift"], window)
+    result = create(NEW_BROWSER, "arm_quick", "light", rnd, arm="quick")
+    close_workspace()
+    return result
+
+
+def arm_cold_dropped(rnd):
+    """In a fresh terminal workspace, the spare Chromium window closed (`debug.cef drop_spare`), then at once the timed
+    Cmd-Shift-L: the spare was consumed and nothing waited for its refill."""
+    if not terminal_workspace(f"cef-tab-cold-{rnd}"):
+        return {"case": "arm_cold", "session": "light", "round": rnd, "arm": "cold", "error": "no focused terminal"}
+    settle()
+    rpc("debug.cef", {"drop_spare": True})
+    result = create(NEW_BROWSER, "arm_cold", "light", rnd, arm="cold")
+    close_workspace()
+    return result
+
+
+def arm_cold_launch(window):
+    """The launch's first Cmd-Shift-L: as soon as a terminal is focused after the socket answered, with no
+    first-workspace wait, no shell prompt wait and no warm-up wait. Cmd-W closes the new tab (the launch's
+    workspace stays, so the window keeps a workspace)."""
+    if (focused() or {}).get("kind") != "terminal":
+        action("newTab", {"name": "cef-tab-cold-launch"}, focus=True)
+        if not wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.02):
+            return {"case": "arm_cold_launch", "session": "light", "round": -1, "arm": "cold", "error": "no focused terminal"}
+    result = create(NEW_BROWSER, "arm_cold_launch", "light", -1, arm="cold")
+    result["launch"] = True
+    if result.get("visible_ms") is not None:
+        key("w", ["command"], window)
+    return result
+
+
+def close_workspace():
+    action("closeWorkspace", {"confirm": True})
+    time.sleep(0.8)  # test harness: the workspace's pages close
+
+
+def arm_samples(rows, metric):
+    """{arm: samples} of `metric`: warm is the light cold_pane runs, quick and cold the arm runs."""
+    out = {}
+    if "warm" in ARMS:
+        out["warm"] = [r.get(metric) for r in rows if r.get("session") == "light" and r.get("case") == "cold_pane"]
+    for arm in ("quick", "cold"):
+        if arm in ARMS:
+            out[arm] = [r.get(metric) for r in rows if r.get("arm") == arm]
+    return out
 
 
 def bench_session(session, window):
@@ -192,8 +280,12 @@ def bench_session(session, window):
             sys.exit("no focused terminal: " + json.dumps(panes())[:800])
         for case in CASES:
             rows.append(bench_case(case, window, session, rnd))
-        action("closeWorkspace", {"confirm": True})
-        time.sleep(0.8)  # test harness: the workspace's pages close
+        close_workspace()
+        if session == "light" and "quick" in ARMS:
+            rows.append(arm_quick(window, rnd))
+        if session == "light" and "cold" in ARMS:
+            rows.append(arm_cold_dropped(rnd))
+            settle()  # the next round's warm press finds the spare the cold press asked for
     return rows
 
 
@@ -402,9 +494,11 @@ def main():
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
-    time.sleep(2)  # test harness: first workspace
     window = window_key()
     rows, stress, spare, profiles = [], None, None, None
+    if "cold" in ARMS:
+        rows.append(arm_cold_launch(window))  # before any wait: the cold arm's launch press
+    time.sleep(2)  # test harness: first workspace
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
             stress = build_stress()
@@ -419,6 +513,10 @@ def main():
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare, "profiles": profiles,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
               "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
+    print("", flush=True)
+    result["arms"] = {metric: bench_arms.report("cef-tab", metric, "ms", arm_samples(rows, metric), out=lambda line: print(line, flush=True))
+                      for metric in ("visible_ms", "page_ms", "key_ms")}
+    result["headline"] = {"metric": "visible_ms", "arm": result["arms"]["visible_ms"]["headline"], "rule": bench_arms.RULE}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | chrome p95 | page p50 | page p95 | create_window p95 | "
           f"tab_add p95 | refresh |\n|---|---|---|---|---|---|---|---|---|---|---|")

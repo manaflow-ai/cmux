@@ -49,6 +49,7 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
@@ -162,7 +163,7 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
     });
     if let Some(url) = endpoint {
-        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+        v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
     }
     v.to_string()
 }
@@ -1500,18 +1501,20 @@ mod endpoint_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_canary_attempts_both_persistence_renames() {
-        use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("canary-renames-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let probe = canary_persistence_probe(&root, true).unwrap().unwrap();
         let log = root.join("renames");
         let mv = root.join("bin/mv");
-        std::fs::write(&mv, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n")
-            .unwrap();
-        std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &mv,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n",
+        );
         let helper = root.join("bin/helper");
-        std::fs::write(&helper, "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &helper,
+            "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n",
+        );
         let out = std::process::Command::new("/bin/bash")
             .args(["-c", CANARY, "canary", "/nonexistent/outside", "0"])
             .arg(&root)

@@ -19,17 +19,24 @@ use super::*;
 
 const RECEIPT_ENV_DOMAIN: &[u8] = b"cmux.resource-receipt-env.v1";
 
+// Only rows that still hold a value: SQLite counts a same-value UPDATE as a
+// change, and a change makes the open checkpoint and truncate the whole WAL
+// (3.7 s per launch on a 41.6 GB nightly registry, Lawrence 2026-10-29).
 const SCRUB_EFFECT_INTENTS: &str = "UPDATE resource_effect_receipts
      SET intent_json = json_set(intent_json, '$.fields.env', json((
        SELECT json_group_object(key, NULL) FROM json_each(intent_json, '$.fields.env'))))
      WHERE state IN ('committed', 'indeterminate')
-       AND json_type(intent_json, '$.fields.env') = 'object'";
+       AND json_type(intent_json, '$.fields.env') = 'object'
+       AND EXISTS (
+         SELECT 1 FROM json_each(intent_json, '$.fields.env') WHERE type != 'null')";
 
 const SCRUB_CREATION_INTENTS: &str = "UPDATE resource_creation_receipts
      SET intent_json = json_set(intent_json, '$.fields.env', json((
        SELECT json_group_object(key, NULL) FROM json_each(intent_json, '$.fields.env'))))
      WHERE state IN ('created', 'not_applied', 'indeterminate')
-       AND json_type(intent_json, '$.fields.env') = 'object'";
+       AND json_type(intent_json, '$.fields.env') = 'object'
+       AND EXISTS (
+         SELECT 1 FROM json_each(intent_json, '$.fields.env') WHERE type != 'null')";
 
 impl ResourceEffectPepper {
     fn env_value_hmac(&self, key: &str, value: &str) -> String {
@@ -113,27 +120,52 @@ pub(super) fn create_scrub_triggers(transaction: &Transaction<'_>) -> anyhow::Re
     Ok(())
 }
 
+/// The receipt tables the scrub rewrites: table, key column, the scrub of
+/// finished intents, and the meta key of the newest rowid already scrubbed.
+const SCRUBBED_TABLES: [(&str, &str, &str, &str); 2] = [
+    (
+        "resource_effect_receipts",
+        "idempotency_key",
+        SCRUB_EFFECT_INTENTS,
+        "receipt_env_scrubbed_through_effect_rowid",
+    ),
+    (
+        "resource_creation_receipts",
+        "correlation_key",
+        SCRUB_CREATION_INTENTS,
+        "receipt_env_scrubbed_through_creation_rowid",
+    ),
+];
+
 /// Rewrite receipts stored before the rule: redact every fingerprint's env
 /// values and scrub the intents of finished receipts, in place. True when a
 /// row changed; the caller then checkpoints the WAL so no old page image
 /// keeps a value (`secure_delete` is on for the registry connection).
+///
+/// Each open reads only the rows stored since the last scrub (rowid above a
+/// watermark in `meta`): a build with the rule redacts a fingerprint when it
+/// writes it and the triggers scrub an intent when it finishes, so only rows
+/// a build without the rule wrote can hold values, and those are new rows.
+/// Re-reading every receipt at each open cost 0.45 s cold on a 41.6 GB
+/// registry. Retention deletes the oldest receipts, never the newest, so a
+/// rowid is not reused below the watermark.
 pub(super) fn scrub_stored_receipts(
     transaction: &Transaction<'_>,
     pepper: &ResourceEffectPepper,
 ) -> anyhow::Result<bool> {
     let mut changed = 0;
     create_scrub_triggers(transaction)?;
-    for (table, key) in [
-        ("resource_effect_receipts", "idempotency_key"),
-        ("resource_creation_receipts", "correlation_key"),
-    ] {
+    for (table, key, scrub_intents, watermark_key) in SCRUBBED_TABLES {
+        let since = meta_value(transaction, watermark_key)?
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
         let rows = {
             let mut statement = transaction.prepare(&format!(
                 "SELECT {key}, fingerprint FROM {table}
-                 WHERE json_type(fingerprint, '$.fields.env') = 'object'"
+                 WHERE rowid > ?1 AND json_type(fingerprint, '$.fields.env') = 'object'"
             ))?;
             statement
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .query_map([since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
                 .collect::<Result<Vec<_>, _>>()?
         };
         for (id, fingerprint) in rows {
@@ -146,8 +178,19 @@ pub(super) fn scrub_stored_receipts(
                 )?;
             }
         }
+        changed += transaction.execute(&format!("{scrub_intents} AND rowid > ?1"), [since])?;
+        let through: i64 = transaction.query_row(
+            &format!("SELECT COALESCE(MAX(rowid), 0) FROM {table}"),
+            [],
+            |row| row.get(0),
+        )?;
+        if through != since {
+            transaction.execute(
+                "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![watermark_key, through.to_string()],
+            )?;
+        }
     }
-    changed += transaction.execute(SCRUB_EFFECT_INTENTS, [])?;
-    changed += transaction.execute(SCRUB_CREATION_INTENTS, [])?;
     Ok(changed > 0)
 }

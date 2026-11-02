@@ -49,15 +49,19 @@ class FakeApp:
 
     def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens",
                  other_window_active=False,
-                 clamps=False):
+                 clamps=False, provisional_for=5):
         """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
         fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
-        (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal) or `transport` (the
-        socket times out, no typed refusal)."""
+        (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal), `transport` (the
+        socket times out, no typed refusal), `provisional` (the chat tab shows at once under a `pending_tab_`
+        id, which no action target matches, and takes the daemon's id `provisional_for` s later) or `vanishes`
+        (that provisional tab goes away after `provisional_for` s, as a chat whose start failed)."""
+        self.provisional_for = provisional_for
         self.takes_focus = takes_focus
         self.visible, self.screen, self.legacy, self.chat = visible or VISIBLE, screen or SCREEN, legacy, chat
         self.clock = None  # the builder's FakeClock (builder())
         self.pending = []  # (due, pane, tab): late chat tabs
+        self.provisional = []  # (due, pane, tab, keeps): provisional chat tabs, confirmed or removed when due
         self.workspaces, self.layout = [], {}
         self.shown = None
         self.focus = {"workspace": None, "pane": None}
@@ -138,6 +142,11 @@ class FakeApp:
                 rings.append({"pane": pane, "frame_in_window": [x, y, width, share * AREA[1]]})
                 y += share * AREA[1]
             x += width
+        # A chat dock (the app's left dock column with the agent chat role) is a pane frame too.
+        shown = next((w for w in self.workspaces if w["id"] == self.shown), None)
+        for dock in [p for p in self.panes_of(shown) if p.get("dock")] if shown else []:
+            rings.append({"pane": dock["id"], "frame_in_window": [-320.0, 0.0, 320.0, AREA[1]]})
+            dividers.append([-2, 0, 4, AREA[1]])
         window = {"id": "win_1", "frame": list(self.window_frame), "divider_areas_in_window": dividers,
                   "planes": [{"rings": rings}], "browsers": []}
         if not self.legacy:
@@ -169,6 +178,15 @@ class FakeApp:
             for due, pane, tab in [p for p in self.pending if p[0] <= self.clock.now]:
                 self.pending.remove((due, pane, tab))
                 self.add(pane, tab)
+            for entry in [p for p in self.provisional if p[0] <= self.clock.now]:
+                self.provisional.remove(entry)
+                _, pane, tab, keeps = entry
+                if keeps:
+                    tab["id"] = self.ident("tab")
+                else:
+                    pane["tabs"].remove(tab)
+                    if tab.get("selected") and pane["tabs"]:
+                        pane["tabs"][-1]["selected"] = True
             windows = [{"key": "win_1", "workspace": self.shown, "focused_pane": self.window_focus}]
             focus = dict(self.focus)
             if self.other_window_active:
@@ -184,7 +202,15 @@ class FakeApp:
         if method != "action.run":
             return {}
         action, target = params.get("action"), params.get("target") or ""
-        pane = self.pane_by_id(target[len("pane:"):]) if target.startswith("pane:") else self.pane_by_id(self.focus["pane"])
+        if target.startswith("tab:"):
+            # A tab target is the tab the new one opens beside, in its pane (AppActionContext.daemonPane); a
+            # provisional tab's id names no daemon tab.
+            pane = next((p for w in self.workspaces for p in self.panes_of(w) for t in p["tabs"] if t["id"] == target[4:]), None)
+            if pane is None or target[4:].startswith(stress.PROVISIONAL_TAB):
+                return {"error": {"code": "not_found", "data": {"id": target[4:], "kind": "tab", "not_run": True},
+                                  "message": f"No tab matches {target[4:]}"}}
+        else:
+            pane = self.pane_by_id(target[len("pane:"):]) if target.startswith("pane:") else self.pane_by_id(self.focus["pane"])
         workspace = self.owner(pane["id"]) if pane else None
         self.log.append((action, workspace and workspace["id"], bool(workspace) and workspace["id"] == self.shown))
         if action == "workspace.newAtBottom":
@@ -218,16 +244,31 @@ class FakeApp:
             self.browsers.append((pane["id"], not hidden))
             self.add(pane, self.tab("browser"))
         elif action == "palette.newAgentChat":
+            if params.get("focus") and target.startswith("pane:"):
+                # The app: a run that asks for focus on a shown pane takes the person's New Agent Chat
+                # path (openTargetedChat applies only without a view change), and NewChatPlacement puts
+                # the chat in the workspace's left chat dock, made by the first one: never in the pane.
+                dock = next((p for p in self.panes_of(workspace) if p.get("dock")), None)
+                if dock is None:
+                    dock = {"id": self.ident("pane"), "tabs": [], "dock": {"edge": "left", "role": "agentChat"}}
+                    self.panes_of(workspace).append(dock)
+                self.add(dock, self.tab("conversation"))
+                return {}
             if self.chat == "refused":
                 return {"error": {"code": "unavailable", "data": {"reason": "agent launch denied"}}}
             if self.chat == "transport":
                 return {"error": "timed out"}
             if self.chat == "late":
                 self.pending.append((self.clock.now + 9, pane, self.tab("conversation")))
+            elif self.chat in ("provisional", "vanishes"):
+                tab = {"id": stress.PROVISIONAL_TAB + self.ident("chat"), "kind": "conversation"}
+                self.add(pane, tab)
+                self.provisional.append((self.clock.now + self.provisional_for, pane, tab, self.chat == "provisional"))
             else:
                 self.add(pane, self.tab("conversation"))
         elif action == "newTab.page":
-            self.add(pane, self.tab("page", page="new-tab"))
+            # The New Tab page is an agent tab showing the page (PaneController.newTabPage): kind conversation.
+            self.add(pane, self.tab("conversation"))
         return {}
 
 
@@ -477,6 +518,19 @@ class ChatTests(Case):
         self.assertEqual(summary["pane_problems"], [])
         self.assertFalse(any(action == "newTab.page" for action, _, _ in app.log))
 
+    def test_each_chat_opens_in_its_measured_pane_not_in_a_chat_dock(self):
+        # Fleet holder-dogfood STRESS, macOS 27 (e13f253fa4c): "chat tab None is None" in every pane, "15 pane
+        # frames in debug.layers, not 14; 6 columns side by side, not 4; 70 tabs in the measured workspace, not
+        # 84". newAgentChat asked for focus, so the app took the person's path and docked every chat.
+        app = FakeApp()
+        session = builder(app)
+        session.build_measured()
+        summary = session.summary()
+        self.assertEqual(summary["pane_problems"], [], "a chat went somewhere other than its pane")
+        self.assertEqual(summary["grid_problems"], [], "a chat dock made an extra pane frame")
+        self.assertEqual(sum(summary["measured_tabs"].values()), 84)
+        self.assertFalse(any(p.get("dock") for w in app.workspaces for p in app.panes_of(w)), "a chat dock was made")
+
     def test_only_a_typed_refusal_falls_back(self):
         app = FakeApp(chat="transport")
         session = builder(app)
@@ -484,6 +538,44 @@ class ChatTests(Case):
         self.assertEqual(session.chat_fallbacks, 0)
         self.assertTrue(any("chat tab None" in problem for problem in session.summary()["pane_problems"]),
                         "a chat that never came is named, not hidden by a stand-in page")
+
+    def test_a_terminal_after_a_provisional_chat_opens_beside_a_tab_the_daemon_has(self):
+        # cmux20-bench, 2026-10-28 (150eaffb): newSurface aimed at the pane's selected tab, the new chat still
+        # under its pending_tab_ id, was refused ("No tab matches pending_tab_..."), and STRESS stopped at the
+        # measured workspace's first pane.
+        app = FakeApp(chat="provisional")
+        session = builder(app)
+        session.build_measured()
+        self.assertFalse(any("pending_tab_" in refusal for refusal in session.refusals), session.refusals)
+        summary = session.summary()
+        self.assertEqual(summary["pane_problems"], [], "a chat was recorded under its provisional id")
+        for pane in session.panes(session.workspace(session.measured)):
+            self.assertEqual(sorted(t["kind"] for t in pane["tabs"]),
+                             ["browser", "browser", "browser", "conversation", "terminal", "terminal"])
+
+    def test_a_chat_the_daemon_never_has_in_time_is_a_pane_problem_not_a_provisional_id(self):
+        app = FakeApp(chat="provisional", provisional_for=50)  # longer than the settle and confirm waits
+        session = builder(app)
+        session.build_measured()
+        made = [tab for tabs in session.made.values() for _, tab, _ in tabs]
+        self.assertFalse(any(str(tab).startswith(stress.PROVISIONAL_TAB) for tab in made), "a provisional id was recorded")
+        self.assertTrue(any("chat tab None" in problem for problem in session.summary()["pane_problems"]),
+                        "a chat the daemon never had passed the mix check")
+
+    def test_a_terminal_is_found_when_the_provisional_chat_before_it_goes_away(self):
+        app = FakeApp(chat="vanishes")
+        session = builder(app)
+        session.build_measured()  # no "terminal tab did not appear": the new tab is found by id, not by count
+        for pane in session.panes(session.workspace(session.measured)):
+            self.assertEqual(sum(1 for t in pane["tabs"] if t["kind"] == "terminal"), 2)
+
+    def test_an_allowed_chat_fallback_is_recorded_as_the_new_tab_page_it_opened(self):
+        app = FakeApp(chat="refused")
+        session = builder(app, allow_chat_fallback=True)
+        session.build_measured()
+        made = [(kind, tab, fallback) for tabs in session.made.values() for kind, tab, fallback in tabs if kind == "chat"]
+        self.assertTrue(made and all(tab and fallback for _, tab, fallback in made), made)
+        self.assertEqual(session.summary()["pane_problems"], [])
 
     def test_refused_chats_are_not_stress_unless_asked(self):
         for allow in (False, True):

@@ -73,7 +73,8 @@ RULES = [
      r"\.(transition|contentTransition|symbolEffect|matchedGeometryEffect)\(|\b(phaseAnimator|keyframeAnimator)\b|TimelineView\(\.animation"),
     ("window animationBehavior outside a motion gate (use gate.animatesMovement ? .x : .none)",
      r"\banimationBehavior\s*=\s*\.(?!none\b)(?![^\n]*\bMotion\.)"),
-    ("popover animates outside a motion gate", r"\.animates\s*=\s*(?![^\n]*\bMotion\.)"),
+    ("popover animates outside a motion gate", r"\.animates\s*=(?!\s*false\s*(?:;|}))(?![^\n]*\bMotion\.)"),
+    ("popup entrance animation (open popups in one frame)", r"\bentrance\s*:\s*true\b"),
 ]
 # An .animator() change must run inside a Motion gate's animation group: outside one, AppKit
 # animates it on its own 0.25 s default, which no switch reaches. Heuristic: a gate call that
@@ -98,6 +99,21 @@ def code_part(line):
             return line[:i]
     return line
 
+def popover_assignment_code(index, code, lines):
+    # A newline after `false` need not end a Swift expression. Only treat it as a
+    # literal assignment when the next significant line starts a new statement or
+    # closes the scope. Operators, member access, casts and type checks continue it.
+    if not re.search(r"\.animates\s*=\s*false\s*$", code):
+        return code
+    for following in lines[index + 1:]:
+        following = code_part(following).strip()
+        if not following:
+            continue
+        if re.match(r"(?:as|is)\b", following) or not re.match(r"[A-Za-z_@};]", following):
+            return code
+        break
+    return code + ";"
+
 failures = []
 for directory, _, files in os.walk(sources):
     for name in files:
@@ -115,7 +131,8 @@ for directory, _, files in os.walk(sources):
             allowed = bool(ALLOW.search(line) or (index > 0 and ALLOW.search(lines[index - 1])))
             code = code_part(line)
             for rule, pattern in compiled:
-                if pattern.search(code) and not allowed:
+                rule_code = popover_assignment_code(index, code, lines) if rule == "popover animates outside a motion gate" else code
+                if pattern.search(rule_code) and not allowed:
                     failures.append(f"{os.path.relpath(path, root)}:{index + 1}: {rule}: {stripped}")
             if animator_use.search(code) and not allowed:
                 window = [code_part(l) for l in lines[max(0, index - 40):index + 41]]

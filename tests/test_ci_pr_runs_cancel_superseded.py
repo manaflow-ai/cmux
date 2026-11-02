@@ -16,6 +16,9 @@ request and one run of another, and requires:
 - the two pull requests do not, and
 - cancel-in-progress is true for that event.
 
+A pull request event whose `types:` filter leaves out `synchronize` (a
+labeled-only tour) gets no run from a push, so it is not judged either.
+
 Push, schedule and dispatch runs are not judged: workflows that also run on a
 push to feat-cmux-next or main keep their own policy there, usually
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
@@ -54,10 +57,6 @@ ALLOWED = {
     # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
     # asserts it has no concurrency).
     "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
-    # Runs once, on `opened`; there is no newer run to supersede it.
-    "contributor-welcome.yml": "runs only on opened",
-    # Runs once, on `closed` (after the merge); nothing supersedes it.
-    "merge-receipt.yml": "runs only on closed",
     # The apply jobs migrate the staging and production databases; a cancel
     # could stop one between applying a migration and recording it.
     "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
@@ -380,9 +379,29 @@ def jobs_on(workflow: dict, event: str) -> dict[str, dict]:
     return out
 
 
+# Activity types a push to a pull request's head produces. GitHub's default
+# pull_request types (opened, synchronize, reopened) include it.
+PUSH_TYPES = {"synchronize"}
+
+
+def push_starts_a_run(trigger: Any) -> bool:
+    """False when the event's `types:` filter leaves out every push activity type.
+
+    A workflow that runs only on `labeled` (cmux-next-media.yml) gets no run
+    from a push, so there is no superseded push run to cancel.
+    """
+    if not isinstance(trigger, dict) or "types" not in trigger:
+        return True
+    types = trigger.get("types")
+    types = [types] if isinstance(types, str) else list(types or [])
+    return bool(PUSH_TYPES & set(types))
+
+
 def workflow_problem(workflow: dict) -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
+            continue
+        if not push_starts_a_run(triggers(workflow)[event]):
             continue
         reason = problem(workflow.get("concurrency"), workflow, event)
         if reason is None:
@@ -414,6 +433,10 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    if workflow_problem({"on": {"pull_request": {"types": ["labeled"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is not None:
+        failures.append("self-check: a labeled-only workflow gets no push run to cancel")
+    if workflow_problem({"on": {"pull_request": {"types": ["labeled", "synchronize"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is None:
+        failures.append("self-check: a workflow whose types include synchronize is still judged")
     # pull_request_target runs carry the base branch in github.ref.
     if problem({"group": "w-${{ github.ref }}", "cancel-in-progress": True}, on, "pull_request_target") is None:
         failures.append("self-check: a github.ref group must not count as per-PR for pull_request_target")

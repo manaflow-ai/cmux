@@ -8,6 +8,8 @@ final class PageChromiumSession {
     let bridge: ChromiumPageHostBridge
     /// Cancelled when the page reaches the host or the session ends.
     let deadline: DemandTimer
+    /// Agent question keyboard proof, separate from the page's general main-world bridge.
+    var questionKeys: ChromiumQuestionKeyChannel?
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
@@ -17,6 +19,7 @@ final class PageChromiumSession {
 
     /// Stops the bridge and closes the page. Idempotent.
     func end() {
+        questionKeys?.invalidate()
         deadline.cancel()
         bridge.uninstall()
         page.onEvent = nil

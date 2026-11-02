@@ -10,11 +10,14 @@
 //!   inline configuration (`--settings '{...}'`, codex `-c key=value`) and
 //!   any flag or value with a secret word or a token prefix in it. Any other
 //!   credential-looking argument drops all of them ([`stored_argv`]). A
-//!   non-interactive run (`claude -p`, a codex subcommand, `--version`) has
-//!   no launch.
+//!   non-interactive run (`claude -p`, a codex subcommand, `muse exec`,
+//!   `--version`) has no launch. Muse Code keeps no worktree flag (`-w`
+//!   would make a new worktree instead of resuming in the session's) and no
+//!   `--image` (it would attach the image again).
 //! - `env`: the harness's account directory only (`CLAUDE_CONFIG_DIR` for
-//!   Claude Code, `CODEX_HOME` for Codex), an absolute path. Never a token
-//!   or key: the CLI reads its sign-in from that directory.
+//!   Claude Code, `CODEX_HOME` for Codex; none for Muse Code), an absolute
+//!   path. Never a token or key: the CLI reads its sign-in from that
+//!   directory.
 
 use std::path::Path;
 
@@ -34,7 +37,14 @@ pub(crate) struct AgentLaunch {
     pub env: Vec<(String, String)>,
 }
 
-/// The account directory variable of a resumable harness.
+/// Whether a respawn knows how to resume a session of `harness`: Claude
+/// Code, Codex and Muse Code.
+pub(crate) fn resumable_harness(harness: &str) -> bool {
+    matches!(harness, "claude" | "codex" | "muse")
+}
+
+/// The account directory variable of a resumable harness, when it has one
+/// (Muse Code keeps its sign-in in its own data folder).
 pub(crate) fn account_env_key(harness: &str) -> Option<&'static str> {
     match harness {
         "claude" => Some("CLAUDE_CONFIG_DIR"),
@@ -51,13 +61,18 @@ pub(crate) fn agent_launch_from_job(
     argv: &[String],
     env: &[(String, String)],
 ) -> Option<AgentLaunch> {
-    let account_key = account_env_key(harness)?;
+    if !resumable_harness(harness) {
+        return None;
+    }
     let args = session_free(harness, &harness_args(harness, argv, env)?)?;
     let args = stored_args(harness, args);
     let value = |key: &str| env.iter().find(|(name, _)| name == key).map(|(_, value)| value);
-    let env = value(account_key)
-        .filter(|dir| Path::new(dir.as_str()).is_absolute() && !dir.chars().any(char::is_control))
-        .map(|dir| vec![(account_key.to_string(), dir.clone())])
+    let env = account_env_key(harness)
+        .and_then(|key| Some((key, value(key)?)))
+        .filter(|(_, dir)| {
+            Path::new(dir.as_str()).is_absolute() && !dir.chars().any(char::is_control)
+        })
+        .map(|(key, dir)| vec![(key.to_string(), dir.clone())])
         .unwrap_or_default();
     Some(AgentLaunch { args, env })
 }
@@ -96,6 +111,30 @@ const CODEX_NON_INTERACTIVE: &[&str] = &[
     "help",
 ];
 
+/// Muse Code's subcommands that run without an interactive session
+/// (`resume` starts one).
+const MUSE_NON_INTERACTIVE: &[&str] = &[
+    "exec",
+    "config",
+    "export",
+    "trace",
+    "model-profile",
+    "skills",
+    "voice",
+    "plugins",
+    "sandbox",
+    "schema",
+    "serve",
+    "session-message",
+    "mcp",
+    "auth",
+    "login",
+    "logout",
+    "usage",
+    "init",
+    "help",
+];
+
 /// Whether the process is `harness`'s CLI run without an interactive session
 /// (`claude -p`, a Claude subcommand, `codex exec`, `--version`): a session it
 /// reports cannot be resumed. Only these known forms count: a run this does
@@ -106,7 +145,7 @@ pub(crate) fn job_is_non_interactive(
     argv: &[String],
     env: &[(String, String)],
 ) -> bool {
-    if account_env_key(harness).is_none() {
+    if !resumable_harness(harness) {
         return false;
     }
     let Some(args) = harness_args(harness, argv, env) else { return false };
@@ -121,13 +160,14 @@ pub(crate) fn job_is_non_interactive(
             // The first word: a subcommand, or the prompt.
             return match harness {
                 "claude" => CLAUDE_SUBCOMMANDS.contains(&argument),
+                "muse" => MUSE_NON_INTERACTIVE.contains(&argument),
                 _ => CODEX_NON_INTERACTIVE.contains(&argument),
             };
         }
         let (flag, inline) = split_flag(harness, argument);
         match (harness, flag) {
             ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
-            | ("codex", "-V" | "--version" | "-h" | "--help") => return true,
+            | ("codex" | "muse", "-V" | "--version" | "-h" | "--help") => return true,
             _ => {}
         }
         if inline.is_some() {
@@ -177,14 +217,16 @@ fn stored_args(harness: &str, args: Vec<String>) -> Vec<String> {
     stored_argv(&line).map(|line| line[1..].to_vec()).unwrap_or_default()
 }
 
-/// Whether `argument` names the harness's program: `claude`, `codex`, or the
+/// Whether `argument` names the harness's program: `claude`, `codex`, the
 /// JS entry an npm install runs under `node` (`.../claude-code/cli.js`,
-/// `.../codex.js`).
+/// `.../codex.js`), or the binary Muse Code's `muse` launcher `exec`s
+/// (`~/.local/bin/muse-bin-1.4.14-R7309.1`).
 fn is_program(harness: &str, argument: &str) -> bool {
     let name = Path::new(argument).file_name().and_then(|name| name.to_str()).unwrap_or_default();
     name == harness
         || name == format!("{harness}.js")
         || (harness == "claude" && name == "cli.js" && argument.contains("claude-code"))
+        || (harness == "muse" && name.starts_with("muse-bin-"))
 }
 
 /// How a flag of the CLI takes values.
@@ -277,6 +319,48 @@ fn takes(harness: &str, flag: &str) -> Option<Takes> {
             ],
             &["-i", "--image", "--add-dir"],
         ),
+        // `muse --help`, Muse Code 1.4.14. `-w`/`--worktree` takes an
+        // optional value: as One, a following mode word goes with it.
+        "muse" => found(
+            &[
+                "--yolo",
+                "--disable-request-user-input",
+                "--trust-workspace",
+                "--disable-approval",
+                "--disable-sandbox",
+                "--disable-write",
+                "--disable-shell",
+                "--enable-shell-tool",
+                "--parallel-tool-calls",
+                "--no-parallel-tool-calls",
+                "--subagent-worktree-isolation",
+                "--no-session-log",
+            ],
+            &[
+                "--agents",
+                "--provider",
+                "--preset",
+                "--model",
+                "--contributor-mode",
+                "-c",
+                "--config",
+                "--reasoning-effort",
+                "--effort",
+                "--base-url",
+                "--image",
+                "--workspace",
+                "-w",
+                "--worktree",
+                "--worktree-base",
+                "--worktree-existing",
+                "--approval-mode",
+                "--permission-profile",
+                "--approval-judge",
+                "--sandbox-network",
+                "--echo-delay-ms",
+            ],
+            &[],
+        ),
         _ => None,
     }
 }
@@ -309,6 +393,11 @@ fn inline_config(harness: &str, flag: &str, value: &str) -> bool {
                 && matches!(value.trim_start().chars().next(), Some('{' | '['))
         }
         "codex" => matches!(flag, "-c" | "--config"),
+        "muse" => {
+            matches!(flag, "-c" | "--config")
+                || (flag == "--agents"
+                    && matches!(value.trim_start().chars().next(), Some('{' | '[')))
+        }
         _ => false,
     }
 }
@@ -346,8 +435,16 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
                     }
                     // A Codex first word that is not a known subcommand is the
                     // session's first prompt, dropped like Claude's.
+                    // `muse resume <session-ref>` or `muse resume --last`.
+                    ("muse", "resume") => {
+                        if args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                            index += 1;
+                        }
+                        continue;
+                    }
                     ("codex", word) if CODEX_NON_INTERACTIVE.contains(&word) => return None,
                     ("claude", word) if CLAUDE_SUBCOMMANDS.contains(&word) => return None,
+                    ("muse", word) if MUSE_NON_INTERACTIVE.contains(&word) => return None,
                     _ => {}
                 }
             }
@@ -356,14 +453,30 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
         let (flag, inline) = split_flag(harness, argument);
         match (harness, flag) {
             ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
-            | ("codex", "-V" | "--version" | "-h" | "--help") => return None,
+            | ("codex" | "muse", "-V" | "--version" | "-h" | "--help") => return None,
             ("claude", "--resume" | "-r" | "--session-id" | "--from-pr") => {
                 if inline.is_none() && args.get(index).is_some_and(|next| !next.starts_with('-')) {
                     index += 1;
                 }
                 continue;
             }
-            ("claude", "--continue" | "-c" | "--fork-session") | ("codex", "--last" | "--all") => {
+            ("claude", "--continue" | "-c" | "--fork-session")
+            | ("codex", "--last" | "--all")
+            | ("muse", "--last") => {
+                continue;
+            }
+            // A worktree flag would make a new worktree instead of resuming in
+            // the session's; an image would be attached again.
+            (
+                "muse",
+                "-w" | "--worktree" | "--worktree-base" | "--worktree-existing" | "--image",
+            ) => {
+                if inline.is_none()
+                    && takes(harness, flag) == Some(Takes::One)
+                    && args.get(index).is_some_and(|next| !next.starts_with('-'))
+                {
+                    index += 1;
+                }
                 continue;
             }
             _ => {}
@@ -616,6 +729,59 @@ mod tests {
         );
         let plain = agent_launch_from_job("codex", &strings(&["codex", "-m", "gpt"]), &[]).unwrap();
         assert_eq!(plain.args, strings(&["-m", "gpt"]));
+    }
+
+    /// Muse Code's `muse` launcher `exec`s its versioned binary: that is the
+    /// process the terminal runs. Its flags are kept; what picks a session, a
+    /// worktree or an image, and inline configuration are not.
+    #[test]
+    fn muse_keeps_its_flags_from_the_binary_its_launcher_runs() {
+        let binary = "/Users/a/.local/bin/muse-bin-1.4.14-R7309.1";
+        let yolo = agent_launch_from_job("muse", &strings(&[binary, "--yolo"]), &[]).unwrap();
+        assert_eq!(yolo, AgentLaunch { args: strings(&["--yolo"]), env: Vec::new() });
+        let resumed = agent_launch_from_job(
+            "muse",
+            &strings(&[
+                "muse",
+                "--model",
+                "muse-wonder-1.0",
+                "resume",
+                "01a14ec1-9cca-7b72-832c-5148ab7bcd41",
+                "-w",
+                "create",
+                "--image",
+                "/tmp/a.png",
+                "-c",
+                "provider.token=${T}",
+                "--agents",
+                "{\"a\":1}",
+                "--approval-mode",
+                "never",
+            ]),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            resumed.args,
+            strings(&["--model", "muse-wonder-1.0", "--approval-mode", "never"])
+        );
+        let last = agent_launch_from_job("muse", &strings(&["muse", "resume", "--last"]), &[]);
+        assert_eq!(last.unwrap().args, Vec::<String>::new());
+        // A prompt starts a session; it is not kept.
+        let prompted =
+            agent_launch_from_job("muse", &strings(&["muse", "--effort", "max", "fix it"]), &[]);
+        assert_eq!(prompted.unwrap().args, strings(&["--effort", "max"]));
+        for run in [&["muse", "exec", "hi"][..], &["muse", "--version"], &["muse", "usage"]] {
+            assert!(agent_launch_from_job("muse", &strings(run), &[]).is_none(), "{run:?}");
+            assert!(job_is_non_interactive("muse", &strings(run), &[]), "{run:?}");
+        }
+        assert!(!job_is_non_interactive("muse", &strings(&[binary, "--yolo"]), &[]));
+        // Another program is not Muse.
+        assert!(agent_launch_from_job("muse", &strings(&["zsh", "-l"]), &[]).is_none());
+        assert!(
+            agent_launch_from_job("muse", &strings(&["museum"]), &[]).is_none(),
+            "only muse and its launcher's binary"
+        );
     }
 
     #[test]

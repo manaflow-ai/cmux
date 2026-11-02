@@ -16,6 +16,10 @@ import CmuxNextSettings
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    private var offeredNativeRowTools: Bool?
+    /// Only a shared page host has the return event stream needed by native controls.
+    var supportsNativeTools = false
+    public var nativeToolsEnabled: Bool { supportsNativeTools && ChromeTunables.nativeRowTools.value }
 
     /// The page reported its tools' width.
     func report(width: CGFloat) {
@@ -30,12 +34,13 @@ import CmuxNextSettings
     func pageLoaded() {
         guard offered != nil || toolsWidth != 0 else { return }
         offered = nil
+        offeredNativeRowTools = nil
         toolsWidth = 0
         onChange?()
     }
 
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
-    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0) }
+    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, nativeRowTools: offeredNativeRowTools ?? false) }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
     /// the page draws no tools in the row.
@@ -55,6 +60,7 @@ import CmuxNextSettings
     public static func offer(points height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
         let zoom = max(0.25, view.webView.pageZoom)
         let on = ChromeTunables.tabRowTools.value && height > 0
+        let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
         let shares = on && row.toolsWidth > 0
@@ -68,8 +74,9 @@ import CmuxNextSettings
                                              tools: row.sharedWidth(zoom: zoom) ?? 0) : []
             page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
         }
-        guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
+        guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
         row.offered = next
+        row.offeredNativeRowTools = nativeRowTools
         let event = row.event
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
     }
@@ -88,8 +95,8 @@ private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat
 
 extension AgentPageEvent {
     /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset}`.
-    static func tabRow(height: CGFloat, trailingInset: CGFloat) -> AgentPageEvent {
-        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset))])
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool) -> AgentPageEvent {
+        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)), "nativeRowTools": .bool(nativeRowTools)])
     }
 }
 

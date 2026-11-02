@@ -743,6 +743,11 @@ impl Transcript {
             "stderr" => self.items.push(Item::Stderr {
                 text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
             }),
+            // A hibernation (the idle exit, `hub/idle.rs`) and its wake are not the person's to
+            // see: the chat reads as it did.
+            "exited" | "stopped"
+                if msg.get("hibernated").and_then(Value::as_bool) == Some(true) => {}
+            "resumed" if msg.get("wake").and_then(Value::as_bool) == Some(true) => {}
             "exited" => self.items.push(Item::Status {
                 text: if msg.get("code").and_then(Value::as_i64) == Some(0) {
                     "agent stopped".into()
@@ -781,6 +786,9 @@ impl Transcript {
                     text: format!("model: {}", self.model.clone().unwrap_or_default()),
                 });
             }
+            // The settings a new agent was given again (`replay_config`): nothing changed, and a
+            // wake from hibernation does it every time.
+            "config" if msg.get("replayed").and_then(Value::as_bool) == Some(true) => {}
             "config" => {
                 if msg.get("configId").and_then(Value::as_str) == Some("model") {
                     self.model = msg.get("value").and_then(Value::as_str).map(str::to_owned);

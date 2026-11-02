@@ -64,16 +64,97 @@ fn journal_maintenance_interval() -> Duration {
     JOURNAL_MAINTENANCE_INTERVAL
 }
 
-struct JournalMaintenanceControl {
-    stopped: Mutex<bool>,
+#[derive(Default)]
+struct ControlState {
+    stopped: bool,
+    /// A journal commit was published since the worker last started a tick.
+    journal_changed: bool,
+    /// The worker sleeps until the journal changes: only then does a commit
+    /// notify it, so commits never wake it while it waits out an interval.
+    waiting_for_change: bool,
+}
+
+/// The worker's stop signal and its "the registry changed" wake. The mux owns
+/// it from construction, so every [`Mux::publish_journal_event`] (and a
+/// ledger write that publishes none) can mark it.
+#[derive(Default)]
+pub(super) struct JournalMaintenanceControl {
+    state: Mutex<ControlState>,
     changed: Condvar,
 }
 
-/// The periodic journal maintenance worker of a persistent session: once per
-/// interval it bounds and scans the mutation ledgers, migrates a legacy
-/// registry to incremental auto-vacuum, takes a checkpoint after enough new
-/// records, seals bounded segments up to the latest checkpoint, and returns
-/// free pages.
+impl JournalMaintenanceControl {
+    fn lock(&self) -> MutexGuard<'_, ControlState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The registry changed (a published journal event, or a write that
+    /// fills a mutation ledger without one). Wakes the worker only when it
+    /// sleeps until the next change, and only for the first of a burst.
+    pub(super) fn note_change(&self) {
+        let mut state = self.lock();
+        if !state.journal_changed {
+            state.journal_changed = true;
+            if state.waiting_for_change {
+                self.changed.notify_all();
+            }
+        }
+    }
+
+    fn stop(&self) {
+        self.lock().stopped = true;
+        self.changed.notify_all();
+    }
+
+    /// Blocks until the journal changed since the last tick started, or
+    /// until `fallback`. False once stopped.
+    fn wait_for_change(&self, fallback: Duration) -> bool {
+        let deadline = Instant::now() + fallback;
+        let mut state = self.lock();
+        state.waiting_for_change = true;
+        while !state.stopped && !state.journal_changed {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        state.waiting_for_change = false;
+        !state.stopped
+    }
+
+    /// Waits out `interval`, so the changes it gathers share one tick, then
+    /// starts the tick: later changes count for the next one. False once
+    /// stopped.
+    fn wait_interval_then_start_tick(&self, interval: Duration) -> bool {
+        let deadline = Instant::now() + interval;
+        let mut state = self.lock();
+        while !state.stopped {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        state.journal_changed = false;
+        !state.stopped
+    }
+}
+
+/// Whether a maintenance tick left work for the next one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TickOutcome {
+    /// More to do (a bounded batch, a retry, a pause): tick again after the
+    /// interval.
+    WorkRemains,
+    /// Nothing left: the next tick waits for a journal change.
+    Settled,
+}
+
+/// The journal maintenance worker of a persistent session: a tick bounds and
+/// scans the mutation ledgers, migrates a legacy registry to incremental
+/// auto-vacuum, takes a checkpoint after enough new records, seals bounded
+/// segments up to the latest checkpoint, and returns free pages. Ticks are
+/// at least one interval apart. Once a tick finds nothing left to do, the
+/// worker sleeps until the journal changes, so an idle daemon does not wake
+/// for maintenance (it used to tick every 30 s for good); the ledger scan
+/// interval bounds that sleep, so the hourly ledger scan still runs.
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -81,36 +162,25 @@ pub(super) struct JournalMaintenance {
 
 impl JournalMaintenance {
     fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
-        let control = Arc::new(JournalMaintenanceControl {
-            stopped: Mutex::new(false),
-            changed: Condvar::new(),
-        });
+        let control = mux.journal_maintenance_control.clone();
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
         let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+                let mut outcome = TickOutcome::WorkRemains;
                 loop {
-                    let mut stopped =
-                        worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
-                    if *stopped {
+                    if outcome == TickOutcome::Settled
+                        && !worker_control.wait_for_change(ledger_maintenance::LEDGER_SCAN_INTERVAL)
+                    {
                         return;
                     }
-                    let (next, timeout) = worker_control
-                        .changed
-                        .wait_timeout(stopped, interval)
-                        .unwrap_or_else(PoisonError::into_inner);
-                    stopped = next;
-                    if *stopped {
+                    if !worker_control.wait_interval_then_start_tick(interval) {
                         return;
                     }
-                    if !timeout.timed_out() {
-                        continue;
-                    }
-                    drop(stopped);
                     let Some(mux) = weak_mux.upgrade() else { return };
-                    mux.run_journal_maintenance(&mut ledgers);
+                    outcome = mux.run_journal_maintenance(&mut ledgers);
                 }
             },
         )?;
@@ -118,8 +188,7 @@ impl JournalMaintenance {
     }
 
     pub(super) fn stop(mut self) {
-        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
-        self.control.changed.notify_all();
+        self.control.stop();
         if let Some(thread) = self.thread.take() {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
@@ -127,6 +196,14 @@ impl JournalMaintenance {
                 let _ = thread.join();
             }
         }
+    }
+}
+
+impl Drop for JournalMaintenance {
+    /// A mux dropped without a shutdown still ends its worker, which may
+    /// sleep until the next journal change.
+    fn drop(&mut self) {
+        self.control.stop();
     }
 }
 
@@ -178,13 +255,23 @@ impl Mux {
             || self.control_clients.daemon_handoff_in_progress()
     }
 
-    fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) {
+    /// One tick; [`TickOutcome::Settled`] only when nothing is left: the
+    /// ledgers are within their bounds, no migration, checkpoint or seal is
+    /// due, and no free page waits for the incremental vacuum.
+    fn run_journal_maintenance(
+        &self,
+        ledgers: &mut ledger_maintenance::LedgerMaintenance,
+    ) -> TickOutcome {
         if self.journal_maintenance_paused() {
-            return;
+            return TickOutcome::WorkRemains;
         }
         let mut steps = MaintenanceSteps::default();
-        steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
-        let result = (|| -> anyhow::Result<()> {
+        let ledgers_remain = steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
+        // The roster cursor follows the head, so a start replays one tick. A
+        // settled worker wakes on every journal change, so the head never
+        // moves without a tick that catches the roster up.
+        steps.time("agent_roster", || self.catch_up_agent_roster());
+        let result = (|| -> anyhow::Result<TickOutcome> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
                     .lock()
@@ -195,7 +282,9 @@ impl Mux {
                 // A legacy registry migration performs one full VACUUM. Keep
                 // that rewrite isolated to this maintenance tick before
                 // attempting checkpoint or sealing work.
-                crate::workspace_registry::AutoVacuumMigration::Converted => return Ok(()),
+                crate::workspace_registry::AutoVacuumMigration::Converted => {
+                    return Ok(TickOutcome::WorkRemains);
+                }
                 crate::workspace_registry::AutoVacuumMigration::Deferred { live_bytes } => {
                     self.note_auto_vacuum_deferred(live_bytes);
                 }
@@ -223,13 +312,17 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
-                steps.time("incremental_vacuum", || {
+                let pages_remain = steps.time("incremental_vacuum", || {
                     self.workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .incremental_journal_vacuum()
                 })?;
-                return Ok(());
+                return Ok(if pages_remain {
+                    TickOutcome::WorkRemains
+                } else {
+                    TickOutcome::Settled
+                });
             }
 
             let target = if pending_seal {
@@ -244,7 +337,7 @@ impl Mux {
                     .source_sequence
             };
             if target == 0 {
-                return Ok(());
+                return Ok(TickOutcome::WorkRemains);
             }
 
             for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
@@ -266,17 +359,24 @@ impl Mux {
                     .unwrap_or_else(PoisonError::into_inner)
                     .incremental_journal_vacuum()
             })?;
-            Ok(())
+            // A checkpoint or seal changed the journal: the next tick checks
+            // again, and settles once there is nothing left.
+            Ok(TickOutcome::WorkRemains)
         })();
         if let Some(report) = steps.slow_report(SLOW_MAINTENANCE_TICK) {
             eprintln!("cmux-tui: {report}");
             self.report_internal_diagnostic(report);
         }
-        if let Err(error) = result {
-            eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
-            self.report_internal_diagnostic(
-                "journal maintenance deferred; checkpoint maintenance will retry",
-            );
+        match result {
+            Ok(TickOutcome::Settled) if !ledgers_remain => TickOutcome::Settled,
+            Ok(_) => TickOutcome::WorkRemains,
+            Err(error) => {
+                eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
+                self.report_internal_diagnostic(
+                    "journal maintenance deferred; checkpoint maintenance will retry",
+                );
+                TickOutcome::WorkRemains
+            }
         }
     }
 }

@@ -27,7 +27,7 @@ not ask for what the daemon would refuse, and shows no control for it.
   there (Home's tab first with no close x), so it stays reachable. The strip has no +: what Home opens (New Tab,
   Cmd-D, a new chat, Split Browser, a link, a file, an app page) still goes beside it
   (`ChatColumnPlacement`, `NewChatPlacement`, `LinkOpener`). Only a drag puts a tab in the dock:
-  every tab creator (`newTerminalTab`, `PaneBrowserTabOpener`, `InternalPageTabStore.openStoreTab`,
+  every tab creator (`newTerminalTab`, `PaneBrowserTabOpener` (its stand-in included, 2026-10-29), `InternalPageTabStore.openStoreTab`,
   the actions in `TabLifecycle`) moves a tab it made there to a new column right of it
   (`HomeDockOpens`), and an open in the background keeps the focus in Home. The session-local
   (WebKit) fallback opens in the pane right of Home, and with Home alone is refused. With a dragged-in tab, the person's Hide Tab Bar

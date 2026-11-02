@@ -44,25 +44,6 @@ public nonisolated struct PageID {
         registeredRoots.withLock { $0[id.lowercased()] }
     }
 
-    #if DEBUG
-    private static let fixtureRoots = Mutex<[String: [URL]]>([:])
-
-    /// DEBUG only: a test may also serve a reserved page from its own fixture root. `swift test`
-    /// links every test target into one process, so a fixture root registered with
-    /// ``registerBundledRoot(_:for:)`` lost to an app test that registered the bundled page first,
-    /// and the page host then refused the fixture. This leaves the registered root, and so
-    /// ``bundledRoot(for:)``, as it is.
-    public static func allowFixtureRoot(_ root: URL, for id: String) {
-        guard isReserved(id) else { return }
-        fixtureRoots.withLock { $0[id.lowercased(), default: []].append(root) }
-    }
-
-    /// The fixture roots tests allowed for `id` (DEBUG only).
-    static func fixtureRoots(for id: String) -> [URL] {
-        fixtureRoots.withLock { $0[id.lowercased()] ?? [] }
-    }
-    #endif
-
     /// Why an app page was refused.
     public enum Refusal: Error, Sendable, Equatable {
         /// The id is a first-party id or in the reserved `cmux.` namespace.

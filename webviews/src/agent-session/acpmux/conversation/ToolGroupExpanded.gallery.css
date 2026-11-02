@@ -1,0 +1,16 @@
+.tool-group-expanded-gallery {
+  --expanded-space: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--expanded-space);
+  padding: var(--expanded-space);
+  color: var(--cv-text);
+  background: var(--cv-page);
+}
+.tool-group-expanded-gallery section {
+  min-width: 0;
+}
+.tool-group-expanded-gallery p {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}

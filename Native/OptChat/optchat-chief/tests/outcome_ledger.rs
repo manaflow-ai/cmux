@@ -76,7 +76,7 @@ fn prompts(h: &Harness) -> Vec<String> {
 }
 
 /// a1 is spawned, reports, and the Chief's turn on its report ends.
-fn report_and_settle(h: &mut Harness) {
+fn report_and_settle(h: &mut Harness) -> Arc<Spawner> {
     let spawner = Arc::new(Spawner::new(
         h.chat.clone(),
         h.agents.clone(),
@@ -95,7 +95,8 @@ fn report_and_settle(h: &mut Harness) {
         Arc::new(|_: &str| {}),
     ));
     h.connect();
-    let worker = std::thread::spawn(move || spawner.spawn(vec!["REPORT-TASK fix it".into()], None));
+    let sp = spawner.clone();
+    let worker = std::thread::spawn(move || sp.spawn(vec!["REPORT-TASK fix it".into()], None));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
     while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) {
@@ -114,6 +115,7 @@ fn report_and_settle(h: &mut Harness) {
         }
     }
     h.settle_posts();
+    spawner
 }
 
 #[test]
@@ -177,4 +179,34 @@ fn after_one_retry_that_still_does_not_tell_it_is_dropped() {
         .count();
     assert_eq!(retries, 1, "one retry, never a loop");
     assert!(h.brain.untold_outcomes().is_empty());
+}
+
+#[test]
+fn a_subagent_sent_back_to_work_is_not_untold() {
+    // Persona replay (Oct 28): a report that finished nothing ("tests still
+    // queued") got a restart or a tell from Chief, and the [untold] retry then
+    // pushed a ping the person did not want ("this ping is noise"). An agent
+    // that runs again reports again; that report is the one to tell.
+    let mut h = Harness::new(script(|_, _| None));
+    let spawner = report_and_settle(&mut h);
+    assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()]);
+    let worker = std::thread::spawn(move || spawner.tell("a1", "finish the fleet runs and land"));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !worker.is_finished() {
+        assert!(Instant::now() < deadline, "tell did not answer");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(worker.join().unwrap().is_ok());
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "a1 runs again: its next report is the one to tell"
+    );
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    assert!(
+        !prompts(&h).iter().any(|t| t.contains(UNTOLD_TAG)),
+        "no untold retry turn"
+    );
 }

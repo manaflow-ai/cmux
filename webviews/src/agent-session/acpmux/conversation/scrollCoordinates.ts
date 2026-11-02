@@ -34,6 +34,11 @@ export function clearScrollOrigin(node: ScrollCoordinateNode): void {
  */
 export function writeAnchorScrollTop(node: ScrollCoordinateNode, desiredLogicalTop: number): number {
   node.scrollTop = desiredLogicalTop;
+  return retainScrollOrigin(node, desiredLogicalTop);
+}
+
+/** Keep logical placement after an existing rounded physical write, without writing scrollTop again. */
+export function retainScrollOrigin(node: ScrollCoordinateNode, desiredLogicalTop: number): number {
   const residual = node.scrollTop - desiredLogicalTop;
   if (!Number.isFinite(residual) || Math.abs(residual) > 1) {
     clearScrollOrigin(node);

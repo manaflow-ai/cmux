@@ -19,6 +19,7 @@ revision = 1
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 serde.workspace = true
 # raw_value only (a9): script values keep the page's key order. Never
 # preserve_order, which would change every map in the crate.

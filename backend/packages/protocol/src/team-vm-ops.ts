@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { InstallId, TeamId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The team VM (plans/cmux-next/team-vm-plan.md S2, spec/team-vm.md). TeamVmDO, one per team,
@@ -136,7 +137,7 @@ export const TeamVmJournalAppend = def({
     /** The entry's bytes, base64 (at most 1 MiB decoded). */
     bytes: Schema.String,
     /** Lowercase hex SHA-256 of the decoded bytes; checked by the owner. */
-    sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+    sha256: Schema.String.check(isPattern(/^[0-9a-f]{64}$/))
   }),
   result: JournalAckSchema,
   errors: [...mutationErrors, "journal.gap", "journal.conflict", "journal.stale_epoch", "journal.too_large", "journal.full", "team_vm.not_bound"],

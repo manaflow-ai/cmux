@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import CmuxNextAgentActivity
 import Foundation
 import os
@@ -38,6 +39,11 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 
     func terminate(_ pid: pid_t) {
         NSRunningApplication(processIdentifier: pid)?.terminate()
+    }
+
+    func isRunning(_ pid: pid_t) -> Bool {
+        // EPERM: it exists under another user. launchd reaps the helper, so a gone pid is ESRCH.
+        kill(pid, 0) == 0 || errno == EPERM
     }
 
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {

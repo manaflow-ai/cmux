@@ -123,6 +123,9 @@ final class MessageActionOverlay: UIView {
         /// first row and below the last; each row centers its 17 pt symbol
         /// 40.17 pt in and starts its label at 64 pt, 28 pt short of the edge.
         static let menuVerticalInset: CGFloat = 10
+        /// The separator band under Reply: Messages 27.0 puts Copy 63 pt
+        /// below Reply (a 42 pt row plus 21 pt), the hairline centered in it.
+        static let menuSectionGap: CGFloat = 21
         static let menuIconCenter: CGFloat = 241.0 / 6
         static let menuLabelLeading: CGFloat = 64
         static let menuLabelTrailing: CGFloat = 28
@@ -392,7 +395,7 @@ final class MessageActionOverlay: UIView {
                     separator.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 24),
                     separator.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -24),
                     separator.centerYAnchor.constraint(equalTo: wrapper.centerYAnchor),
-                    wrapper.heightAnchor.constraint(equalToConstant: 14),
+                    wrapper.heightAnchor.constraint(equalToConstant: Metrics.menuSectionGap),
                 ])
                 menuStack.addArrangedSubview(wrapper)
             }
@@ -411,7 +414,7 @@ final class MessageActionOverlay: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private var menuSize: CGSize {
-        let height = menuStack.arrangedSubviews.reduce(CGFloat(0)) { $0 + ($1 is MenuRow ? Metrics.menuRow : 14) } + 2 * Metrics.menuVerticalInset
+        let height = menuStack.arrangedSubviews.reduce(CGFloat(0)) { $0 + ($1 is MenuRow ? Metrics.menuRow : Metrics.menuSectionGap) } + 2 * Metrics.menuVerticalInset
         return CGSize(width: Metrics.menuWidth, height: height)
     }
 

@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -197,36 +198,86 @@ struct AgentPaneRelaunchWakeTests {
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path))
     }
 
-    /// A tab that does not fit the attachments' cap is not kept, and none of its files stay; the
-    /// saves before this change (contents inline in the JSON) still come back.
-    @Test func attachmentsPastTheCapLeaveNoFilesAndOldSavesStillRestore() async throws {
+    /// The saves before chips' contents went to files (contents inline in the JSON) still come back.
+    @Test func oldSavesStillRestore() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
-        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
         let store = AgentPaneRelaunchWake(file: file)
-        store.maximumAttachmentBytes = 8
-        // The small tab's chip leaves room for one of this tab's two chips, not both: the first
-        // one's file is written before the second does not fit.
-        let huge = AgentPaneWakeState(attachments: (0..<2).map {
-            AgentPaneWakeState.Attachment(id: "big-\($0)", kind: "image", name: "big.png", mimeType: "image/png", size: 3, data: "AAAA")
-        })
         let small = AgentPaneWakeState(attachments: [
             AgentPaneWakeState.Attachment(id: "s", kind: "image", name: "s.png", mimeType: "image/png", size: 3, data: "AAAA"),
+            AgentPaneWakeState.Attachment(id: "t", kind: "text", name: "t.txt", mimeType: "text/plain", size: 2, text: "hi"),
         ])
-        await store.save(["tab_huge": huge, "tab_small": small])
-        let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
-        #expect(await store.take(on: Self.work) == ["tab_small": small])
-
         let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
         try JSONEncoder().encode(inline).write(to: file)
         #expect(await store.take(on: Self.work) == inline, "a save the last build wrote did not come back")
     }
 
+    /// Leo 2026-10-26: attachments take arbitrarily large files of any type, with no size cap. A tab
+    /// whose chips held more than 128 MB, or whose text chip passed a tab's 4 MB of JSON, lost its
+    /// whole composer at a relaunch. Every chip's contents, bytes and text alike, are files of their
+    /// own now, so the JSON keeps only the chips' names and kinds.
+    @Test func chipsPastTheOldBudgetsComeBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        // A 129 MB recording: past the 128 MB every tab's chips used to share.
+        let recording = Data(repeating: 7, count: 129 * 1024 * 1024)
+        let big = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "rec", kind: "audio", name: "Recording.m4a", mimeType: "audio/mp4",
+                                          size: Double(recording.count), data: recording.base64EncodedString()),
+        ])
+        // A 6 MB log as a text chip: past a tab's 4 MB of JSON when its text went inline.
+        let log = String(repeating: "build log line\n", count: 400_000)
+        let text = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "log", kind: "text", name: "build.log", mimeType: "text/plain",
+                                          size: Double(log.utf8.count), text: log),
+        ], shell: true, shellText: "make")
+        let store = AgentPaneRelaunchWake(file: file)
+        await store.save(["tab_big": big, "tab_text": text])
+        let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        #expect(size.map { $0 < 16 * 1024 } == true, "the quit saved no composer, or a chip's contents went into the JSON (\(String(describing: size)) bytes)")
+
+        let restored = await store.take(on: Self.work)
+        #expect(restored["tab_big"] == big, "the recording's tab came back without its composer")
+        #expect(restored["tab_text"] == text, "the text chip's tab came back without its composer")
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "the launch left the chips' files behind")
+    }
+
+    /// A pasted chip's text is a file of its own too: the JSON never holds it, it comes back whole,
+    /// and a later save without the chip leaves no file of it.
+    @Test func aLargePastedChipComesBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        let paste = (0..<300_000).map { "pasted line \($0)\n" }.joined()
+        try #require(paste.utf8.count > 5_000_000)
+        let held = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "paste", kind: "pasted", name: "Pasted text", mimeType: "text/plain",
+                                          size: Double(paste.utf8.count), text: paste),
+        ])
+        await AgentPaneRelaunchWake(file: file).save(["tab_paste": held, "tab_shell": AgentPaneWakeState(shell: true, shellText: "ls")])
+        let json = try Data(contentsOf: file)
+        #expect(json.count < 16 * 1024, "the paste's text went into the JSON (\(json.count) bytes)")
+        #expect(json.range(of: Data("pasted line 12345".utf8)) == nil, "the JSON holds the paste's text")
+        let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(copies.count == 1 && copies.allSatisfy { $0.hasSuffix(".txt") }, "\(copies)")
+
+        // The next run's launch gets it back whole.
+        #expect(await AgentPaneRelaunchWake(file: file).take(on: Self.work)["tab_paste"] == held)
+
+        // Saved again without the chip: no file of it is left.
+        await AgentPaneRelaunchWake(file: file).save(["tab_shell": AgentPaneWakeState(shell: true, shellText: "ls")])
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "the paste's text file outlived its chip")
+    }
+
     /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
-    /// files (up to 128 MB) on the main thread as it made the tab store.
+    /// files on the main thread as it made the tab store.
     @Test func theSavedStatesAreReadOffTheMainThread() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -276,5 +327,39 @@ struct AgentPaneRelaunchWakeTests {
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
         await store.save(["tab_a": AgentPaneWakeState()])
         #expect(!FileManager.default.fileExists(atPath: file.path), "an empty composer left a file")
+    }
+
+    /// The page's own wait before it answers (schemas/agent-pane/wake-state.json `draftSettleMs`,
+    /// which webviews composerDraft.ts reads as DRAFT_SETTLE_MS).
+    static func pageDraftSettle() throws -> Duration {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let data = try Data(contentsOf: root.appendingPathComponent("schemas/agent-pane/wake-state.json"))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return .milliseconds(try #require(object["draftSettleMs"] as? Int))
+    }
+
+    /// Review of #22919 at ce9cd46, finding 1: the quit asked each chat page within 250 ms, but the
+    /// page first waits up to its draft settle time for the typed draft to reach acpmux, and a late
+    /// answer is dropped: the chat kept the state of its last handshake, losing every chip added
+    /// since, the shell command and the scroll place (a sent chip came back). The host's ask must
+    /// outlast the page's settle, with room for a large chip to cross the bridge.
+    @Test func theQuitAsksLongerThanThePageSettlesItsDraft() throws {
+        let settle = try Self.pageDraftSettle()
+        let largeChip: Duration = .milliseconds(500)
+        #expect(AgentPaneRelaunchWake.askLimit >= settle + largeChip,
+                "the host gives up at \(AgentPaneRelaunchWake.askLimit), the page may answer only after \(settle)")
+    }
+
+    /// The composer step starts after the person's other saves, each under its limit; its asks and
+    /// its write still end inside the keep quit's deadline (the quit waits for it past its own limit).
+    @Test func theComposerAskFitsTheKeepQuitDeadline() throws {
+        let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
+                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
+        let before = try #require(steps.steps.firstIndex { $0.name == "agent_composers" })
+        let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit + QuitSaveSteps.rememberLimit) { $0 + $1.limit }
+        let write: Duration = .milliseconds(300)
+        #expect(startsBy + AgentPaneRelaunchWake.askLimit + write + QuitDeadline.replyMargin <= QuitDeadline.keepQuitLimit,
+                "the composer step starts by \(startsBy) and asks for \(AgentPaneRelaunchWake.askLimit): past the deadline")
     }
 }

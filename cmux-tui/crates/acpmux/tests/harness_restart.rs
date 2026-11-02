@@ -3,7 +3,9 @@
 //! each named live chat's harness process and resumes the same agent session.
 //! A restart that cannot spawn the harness again is counted as failed and
 //! named in `errors` (never reported as success), a Home Chief chat restarts
-//! when the caller names it, and a chat nobody named is left alone.
+//! when the caller names it, and a chat nobody named is left alone. A profile
+//! reload that changes a live chat's launch restarts it the same way once its
+//! turn ends (`hub/profile_respawn.rs`).
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -26,8 +28,8 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn scratch() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("acpmux-restart-{}", std::process::id()));
+fn scratch(test: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("acpmux-restart-{test}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("home")).unwrap();
     std::fs::create_dir_all(root.join("config").join("harnesses")).unwrap();
@@ -133,7 +135,7 @@ fn hub(root: &Path, good: &Path, bad: &Path) -> Arc<Hub> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn restart_harness_restarts_named_chats_and_reports_one_that_cannot_spawn() {
-    let root = scratch();
+    let root = scratch("named");
     let (good, bad) = (root.join("good.sh"), root.join("bad.sh"));
     launcher(&good);
     launcher(&bad);
@@ -179,6 +181,153 @@ async fn restart_harness_restarts_named_chats_and_reports_one_that_cannot_spawn(
     );
     assert_ne!(local.harness_pid(&c).await, c_pid, "C restarted");
     assert_eq!(local.harness_pid(&a).await, a_new, "the Chief's chat is never swept");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The config file `hub_from_file` reads and a reload reads again: harness `good` runs the
+/// launcher with `flag` as its one argument.
+fn write_config(root: &Path, good: &Path, flag: &str) -> PathBuf {
+    let path = root.join("home").join("config.json");
+    let cfg = json!({
+        "harnesses": {"good": {"argv": ["/bin/sh", good, flag], "family": "claude"}},
+        "defaultHarness": "good",
+        "permissionPolicy": "approve-all",
+    });
+    std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+    path
+}
+
+fn hub_from_file(root: &Path, path: &Path) -> Arc<Hub> {
+    let mut cfg: Config =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).expect("config.json parses");
+    cfg.path = Some(path.to_path_buf());
+    cfg.profile_sources.user_dir = Some(root.join("config").join("harnesses"));
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+impl Client {
+    /// The arguments the harness process that answers a turn in `session` was started with.
+    async fn harness_args(&mut self, session: &str) -> String {
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "argv"}]});
+        let (reply, mut text) = self.call_text("session/prompt", prompt).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        while !text.ends_with(']') {
+            let line = tokio::time::timeout(Duration::from_secs(10), self.1.recv())
+                .await
+                .unwrap_or_else(|_| panic!("no argv text: reply {reply}, text {text:?}"))
+                .unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if let Some(t) = v.pointer("/params/update/content/text").and_then(Value::as_str) {
+                text.push_str(t);
+            }
+        }
+        text
+    }
+
+    async fn respawn_pending(&mut self, session: &str) -> Value {
+        self.ok("_acpmux/info", json!({"sessionId": session})).await["respawnPending"].clone()
+    }
+
+    /// `respawnPending` of `session`'s row in the session list (`acpmux ls`, a shared snapshot).
+    async fn listed_respawn(&mut self, session: &str) -> Value {
+        let list = self.ok(method::MUX_SESSIONS, json!({})).await;
+        let rows = list["sessions"].as_array().cloned().unwrap_or_default();
+        let row = rows.into_iter().find(|r| r["sessionId"] == session);
+        row.unwrap_or_else(|| panic!("{session} not listed: {list}"))["respawnPending"].clone()
+    }
+}
+
+/// Leo, 2026-10-31, on a session at 650k of a 1M context: "why were you on high and on 1m
+/// context??? i thought we fixed that???". Its harness profile gained `--autocompact` after the
+/// agent started, and a session that never goes idle never started again. Now a profile reload
+/// that changes a live agent's launch restarts it on the new argv once its turn ends (never in
+/// the turn), on the same agent session, and `respawnPending` says so meanwhile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn() {
+    let root = scratch("profile");
+    let good = root.join("good.sh");
+    launcher(&good);
+    let path = write_config(&root, &good, "--old-arg");
+    let hub = hub_from_file(&root, &path);
+    let mut local = Client::open(&hub);
+
+    let chat = local.new_chat("good").await;
+    let first = local.harness_args(&chat).await;
+    assert!(first.contains("--old-arg"), "started with the profile's argv: {first}");
+    let pid = local.harness_pid(&chat).await;
+    let agent = local.agent_session(&chat).await;
+    assert!(agent.is_string(), "{agent}");
+    assert_eq!(local.respawn_pending(&chat).await, Value::Null, "nothing pending yet");
+    // The list is read once now, so a snapshot it keeps would show the row without the mark.
+    assert_eq!(local.listed_respawn(&chat).await, Value::Null);
+
+    // A turn in progress, held on a FIFO, while the profile file changes and the catalog reloads.
+    let gate = root.join("gate");
+    let c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    local.2 += 1;
+    let turn_id = local.2;
+    let text = format!("gate: {}", gate.display());
+    let prompt = json!({"sessionId": &chat, "prompt": [{"type": "text", "text": text}]});
+    local.0.send(Message::request(turn_id, "session/prompt", prompt).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), local.1.recv())
+            .await
+            .expect("the gated turn never started")
+            .unwrap();
+        if line.contains("before-gate") {
+            break;
+        }
+    }
+    write_config(&root, &good, "--new-arg");
+    let reload = local.ok(method::MUX_RELOAD_CONFIG, json!({})).await;
+    assert_eq!(reload["reloaded"], true, "{reload}");
+    // The respawn is decided on a task of its own after the reload answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while local.respawn_pending(&chat).await != json!("profile changed") {
+        assert!(tokio::time::Instant::now() < deadline, "respawnPending never said so");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    assert_eq!(
+        local.listed_respawn(&chat).await,
+        json!("profile changed"),
+        "the list shows it too"
+    );
+
+    // The turn runs to its end on the agent it started on: never cancelled.
+    std::fs::write(&gate, "go").unwrap();
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), local.1.recv())
+            .await
+            .expect("the gated turn never ended")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(turn_id)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
+
+    // The next turn runs on a new agent with the new argv, resuming the same agent session.
+    let next = local.harness_args(&chat).await;
+    assert!(
+        next.contains("--new-arg") && !next.contains("--old-arg"),
+        "respawned on the new argv: {next}"
+    );
+    assert_ne!(local.harness_pid(&chat).await, pid, "a new harness process");
+    assert_eq!(local.agent_session(&chat).await, agent, "the same agent session resumed");
+    assert_eq!(local.respawn_pending(&chat).await, Value::Null, "the respawn settled");
+    assert_eq!(local.listed_respawn(&chat).await, Value::Null, "and the list says so");
+
+    // A reload that leaves the launch as it is restarts nothing.
+    let settled = local.harness_pid(&chat).await;
+    local.ok(method::MUX_RELOAD_CONFIG, json!({})).await;
+    assert_eq!(local.harness_pid(&chat).await, settled, "an unchanged profile keeps its agent");
+    assert_eq!(local.respawn_pending(&chat).await, Value::Null);
 
     let _ = std::fs::remove_dir_all(&root);
 }

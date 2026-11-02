@@ -1,0 +1,9 @@
+{
+  "title": "Cloud machine menu: a fixture Cloud machine header's right-click menu with its Tools folder open",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A fixture Cloud machine's header (no machine, sign-in or network), the window filling its screen", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"sidebar": true, "fill": true}}, "wait": 1.5, "optional": "debug.cloud_machine_fixture is DEBUG only"},
+    {"title": "Its right-click menu", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"menu": true}}, "wait": 1.5, "optional": "debug.cloud_machine_fixture is DEBUG only"},
+    {"title": "Its Tools folder: type-select Tools, then the right arrow", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"folder": "Tools"}}, "wait": 1.5, "optional": "debug.cloud_machine_fixture is DEBUG only"}
+  ]
+}

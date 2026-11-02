@@ -480,3 +480,33 @@ fn turn_tools_the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
         assert!(!sub.contains(&tool.to_owned()), "{sub:?}");
     }
 }
+
+/// The reply length gate (chief_kernel::replies): the first send of a turn
+/// over `replies.maxWords` posts nothing and answers with its word count, so
+/// Chief cuts it; the next send of that turn posts as is.
+#[test]
+fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() {
+    let mut h = Harness::new(default_script());
+    running(&mut h, "status?");
+    let long = format!("{} end.", "word ".repeat(80));
+    let sp = spawner(&h);
+    let first = long.clone();
+    let refused = run(&mut h, move || sp.send(send(&first))).expect_err("refused");
+    assert!(
+        refused.contains("80 words") || refused.contains("81 words"),
+        "{refused}"
+    );
+    assert!(refused.contains("nothing was posted"), "{refused}");
+    assert!(
+        sends(&h).iter().all(|s| !texts(&s.1).contains("word word")),
+        "nothing posted"
+    );
+    let sp = spawner(&h);
+    let again = long.clone();
+    let answer = run(&mut h, move || sp.send(send(&again))).expect("the second send posts");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    wait_send(&mut h, "end.");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+}

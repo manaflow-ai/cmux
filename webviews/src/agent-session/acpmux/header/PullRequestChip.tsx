@@ -71,7 +71,7 @@ export function PullRequestChip({
         aria-expanded={open}
         {...trigger}
       >
-        <Icon name="git.pullrequest" size={13} />#{number}
+        <Icon name="git.pullrequest" size={14} />#{number}
       </button>
       <Popover
         open={open}

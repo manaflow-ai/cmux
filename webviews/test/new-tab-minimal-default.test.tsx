@@ -13,6 +13,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import {
   DEFAULT_NEW_TAB_TEMPLATE,
   PAGE_STYLES,
@@ -35,6 +37,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -58,11 +62,11 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -134,7 +138,7 @@ const parts = () => ({
 test("Minimal is the default layout and the first dot; no other layout is gone", () => {
   expect(DEFAULT_NEW_TAB_TEMPLATE).toBe("minimal");
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
-  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
+  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
 });
 
 test("by default Minimal is the composer alone", async () => {
@@ -212,7 +216,7 @@ test("a project picked in the headline is the folder the composer starts its cha
     const strip = () => host.querySelector(".acpmux-composer-strip")?.textContent ?? "";
     expect(strip()).toContain("atlas");
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button")!.click());
-    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow,"]');
+    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow "]');
     expect(row).not.toBeNull();
     await act(async () => {
       row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
@@ -222,11 +226,10 @@ test("a project picked in the headline is the folder the composer starts its cha
     expect(strip()).toContain("manaflow");
     expect(strip()).not.toContain("atlas");
     // And the prompt is asked there.
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    const handle = host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
     await act(async () => {
-      setValue.call(field, "what changed?");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.focus();
+      handle.type("what changed?");
     });
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
     expect(asked.length).toBe(1);
@@ -243,8 +246,8 @@ test("Minimal keeps the old greeting's room over the composer, except for a gree
   expect(newTabHost({ newTab: {} })?.headlineOff).toBeUndefined();
   const slots = () => host.querySelectorAll(".nt-headline-slot").length;
   for (const [widgets, headlineOff, expected] of [
-    [undefined, false, 0],
-    [[], false, 0],
+    [undefined, false, 1],
+    [[], false, 1],
     [[], true, 0],
     [["greeting"], false, 1],
     // Turned on again in place (edit mode) before the host's next context: the headline has its room.

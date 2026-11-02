@@ -5,6 +5,10 @@
 //! only guides the client; constraints JSON Schema cannot say (one-of
 //! groups) stay in the tool description.
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 /// Public id prefix of a catalog resource scope (`ws` for `workspace`).
@@ -47,14 +51,39 @@ pub(super) fn prefix_list(resource: &str) -> Option<cmux_tui_core::resource::Res
 }
 
 pub(super) struct Generator<'a> {
-    types: &'a Map<String, Value>,
+    types: Types<'a>,
 }
+
+/// Where a `ref` expression's definition comes from: a parsed catalog's
+/// `types`, or the raw index of the v2 catalog (`v2_tools::Catalog`), whose
+/// definitions are parsed only while a schema is generated.
+enum Types<'a> {
+    Parsed(&'a Map<String, Value>),
+    Raw(&'a RawTypes),
+}
+
+/// Type definitions as raw JSON slices of an embedded catalog.
+pub(super) type RawTypes = BTreeMap<&'static str, &'static RawValue>;
 
 impl<'a> Generator<'a> {
     pub(super) fn new(catalog: &'a Value) -> Self {
         static EMPTY: std::sync::OnceLock<Map<String, Value>> = std::sync::OnceLock::new();
         let types = catalog["types"].as_object().unwrap_or_else(|| EMPTY.get_or_init(Map::new));
-        Self { types }
+        Self { types: Types::Parsed(types) }
+    }
+
+    /// A generator over raw type definitions (`v2_tools::Catalog`).
+    pub(super) fn raw(types: &'a RawTypes) -> Self {
+        Self { types: Types::Raw(types) }
+    }
+
+    fn definition(&self, name: &str) -> Option<Cow<'a, Value>> {
+        match self.types {
+            Types::Parsed(types) => types.get(name).map(Cow::Borrowed),
+            Types::Raw(types) => {
+                types.get(name).and_then(|raw| serde_json::from_str(raw.get()).ok()).map(Cow::Owned)
+            }
+        }
     }
 
     /// The schema of one catalog field: its type plus its description.
@@ -76,9 +105,9 @@ impl<'a> Generator<'a> {
                 if stack.iter().any(|entry| entry == name) {
                     return json!({ "description": format!("A nested {name}.") });
                 }
-                let Some(definition) = self.types.get(name) else { return json!({}) };
+                let Some(definition) = self.definition(name) else { return json!({}) };
                 stack.push(name.to_owned());
-                let schema = self.expression(definition, stack);
+                let schema = self.expression(&definition, stack);
                 stack.pop();
                 schema
             }
@@ -160,10 +189,15 @@ fn primitive(expression: &Value) -> Value {
         "uint64" => json!({ "type": "integer", "minimum": 0 }),
         "int32" => json!({ "type": "integer", "minimum": i32::MIN, "maximum": i32::MAX }),
         "float64" => json!({ "type": "number" }),
+        // The wire takes a decimal string (a u64 is past JSON's safe
+        // integers). Agents send numbers, so `plan` (v2_tools.rs) takes a
+        // whole JSON number too (tests/tool-evals: `terminal_wait
+        // {timeout_ms: 10000}` failed). The type stays one string: some
+        // clients refuse a type array.
         "decimal" => json!({
             "type": "string",
             "pattern": "^(0|[1-9][0-9]{0,19})$",
-            "description": "An unsigned integer written as a decimal string.",
+            "description": "A whole number, as a decimal string; a JSON number is also taken.",
         }),
         "base64" => json!({ "type": "string", "contentEncoding": "base64" }),
         _ => json!({}),

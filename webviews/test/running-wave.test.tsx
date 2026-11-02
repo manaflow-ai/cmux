@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
+import { SubagentsSection } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SpinnerAnimation } from "../src/ui/spinnerClock";
 import { alignWave, WAVE_CLASS, WAVE_KEYFRAMES, waveIndices, waveProps } from "../src/ui/wave";
@@ -70,7 +70,7 @@ const agent = (id: string, state: string, startedAt: number): Subagent => ({
   startedAt,
 });
 
-test("the Inspector's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
+test("Session Info's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
   const agents = [
     agent("done-1", "completed", 5),
     agent("run-old", "running", 1),
@@ -88,10 +88,10 @@ test("the Inspector's running Subagents lines are in the wave, top to bottom; th
   ]);
   const dom = new JSDOM(html);
   try {
-    const ended = dom.window.document.querySelector(".acpmux-chat-inspector-subagents__ended")!;
+    const ended = dom.window.document.querySelector(".acpmux-session-info-subagents__ended")!;
     expect(ended.getAttribute("aria-expanded")).toBe("false");
     expect(ended.textContent).toContain("1 done · 1 failed");
-    expect(ended.querySelectorAll(".acpmux-chat-inspector-subagents__avatars > span")).toHaveLength(2);
+    expect(ended.querySelectorAll(".acpmux-session-info-subagents__avatars > span")).toHaveLength(2);
     expect(ended.querySelector(`.${WAVE_CLASS}, [style*='--wave-index']`)).toBeNull();
   } finally {
     dom.window.close();
@@ -120,4 +120,26 @@ test("the wave runs only with motion: Reduce Motion, the motion gate, static ind
   const keyframes = css.indexOf(`@keyframes ${WAVE_KEYFRAMES}`);
   const frames = css.slice(keyframes, css.indexOf("@media", keyframes));
   expect(frames.match(/[a-z-]+(?=:)/g)).toEqual(["opacity", "opacity"]);
+});
+
+test("Session Info's wave sweeps slower than the shared one, period and step scaled together", () => {
+  // Leo 2026-10-28: "I think it could maybe be a bit slower on the session info region".
+  const shared = readFileSync(path.resolve(import.meta.dir, "../src/ui/wave.css"), "utf8");
+  const css = readFileSync(
+    path.resolve(import.meta.dir, "../src/agent-session/acpmux/session-info/SubagentsSection.css"),
+    "utf8",
+  );
+  const at = css.indexOf(".acpmux-session-info-subagents {");
+  expect(at).toBeGreaterThanOrEqual(0);
+  const rule = css.slice(at, css.indexOf("}", at));
+  const ms = (text: string, name: string) => {
+    const match = text.match(new RegExp(`${name}:\\s*([\\d.]+)(m?s);`))!;
+    return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+  };
+  const period = ms(rule, "--cmux-wave-period");
+  expect(period).toBeGreaterThan(ms(shared, "--cmux-wave-period"));
+  expect(period / ms(rule, "--cmux-wave-step")).toBeCloseTo(
+    ms(shared, "--cmux-wave-period") / ms(shared, "--cmux-wave-step"),
+    6,
+  );
 });

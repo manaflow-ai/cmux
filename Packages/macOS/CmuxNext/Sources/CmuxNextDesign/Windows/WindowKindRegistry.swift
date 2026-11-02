@@ -29,7 +29,7 @@ enum WindowKindRegistry {
 
 extension NSWindow {
     /// This window's own kind; nil when no owner installed it through
-    /// ``install(kind:content:scope:)``.
+    /// ``install(kind:content:scope:activeLook:)``.
     public var windowKind: WindowKind? { WindowKindRegistry.kind(of: self) }
 
     /// The window whose kind this window acts as (``WindowKindRegistry``).

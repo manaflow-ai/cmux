@@ -11,7 +11,7 @@ import CmuxNextDesign
 ///
 /// A panel, not a cmux window: it never joins cmux's window list, layout or
 /// session, and it closes with its page.
-final class CEFDevToolsWindow: NSPanel {
+final class CEFDevToolsWindow: NSPanel, WindowKeyClosing {
     /// The title bar's close button: the tab closes DevTools.
     var onClose: (() -> Void)?
 
@@ -30,7 +30,7 @@ final class CEFDevToolsWindow: NSPanel {
         let content = NSView(frame: CGRect(origin: .zero, size: frame.size))
         content.wantsLayer = true
         setAccessibilityIdentifier("browser.devtools.window")
-        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app)
+        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app, activeLook: owner?.backdropActiveLook)
         // The initializer places the rect relative to the main screen; set
         // the global frame so the window opens over the cmux window's screen.
         setFrame(frame, display: false)
@@ -46,6 +46,11 @@ final class CEFDevToolsWindow: NSPanel {
     }
 
     override func performClose(_ sender: Any?) {
+        onClose?()
+    }
+
+    /// The close key hides the inspector through its owner, as the close button does (``performClose(_:)``).
+    func closeFromKey() {
         onClose?()
     }
 

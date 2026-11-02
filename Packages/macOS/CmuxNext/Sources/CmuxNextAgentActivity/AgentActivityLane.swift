@@ -30,6 +30,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let workspaceID: String?
     /// Its `mux.parent` tag: the coordinator that started it.
     public let parent: String?
+    /// Chief turn tags pair its child-owner key with its participant identity. Never inferred from names.
+    public let chiefChildren: String?
+    public let chiefParticipant: String?
     public let state: State
     /// Since when it has been in `state`.
     public let since: Date?
@@ -39,6 +42,11 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let harness: String?
     /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
+    /// The running turn's prompt, for distinguishing prompt-derived lane steps from status.
+    public let turnPrompt: String?
+    /// Activity and plan metadata, independent of the prompt-derived lane step.
+    public let turnActivity: String?
+    public let turnPlanStep: String?
     /// A turn ended while no client showed the chat (the summary's `unread`); showing it clears it.
     public let unread: Bool
     /// The session folder's name (the last part of `cwd`), the Priority view's project tag.
@@ -46,6 +54,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
     /// session tree lists its workspace under that session's.
     public let spawnedBy: String?
+    /// acpmux classifies agent-started sessions as requiring an opened tab before a sidebar row.
+    public let sidebarRequiresOpen: Bool
     /// The session's folder: the sidebar's session tree reads its branch's pull request there.
     public let cwd: String?
     /// The pull requests its `gh pr create` calls opened (acpmux `pullRequests`, their URLs): the
@@ -63,31 +73,48 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
     /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
     public let markKey: String?
+    /// The session's latest reply, one line (the summary's `preview`): the cookie consent panel
+    /// names it beside the agent chat that asked.
+    public let preview: String?
+    /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
+    /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
+    public let usageWarnings: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil) {
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, preview: String? = nil,
+                usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
+                turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
+                chiefChildren: String? = nil, chiefParticipant: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
         self.peer = peer
         self.workspaceID = workspaceID
         self.parent = parent
+        self.chiefChildren = chiefChildren
+        self.chiefParticipant = chiefParticipant
         self.state = state
         self.since = since
         self.error = error
         self.harness = harness
         self.step = step
+        self.turnPrompt = turnPrompt
+        self.turnActivity = turnActivity
+        self.turnPlanStep = turnPlanStep
         self.unread = unread
         self.project = project
         self.spawnedBy = spawnedBy
+        self.sidebarRequiresOpen = sidebarRequiresOpen
         self.cwd = cwd
         self.pullRequests = pullRequests
         self.chat = chat
         self.updatedAt = updatedAt
         self.createdAt = createdAt
         self.markKey = markKey
+        self.preview = preview
+        self.usageWarnings = usageWarnings
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -108,7 +135,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
         let harness = (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        // Never the raw prompt beside it: only acpmux's masked step and title are shown.
+        // The masked step may still be a folded/truncated prompt. Keep its provenance
+        // so the sidebar can show activity instead without changing other lane surfaces.
+        let turn = summary["turn"] as? [String: Any]
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let unread = (summary["unread"] as? Bool) ?? false
@@ -120,7 +149,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
                                  chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
-                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]))
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 preview: nonEmpty(summary["preview"]),
+                                 usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) },
+                                 sidebarRequiresOpen: (lane["requiresOpen"] as? Bool) ?? false,
+                                 turnPrompt: turn?["prompt"] as? String,
+                                 turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
+                                 chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
+                                 chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

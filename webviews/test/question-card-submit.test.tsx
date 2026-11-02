@@ -23,7 +23,7 @@ const GLOBALS = [
   "navigator",
   "Node",
   "HTMLElement",
-  "HTMLInputElement",
+  "HTMLTextAreaElement",
   "Element",
   "KeyboardEvent",
   "IS_REACT_ACT_ENVIRONMENT",
@@ -38,7 +38,7 @@ function installDom(): HTMLElement {
     navigator: dom.window.navigator,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
-    HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
@@ -130,10 +130,10 @@ async function click(element: Element | null | undefined) {
 /// Picks Other on the active question and types `text` into its field, as a person does.
 async function answerOther(container: HTMLElement, text: string) {
   await click(container.querySelector(".acpmux-question-other-choice"));
-  const field = container.querySelector<HTMLInputElement>(".acpmux-question-other input");
+  const field = container.querySelector<HTMLTextAreaElement>(".acpmux-question-other textarea");
   if (!field) throw new Error("the Other row did not turn into a text field");
   await act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
     setValue.call(field, text);
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });

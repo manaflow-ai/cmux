@@ -272,6 +272,11 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
               ].includes(key),
@@ -291,7 +296,7 @@ export const PAGES = {
             (key) =>
               /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
               [
-                "chatInspector.changes.failingOnBase",
+                "sessionInfo.changes.failingOnBase",
                 "header.prConflicts",
                 "header.prNoChecks",
                 "image.open",
@@ -423,6 +428,9 @@ function inputsOf(page) {
   ];
 }
 
+/** The newest modification time of `page`'s inputs; Infinity when one is missing. */
+const newestInput = (page) => Math.max(...inputsOf(page).map((f) => mtime(f) ?? Infinity));
+
 const mtime = (file) => {
   try {
     return fs.statSync(file).mtimeMs;
@@ -459,8 +467,7 @@ export function writeStrings({
           ]
         : [target];
       const oldest = Math.min(...outs.map((f) => mtime(f) ?? -Infinity));
-      const newest = Math.max(...inputsOf(page).map((f) => mtime(f) ?? Infinity));
-      if (oldest >= newest) continue;
+      if (oldest >= newestInput(page)) continue;
     }
     let generated;
     try {
@@ -492,8 +499,11 @@ export function writeStrings({
         const temp = `${file}.${process.pid}.tmp`;
         fs.writeFileSync(temp, content);
         fs.renameSync(temp, file);
-      } else {
-        // Unchanged content: touch it so `ifStale` sees it as current.
+      } else if ((mtime(file) ?? -Infinity) < newestInput(page)) {
+        // Unchanged content older than its inputs: touch it so `ifStale` sees it as current. Never
+        // touch a table that is already current: test/preload.ts rewrites the agent pane's table in
+        // every `bun test` process, and each touch is a change to the dev servers that watch it,
+        // which full-reload every agent pane page open in a browser test running beside it.
         const now = new Date();
         fs.utimesSync(file, now, now);
       }
@@ -504,6 +514,10 @@ export function writeStrings({
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
+  // The feature tips table is build output beside the strings tables, made by every run that makes
+  // them (install, the webview and bundle builds, the gallery; gen-feature-tips.mjs).
+  const { writeFeatureTips } = await import("./gen-feature-tips.mjs");
+  const tipsFailed = writeFeatureTips({ check });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -511,5 +525,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit(failed && !bestEffort ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed ? 1 : 0);
 }

@@ -10,14 +10,15 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{mutation_data, require_conversation};
-use super::service::{CloudConversations, RangeReply, TransportError};
+use super::service::{CloudConversations, PutBody, RangeReply, TransportError};
+use cmux_json::JsonSet as _;
 
 /// Largest ranged read in one call (the local owner's read cap).
 pub const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The owner's `value` of an `{ok, value}` route reply (refusals as cloud errors).
 fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
-    mutation_data(reply).map(|mut data| data["value"].take())
+    mutation_data(reply).map(|mut data| data.get_mut("value").map(Value::take).unwrap_or_default())
 }
 
 fn unavailable(TransportError(detail): TransportError) -> CloudError {
@@ -58,7 +59,7 @@ impl CloudConversations {
     ) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let mut body = declaration.clone();
-        body["conversation"] = json!(conversation);
+        body.set("conversation", json!(conversation));
         route_value(self.post("/v1/home/attachments/intent", &body)?)
     }
 
@@ -81,7 +82,7 @@ impl CloudConversations {
         require_conversation(conversation)?;
         let mut body = json!({"conversation": conversation, "hash": hash});
         if let Some(variant) = variant {
-            body["variant"] = json!(variant);
+            body.set("variant", json!(variant));
         }
         let value = route_value(self.post("/v1/home/attachments/url", &body)?)?;
         let url = value
@@ -93,14 +94,14 @@ impl CloudConversations {
         Ok(url.to_string())
     }
 
-    /// `PUT` bytes to a slot URL the owner returned (`same_origin`: a Worker
+    /// `PUT` a body to a slot URL the owner returned (`same_origin`: a Worker
     /// slot on the lease's origin; else a presigned object URL). A Worker slot
     /// answers `{ok, value}`; an object store answers no JSON (`Null` on 2xx).
     pub fn attachment_put(
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
         same_origin: bool,
     ) -> Result<Value, CloudError> {
         transport_url(url, &self.api_origin()?, same_origin)?;

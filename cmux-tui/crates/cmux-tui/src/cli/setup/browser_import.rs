@@ -38,6 +38,7 @@ use serde_json::{Map, Value, json};
 use super::super::GlobalArgs;
 use super::super::app::{ActionName, READ_TIMEOUT, action_origin, action_run_params};
 use super::{Outcome, Refusal};
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "browser_import";
 
@@ -86,7 +87,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "person": PERSON,
     });
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.set("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let Some(browser) = args.browser.clone() else {
@@ -103,9 +104,11 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
                 Some(PICKER),
             )
         };
-        report["state"] = json!("needs_user");
-        report["user_action"] =
-            json!({"kind": "choose", "text": text, "command": command, "url": Value::Null});
+        report.set("state", json!("needs_user"));
+        report.set(
+            "user_action",
+            json!({"kind": "choose", "text": text, "command": command, "url": Value::Null}),
+        );
         return Ok(Outcome { report, failed: false });
     };
     if args.cookies {
@@ -226,10 +229,10 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         _ => keys.clone(),
     };
     let before = imported(&listed, Some(&id), source.map(|_| stored.as_slice()));
-    report["before"] = json!({"profile": profile, "folders": before});
+    report.set("before", json!({"profile": profile, "folders": before}));
     if !before.is_empty() {
-        report["after"] = report["before"].clone();
-        report["state"] = json!("ok");
+        report.set("after", report["before"].clone());
+        report.set("state", json!("ok"));
         return report;
     }
     // Not imported yet, and the browser (or the profile) is gone.
@@ -237,8 +240,8 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
     }
     if args.dry_run {
-        report["state"] = json!("planned");
-        report["undo"] = json!(remove("FOLDER_ID"));
+        report.set("state", json!("planned"));
+        report.set("undo", json!(remove("FOLDER_ID")));
         return report;
     }
     // Every folder of this browser already there: the undo names only the
@@ -247,7 +250,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         imported(&listed, Some(&id), None).into_iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
     let mut arguments = json!({"browser": id, "profile": profile});
     if let Some(source) = source {
-        arguments["source"] = json!(source);
+        arguments.set("source", json!(source));
     }
     let mut params =
         action_run_params("bookmark.importFromBrowser", ActionName::Any, action_origin());
@@ -277,9 +280,9 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // import running at the same time: the undo leaves it.
     let mine = |folder: &Value| keys.iter().any(|key| folder["source_key"] == key.as_str());
     let (added, other): (Vec<_>, Vec<_>) = new.into_iter().partition(mine);
-    report["after"] = json!({"profile": profile, "folders": added, "refreshed": refreshed});
+    report.set("after", json!({"profile": profile, "folders": added, "refreshed": refreshed}));
     if !other.is_empty() {
-        report["after"]["other"] = json!(other);
+        report.set_path(&["after", "other"], json!(other));
     }
     // The app answered that the import ran: with no new folder it refreshed
     // one already there (the app replaces a folder of the same source in place).
@@ -308,7 +311,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
             .map(remove)
             .collect::<Vec<_>>()
             .join(" && ");
-        report["undo"] = json!(undo);
+        report.set("undo", json!(undo));
     }
     let mut notes = Vec::new();
     if added.is_empty() || !refreshed.is_empty() {
@@ -332,13 +335,13 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         ));
     }
     if !notes.is_empty() {
-        report["note"] = json!(notes.join(". "));
+        report.set("note", json!(notes.join(". ")));
     }
     if let Some(why) = failure {
         // Some profiles came in and some could not be read.
-        report["unread"] = json!(why);
+        report.set("unread", json!(why));
     }
-    report["state"] = json!("changed");
+    report.set("state", json!("changed"));
     report
 }
 
@@ -375,9 +378,9 @@ fn contents(listed: &Value, folder: &Value) -> (Option<Value>, Vec<Value>) {
 }
 
 fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -> Value {
-    report["undo_note"] = json!(COOKIES_UNDO_NOTE);
+    report.set("undo_note", json!(COOKIES_UNDO_NOTE));
     if args.dry_run {
-        report["state"] = json!("planned");
+        report.set("state", json!("planned"));
         return report;
     }
     eprintln!(
@@ -403,7 +406,7 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
     let timeout = super::super::app::waiting_run_timeout("browser.importCookies");
     match app_call(global, "action.run", Value::Object(params), timeout) {
         Ok(_) => {
-            report["state"] = json!("changed");
+            report.set("state", json!("changed"));
             report
         }
         // Denied, timed out, or another request already waiting: nothing was read.
@@ -447,8 +450,8 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
 }
 
 fn needs_user(mut report: Value, action: Value) -> Value {
-    report["state"] = json!("needs_user");
-    report["user_action"] = action;
+    report.set("state", json!("needs_user"));
+    report.set("user_action", action);
     report
 }
 
@@ -517,7 +520,7 @@ fn import_sources(
 ) -> Result<Vec<String>, Value> {
     let mut params = json!({"browser": browser});
     if let Some(source) = source {
-        params["source"] = json!(source);
+        params.set("source", json!(source));
     }
     let found = app_call(global, "bookmark.importSources", params, READ_TIMEOUT)
         .map_err(|error| app_problem(&error))?;

@@ -42,6 +42,7 @@ pub const DAEMON_ACTIVITY_CAPABILITY: &str = "vm-activity-v1";
 
 pub const STATUS_REPORT_OP: &str = "cloud.vm.status.report";
 pub const EVENT_EMIT_OP: &str = "cloud.vm.event.emit";
+pub const ATTENTION_EMIT_OP: &str = "cloud.vm.attention.emit";
 
 pub const VM_EVENT_KINDS: [&str; 9] = [
     "agent.started",
@@ -75,6 +76,27 @@ impl Env {
             Env::Dev => "https://cmux-api-development.debussy.workers.dev",
             Env::Stg => "https://cloud-api-staging.cmux.dev",
             Env::Prod => "https://cloud-api.cmux.dev",
+        }
+    }
+
+    /// The connector owner for this environment. Socket callers cannot
+    /// choose an origin and redirect the machine's bearer elsewhere.
+    pub fn platform_origin(self) -> &'static str {
+        match self {
+            Env::Dev => "https://cmux-platform-development.debussy.workers.dev",
+            Env::Stg => "https://cmux-platform-staging.debussy.workers.dev",
+            Env::Prod => "https://cmux-platform-production.debussy.workers.dev",
+        }
+    }
+
+    /// The platform origin that keeps each person's harness logins
+    /// (`harness_login.rs`), with the machine's install token as bearer.
+    /// Development only until the platform serves the others: `None` keeps
+    /// the feature off.
+    pub fn harness_login_origin(self) -> Option<&'static str> {
+        match self {
+            Env::Dev => Some(self.platform_origin()),
+            Env::Stg | Env::Prod => None,
         }
     }
 

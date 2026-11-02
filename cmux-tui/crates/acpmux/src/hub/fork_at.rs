@@ -5,6 +5,7 @@
 //! resumes a copy of the parent's transcript that holds its first prompts
 //! and everything they led to, under a new session id.
 
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -38,7 +39,7 @@ pub(super) fn claude_transcript_through(
             prompts += 1;
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
-            record["sessionId"] = Value::String(id.clone());
+            record.set("sessionId", Value::String(id.clone()));
         }
         lines.push(serde_json::to_string(&record)?);
     }
@@ -92,7 +93,7 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
             }
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
-            record["sessionId"] = Value::String(id.clone());
+            record.set("sessionId", Value::String(id.clone()));
         }
         lines.push(serde_json::to_string(&record)?);
         last = Some(record);
@@ -119,8 +120,8 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
                 }
             }
             if let Some(parent_uuid) = last.get("uuid") {
-                result["parentUuid"] = parent_uuid.clone();
-                result["uuid"] = Value::String(uuid::Uuid::now_v7().to_string());
+                result.set("parentUuid", parent_uuid.clone());
+                result.set("uuid", Value::String(uuid::Uuid::now_v7().to_string()));
             }
         }
         lines.push(serde_json::to_string(&result)?);

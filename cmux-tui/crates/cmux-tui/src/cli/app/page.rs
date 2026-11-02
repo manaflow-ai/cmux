@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::OutputMode;
 use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
+use cmux_json::JsonSet as _;
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
 /// `cmux browser wait`); the CLI waits that long plus this margin.
@@ -21,8 +22,8 @@ pub(super) const WAIT_MARGIN: Duration = Duration::from_secs(5);
 pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
+/// app hosts (`page` is the browser nearest the caller, or the focused tab
+/// outside cmux). A daemon browser (`browser_…`) is the mux grammar's.
 pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.browser_page_usage);
@@ -291,10 +292,12 @@ const AGENT_METHODS: &[&str] = &[
 ];
 
 /// The methods the CLI names its caller on: [`super::CALLER_METHODS`], and
-/// every page input verb, so the agent cursor's tag says who drives and where
-/// and a click on it goes there (user, 2026-10-20).
+/// every page verb. A verb without a tab runs on the browser nearest the
+/// caller (its own workspace, then its window), never on the person's focused
+/// tab in another window (#26648); an input verb's agent cursor tag says who
+/// drives and where, and a click on it goes there (user, 2026-10-20).
 pub(super) fn takes_caller(method: &str) -> bool {
-    super::CALLER_METHODS.contains(&method) || AGENT_METHODS.contains(&method)
+    super::CALLER_METHODS.contains(&method) || method.starts_with("browser.page.")
 }
 
 /// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
@@ -524,7 +527,7 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
     match output {
         OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
         _ => {
-            result["path"] = json!(path);
+            result.set("path", json!(path));
             super::super::wire::print_local_success(&result, output)
         }
     }

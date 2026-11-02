@@ -17,8 +17,8 @@ public struct TextWeightProbe {
 
     private static let text = "Workspace notes 0123 quick brown fox"
     private static let fonts: [(String, NSFont)] = [
-        ("13r", .systemFont(ofSize: TypeScale.body)), ("12m", .systemFont(ofSize: TypeScale.detail, weight: .medium)),
-        ("11r", .systemFont(ofSize: TypeScale.caption)),
+        ("13r", .systemFont(ofSize: TypeScale.Base.body)), ("12m", .systemFont(ofSize: TypeScale.Base.detail, weight: .medium)),
+        ("11r", .systemFont(ofSize: TypeScale.Base.caption)),
     ]
     private static let rowHeight: CGFloat = 22
     /// Space around the grid: a window's edge draws a hairline that is no row's ink.

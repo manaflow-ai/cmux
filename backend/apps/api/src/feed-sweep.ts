@@ -1,4 +1,5 @@
 import type { Env } from "./env.ts"
+import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 
 /**
  * Feed text sweep (feed.md 4, privacy, coordinator option A 2026-10-03). A FeedDO scrubs its
@@ -71,7 +72,16 @@ export const sweepFeedText = async (deps: SweepDeps): Promise<SweepReport> => {
 /** Production wiring: user ids from the projection, FeedDO stubs by user id. */
 export const sweepDeps = (env: Env): SweepDeps => ({
   listUsers: async (after, limit) => {
-    if (env.PROJECTION_READS === "mysql") return listUsersMysql(env, after, limit)
+    const mode = projectionReadMode(env)
+    if (mode === "mysql") return listUsersMysql(env, after, limit)
+    if (mode === "shadow") return shadowRead("feed.users", () => listUsersPostgres(env, after, limit), () => listUsersMysql(env, after, limit), (ids) => ids)
+    return listUsersPostgres(env, after, limit)
+  },
+  feed: (name) => env.FEED_DO.get(env.FEED_DO.idFromName(name)) as unknown as SweepFeed,
+  now: () => Date.now()
+})
+
+const listUsersPostgres = async (env: Env, after: string | null, limit: number): Promise<Array<string>> => {
     // The writer role: the read-only role may not read users (staging, 2026-10-03: "permission denied for table users").
     const hyperdrive = env.HYPERDRIVE ?? env.HYPERDRIVE_RO
     if (!hyperdrive) throw new Error("HYPERDRIVE binding missing")
@@ -84,10 +94,7 @@ export const sweepDeps = (env: Env): SweepDeps => ({
     } finally {
       await client.end()
     }
-  },
-  feed: (name) => env.FEED_DO.get(env.FEED_DO.idFromName(name)) as unknown as SweepFeed,
-  now: () => Date.now()
-})
+}
 
 /** The same page from the PlanetScale MySQL projection (after the verified cutover). */
 export const listUsersMysql = async (env: Env, after: string | null, limit: number): Promise<Array<string>> => {

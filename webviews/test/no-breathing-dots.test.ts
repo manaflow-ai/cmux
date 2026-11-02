@@ -40,7 +40,7 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     file: "ui/wave.css",
     keyframes: "cmux-wave",
     selector: ".acpmux-wave-item",
-    why: "RUNNING-WAVE (#23995): one shimmer sweeping across the Inspector's running subagent avatars, which replaced their out-of-step breathing; Static, Reduce Motion and the motion gate stop it",
+    why: "RUNNING-WAVE (#23995): one shimmer sweeping across Session Info's running subagent avatars, which replaced their out-of-step breathing; Static, Reduce Motion and the motion gate stop it",
   },
   {
     file: "pages/apps/styles.css",

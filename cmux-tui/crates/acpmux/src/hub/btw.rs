@@ -47,6 +47,8 @@
 //! Codex MCP tools run outside its sandbox.
 
 use super::*;
+use std::future::Future;
+use std::pin::Pin;
 
 /// The tag that marks a side chat, valued with its chat's session id
 /// (webviews sessionList.ts `SIDE_TAG`, `_acpmux/side`).
@@ -60,54 +62,293 @@ const CLAUDE_READ_ONLY: &str = "plan";
 const CODEX_READ_ONLY: &str = "read-only";
 /// The context wrapper's closing tag, escaped wherever the chat's text holds it.
 const CONTEXT_CLOSE: &str = "</cmux-btw-context>";
+/// The inline fallback has to finish and clean up before the app's request
+/// deadline. Claude's native side-question bridge has its own deadline too.
+const INLINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(110);
 /// The ACP tool kinds a side session refuses (`rules.rs` matches the kind):
 /// everything but read, search, fetch and think.
 const REFUSED_KINDS: &[&str] = &["edit", "delete", "move", "execute", "switch_mode", "other"];
 /// Words in a model id or name that mark a small, fast model, best first.
 const SMALL_MODEL_WORDS: &[&str] = &["nano", "mini", "flash", "lite", "small", "fast"];
 
+/// Registers an inline side session's request-unique name for its request's lifetime
+/// (`Hub::inline_btw`), so `discard_failed_creation` cleans its harness transcript.
+struct InlineOwned {
+    hub: Arc<Hub>,
+    name: String,
+}
+
+impl InlineOwned {
+    fn new(
+        hub: &Arc<Hub>,
+        name: &str,
+        family: &str,
+        harness_env: &std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        hub.inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(name.to_owned(), (family.to_owned(), harness_env.clone()));
+        Self { hub: hub.clone(), name: name.to_owned() }
+    }
+}
+
+impl Drop for InlineOwned {
+    fn drop(&mut self) {
+        self.hub
+            .inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.name);
+    }
+}
+
+/// Run setup and answer work under one inline deadline; legacy side sessions have no deadline.
+async fn with_inline_deadline<T, F>(
+    deadline: Option<tokio::time::Instant>,
+    future: F,
+) -> Result<T, RpcError>
+where
+    F: Future<Output = T>,
+{
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, future)
+            .await
+            .map_err(|_| RpcError::internal("the inline side question timed out")),
+        None => Ok(future.await),
+    }
+}
+
+/// Creation publishes a session before all of its startup awaits finish. Abort a timed-out
+/// creation; its publication guard purges the exact session it may already have published.
+async fn with_inline_creation(
+    hub: Arc<Hub>,
+    deadline: Option<tokio::time::Instant>,
+    family: String,
+    harness_env: std::collections::BTreeMap<String, String>,
+    target_name: String,
+    target_parent: Option<String>,
+    future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>>,
+) -> Result<Arc<Session>, RpcError> {
+    let Some(deadline) = deadline else {
+        return future.await;
+    };
+    // This request's session, found only by its request-unique name and parent; never a sweep
+    // of the shared transcript root.
+    let targets = || -> Vec<Arc<Session>> {
+        hub.sessions()
+            .into_iter()
+            .filter(|candidate| {
+                let meta = candidate.meta();
+                meta.name == target_name && meta.parent_id.as_deref() == target_parent.as_deref()
+            })
+            .collect()
+    };
+    let mut task = tokio::spawn(future);
+    match tokio::time::timeout_at(deadline, &mut task).await {
+        Ok(Ok(Ok(side))) => Ok(side),
+        Ok(result) => {
+            // A creation that failed after publishing still owns its transcript: remove it with
+            // the session (a fork that failed before publishing removes its own copy, fork.rs).
+            for side in targets() {
+                Box::pin(hub.btw_cleanup(&side, &family, &harness_env)).await;
+            }
+            result.map_err(|e| RpcError::internal(e.to_string())).and_then(|result| result)
+        }
+        Err(_) => {
+            // Capture the exact published session before aborting. Its
+            // CreationGuard may purge the registry as soon as the task drops.
+            let targets = targets();
+            task.abort();
+            if let Ok(Ok(side)) = task.await {
+                Box::pin(hub.btw_cleanup(&side, &family, &harness_env)).await;
+            } else {
+                // `fork` publishes its Session before startup awaits can create a
+                // harness transcript. Find only this request's session by its
+                // unique name and parent; never sweep the shared transcript root.
+                for side in targets {
+                    Box::pin(hub.btw_cleanup(&side, &family, &harness_env)).await;
+                }
+            }
+            Err(RpcError::internal("the inline side question timed out"))
+        }
+    }
+}
+
+fn transcript_file(
+    homes: &crate::adopt::HarnessHomes,
+    family: &str,
+    id: &str,
+) -> Option<std::path::PathBuf> {
+    if !crate::adopt::is_bare_id(id) {
+        return None;
+    }
+    match family {
+        "claude" => crate::adopt::find_claude(&homes.claude, id),
+        "codex" => crate::adopt::find_codex(&homes.codex, id),
+        _ => None,
+    }
+}
+
+/// Removes the Claude or Codex transcript `id` names under `homes`; nothing for another family.
+pub(super) fn remove_transcript_in(homes: &crate::adopt::HarnessHomes, family: &str, id: &str) {
+    if let Some(file) = transcript_file(homes, family, id) {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
+fn remove_transcript(family: &str, env: &std::collections::BTreeMap<String, String>, id: &str) {
+    remove_transcript_in(&crate::adopt::HarnessHomes::from_env().with_env(&[env]), family, id);
+}
+
 impl Hub {
-    /// Open a side session about `session` and send it `question`. Returns
-    /// `{sessionId, model, readOnly}`: the side session, the model it was
-    /// put on (null: the harness's default) and how it is kept read-only
-    /// (`mode`: a mode that reads only; `policy`: a mode that asks before
-    /// every change, refused by the rules). An agent with neither is refused
-    /// before anything opens; a mode that cannot be set and confirmed
-    /// discards the side session and errors.
+    /// Open a side session about `session` and send it `question`. Legacy calls
+    /// return `{sessionId, model, readOnly}`. Inline calls return `{text}` and
+    /// either use Claude Code's native transcript-free control request or a
+    /// read-only one-shot side session that is discarded after its answer.
     pub async fn btw(
         self: &Arc<Self>,
         session: &Arc<Session>,
         question: &str,
         model: Option<&str>,
         client: &str,
+        inline: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let question = question.trim();
         if question.is_empty() {
             return Err(RpcError::invalid_params("question is required"));
         }
+        // One deadline covers the inline fallback from this entry point through answer and cleanup;
+        // it cannot spend separate acceptance and answer windows beyond the app's request budget.
+        let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);
+        let meta = session.meta();
+        let (is_claude, harness_env) = if inline {
+            with_inline_deadline(inline_deadline, Box::pin(self.harness_env(&meta))).await?
+        } else {
+            Box::pin(self.harness_env(&meta)).await
+        };
+        let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+        // Claude Code owns a transcript-free side-question callback on its
+        // running stream-json process. It never creates a session or sends an
+        // ACP prompt, so the main turn and its queue stay untouched.
+        if inline {
+            // Claude's native side-question callback only exists during an
+            // active turn. An idle process uses the read-only emulation below.
+            // The translator enforces its own active-turn check at dispatch,
+            // including when it lives in a separate agent-host process.
+            if is_claude && session.turn().is_some() {
+                match with_inline_deadline(
+                    inline_deadline,
+                    Box::pin(self.btw_inline_claude(session, question)),
+                )
+                .await?
+                {
+                    // The turn can finish after our check, or this Claude
+                    // release may lack the callback. Only an explicit refusal
+                    // falls back; a timeout or an answer failure does not retry.
+                    Err(error)
+                        if error.code == -32601
+                            || error
+                                .message
+                                .starts_with("side_question is not supported in this context")
+                            || error.message.starts_with(
+                                "Unsupported control request subtype: side_question",
+                            ) => {}
+                    result => return result,
+                }
+            }
+        }
+        // Keep the fork/startup state machine off the request task's stack.
+        // Native and emulated paths share a deadline, not one large future.
+        Box::pin(self.btw_side_session(
+            session,
+            question,
+            model,
+            client,
+            opts,
+            inline_deadline,
+            family,
+            harness_env,
+        ))
+        .await
+    }
+
+    async fn btw_side_session(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        question: &str,
+        model: Option<&str>,
+        client: &str,
+        opts: PromptOptions,
+        inline_deadline: Option<tokio::time::Instant>,
+        family: String,
+        harness_env: std::collections::BTreeMap<String, String>,
+    ) -> Result<Value, RpcError> {
+        let inline = inline_deadline.is_some();
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let meta = session.meta();
         // Refused before anything is created when no mode would hold it.
-        let (mode, read_only) = self.read_only_mode(&meta).await?;
-        let mut model = match explicit.clone() {
-            Some(m) => Some(m),
-            None => self.btw_default_model(&meta).await,
+        let (mode, read_only) =
+            with_inline_deadline(inline_deadline, Box::pin(self.read_only_mode(&meta))).await??;
+        // Inline emulation uses the chat's current model and folder exactly;
+        // the legacy side-session path keeps its cheap default behavior.
+        let mut model = if inline {
+            crate::hub::model_options::current_model(&meta)
+        } else {
+            match explicit.clone() {
+                Some(m) => Some(m),
+                None => self.btw_default_model(&meta).await,
+            }
         };
-        let name = self.unique_name(&format!("{}-btw", meta.name));
-        let (side, context) = match self.btw_fork_point(session, &meta).await? {
+        // Reserve a request-specific name before publishing the fork/new session. A plain
+        // unique_name check races when two inline requests start together, which could make
+        // timeout cleanup identify and purge the other request's session too.
+        let name = self.unique_name(&format!("{}-btw-{}", meta.name, uuid::Uuid::now_v7()));
+        // While this request runs, a creation that fails and is discarded inside `new_session`
+        // or `fork` (out of this request's sight) removes this session's transcript too.
+        let _owned = inline.then(|| InlineOwned::new(self, &name, &family, &harness_env));
+        let (side, context) = match with_inline_deadline(
+            inline_deadline,
+            Box::pin(self.btw_fork_point(session, &meta)),
+        )
+        .await??
+        {
             Some(through) => (
-                self.fork(session, Some(name), None, Default::default(), None, Some(through))
-                    .await?,
+                with_inline_creation(
+                    self.clone(),
+                    inline_deadline,
+                    family.clone(),
+                    harness_env.clone(),
+                    name.clone(),
+                    Some(session.id.clone()),
+                    Box::pin({
+                        let hub = self.clone();
+                        let parent = session.clone();
+                        async move {
+                            Box::pin(hub.fork(
+                                &parent,
+                                Some(name),
+                                None,
+                                Default::default(),
+                                None,
+                                Some(through),
+                                false,
+                            ))
+                            .await
+                        }
+                    }),
+                )
+                .await?,
                 None,
             ),
             None => {
                 let req = NewRequest {
                     harness: Some(meta.harness.clone()),
                     preset: meta.preset.clone(),
-                    name: Some(name),
+                    name: Some(name.clone()),
                     cwd: Some(meta.cwd.clone()),
-                    policy: Some(side_policy(self.btw_chat_policy(session).await)),
+                    policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
                     model: model.clone(),
                     effort: None,
                     adopt: None,
@@ -124,13 +365,44 @@ impl Hub {
                     lineage: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
+                    // The person's side chat, as its chat is.
+                    person: session.person.load(Ordering::SeqCst),
                 };
-                let side = match self.new_session(req.clone()).await {
+                let side = match with_inline_creation(
+                    self.clone(),
+                    inline_deadline,
+                    family.clone(),
+                    harness_env.clone(),
+                    name.clone(),
+                    None,
+                    Box::pin({
+                        let hub = self.clone();
+                        let req = req.clone();
+                        async move { Box::pin(hub.new_session(req)).await }
+                    }),
+                )
+                .await
+                {
                     // A default model the harness refuses: its own default instead.
-                    Err(e) if explicit.is_none() && model.is_some() => {
+                    Err(e) if !inline && explicit.is_none() && model.is_some() => {
                         tracing::warn!(session = %session.id, "side session model: {}", e.message);
                         model = None;
-                        self.new_session(NewRequest { model: None, ..req }).await?
+                        with_inline_creation(
+                            self.clone(),
+                            inline_deadline,
+                            family.clone(),
+                            harness_env.clone(),
+                            name.clone(),
+                            None,
+                            Box::pin({
+                                let hub = self.clone();
+                                async move {
+                                    Box::pin(hub.new_session(NewRequest { model: None, ..req }))
+                                        .await
+                                }
+                            }),
+                        )
+                        .await?
                     }
                     other => other?,
                 };
@@ -138,27 +410,53 @@ impl Hub {
             }
         };
         let forked = context.is_none();
-        let settled = self.btw_settle(session, &side, question, &mode, read_only).await;
+        let settled = match with_inline_deadline(
+            inline_deadline,
+            Box::pin(self.btw_settle(session, &side, question, &mode, read_only, inline)),
+        )
+        .await
+        {
+            Ok(settled) => settled,
+            Err(e) => {
+                Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                return Err(e);
+            }
+        };
         // A fork runs its chat's model until it is set (a new session took it at its start).
         let settled = match (settled, model.clone().filter(|_| forked)) {
-            (Ok(mode), Some(m)) => match self.set_model(&side, &m).await {
-                Ok(_) => Ok(mode),
-                Err(e) if explicit.is_some() => Err(e),
-                Err(e) => {
-                    tracing::warn!(session = %side.id, "side session model: {}", e.message);
-                    model = None;
-                    Ok(mode)
+            (Ok(mode), Some(m)) => {
+                let modeled = match with_inline_deadline(
+                    inline_deadline,
+                    Box::pin(self.set_model(&side, &m)),
+                )
+                .await
+                {
+                    Ok(modeled) => modeled,
+                    Err(e) => {
+                        Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                        return Err(e);
+                    }
+                };
+                match modeled {
+                    Ok(_) => Ok(mode),
+                    Err(e) if inline || explicit.is_some() => Err(e),
+                    Err(e) => {
+                        tracing::warn!(session = %side.id, "side session model: {}", e.message);
+                        model = None;
+                        Ok(mode)
+                    }
                 }
-            },
+            }
             (settled, _) => settled,
         };
         let read_only = match settled {
             Ok(read_only) => read_only,
             Err(e) => {
-                self.btw_discard(&side).await;
+                Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
                 return Err(e);
             }
         };
+        let before = side.seq.load(Ordering::SeqCst);
         let mut blocks = vec![json!({"type": "text", "text": question})];
         if let Some(text) = context.filter(|t| !t.is_empty()) {
             blocks.push(
@@ -173,23 +471,178 @@ impl Hub {
         }));
         let (hub, run_on, client) = (self.clone(), side.clone(), client.to_owned());
         let run = tokio::spawn(async move {
-            let r = hub.prompt_with(&run_on, blocks, &client, false, opts).await;
+            let r = Box::pin(hub.prompt_with(&run_on, blocks, &client, false, opts)).await;
             if let Err(e) = &r {
                 tracing::warn!(session = %run_on.id, "side session question: {}", e.message);
             }
             r
         });
-        if accepted.await.is_err() {
+        if inline {
+            let accepted_result = with_inline_deadline(inline_deadline, accepted).await;
+            match accepted_result {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    // Refused before it was recorded: no side session is left behind.
+                    let e = match run.await {
+                        Ok(Err(e)) => e,
+                        Ok(Ok(_)) => {
+                            RpcError::internal("the side session's question was not recorded")
+                        }
+                        Err(e) => RpcError::internal(e.to_string()),
+                    };
+                    Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                    return Err(e);
+                }
+                Err(_) => {
+                    run.abort();
+                    let _ = run.await;
+                    Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                    return Err(RpcError::internal("the inline side question timed out"));
+                }
+            }
+        } else if accepted.await.is_err() {
             // Refused before it was recorded: no side session is left behind.
             let e = match run.await {
                 Ok(Err(e)) => e,
                 Ok(Ok(_)) => RpcError::internal("the side session's question was not recorded"),
                 Err(e) => RpcError::internal(e.to_string()),
             };
-            self.btw_discard(&side).await;
+            Box::pin(self.btw_discard(&side)).await;
             return Err(e);
         }
+        if inline {
+            let mut run = run;
+            let answer_result = with_inline_deadline(inline_deadline, &mut run).await;
+            let answer = match answer_result {
+                Ok(Ok(Ok(reply))) => {
+                    let text = self.btw_answer_text(&side, before).ok_or_else(|| {
+                        RpcError::internal("the inline side question returned no text")
+                    });
+                    text.map(|text| (text, reply))
+                }
+                Ok(Ok(Err(e))) => Err(e),
+                Ok(Err(e)) => Err(RpcError::internal(e.to_string())),
+                Err(_) => {
+                    run.abort();
+                    let _ = run.await;
+                    Err(RpcError::internal("the inline side question timed out"))
+                }
+            };
+            // An inline emulation is one-shot: its side session never remains
+            // in the session list, whether the answer succeeded or failed.
+            Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+            return answer.map(|(text, _)| json!({"text": text}));
+        }
         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
+    }
+
+    /// Ask Claude Code's native `/btw` callback on the already-running
+    /// process. The callback itself is transcript-free and refuses tool use;
+    /// absence of a live process or a textual answer fails closed.
+    async fn btw_inline_claude(
+        &self,
+        session: &Arc<Session>,
+        question: &str,
+    ) -> Result<Value, RpcError> {
+        let child = session.child.lock().await.clone().ok_or_else(|| {
+            RpcError::invalid_params("inline side questions require a running Claude process")
+        })?;
+        if !child.is_alive().await {
+            return Err(RpcError::invalid_params(
+                "inline side questions require a running Claude process",
+            ));
+        }
+        let response = child
+            .request_within(
+                crate::claude_stdio::SIDE_QUESTION,
+                json!({"question": question}),
+                INLINE_TIMEOUT,
+            )
+            .await
+            .ok_or_else(|| RpcError::internal("the inline side question timed out"))??;
+        let text = Self::side_question_text(&response)
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| RpcError::internal("the inline side question returned no text"))?;
+        Ok(json!({"text": text}))
+    }
+
+    /// Purge the temporary acpmux fork and, for Claude forks, its separate
+    /// conversation file. Claude indexes those files independently of the
+    /// acpmux store, so deleting only the session log leaves a ghost chat.
+    pub(super) async fn btw_cleanup(
+        &self,
+        side: &Arc<Session>,
+        family: &str,
+        harness_env: &std::collections::BTreeMap<String, String>,
+    ) {
+        let meta = side.meta();
+        // Read the store before the kill purges the session's meta.
+        let store_env = self.btw_store_env(&meta, harness_env).await;
+        if let Err(e) = self.kill(side, true).await {
+            tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
+        }
+        if let Some(sid) = meta.agent_session_id {
+            remove_transcript(family, &store_env, &sid);
+        }
+    }
+
+    /// The env the side session's harness was started with, built by the
+    /// spawn's own layering (`spawn_profile_for`: family and profile
+    /// defaults under the profile's env, the preset's on top, `${home}`,
+    /// `${cwd}`, `${model}` and `~/` expanded, the chat store, the session's
+    /// env and its route): the store its transcript is really in. When the
+    /// profile no longer resolves, the parent chat's unexpanded env is all
+    /// that is left.
+    async fn btw_store_env(
+        &self,
+        meta: &SessionMeta,
+        fallback: &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String> {
+        let resolved = {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .map(|profile| (profile, cfg.defaults_for(&meta.harness)))
+        };
+        let spawned = match resolved {
+            Ok((profile, defaults)) => {
+                self.spawn_profile_for(meta, &profile, &defaults.env).await.ok()
+            }
+            Err(_) => None,
+        };
+        match spawned {
+            Some(profile) => profile.env,
+            None => {
+                tracing::warn!(session = %meta.id, "inline side question cleanup: its spawn env did not resolve");
+                fallback.clone()
+            }
+        }
+    }
+
+    /// The answer chunks written by a one-shot fallback side session. The
+    /// side's own session log is used, never the main chat's transcript.
+    fn btw_answer_text(&self, side: &Session, before: u64) -> Option<String> {
+        let text: String = self
+            .store
+            .events(&side.id, before, 500_000)
+            .unwrap_or_default()
+            .iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .filter(|e| !e.msg.get("params").is_some_and(crate::subagents::is_subagents))
+            .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+            .collect();
+        (!text.trim().is_empty()).then_some(text)
+    }
+
+    /// Claude Code's callback currently returns `{response, synthetic}`. Keep the
+    /// extraction tolerant of the SDK's documented response object and of a
+    /// future plain string/text payload, but never manufacture an answer.
+    fn side_question_text(value: &Value) -> Option<String> {
+        let value = value.get("response").unwrap_or(value);
+        value
+            .as_str()
+            .or_else(|| value.get("text").and_then(Value::as_str))
+            .or_else(|| value.get("response").and_then(Value::as_str))
+            .map(str::to_owned)
     }
 
     /// The model a side session starts on when the request names none:
@@ -283,6 +736,7 @@ impl Hub {
         question: &str,
         mode: &str,
         read_only: &'static str,
+        inline: bool,
     ) -> Result<&'static str, RpcError> {
         let mut tag = serde_json::Map::new();
         tag.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
@@ -293,7 +747,7 @@ impl Hub {
                 Some(short_text(first.trim(), 80));
         }
         self.save_meta(side);
-        self.set_policy(side, side_policy(self.btw_chat_policy(chat).await)).await;
+        self.set_policy(side, side_policy(self.btw_chat_policy(chat).await, inline)).await;
         self.set_rules(side, Some(json!({"autoDeny": REFUSED_KINDS})));
         // A fork copies its chat's mode, full access included: always set, then confirm.
         let unset = |why: String| {
@@ -381,7 +835,17 @@ impl Hub {
 }
 
 /// A side session's policy: approve-reads, never wider than its chat's.
-fn side_policy(chat: PermissionPolicy) -> PermissionPolicy {
+fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
+    if inline {
+        // Inline fallbacks have no pane to answer a permission card. Read-only
+        // questions must therefore allow reads automatically, while DenyAll
+        // remains a deliberate refusal from the parent chat.
+        return if chat == PermissionPolicy::DenyAll {
+            chat
+        } else {
+            PermissionPolicy::ApproveReads
+        };
+    }
     match chat {
         PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
         _ => PermissionPolicy::ApproveReads,
@@ -474,4 +938,214 @@ fn newest(text: &str, max: usize) -> (bool, &str) {
         start += 1;
     }
     (true, &text[start..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn inline_transcript_cleanup_targets_only_requested_session() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-cancel-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let transcript = projects.join("temporary.jsonl");
+        let concurrent = projects.join("concurrent.jsonl");
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        std::fs::write(&transcript, "temporary").unwrap();
+        std::fs::write(&concurrent, "concurrent").unwrap();
+        assert!(transcript.exists());
+        remove_transcript("claude", &env, "temporary");
+        assert!(!transcript.exists(), "inline cleanup leaves no temporary transcript");
+        assert!(concurrent.exists(), "cleanup must preserve a concurrent transcript");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn claude_profile(env: &[(&str, &str)]) -> crate::config::HarnessProfile {
+        serde_json::from_value(json!({
+            "kind": "claude-stdio",
+            "argv": ["claude"],
+            "family": "claude",
+            "env": env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
+        }))
+        .unwrap()
+    }
+
+    fn side_meta(harness: &str, cwd: &std::path::Path) -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "side",
+            "name": "side",
+            "harness": harness,
+            "family": "claude",
+            "cwd": cwd,
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap()
+    }
+
+    /// A profile's `${home}` store is expanded as at spawn; the parent's raw env
+    /// (what cleanup used before) leaves the template, which `HarnessHomes` skips.
+    #[tokio::test]
+    async fn inline_cleanup_store_expands_profile_home_template() {
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", "${home}/isolated-claude")]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let meta = side_meta("claude-iso", &std::env::temp_dir());
+        let raw = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            "${home}/isolated-claude".to_owned(),
+        )]);
+        let env = hub.btw_store_env(&meta, &raw).await;
+        let home = dirs::home_dir().unwrap_or_default();
+        assert_eq!(
+            env.get("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from),
+            Some(home.join("isolated-claude")),
+        );
+        let homes = crate::adopt::HarnessHomes::from_env();
+        assert_eq!(homes.with_env(&[&env]).claude, home.join("isolated-claude"));
+        assert_ne!(homes.with_env(&[&raw]).claude, home.join("isolated-claude"));
+        hub.shutdown_all().await;
+    }
+
+    /// A creation that fails after its harness wrote a transcript is discarded inside
+    /// `new_session`/`fork`, out of the request's sight: an inline /btw's session takes its
+    /// transcript with it, and any other discarded session keeps its harness's files.
+    #[tokio::test]
+    async fn discarded_inline_creation_removes_its_transcript_and_only_its_own() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-btw-discard-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", &root.to_string_lossy())]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let publish = |name: &str, sid: &str| {
+            let mut meta = side_meta("claude-iso", &root);
+            meta.id = format!("id-{name}");
+            meta.name = name.to_owned();
+            meta.agent_session_id = Some(sid.to_owned());
+            std::fs::write(projects.join(format!("{sid}.jsonl")), sid).unwrap();
+            let session = hub.make_session(meta);
+            hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+            session
+        };
+        let inline = publish("chat-btw-1", "inline-transcript");
+        let other = publish("chat", "other-transcript");
+        let owned = InlineOwned::new(&hub, "chat-btw-1", "claude", &env);
+        hub.discard_failed_creation(&inline, 0).await;
+        hub.discard_failed_creation(&other, 0).await;
+        drop(owned);
+        assert!(hub.resolve(&inline.id).is_err(), "the inline session is discarded");
+        assert!(hub.resolve(&other.id).is_err(), "the other session is discarded");
+        assert!(
+            !projects.join("inline-transcript.jsonl").exists(),
+            "the inline session's transcript goes with it"
+        );
+        assert!(
+            projects.join("other-transcript.jsonl").exists(),
+            "a session no inline request owns keeps its transcript"
+        );
+        assert!(hub.inline_btw.lock().unwrap().is_empty(), "the request's mark is gone");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A creation cancelled at its deadline is purged by its CreationGuard on a spawned task,
+    /// which can run after the request (and its mark) is gone: the guard keeps the owner it
+    /// read when it was made, so the transcript still goes.
+    #[tokio::test]
+    async fn a_creation_guard_cleans_the_inline_transcript_after_the_request_ended() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-guard-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", &root.to_string_lossy())]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let mut meta = side_meta("claude-iso", &root);
+        meta.id = "id-guarded".into();
+        meta.name = "chat-btw-2".into();
+        meta.agent_session_id = Some("guarded-transcript".into());
+        let transcript = projects.join("guarded-transcript.jsonl");
+        std::fs::write(&transcript, "guarded").unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let owned = InlineOwned::new(&hub, "chat-btw-2", "claude", &env);
+        let guard = super::super::lifecycle::CreationGuard::new(hub.clone(), session.clone(), 0);
+        // The request ends first (its deadline passed), then the cancelled creation drops.
+        drop(owned);
+        drop(guard);
+        for _ in 0..200 {
+            if !transcript.exists() && hub.resolve(&session.id).is_err() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(hub.resolve(&session.id).is_err(), "the guard discards the session");
+        assert!(!transcript.exists(), "and its transcript, though the request's mark is gone");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A family default's store (here `${cwd}`-relative) is where cleanup looks,
+    /// and the temporary transcript in it is removed.
+    #[tokio::test]
+    async fn inline_cleanup_removes_transcript_from_family_default_store() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-family-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("family-store").join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let transcript = projects.join("temporary.jsonl");
+        std::fs::write(&transcript, "temporary").unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude-fam".into(), claude_profile(&[]));
+        cfg.defaults.insert(
+            "claude".into(),
+            crate::config::SessionDefaults {
+                env: std::collections::BTreeMap::from([(
+                    "CLAUDE_CONFIG_DIR".to_owned(),
+                    "${cwd}/family-store".to_owned(),
+                )]),
+                ..Default::default()
+            },
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let meta = side_meta("claude-fam", &root);
+        // The parent's env carries no family defaults at all.
+        let env = hub.btw_store_env(&meta, &Default::default()).await;
+        assert_eq!(
+            env.get("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from),
+            Some(root.join("family-store")),
+        );
+        remove_transcript("claude", &env, "temporary");
+        assert!(
+            !transcript.exists(),
+            "cleanup removes the transcript from the family default store"
+        );
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextPopups
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// window with all three traffic lights and the page title, the browser
 /// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
-@MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
 
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
@@ -78,7 +79,7 @@ import Testing
 
     private func open(_ url: String, request: BrowserPopupRequest = BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
-        let popups = BrowserPopupWindows()
+        let popups = BrowserPopupWindows(activeLook: nil)
         popups.ordersWindowsIn = false
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
         let opener = makeOpener()
@@ -168,7 +169,7 @@ import Testing
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
@@ -205,7 +206,7 @@ import Testing
 
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
         defer { window.close() }
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "the address can still be selected and copied")

@@ -103,6 +103,16 @@ set_runs "$active_runs"
 fleet_fetch 3 9
 grep -qF 'is still queued or running; waiting on' <<<"$out" || fail "fleet, active run: no extension"
 (( took >= 8 )) || fail "fleet, active run: ended before the active cap"
+# CMUX_TUI_TREE_WAIT_SECONDS=0 (the fleet suite lanes) looks once: an active run does not make it
+# wait, and it reads no run state. Until 2026-10-29 the 0 became the 7200 s active cap, and suite
+# steps held a Mac for up to two hours running nothing (steps 036f288649bf, 31482fc9e743).
+set_runs "$active_runs"
+fleet_fetch 0 9
+[[ "$status" == 1 ]] || fail "fleet, no wait, active run: fetch did not fail"
+(( took == 0 )) || fail "fleet, no wait, active run: waited ${took}s"
+grep -qE 'waiting (for the same-tree|on)' <<<"$out" && fail "fleet, no wait, active run: printed a wait"
+grep -qF 'cmux-tui artifacts runs for' <<<"$out" && fail "fleet, no wait, active run: read the run state"
+grep -qF 'CMUX_TUI_TREE_WAIT_SECONDS=0 does not wait for it' <<<"$out" || fail "fleet, no wait, active run: no reason"
 set_runs '{"total_count":1,"workflow_runs":[{"id":15,"status":"completed","conclusion":"cancelled","html_url":"https://github.com/o/r/actions/runs/15"}]}'
 fleet_fetch 40 60
 [[ "$status" == 1 ]] || fail "fleet, cancelled run: fetch did not fail"

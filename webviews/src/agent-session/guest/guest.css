@@ -1,0 +1,36 @@
+/* The guest page (GuestPage.tsx): the join and ended cards, and the shared chat. Theme variables
+   are the pane's (shared/theme.ts), set from the browser's light or dark (guest/theme.ts). Phone
+   width: the card fills the width and the chat's column follows the transcript's own inset. */
+.guest-card{box-sizing:border-box;max-width:400px;margin:0 auto;padding:32px 24px;display:flex;flex-direction:column;gap:12px;min-height:100%;justify-content:center}
+.guest-card__title{margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
+.guest-card__detail{margin:0;color:var(--agent-muted)}
+.guest-card__error{margin:0;color:var(--agent-danger)}
+.guest-join{display:flex;gap:8px;margin-top:4px}
+.guest-join__name{flex:1;min-width:0;height:32px;box-sizing:border-box;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
+/* Focus shows as the caret and a stronger edge, never a ring on the field (desktop.css). */
+.guest-join__name:focus{outline:none;border-color:var(--agent-border-strong)}
+.guest-join__button{flex:none;height:32px;padding:0 16px;border:0;border-radius:8px;background:var(--agent-accent);color:var(--agent-on-accent, var(--agent-page-bg));font:inherit;font-weight:500}
+.guest-join__button:disabled{opacity:0.45}
+.guest-join__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* The transcript's column: 760px wide, 16px from the edges on a phone. */
+.guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
+.guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
+[data-borders="none"] .guest-live__header{border-bottom:0}
+.guest-live__titles{flex:1;min-width:0}
+.guest-live__title{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
+.guest-live__owner{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-live__notice,.guest-live__ask{display:block;flex:none;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-live__ask{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--agent-border);color:var(--agent-text)}
+.guest-live__ask-title{color:var(--agent-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
+.guest-live__transcript{flex:1;min-height:0;display:flex;flex-direction:column}
+/* The dock under the chat: the guest's own messages, then its composer (GuestComposer.tsx). */
+.guest-live__dock{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px var(--guest-inset) 12px;border-top:1px solid var(--agent-border)}
+[data-borders="none"] .guest-live__dock{border-top:0}
+.guest-mine{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto}
+.guest-mine__held{gap:4px}
+.guest-mine__label,.guest-mine__decided,.guest-composer__note{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-mine__decided{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.guest-composer__field{flex:1;min-width:0;min-height:32px;max-height:160px;box-sizing:border-box;padding:4px 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;resize:none;field-sizing:content}
+.guest-composer__field:focus{outline:none;border-color:var(--agent-border-strong)}
+.guest-composer__note{flex-basis:100%}

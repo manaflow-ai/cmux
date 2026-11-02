@@ -177,7 +177,13 @@ function onPress(view: EditorView, event: MouseEvent): void {
     extend();
     if (!frame) frame = window.requestAnimationFrame(autoscroll);
   };
-  const release = () => {
+  // The release point ends the drag, as a native text view's: a busy engine can coalesce or drop
+  // the last mousemove, which left the selection short of where the button came up.
+  const release = (up?: Event) => {
+    if (up instanceof MouseEvent && up.type === "mouseup") {
+      pointer = { x: up.clientX, y: up.clientY };
+      extend();
+    }
     if (frame) window.cancelAnimationFrame(frame);
     frame = 0;
     window.removeEventListener("mousemove", move, true);

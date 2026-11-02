@@ -31,9 +31,13 @@ public struct ScreenFeatures: OptionSet, Sendable {
     public static let hideToolbar = ScreenFeatures(rawValue: 1 << 9)
     /// Reconnect when the app returns to the foreground after a drop.
     public static let resumeOnForeground = ScreenFeatures(rawValue: 1 << 10)
+    /// A Direct Touch / Trackpad choice in the options menu
+    /// (`ScreenPreferences.inputMode`).
+    public static let inputModeToggle = ScreenFeatures(rawValue: 1 << 11)
 
     public static let all: ScreenFeatures = [.shortcutsBar, .qualityMenu, .orientationLock, .fitToggle, .displayPaging, .stats,
-                                             .keyboard, .sendKeysMenu, .refresh, .hideToolbar, .resumeOnForeground]
+                                             .keyboard, .sendKeysMenu, .refresh, .hideToolbar, .resumeOnForeground,
+                                             .inputModeToggle]
     public static let minimal: ScreenFeatures = [.displayPaging, .resumeOnForeground]
 }
 
@@ -67,7 +71,8 @@ public struct ScreenSessionView: View {
     public var body: some View {
         ZStack(alignment: .top) {
             ScreenView(session: session, fitToDisplay: session.preferences.fitToDisplay,
-                       displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible)
+                       displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
+                       inputMode: session.preferences.inputMode)
                 .ignoresSafeArea()
             if chromeVisible {
                 VStack(spacing: 6) {
@@ -101,7 +106,8 @@ public struct ScreenSessionView: View {
     }
 
     private var hasMenu: Bool {
-        !features.isDisjoint(with: [.qualityMenu, .orientationLock, .fitToggle, .stats, .sendKeysMenu, .refresh, .hideToolbar])
+        !features.isDisjoint(with: [.qualityMenu, .orientationLock, .fitToggle, .stats, .sendKeysMenu, .refresh, .hideToolbar,
+                                    .inputModeToggle])
     }
 
     private var topBar: some View {
@@ -111,6 +117,7 @@ public struct ScreenSessionView: View {
                 close()
             }
             .labelStyle(.iconOnly)
+            .accessibilityIdentifier("screen.close")
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                 if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
@@ -134,8 +141,14 @@ public struct ScreenSessionView: View {
 
     private var optionsMenu: some View {
         Menu {
+            if features.contains(.inputModeToggle) {
+                Picker("Input", systemImage: session.preferences.inputMode.symbol, selection: $session.preferences.inputMode) {
+                    ForEach(ScreenInputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
+                }
+                .pickerStyle(.menu)
+            }
             if features.contains(.fitToggle) {
-                Toggle("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
+                checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
             }
             if features.contains(.orientationLock) {
                 Picker("Orientation", systemImage: orientation.symbol, selection: $orientation) {
@@ -150,7 +163,7 @@ public struct ScreenSessionView: View {
                 .pickerStyle(.menu)
             }
             if features.contains(.stats) {
-                Toggle("Stream stats", isOn: $session.preferences.showStats)
+                checkItem("Stream stats", systemImage: "gauge.with.dots.needle.33percent", isOn: $session.preferences.showStats)
             }
             if features.contains(.sendKeysMenu) {
                 Section("Send") {
@@ -167,9 +180,22 @@ public struct ScreenSessionView: View {
                 Button("Hide Toolbar", systemImage: "chevron.up") { withAnimation { chromeVisible = false } }
             }
         } label: {
-            Label("Options", systemImage: "ellipsis.circle")
+            // Icon-only on the trigger alone: on the Menu it also stripped the titles of the
+            // Toggle and Picker rows inside (empty rows with only a checkmark).
+            Label("Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
         }
-        .labelStyle(.iconOnly)
+        .accessibilityIdentifier("screen.options")
+    }
+
+    /// An on/off item in the options menu: a Button that flips the value and shows a checkmark.
+    /// A Toggle there rendered on iOS 26 as three rows (one titled, two blank), all disabled.
+    private func checkItem(_ title: String, systemImage: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Label(title, systemImage: isOn.wrappedValue ? "checkmark" : systemImage)
+        }
+        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
     private var stats: some View {
@@ -179,6 +205,7 @@ public struct ScreenSessionView: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .accessibilityIdentifier("screen.stats")
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -251,20 +278,22 @@ public struct ScreenSessionView: View {
 }
 
 /// The remote screen alone, for apps that bring their own chrome: fitted
-/// mode, paging between displays, the touch input model (tap clicks, hold
-/// and drag drags, two-finger tap right-clicks, two fingers scroll, pinch
-/// zooms) and the software keyboard. Call `session.connect()` yourself.
+/// mode, paging between displays, the touch input model (direct or
+/// trackpad, `inputMode`; nil follows `session.preferences.inputMode`) and
+/// the software keyboard. Call `session.connect()` yourself.
 public struct ScreenView: UIViewControllerRepresentable {
     let session: ScreenSession
     let fitToDisplay: Bool
     let displayPaging: Bool
+    let inputMode: ScreenInputMode?
     @Binding var keyboardVisible: Bool
 
     public init(session: ScreenSession, fitToDisplay: Bool = true, displayPaging: Bool = true,
-                keyboardVisible: Binding<Bool> = .constant(false)) {
+                keyboardVisible: Binding<Bool> = .constant(false), inputMode: ScreenInputMode? = nil) {
         self.session = session
         self.fitToDisplay = fitToDisplay
         self.displayPaging = displayPaging
+        self.inputMode = inputMode
         _keyboardVisible = keyboardVisible
     }
 
@@ -275,6 +304,7 @@ public struct ScreenView: UIViewControllerRepresentable {
     public func updateUIViewController(_ controller: ScreenViewController, context: Context) {
         controller.fitToDisplay = fitToDisplay
         controller.allowsDisplayPaging = displayPaging
+        controller.inputMode = inputMode ?? session.preferences.inputMode
         if controller.isKeyboardVisible != keyboardVisible { controller.isKeyboardVisible = keyboardVisible }
     }
 }

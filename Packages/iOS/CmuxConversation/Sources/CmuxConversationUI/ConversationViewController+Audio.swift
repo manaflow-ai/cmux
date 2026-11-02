@@ -184,8 +184,8 @@ final class ConversationAudioComposer {
         }
         let replyTo = controller.replyTarget?.id
         dismiss()
+        // A reply stays in its open thread, as a typed one does.
         guard controller.store.sendAudio(data: recorded.data, info: recorded.info, replyToID: replyTo) != nil else { return }
-        if controller.replyTarget != nil { controller.exitReplyMode() }
         setShowsRecordButton()
     }
 

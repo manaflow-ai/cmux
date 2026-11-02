@@ -3,25 +3,25 @@ import Foundation
 import CmuxNextDaemon
 import os
 
-/// Restored pages that load nothing until the user starts them (after two
-/// quick unexpected ends in a row, `defersRestoredPages`).
+/// A restored page that loads nothing until the user starts it: one a run that ended early in a
+/// restart loop had started (`crashedPages`), so it may be what ended it.
 extension TabContentCache {
     /// A page that loads nothing until the user reloads it; then the real
-    /// page replaces it (same key, same record).
+    /// page replaces it (same key, same record). Its notice says why it waits.
     func deferred(_ tab: TabModel, url: URL?) -> BrowserEntry {
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.title.isEmpty ? nil : tab.title)
         page.onStart = { [weak self] url in self?.startDeferred(key, url: url) }
         let entry = install(page, for: key)
-        entry.chrome.showNotice(CrashStrings.deferredPageNotice)
+        entry.chrome.showNotice(CrashStrings.crashedPageNotice)
         return entry
     }
 
     func startDeferred(_ key: String, url: URL?) {
         startedDeferred.insert(key)
         browsers.removeValue(forKey: key)?.close()
-        guard let tab = browserTabs.tabModel(key) else { return }
+        guard let tab = tabModel(key) else { return }  // a remote machine's tab included
         if let entry = browser(for: tab), let url, url.absoluteString != tab.url { entry.tab.load(url) }
         onBrowserReady?(key)
     }

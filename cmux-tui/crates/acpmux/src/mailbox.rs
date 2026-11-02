@@ -476,6 +476,7 @@ fn persist_state(
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)

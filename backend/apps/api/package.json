@@ -6,12 +6,14 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "dev": "wrangler dev --env development",
     "deploy:staging": "bash ../../scripts/deploy-worker.sh staging",
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
   },
   "dependencies": {
     "@cmux/vm": "workspace:*",
+    "@cmux/cloud-env": "workspace:*",
     "@cmux/db": "workspace:*",
     "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",
@@ -19,10 +21,12 @@
     "@earendil-works/chord": "1.0.0",
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-durable": "1.0.0",
+    "@upstash/qstash": "2.12.1",
+    "@upstash/workflow": "1.4.0",
     "agents": "0.28.1",
     "croner": "10.0.1",
     "drizzle-orm": "0.45.4",
-    "effect": "4.0.0-rc.117",
+    "effect": "4.0.5",
     "jose": "6.2.12",
     "mysql2": "3.23.1",
     "pg": "8.23.0"

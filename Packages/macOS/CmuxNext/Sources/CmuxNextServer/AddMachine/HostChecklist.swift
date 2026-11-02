@@ -1,4 +1,4 @@
-/// The Add Machine card's checklist: the eight steps, filled in live from the CLI's JSON lines.
+/// The Add Machine card's checklist: the nine steps, filled in live from the CLI's JSON lines.
 /// Before a step's line arrives it is pending; the first pending step after the last finished one
 /// is running. A step this build does not know joins after the last line that arrived, by its
 /// raw name.
@@ -27,9 +27,10 @@ public nonisolated struct HostChecklist: Equatable, Sendable {
 
     public private(set) var rows: [Row]
 
-    /// Every known step pending: the card before a run starts.
-    public init() {
-        rows = HostStep.known.map { Row(step: $0, status: .pending) }
+    /// Every step of `steps` pending: the card before a run starts. By default the enroll and
+    /// doctor steps; a joined machine's check starts empty and lists the steps its run sends.
+    public init(steps: [HostStep] = HostStep.known) {
+        rows = steps.map { Row(step: $0, status: .pending) }
     }
 
     /// The rows of a finished report (a doctor run shown again).
@@ -38,9 +39,9 @@ public nonisolated struct HostChecklist: Equatable, Sendable {
         finish(report)
     }
 
-    /// A run starts: every row pending, the first running.
-    public mutating func start() {
-        self = HostChecklist()
+    /// A run starts: every row of `steps` pending, the first running.
+    public mutating func start(steps: [HostStep] = HostStep.known) {
+        self = HostChecklist(steps: steps)
         markNextRunning()
     }
 
@@ -71,7 +72,13 @@ public nonisolated struct HostChecklist: Equatable, Sendable {
     /// The run stopped without a report (the CLI could not start, crashed or was cancelled): the
     /// running step fails with `detail`, the rest stay pending.
     public mutating func stop(_ detail: String) {
-        guard let index = rows.firstIndex(where: { $0.status == .running }) ?? rows.firstIndex(where: { $0.status == .pending }) else { return }
+        // With no row left open (a joined machine's check starts with none, and its rows may all
+        // be done before the run fails), a Check it row carries why it stopped.
+        let open = rows.firstIndex(where: { $0.status == .running }) ?? rows.firstIndex(where: { $0.status == .pending })
+        let index = open ?? {
+            rows.append(Row(step: HostStep(rawValue: "check"), status: .pending))
+            return rows.count - 1
+        }()
         rows[index].status = .done(.fail)
         rows[index].detail = detail
         rows[index].fix = nil
@@ -93,6 +100,24 @@ public nonisolated struct HostChecklist: Equatable, Sendable {
     /// The first failed row: the one a failed card keeps open with its fix.
     public var failing: Row? {
         rows.first { $0.status == .done(.fail) }
+    }
+
+    /// A run in one line: steps finished, of how many, and the one running now (nil when none is).
+    public nonisolated struct Summary: Equatable, Sendable {
+        public var done: Int
+        public var total: Int
+        public var current: HostStep?
+    }
+
+    public var summary: Summary {
+        let done = rows.count { if case .done = $0.status { true } else { false } }
+        return Summary(done: done, total: rows.count, current: rows.first { $0.status == .running }?.step)
+    }
+
+    /// A step failed or warned: the card opens the whole checklist with its fixes. A skip or a fix
+    /// the run made itself needs nobody.
+    public var needsPerson: Bool {
+        rows.contains { $0.status == .done(.fail) || $0.status == .done(.warn) }
     }
 
     private mutating func markNextRunning() {

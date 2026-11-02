@@ -39,7 +39,7 @@ extension SidebarBridge {
     /// The tab `ref` names: a tab with that id, else `<session>:<id>`
     /// looked up in that session's daemon.
     func pinnedTab(_ ref: String) -> (TabModel, PaneModel)? {
-        if let found = services.locateTab(ref) { return found }
+        if let found = services.locateTabOnAnyMachine(ref) { return found }
         guard let colon = ref.firstIndex(of: ":") else { return nil }
         let session = String(ref[..<colon]), id = String(ref[ref.index(after: colon)...])
         for daemon in services.machines.daemons where daemon.store.registryID == session {

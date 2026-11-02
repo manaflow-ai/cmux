@@ -3,8 +3,15 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Inventory demand must retain its source even when a tree snapshot is newer.
+///
+/// No `.timeLimit`: every wait here is on a reply or an event from a python3
+/// fixture, and none checks a deadline. In the full parallel package run, where
+/// tests take 80-900 s of wall clock, the 1 minute limit expired on
+/// realConnectionsStampNativeEventsAndSeparateEqualSerials before its two
+/// fixtures answered. A fixture that never answers is a hang that
+/// scripts/cmux-next/swift-test-with-hang-sampler.sh names and samples.
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct DaemonSideEventEnvelopeTests {
     private let sourceID = UUID()
 
@@ -138,7 +145,7 @@ struct DaemonSideEventEnvelopeTests {
         """#
         var sources: Set<UUID> = []
         for _ in 0..<2 {
-            let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script])
+            let bridge = DaemonBridge.fakePython(["-c", script])
             let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-stamped-events-\(UUID().uuidString).sock", bridge: bridge),
                                               configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
             do {

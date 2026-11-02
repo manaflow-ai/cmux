@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextTestSupport
 
 /// Leo 2026-10-12 (cx-ag5.11), the tab strip every pane kind shows
 /// (`PaneContentView.stripView`), driven with real mouse events:
@@ -14,7 +15,7 @@ import Testing
 ///   leaves the strip (Chrome's closing mode). A click that comes before the
 ///   strip caught up with the last close still closes the next tab, never the
 ///   closed one again and never selects instead.
-@MainActor @Suite(.serialized) struct TabStripRapidCloseTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct TabStripRapidCloseTests {
     final class Harness {
         let model: TabStripModel
         let strip: TabStripView
@@ -71,7 +72,7 @@ import Testing
 
     @Test func thePlusButtonOpensANewTab() async throws {
         let harness = Harness(count: 3)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let plus = harness.strip.convert(harness.strip.newTabButton.frame, from: harness.strip.contentView)
         try #require(!harness.strip.newTabButton.isHidden && plus.width > 0, "the strip shows no + button")
         harness.click(harness.strip.convert(CGPoint(x: plus.midX, y: plus.midY), to: nil))
@@ -80,7 +81,7 @@ import Testing
 
     @Test func doubleClickingEmptyStripSpaceOpensNoTab() async throws {
         let harness = Harness(count: 2)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         await harness.settle()
         let plus = harness.strip.convert(harness.strip.newTabButton.frame, from: harness.strip.contentView)
         let empty = CGPoint(x: (plus.maxX + harness.strip.bounds.maxX) / 2, y: harness.strip.bounds.midY)
@@ -92,7 +93,7 @@ import Testing
 
     @Test func clickingCloseUnderAStillPointerClosesTheNextTabEachTime() async throws {
         let harness = Harness(count: 6)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         await harness.settle()
         let point = try harness.closeButton(TabID("tab1"))
         for _ in 0..<4 {
@@ -105,7 +106,7 @@ import Testing
 
     @Test func clicksFasterThanTheStripSyncsStillCloseOneTabEach() async throws {
         let harness = Harness(count: 6)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         await harness.settle()
         let point = try harness.closeButton(TabID("tab1"))
         // No turn for the strip's model sync between the clicks.
@@ -120,7 +121,7 @@ import Testing
     /// widen to fill it.
     @Test func theTabsKeepTheirWidthsUntilThePointerLeaves() async throws {
         let harness = Harness(count: 6)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         await harness.settle()
         let widths = Dictionary(uniqueKeysWithValues: TabClosingModeHit.laidOut(harness.strip).map { ($0.id, $0.frame.width) })
         let point = try harness.closeButton(TabID("tab1"))
@@ -146,7 +147,7 @@ import Testing
           .enabled("animation speed is off on this host") { await MainActor.run { Motion.speed != .off } })
     func aClickWhileTheNextTabSlidesInClosesIt() throws {
         let harness = Harness(count: 6)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.window.setFrameOrigin(NSPoint(x: 200, y: 200))
         try #require(harness.window.screen != nil)
         harness.strip.sync(fromModel: true)

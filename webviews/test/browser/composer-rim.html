@@ -22,7 +22,7 @@
   <body>
     <section class="acpmux-shell">
       <div class="acpmux-composer">
-        <div class="acpmux-composer-box" id="composer">
+        <div class="ui-glass ui-glass-floats acpmux-composer-box" id="composer">
           <div class="acpmux-md" contenteditable="true" id="composer-field"></div>
           <div class="acpmux-composer-bar">
             <span class="acpmux-picker acpmux-model"
@@ -34,25 +34,58 @@
       </div>
       <div class="acpmux-composer">
         <div class="acpmux-composer-strip" id="strip"></div>
-        <div class="acpmux-composer-box" id="strip-composer">
+        <div class="ui-glass ui-glass-floats acpmux-composer-box" id="strip-composer">
           <div class="acpmux-md" contenteditable="true" id="strip-composer-field"></div>
         </div>
       </div>
+      <!-- Codex's look on a new chat (composerLook.css): the folder and computer strip a tray tucked
+           under the card's top edge (composer-glass.test.ts). -->
+      <div class="acpmux-composer" data-composer-look="codex">
+        <div class="acpmux-composer-strip" id="codex-strip">
+          <div class="acpmux-composer-context">
+            <button type="button" class="ui-ghost acpmux-location-button" id="codex-strip-folder">cmux</button>
+          </div>
+        </div>
+        <div class="ui-glass ui-glass-floats acpmux-composer-box" id="codex-strip-composer">
+          <div class="acpmux-md" contenteditable="true" id="codex-strip-composer-field"></div>
+        </div>
+      </div>
       <div class="acpmux-composer">
-        <ul class="acpmux-composer-queue" id="queue">
-          <li class="acpmux-queued">queued</li>
+        <ul class="ui-glass ui-glass-floats acpmux-composer-queue" id="queue">
+          <li class="acpmux-queue-header"><span class="acpmux-queued-kind" id="queue-kind">Queued</span></li>
+          <li class="acpmux-queued" id="queued">queued</li>
           <li class="acpmux-queued"><textarea class="acpmux-queued-edit" id="queue-edit">edited</textarea></li>
         </ul>
-        <div class="acpmux-composer-box" id="queue-composer">
+        <div class="ui-glass ui-glass-floats acpmux-composer-box" id="queue-composer">
           <div class="acpmux-md" contenteditable="true" id="queue-composer-field"></div>
         </div>
       </div>
       <div class="acpmux-composer" data-shell="">
-        <div class="acpmux-composer-box" id="shell">
+        <div class="ui-glass ui-glass-floats acpmux-composer-box" id="shell">
           <textarea class="acpmux-shell-field" id="shell-field"></textarea>
         </div>
       </div>
-      <div class="nt-box" id="newtab"><input class="nt-field" id="newtab-field" /></div>
+      <!-- A long queue as ComposerQueue.tsx draws it: the band with a prompt's actions, its fold bar,
+           then the card (queued-glass.test.ts). -->
+      <div class="acpmux-composer">
+        <ul class="ui-glass acpmux-composer-queue" id="long-queue">
+          <li class="acpmux-queued" id="long-queued">
+            <span class="acpmux-queued-text">queued</span>
+            <span class="acpmux-queued-actions"
+              ><button type="button" class="acpmux-queued-action" id="long-queued-action">Send now</button></span
+            >
+          </li>
+        </ul>
+        <div class="ui-glass acpmux-queue-foldbar" id="long-queue-fold">
+          <button type="button" class="acpmux-queue-fold" id="long-queue-fold-button">2 more</button>
+        </div>
+        <div class="ui-glass acpmux-composer-box" id="long-queue-composer">
+          <div class="acpmux-md" contenteditable="true"></div>
+        </div>
+      </div>
+      <div class="nt-composer">
+        <div class="ui-glass ui-glass-floats nt-box" id="newtab"><input class="nt-field" id="newtab-field" /></div>
+      </div>
       <label><input type="checkbox" id="check" /> a checkbox</label>
       <!-- Solid-fill controls (a ready Send, Stop, the prompt editor's Send) and a plain one, after the checkbox in Tab order. -->
       <div class="acpmux-composer-bar" id="solid-bar">
@@ -62,7 +95,7 @@
         <button type="button" class="nt-player-undo" id="plain">Undo</button>
       </div>
     </section>
-    <div class="ui-positioner"><div class="ui-popup nt-popover" id="popover"></div></div>
+    <div class="ui-positioner"><div class="ui-popup ui-glass nt-popover" id="popover"></div></div>
     <script type="module" src="./composer-rim.harness.ts"></script>
   </body>
 </html>

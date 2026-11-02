@@ -371,7 +371,7 @@ def flow_trust_steps(j):
     pq.plus_menu(j, "New Agent Chat")
     secs, toast = pq.wait_opened(j, 90)
     close_on_mac([name])
-    check(toast and "hasn't been trusted" in toast, f"no trust steps; got {toast!r}")
+    check(toast and "isn't trusted" in toast, f"no trust steps; got {toast!r}")
     return f"in {secs:.1f} s: {toast[:160]}"
 
 

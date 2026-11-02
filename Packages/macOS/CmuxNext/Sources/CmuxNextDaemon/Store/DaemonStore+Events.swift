@@ -302,7 +302,7 @@ extension DaemonStore {
             if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
             return .none
         case .agentPresenceChanged(let presence):
-            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            holdPresence(presence)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
@@ -328,11 +328,30 @@ extension DaemonStore {
 }
 
 extension DaemonStore {
+    /// Applies one `agent-presence` event to its tab, or holds it until the tab is indexed: the
+    /// event can come first, and no snapshot or later tab event carries presence.
+    func holdPresence(_ presence: AgentPresence) {
+        let value = presence.activity == nil ? nil : presence
+        if let tab = tabsBySurface[presence.surface] {
+            heldPresence.removeValue(forKey: presence.surface)
+            tab.setPresence(value)
+        } else if let value {
+            if heldPresence[presence.surface] == nil, heldPresence.count >= Self.heldPresenceLimit {
+                // Past the limit nothing is a tab that is about to arrive: start over.
+                heldPresence.removeAll(keepingCapacity: true)
+            }
+            heldPresence[presence.surface] = value
+        } else {
+            heldPresence.removeValue(forKey: presence.surface)
+        }
+    }
+
     /// Drops every tab's agent presence (cx-gg84) when the store may have
     /// missed its clear: a lost connection, a daemon shutdown or dropped
     /// events. The daemon sends no presence in a snapshot; each agent's next
     /// hook event brings its presence back.
     func clearPresence() {
+        heldPresence.removeAll()
         for tab in tabsBySurface.values where tab.presence != nil {
             tab.setPresence(nil)
         }

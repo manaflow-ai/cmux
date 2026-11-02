@@ -34,6 +34,6 @@ describe("free DeepSeek route", () => {
   })
 
   it("a model without a free provider list keeps every keyed route for the free tier", () => {
-    expect(servingRoutes(keys, model("openai/gpt-oss-120b"), true).map((r) => r.provider)).toEqual(["deepinfra", "vercel", "openrouter"])
+    expect(servingRoutes(keys, model("moonshotai/kimi-k3"), true).map((r) => r.provider).sort()).toEqual(["deepinfra", "openrouter", "vercel"])
   })
 })

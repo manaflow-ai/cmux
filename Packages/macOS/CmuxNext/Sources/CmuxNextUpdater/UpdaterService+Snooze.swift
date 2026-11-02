@@ -32,6 +32,13 @@ extension UpdaterService {
     /// began installing while the menu was open), Hide Until a Newer Version does nothing: a
     /// recorded "" would hide every later update that names no version.
     public func closeUpdateCard(_ option: UpdateCardCloseOption) {
+        if cancelledDownload != nil, flow.phase == .hidden {
+            // A cancelled download's card: Sparkle holds nothing, so closing it only clears it.
+            log.append("update card closed after a cancelled download: \(option.rawValue)")
+            cancelledDownload = nil
+            followCardExpiry()
+            return
+        }
         var snooze = updateSnooze
         if let length = option.remindLength {
             snooze.remindAfter = now().addingTimeInterval(length)

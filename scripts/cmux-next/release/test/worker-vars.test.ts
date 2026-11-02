@@ -175,6 +175,29 @@ describe("vars --base-config: a var change made in the pushed commits deploys", 
     expect(r.logs.join("\n")).toContain("vars unchanged")
   })
 
+  it("a deploy that was cancelled: deployed equals an older committed config (a later --base-config), not BEFORE's: passes, the repo is the source", async () => {
+    // BEFORE promoted img-b, its deploy was cancelled, so the Worker still serves img-a (the commit before).
+    const older = join(dir, "wrangler.older.jsonc")
+    writeFileSync(older, readFileSync(config, "utf8"))
+    writeFileSync(before, withSnapshot("img-b"))
+    writeFileSync(after, withSnapshot("img-b"))
+    const r = await run(["vars", "--worker", "cmux-api-development", "--config", after, "--base-config", before, "--base-config", older, "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.errors).toEqual([])
+    expect(r.code).toBe(0)
+    expect(r.logs.join("\n")).toContain("TEAM_VM_SNAPSHOT: img-a -> img-b")
+  })
+
+  it("a hand-set var matches none of the committed configs: still refused", async () => {
+    const older = join(dir, "wrangler.older.jsonc")
+    writeFileSync(older, readFileSync(config, "utf8"))
+    writeFileSync(before, withSnapshot("img-b"))
+    const drift = same.map((b) => (b.name === "TEAM_VM_SNAPSHOT" ? { ...b, text: "img-hand-set" } : b))
+    const r = await run(["vars", "--worker", "cmux-api-development", "--config", before, "--base-config", before, "--base-config", older, "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(drift) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join("\n")).toContain("changed: TEAM_VM_SNAPSHOT")
+    expect(r.errors.join("\n")).not.toContain("img-hand-set")
+  })
+
   it("a base config that cannot be read refuses", async () => {
     const r = await run(["vars", "--worker", "cmux-api-development", "--config", config, "--base-config", join(dir, "missing.jsonc"), "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
     expect(r.code).toBe(1)

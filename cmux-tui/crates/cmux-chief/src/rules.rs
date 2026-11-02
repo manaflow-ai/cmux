@@ -94,7 +94,30 @@ pub fn is_owner_message(summary: &Summary, message: &Message) -> bool {
 
 /// [`is_owner_message`] for an explicit owner participant id (a placed Cloud
 /// brain uses its `user_...` owner rather than the local `user_local`).
+/// A message another agent sent through the owner's CLI (its
+/// `client_msg_id` names that agent, `cmux_conversation::agent_sender`) is
+/// that agent's, never the owner's, whoever posted it.
 pub fn is_owner_message_as(summary: &Summary, message: &Message, owner: &str) -> bool {
+    agent_sender_as(summary, message, owner).is_none()
+        && is_owner_author_as(summary, message, owner)
+}
+
+/// The acpmux session that sent `message` through the owner's CLI, when the
+/// owner (or one of their devices) posted it and its `client_msg_id` names
+/// one. Another author's marker names nobody: a person who forges it gains
+/// nothing (their message is not the owner's either way).
+pub fn agent_sender_as(
+    summary: &Summary,
+    message: &Message,
+    owner: &str,
+) -> Option<cmux_conversation::agent_sender::AgentSender> {
+    let sender = cmux_conversation::agent_sender::of_client_msg_id(&message.client_msg_id)?;
+    is_owner_author_as(summary, message, owner).then_some(sender)
+}
+
+/// Whether the owner (or one of their paired devices) posted `message`,
+/// whatever it says it carries.
+pub fn is_owner_author_as(summary: &Summary, message: &Message, owner: &str) -> bool {
     summary.participants.iter().any(|p| {
         p.id == message.author
             && p.kind == ParticipantKind::Human

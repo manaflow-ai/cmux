@@ -16,28 +16,31 @@ import { usePullRequestsExist } from "./referenceExistence";
 const address = (repository: string, number: number) => `https://github.com/${repository}/pull/${number}`;
 const NO_URLS: readonly string[] = [];
 
-/// `href` is the folder's (or the transcript's) address for the number: rule d's. Without one, the
-/// number is linked only when the transcript names its repository.
+/// `href` is the folder's (or the transcript's) address for the number: rule d's. Without one, or
+/// when the number is out of every candidate's range (rule 4), the number is linked only when the
+/// transcript names its repository.
 export function BareReferenceChip({ number, href, text }: { number: number; href?: string; text: string }) {
   const scope = useContext(ReferenceScopeContext);
   const fallback = href && /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(href)?.[1];
   const named = namedRepository(number, scope);
-  const candidates = !named && fallback ? candidateRepositories(fallback, scope) : [];
-  // Only a number with more than one candidate is asked about; one candidate is rule d's anyway.
+  const candidates = !named && fallback ? candidateRepositories(fallback, scope, number) : [];
+  // Rule d stands for the folder's repository alone, so one candidate is asked about only when the
+  // folder's is out of range (rule 4) and the cache must say the chat's repository has N.
+  const folderFirst = Boolean(fallback) && candidates[0] === fallback;
   const existing = usePullRequestsExist(
-    candidates.length > 1 ? candidates.map((repository) => address(repository, number)) : NO_URLS,
+    candidates.length > (folderFirst ? 1 : 0) ? candidates.map((repository) => address(repository, number)) : NO_URLS,
   );
   const choice = named
     ? { repository: named, alternatives: [] }
     : candidates.length
-      ? chooseRepository(candidates, existing)
+      ? chooseRepository(candidates, existing, fallback || undefined)
       : undefined;
   const ambiguous = Boolean(choice?.alternatives.length);
   if (!choice) return text;
   return (
     <UrlChip
       href={address(choice.repository, number)}
-      icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+      icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
     >
       {ambiguous ? `${choice.repository.split("/")[1]}#${number}` : text}
     </UrlChip>

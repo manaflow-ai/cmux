@@ -28,7 +28,7 @@ fn turn_results(k: &[String]) -> usize {
 
 #[tokio::test]
 async fn retry_refuses_when_nothing_failed_and_while_a_turn_runs() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "retry-refusals").await;
     let e = c.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
     assert!(e.starts_with("retry.nothing_failed"), "{e}");
@@ -58,7 +58,7 @@ async fn retry_refuses_when_nothing_failed_and_while_a_turn_runs() {
 /// refused by name (`retry.unknown_subagent`), never sent as the parent's turn.
 #[tokio::test]
 async fn an_unknown_subagent_retry_is_refused_and_never_retries_the_parent_turn() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-subagent").await;
     prompt(&mut c, &id, "p-f", "fail-once: hello").await.unwrap_err();
@@ -76,7 +76,7 @@ async fn an_unknown_subagent_retry_is_refused_and_never_retries_the_parent_turn(
 /// same session, as the next attempt of its prompt id; a double click sends it once.
 #[tokio::test]
 async fn a_failed_turn_with_no_output_is_sent_again_as_the_same_prompt() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     // No automatic retry: the failure stays failed until the person retries it.
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-same").await;
@@ -128,7 +128,7 @@ async fn a_failed_turn_with_no_output_is_sent_again_as_the_same_prompt() {
 /// A turn the model had started on is continued, not sent again.
 #[tokio::test]
 async fn a_failed_turn_with_output_is_continued() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-continue").await;
     prompt(&mut c, &id, "p-o", "fail-after-update: x").await.unwrap_err();
@@ -148,7 +148,7 @@ async fn a_failed_turn_with_output_is_continued() {
 /// ends at once and its timer sends nothing.
 #[tokio::test]
 async fn a_waiting_retry_fires_now() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
     let id = new_session(&mut c, "retry-now").await;
     prompt(&mut c, &id, "p-cap", "cap-fail-once: build it").await.unwrap_err();
@@ -175,7 +175,7 @@ async fn a_waiting_retry_fires_now() {
 /// the waiting retry as it was, never sends it early (Codex review of #25296).
 #[tokio::test]
 async fn a_caller_that_may_not_prompt_the_chat_cannot_take_over_a_waiting_retry() {
-    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::Ask).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
     let id = new_session(&mut c, "retry-web").await;
     prompt(&mut c, &id, "p-cap", "cap-fail-once: build it").await.unwrap_err();
@@ -200,7 +200,7 @@ async fn a_caller_that_may_not_prompt_the_chat_cannot_take_over_a_waiting_retry(
 /// never joined to it under the first caller's rules (Codex review of #25296, round 2).
 #[tokio::test]
 async fn stop_before_a_retrys_turn_starts_prevents_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-stop").await;
     let e = prompt(&mut c, &id, "p-x", "net-fail-then-exit").await.unwrap_err();
@@ -231,7 +231,7 @@ async fn stop_before_a_retrys_turn_starts_prevents_it() {
 /// the continuation, so each joined message reaches the agent once, when it runs again.
 #[tokio::test]
 async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-digest").await;
     c.send(
@@ -249,7 +249,8 @@ async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
             .wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid && p["queued"] == true)
             .await;
     }
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    // An agent's Stop: a person's would hold the agent messages behind it (`hub/cancel.rs`).
+    hub.cancel(&hub.resolve(&id).unwrap()).await.unwrap();
     // The cancelled turn, then the failed turn of both messages.
     until(&hub, &id, |k| turn_results(k) == 2).await;
     for _ in 0..200 {
@@ -287,7 +288,7 @@ async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
 /// is continued, never sent again without it.
 #[tokio::test]
 async fn a_failed_turn_with_hidden_context_is_continued() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-context").await;
     let context = "<cmux-workspace-context>CTX-MARK</cmux-workspace-context>";

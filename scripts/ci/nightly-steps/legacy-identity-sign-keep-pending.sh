@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # nightly.yml sign-nightly-identity-legacy: "Keep the pending cmux NIGHTLY-identity submission". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# A new submission still in Apple's queue: keep the exact signed DMG,
+# app and submission for a later run (legacy-identity-target continues
+# it while it is under 6 hours old). Not a failure.
 set -euo pipefail
 mkdir -p pending
 tar -C legacy-app -czf pending/app.tar.gz "cmux NIGHTLY.app"

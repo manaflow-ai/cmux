@@ -85,17 +85,14 @@ def git(*args: str, input: str | None = None, check: bool = True, env: dict | No
     return proc.stdout
 
 
-def gh_api(path: str, paginate: bool = False) -> object:
-    args = ["gh", "api", "-H", "Accept: application/vnd.github+json", path]
-    if paginate:
-        args[2:2] = ["--paginate", "--slurp"]
-    proc = subprocess.run(args, capture_output=True, text=True)
+def gh_api(path: str) -> object:
+    """One `gh api` GET. Callers ask for the pages they need (`page=N`): the gh quota wrapper refuses
+    an unbounded paginating call."""
+    proc = subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json", path],
+                          capture_output=True, text=True)
     if proc.returncode != 0:
         raise TrainError(f"gh api {path} failed: {proc.stderr.strip()[:500]}")
-    data = json.loads(proc.stdout or "null")
-    if paginate and isinstance(data, list) and data and isinstance(data[0], list):
-        return [item for page in data for item in page]
-    return data
+    return json.loads(proc.stdout or "null")
 
 
 def http_get(url: str) -> bytes | None:

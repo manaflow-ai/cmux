@@ -63,15 +63,16 @@ import Testing
         #expect(row.rowBadge.states == [.busy(progress: nil)], "`cmux status set --state busy` draws a glyph")
     }
 
-    /// With detailed status icons; by default both read as Ready, the blue dot.
+    /// By default a failure is red and a question is needs you, one plain dot (Lawrence msg 11983);
+    /// detailed status icons keep what the wait is for.
     @Test func aFailureAndAQuestionDrawTheirColoredGlyphs() throws {
         let sections = Self.sections([
             "tests": [WorkspaceStatus.Entry(key: "tests", text: "Tests failed", state: "error")],
             "deploy": [WorkspaceStatus.Entry(key: "deploy", text: "Needs input", state: "waiting")],
         ])
         let simple = Self.sidebar(sections)
-        #expect(try Self.row(simple, "tests").rowBadge.states == [.success])
-        #expect(try Self.row(simple, "deploy").rowBadge.states == [.success])
+        #expect(try Self.row(simple, "tests").rowBadge.states == [.error])
+        #expect(try Self.row(simple, "deploy").rowBadge.states == [.waiting])
         let sidebar = Self.sidebar(sections, detailed: true)
         #expect(try Self.row(sidebar, "tests").rowBadge.states == [.error])
         #expect(try Self.row(sidebar, "deploy").rowBadge.states.first.map { if case .waiting = $0 { true } else { false } } == true)

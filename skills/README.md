@@ -44,7 +44,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Work in the caller's existing workspace without disrupting it | [cmux-workspace](cmux-workspace/SKILL.md) |
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
-| Native computer use when requested | [cmux-cua](cmux-cua/SKILL.md) |
+| Desktop apps on the Mac (computer use) | [cmux-cua](cmux-cua/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Long-term memory shared by agent sessions, on one machine or several | [cmux-agent-memory](cmux-agent-memory/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |

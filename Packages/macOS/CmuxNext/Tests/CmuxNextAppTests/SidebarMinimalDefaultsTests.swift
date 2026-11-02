@@ -122,7 +122,9 @@ import Testing
                                                   siblingIndex: 0, parentIndex: nil, isLastInGroup: false, isCollapsed: false,
                                                   childCount: 0, groupColor: nil))
         #expect(header.badgeText == nil)
-        #expect(header.statusTone == nil, "no dot")
+        // #26786 gives remote machine headers the shared connected-state green dot.
+        // An optional update adds no status words; its details remain in the tooltip.
+        #expect(header.statusTone == .success)
         #expect(header.themedToolTip?.contains(Strings.statusUpdateAvailable) == true, "the tooltip still says it")
     }
 }

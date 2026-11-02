@@ -147,7 +147,25 @@ extension AppStore {
                 quotedPrompt: "run the tests", createdAt: now.addingTimeInterval(-1200)
             ),
         ]
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces, feed: feed, tabMemory: tabMemory)
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces.enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+                        tabMemory: tabMemory)
+    }
+
+    /// Mac-style public ids for the samples, so cmux links resolve in mock mode
+    /// (CmuxLink): workspace `n` is `ws_` + n in 32 hex digits, its tab `m` is
+    /// `tab_` + n·16+m, all of a workspace's tabs share pane `pane_` + n (the first
+    /// selected), and an agent tab's harness session is `mock-<tab id>`.
+    static func mockLinkIDs(_ workspace: Workspace, index: Int) -> Workspace {
+        func id(_ prefix: String, _ number: Int) -> String { prefix + String(format: "%032x", number) }
+        var workspace = workspace
+        workspace.resourceID = id("ws_", index + 1)
+        for position in workspace.tabs.indices {
+            let tab = workspace.tabs[position]
+            workspace.tabs[position].linkIDs = WorkspaceTab.LinkIDs(
+                tab: id("tab_", (index + 1) * 16 + position), pane: id("pane_", index + 1), isPaneSelected: position == 0,
+                harnessSession: tab.isAgent ? "mock-\(tab.id)" : nil)
+        }
+        return workspace
     }
 }
 #endif

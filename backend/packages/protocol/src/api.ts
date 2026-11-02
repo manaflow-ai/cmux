@@ -1,6 +1,7 @@
 import { Context, Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
 import { GrantId, IdempotencyKey, InstallId, Origin, Revision, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /** The authenticated principal of a request. Never read from a request body. */
 export interface CurrentPrincipalShape {
@@ -149,7 +150,7 @@ export class AuthGroup extends HttpApiGroup.make("auth")
     }),
     HttpApiEndpoint.post("token", "/v1/auth/token", {
       // `agent`: a chief of this user; the token then acts as that chief (principal.agent), checked on every request.
-      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
+      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
       success: TokenResponse,
       error: [BadRequest, Forbidden, PolicyRefused, OwnerUnreachable]
     })
