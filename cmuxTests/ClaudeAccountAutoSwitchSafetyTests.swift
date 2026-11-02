@@ -212,13 +212,25 @@ struct ClaudeAccountAutoSwitchLedgerTests {
     }
 
     @Test
-    func inputCountsOnlyAfterTheGivenTime() {
+    func inputCountsFromTheGivenTimeOn() {
         var ledger = ClaudeAccountAutoSwitchLedger()
         #expect(!ledger.receivedInput(panelId: panelId, after: 100))
         ledger.noteInput(panelId: panelId, atMs: 150)
         #expect(ledger.receivedInput(panelId: panelId, after: 100))
-        #expect(!ledger.receivedInput(panelId: panelId, after: 150))
+        // Input stamped in the report's own millisecond may have come after it: it counts.
+        #expect(ledger.receivedInput(panelId: panelId, after: 150))
+        #expect(!ledger.receivedInput(panelId: panelId, after: 151))
         #expect(!ledger.receivedInput(panelId: UUID(), after: 0))
+    }
+
+    @Test
+    func aBackwardClockStepNeverHidesLaterInput() {
+        // Input at 1100, then the wall clock steps back and the next input reads 900. The input
+        // at 1100 still came after a report at 1000.
+        var ledger = ClaudeAccountAutoSwitchLedger()
+        ledger.noteInput(panelId: panelId, atMs: 1_100)
+        ledger.noteInput(panelId: panelId, atMs: 900)
+        #expect(ledger.receivedInput(panelId: panelId, after: 1_000))
     }
 
     @Test
