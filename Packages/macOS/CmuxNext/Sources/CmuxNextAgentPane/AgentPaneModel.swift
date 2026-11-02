@@ -27,6 +27,10 @@ public final class AgentPaneModel {
     /// own give-up path, each of which keeps the fade.
     public internal(set) var paintedFromKeptTail = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
+    /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
+    /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
+    @ObservationIgnored public internal(set) var clientReady = false
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
@@ -204,6 +208,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
     @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
+    /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
+    /// false when it shows no such notice with an enabled button.
+    @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
@@ -324,6 +331,23 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A tab bound to session `session` (an existing chat it opens) adopted this prewarmed, connected
+    /// New Tab page: the model is that tab's from here, as if its handshake had named the session
+    /// (``AgentPaneView/adoptSession(_:revealTurn:)``). Its first paint is ahead again: the pane
+    /// keeps its cover until the page draws the chat. False, changing nothing, for a page that is
+    /// not an untouched, connected New Tab page.
+    @discardableResult
+    public func adoptSpareSession(_ session: String) -> Bool {
+        guard sessionId == nil, newTab != nil, hasHandshake, !userTouched, !remoteChat, !neverPooled else { return false }
+        sessionId = session
+        transport.sessions.add(session)
+        newTab = nil
+        // The spare's start folder was no tab's; the chat's folder comes with its session.
+        handshakeCwd = nil
+        (hasPainted, paintedFromKeptTail) = (false, false)
+        return true
+    }
+
     /// A new workspace's first tab (its view made before the store's reply
     /// named it a new tab page): a chat that has no session yet becomes the
     /// page. A chat with a session keeps it.
@@ -335,14 +359,20 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
+        // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
+        // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
         case .cloudEnvironment(let request) where request.action != "update": break
         default:
-            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            let name = String(String(describing: request).prefix { $0 != "(" })
+            if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
+                touchedBy = touchedBy.map { $0 + "," + name } ?? name
+            }
             userTouched = true
         }
         switch request {
@@ -361,6 +391,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .commandAvailability(let commands):
             pageCommands = Set(commands)
+            return AgentPaneReply.success()
+        case .clientReady(let ready):
+            clientReady = ready
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -578,6 +611,7 @@ public final class AgentPaneModel {
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
         case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
+        case .paneNoticeAction(let id): return paneNoticeAction(id, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)

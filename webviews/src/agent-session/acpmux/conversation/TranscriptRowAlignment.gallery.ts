@@ -114,7 +114,7 @@ export default agentPaneEntry({
       documentAttributes: { "transcript-status-gap": "off" },
     },
     footer: {
-      note: "The pointer on the first turn's footer: the copy glyph starts on the reply's left edge, as Codex and Claude draw it, and Worked for starts there too.",
+      note: "The pointer on the first turn's footer: the copy glyph starts on the reply's left edge, as Codex and Claude draw it, with Worked for after the buttons.",
       snapshot,
       play: revealFooter,
     },

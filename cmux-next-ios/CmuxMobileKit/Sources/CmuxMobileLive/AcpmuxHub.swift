@@ -1108,9 +1108,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": chatKinds,
                 ]), timeout: pageTimeout)
                 let events = page["events"]?.arrayValue ?? []
+                let hasMore = page["hasMore"] == .bool(true)
+                // hasMore means the server promises older records. An empty or
+                // non-advancing page is a failed read, never the start of history:
+                // dropping earlierBefore here permanently hides older turns.
+                if hasMore {
+                    guard let oldest = events.first?["seq"]?.numberValue,
+                          oldest.isFinite, oldest >= 0, oldest < Double(cursor) else {
+                        out.failed = true
+                        break
+                    }
+                }
                 out.records = events + out.records
-                out.more = !events.isEmpty && page["hasMore"] == .bool(true)
-                guard out.more, let oldest = events.first?["seq"]?.numberValue, !events.contains(where: isPrompt) else { break }
+                out.more = !events.isEmpty && hasMore
+                guard out.more, let oldest = events.first?["seq"]?.numberValue,
+                      !events.contains(where: isPrompt) else { break }
                 cursor = Int(oldest)
             }
         } catch {

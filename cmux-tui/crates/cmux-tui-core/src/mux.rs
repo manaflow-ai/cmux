@@ -305,6 +305,7 @@ mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
+mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -314,7 +315,6 @@ mod terminal_progress;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
-mod incognito_terminals;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
@@ -506,6 +506,9 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// The registry's id and generation, fixed when it opened: read without
+    /// its lock, which durable commits hold.
+    registry_identity: (String, String),
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,

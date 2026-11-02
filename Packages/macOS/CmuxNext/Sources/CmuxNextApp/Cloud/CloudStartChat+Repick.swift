@@ -15,26 +15,12 @@ import Foundation
 /// failed again". The picker had only started a new empty chat through that machine's acpmux, or
 /// opened the picked machine and waited; nothing moved the chat or sent its prompt again.
 extension CloudStartChat {
-    /// A chat a start opened on a Cloud machine: what the start was, from where, and where it runs.
-    struct Started {
-        var start: AgentPaneCloudStart
-        /// The chat's folder on this Mac (nil for a chat with no project, ``AgentPaneCloudStart/home``).
-        var chat: String?
-        var workspace: String?
-        var account: [String?]
-        var machineID: String
-    }
-
-    /// The chats starts opened, by their tab's key, for this run of the App: a repick moves only one of
-    /// these. A relaunched App has none, and a pick there does what it did before.
-    @MainActor static var started: [String: Started] = [:]
-
     /// The page's runner for `cloud.repickChat`: `view` is the pane of the chat on the machine it was on.
     static func repickRunner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any] {
         { [weak tabs, weak services] view, repick in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key,
-                  let started = Self.started[key], let (tab, _) = services.locateTab(key) else {
+            guard let view, let tabs, let key = tabs.views.first(where: { $0.value === view })?.key,
+                  let started = tabs.pageChats.cloudStarted[key], let (tab, _) = services.locateTab(key) else {
                 // No chat a start opened: the page does what a pick did before.
                 return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
             }
@@ -42,23 +28,14 @@ extension CloudStartChat {
         }
     }
 
-    /// The account machine `repick` names among `machines`: by id, else by the name acpmux lists it
-    /// under (its title or slug, any case). Nil when none, or more than one, matches.
-    nonisolated static func machineID(for repick: AgentPaneCloudRepick, in machines: [(id: String, title: String, slug: String?)]) -> String? {
-        if let id = repick.machine { return machines.contains { $0.id == id } ? id : nil }
-        guard let name = repick.name?.lowercased() else { return nil }
-        let matches = machines.filter { $0.title.lowercased() == name || $0.slug?.lowercased() == name }
-        return matches.count == 1 ? matches[0].id : nil
-    }
-
     /// Moves the chat a start opened (tab `key`, `tab`) to the machine `repick` names and sends its
     /// first prompt there; the page's reply.
-    func repick(_ repick: AgentPaneCloudRepick, started: Started, key: String, tab: TabModel) async -> [String: Any] {
+    func repick(_ repick: AgentPaneCloudRepick, started: AgentPaneCloudStarted, key: String, tab: TabModel) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let listed = services.cloud.listedMachineIDs
         let machines = services.machines.cloud.filter { listed.contains($0.machineID) }
             .map { (id: $0.machineID, title: $0.machine.title, slug: $0.machine.slug) }
-        guard let target = Self.machineID(for: repick, in: machines) else {
+        guard let target = repick.machineID(in: machines) else {
             return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
         }
         // The machine it is on already: nothing moves.
@@ -76,7 +53,7 @@ extension CloudStartChat {
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
                 // The chat's tab on the machine it was on, whose first send never ran.
-                Self.started[key] = nil
+                services.agentTabs.pageChats.cloudStarted[key] = nil
                 do {
                     try await old.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
                 } catch {

@@ -39,6 +39,9 @@ final class AgentPageChats {
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
+    /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
+    /// of these. A relaunched App has none, and a pick there does what it did before.
+    var cloudStarted: [String: AgentPaneCloudStarted] = [:]
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.

@@ -107,6 +107,48 @@ struct IncognitoFeedHandoffTests {
         _ = driver
     }
 
+    /// A normal workspace that no window lists can be placed into an incognito window (#31309). If that happens
+    /// while its item's `feed.adopt` is in flight, the adopt has already committed when the reply arrives: the
+    /// driver re-checks the window after the await and withdraws the item (`feed.adopt.cancel`, which answers
+    /// `cancelled: false` for a committed adopt) and archives the cloud copy, so it leaves the Feed and its
+    /// pending iPhone push is cleared, before the daemon records the move.
+    @Test func anItemWhoseWorkspaceMovesIntoAnIncognitoWindowDuringTheSendIsWithdrawn() async {
+        final class State { var sent: [[String: Any]] = []; var normal: Set<String> = ["ws_normal", "term_normal"] }
+        let state = State()
+        var item = Self.item(workspace: "ws_normal", terminal: "term_normal")
+        item.state = .handingOff
+        let frozen = item
+        var driver: FeedHandoffDriver?
+        let step: String = await withCheckedContinuation { finished in
+            driver = FeedHandoffDriver(
+                daemon: .init(serves: { true }, list: { listed, _ in listed == .handingOff ? [frozen] : [] },
+                              begin: { _ in frozen },
+                              done: { _, _ in finished.resume(returning: "done"); return frozen },
+                              abort: { _ in finished.resume(returning: "abort"); return frozen }),
+                owner: { _, body in
+                    state.sent.append(body)
+                    switch body["op"] as? String {
+                    case "feed.adopt":
+                        // The workspace moves into an incognito window while the adopt is in flight; it commits.
+                        state.normal = []
+                        return [:]
+                    case "feed.adopt.cancel": return ["value": ["cancelled": false]]
+                    default: return [:]
+                    }
+                },
+                isSignedIn: { true }, installID: { "inst_test" },
+                policy: { FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: [], normalWindows: state.normal) })
+            driver?.run()
+        }
+        let ops = state.sent.map { $0["op"] as? String ?? "?" }
+        #expect(step == "done", "the daemon must record the committed move")
+        #expect(ops == ["feed.adopt", "feed.adopt.cancel", "feed.archive"],
+                "an item whose workspace moved into an incognito window during the send stayed in the Feed: \(ops)")
+        let archived = (state.sent.last?["params"] as? [String: Any])?["items"] as? [String]
+        #expect(archived == [FeedHandoffDriver.cloudID(install: "inst_test", local: frozen.id)])
+        _ = driver
+    }
+
     @Test func aNormalWorkspacesItemStillHandsOff() throws {
         let policy = try policy()
         let content = policy.content(for: Self.item(workspace: "ws_normal", terminal: "term_normal"))

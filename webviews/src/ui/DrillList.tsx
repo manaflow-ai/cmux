@@ -150,11 +150,16 @@ export function DrillList<T>(props: DrillListProps<T>) {
       aria-setsize={style ? rows.length : undefined}
       {...itemAttributes?.(item)}
       onMouseDown={(event) => {
+        // A context-menu press must leave the native gesture and the active row alone.
+        if (event.button !== 0 || event.ctrlKey) return;
         event.preventDefault();
         onHighlight(index);
       }}
       onMouseMove={() => index !== current && onHighlight(index)}
-      onDoubleClick={() => props.onActivate(item)}
+      onDoubleClick={(event) => {
+        if (event.button !== 0 || event.ctrlKey) return;
+        props.onActivate(item);
+      }}
     >
       {renderItem(item)}
     </div>
