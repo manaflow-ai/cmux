@@ -186,7 +186,8 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   // An ordinary chat selection, with no explicit draft/attachment carry.
   act(() => root!.render(<Harness options={b} handle={handle} />));
   expect(handle.current!.pending).toEqual([]);
-  await act(() => tick(UPLOAD_RETRY_DELAY_MS + 100));
+  const retryWindowStarted = Date.now();
+  await until(() => Date.now() - retryWindowStarted > UPLOAD_RETRY_DELAY_MS + 100);
   expect(bCalls).toBe(0);
   expect(handle.current!.attachments).toEqual([]);
 
@@ -198,6 +199,35 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   await until(() => handle.current!.attachments.some((attached) => attached.name === "Sunbringer Menu Animation.mp4"));
   expect(aCalls).toBe(2);
   expect(bCalls).toBe(0);
+});
+
+test("an intentionally carried upload retries through its destination chat", async () => {
+  const handle: { current: Probe | null } = { current: null };
+  let aCalls = 0;
+  let bCalls = 0;
+  const makeOptions = (scope: string, upload: AttachmentIntakeOptions["upload"]): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => undefined,
+    carries: () => true,
+    upload,
+  });
+  const a = makeOptions("chat-a", async () => {
+    aCalls += 1;
+    return { error: "Temporary peer disconnect" };
+  });
+  const b = makeOptions("chat-b", async () => {
+    bCalls += 1;
+    return { paths: ["/chat-b/clip.mp4"] };
+  });
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => aCalls === 1 && handle.current!.pending.length === 1);
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  await until(() => bCalls === 1 && handle.current!.attachments.length === 1);
+  expect(aCalls).toBe(1);
+  expect(handle.current!.pending).toEqual([]);
 });
 
 test("a file the composer refused never holds a send: Retry could never make it", async () => {
@@ -228,8 +258,6 @@ function fakeDocument() {
     count: () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0),
   };
 }
-
-const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("the first try again goes on its own; the last waits for the person's key or click, never Return", async () => {
   const { doc, fire, count } = fakeDocument();
