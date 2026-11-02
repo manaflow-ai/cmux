@@ -950,10 +950,14 @@ mod exhaustive_tests;
 #[cfg(test)]
 mod rows_tests;
 
+#[cfg(test)]
+mod sidebar_face_tests;
+
 #[cfg(kani)]
 mod proofs;
 pub mod scroll;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;
+pub mod sidebar_face;
 pub mod sidebar_layout;

@@ -2,11 +2,14 @@
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), the window focus machine (`cmux_focus_*`,
+//! `focus_child_window_key`) and agent cursor visibility
+//! (`agent_cursor_visibility`), the window focus machine (`cmux_focus_*`,
 //! [`focus`]: a handle per window, typed events and replies, no JSON),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
-//! and the column scroll reducer (`cmux_scroll_*`, [`scroll`]: a handle per
-//! scrolling strip, typed events per scroll event and frame).
+//! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
+//! requests and replies, no JSON), and the column scroll reducer
+//! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
+//! per scroll event and frame).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -14,6 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod focus;
 pub mod scroll;
+pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod typed;
 use sidebar_mirror::Mirror;
@@ -150,6 +154,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_focus_core::wire::ChildWindowKeyRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"agent_cursor_visibility" => {
+                let request: cmux_focus_core::wire::AgentCursorVisibilityRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             _ => return Err(ERR_INVALID),
