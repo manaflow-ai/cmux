@@ -39,17 +39,39 @@ public nonisolated struct ShownResizeRange {
 
     /// Every row height of `column` after a keyboard press moves the row edge next to `pane`'s row by `delta`
     /// (a share of the column's height; down is positive): the edge below that row, or above it for the last row.
-    /// Each row keeps its minimum (``RowResize``). Nil when the column has no rows here or nothing moves.
+    /// The press trades whole permille between the two rows (or, in a scrolling stack, sizes the upper row alone),
+    /// the exact inverse of ``RowStackGeometry/compute``'s placement, so each press moves the edge by the same
+    /// `(height + gap) * delta` points, snapped once to the pixel grid. Each row keeps 100 permille and the height its
+    /// tree needs; a press at that limit is nil (nothing moves).
     public func rowHeights(moving pane: PaneID, in column: LayoutColumn, by delta: Double) -> [RowHeight]? {
         guard column.hasRows, let stack = geometry.rowStacks[column.id],
               let index = column.rows.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
         let upper = index + 1 < column.rows.count ? index : index - 1
-        guard upper >= 0, let frame = stack.frame(of: column.rows[upper].id) else { return nil }
-        // One step is `delta` of the column's height in permille units: `(height + gap) * delta` points (G1).
-        let pointer = frame.maxY + (stack.frame.height + stack.gap) * CGFloat(delta)
-        let minimums = Dictionary(uniqueKeysWithValues: column.rows.map { ($0.id, SplitGeometry.minimumSize(of: $0.root, style: style).height) })
-        let heights = RowResize.heights(column.rows, stack: stack, upper: column.rows[upper].id, pointerY: pointer,
-                                        minimums: minimums, fits: !style.rowsEnabled)
-        return heights == column.rows.map { RowHeight(row: $0.id, height: $0.height) } ? nil : heights
+        guard upper >= 0 else { return nil }
+        let rows = column.rows, sum = rows.reduce(0) { $0 + max($1.height, 1) }
+        let fills = !style.rowsEnabled || sum <= 1000
+        // Permille as placed: a filled stack scales every row by 1000 / sum.
+        let scale = fills && sum > 0 ? Double(sum) / 1000 : 1
+        func floor(_ row: LayoutRow) -> Int {
+            let points = SplitGeometry.minimumSize(of: row.root, style: style).height
+            let placed = Double(RowStackGeometry.permille(forPixelHeight: points, columnHeight: stack.frame.height, gap: stack.gap))
+            return max(LayoutRow.heightRange.lowerBound, Int((placed * scale).rounded(.up)))
+        }
+        let step = Int((delta * 1000 * scale).rounded())
+        var heights = rows.map { RowHeight(row: $0.id, height: $0.height) }
+        if fills {
+            let pair = rows[upper].height + rows[upper + 1].height
+            let low = floor(rows[upper]), high = pair - floor(rows[upper + 1])
+            guard low <= high else { return nil }
+            let next = min(max(rows[upper].height + step, low), high)
+            guard next != rows[upper].height else { return nil }
+            heights[upper].height = next
+            heights[upper + 1].height = pair - next
+        } else {
+            let next = min(max(rows[upper].height + step, floor(rows[upper])), LayoutRow.heightRange.upperBound)
+            guard next != rows[upper].height else { return nil }
+            heights[upper].height = next
+        }
+        return heights
     }
 }
