@@ -646,18 +646,89 @@ fn disk_file(
 /// branch moves back if the index can't follow. The index is git's own
 /// `index.lock` from that check until the new index is in place, so nothing
 /// staged in between is lost.
+/// Read the ref itself, distinct from the stash's worktree contents.
+fn stash_ref(folder: &Path) -> anyhow::Result<Option<String>> {
+    let output = local(folder)
+        .args(["show-ref", "--verify", "--hash", "refs/stash"])
+        .output()
+        .context("cannot read refs/stash")?;
+    if output.status.code() == Some(1) {
+        return Ok(None);
+    }
+    if !output.status.success() {
+        bail!("cannot read refs/stash: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    let id = std::str::from_utf8(&output.stdout)?.trim();
+    if !is_sha(id) {
+        bail!("refs/stash is not a commit id");
+    }
+    Ok(Some(id.to_owned()))
+}
+
+/// A Cloud stash change is safe when this Mac still has the accepted baseline.
+/// Legacy records and manual --base-* flags lack that baseline: refuse a
+/// differing ref instead of silently replacing someone's local stash.
+fn plan_stash(
+    folder: &Path,
+    base: &SeedBase,
+    machine: &Option<String>,
+) -> anyhow::Result<Result<Option<StashUpdate>, String>> {
+    let here = stash_ref(folder)?;
+    if !base.stash_known {
+        return Ok(if &here == machine {
+            Ok(None)
+        } else {
+            Err("the older seed record has no stash baseline; re-seed before pulling a changed stash".into())
+        });
+    }
+    if &base.stash == machine || &here == machine {
+        return Ok(Ok(None));
+    }
+    if here != base.stash {
+        return Ok(Err("refs/stash changed on both this Mac and the Cloud machine".into()));
+    }
+    Ok(Ok(Some(StashUpdate { before: here, after: machine.clone() })))
+}
+
+/// Apply or delete refs/stash only if it still has the value observed above.
+fn move_stash_ref(folder: &Path, old: Option<&str>, new: Option<&str>) -> anyhow::Result<()> {
+    if old == new {
+        return Ok(());
+    }
+    let zero = "0".repeat(old.or(new).map_or(40, str::len));
+    let mut command = local(folder);
+    command.args(["update-ref", "-m", "cmux seed pull: bring back stash"]);
+    if let Some(new) = new {
+        command.args(["--create-reflog", "refs/stash", new, old.unwrap_or(&zero)]);
+    } else if let Some(old) = old {
+        command.args(["-d", "refs/stash", old]);
+    }
+    checked(&mut command).context("refs/stash changed while bringing back the Cloud session")?;
+    Ok(())
+}
+
+/// Commit HEAD, index, and stash with compare-and-swap. Stash moves first and
+/// is reversed if a subsequent Git operation fails. The caller rolls back
+/// working-tree files if this operation fails.
 fn move_git(
     folder: &Path,
     planned: &GitBase,
     head: Option<&str>,
     staged: Option<&str>,
+    stash: Option<&StashUpdate>,
 ) -> anyhow::Result<()> {
-    if head.is_none() && staged.is_none() {
+    if head.is_none() && staged.is_none() && stash.is_none() {
         return Ok(());
     }
     let lock = staged.map(|_| IndexLock::take(folder)).transpose()?;
     if git_back::base_of(folder)? != *planned {
         bail!("this Mac's branch or staged changes changed during the pull");
+    }
+    if let Some(stash) = stash {
+        if stash_ref(folder)? != stash.before {
+            bail!("refs/stash changed during the pull");
+        }
+        move_stash_ref(folder, stash.before.as_deref(), stash.after.as_deref())?;
     }
     let move_ref = |new: &str, old: &str| {
         let mut command = local(folder);
@@ -669,16 +740,26 @@ fn move_git(
         checked(command.args([new, old])).map(drop)
     };
     let old = planned.head.clone().unwrap_or_default();
-    if let Some(head) = head {
-        move_ref(head, &old).context("cannot move the branch")?;
-    }
-    if let (Some(tree), Some(lock)) = (staged, &lock)
-        && let Err(error) = lock.replace(folder, tree)
-    {
+    let result = (|| -> anyhow::Result<()> {
         if let Some(head) = head {
-            let _ = move_ref(&old, head);
+            move_ref(head, &old).context("cannot move the branch")?;
         }
-        return Err(error.context("cannot stage the machine's changes"));
+        if let (Some(tree), Some(lock)) = (staged, &lock)
+            && let Err(error) = lock.replace(folder, tree)
+        {
+            if let Some(head) = head {
+                let _ = move_ref(&old, head);
+            }
+            return Err(error.context("cannot stage the machine's changes"));
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Some(stash) = stash {
+            move_stash_ref(folder, stash.after.as_deref(), stash.before.as_deref())
+                .context("could not restore refs/stash after a failed Git update")?;
+        }
+        return Err(error);
     }
     Ok(())
 }
