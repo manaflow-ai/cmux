@@ -12,6 +12,7 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
+import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -758,6 +759,8 @@ export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /** The selected chat's daemon-owned retry, including the last automatic attempt. */
+  autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
