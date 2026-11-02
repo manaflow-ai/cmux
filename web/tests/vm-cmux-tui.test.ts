@@ -124,7 +124,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("sh -c");
     expect(command).toContain("kill -0");
     expect(command).toContain("status_rc=$?");
-    expect(command).toContain('[ "$status_rc" -eq 0 ] || exit 3');
+    expect(command).toContain("probe_status || exit 3");
+    expect(command).toContain("probe_status()");
     expect(command).toContain('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")"');
     expect(command).toContain("exit 3");
     const lines = command.split("\n");
@@ -160,6 +161,11 @@ describe("cmux-tui install and daemon commands", () => {
         });
         expect(result.status).toBe(3);
       }
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' 'Error: no acpmux daemon at /tmp/acpmux (run acpmux daemon)' >&2\nexit 1\n");
+      const noDaemon = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(noDaemon.status).toBe(0);
       mkdirSync(join(home, ".acpmux"));
       writeFileSync(join(home, ".acpmux", "daemon.lock"), "999999\n");
       writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
