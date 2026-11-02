@@ -229,8 +229,9 @@ impl LocalOutput {
             terminal_notifications: Vec::new(),
             finished_commands: Vec::new(),
         });
-        if let Some(wake) = self.wake.as_ref() {
-            wake.kick();
+        if let Some(wake) = self.wake.as_mut() {
+            // Nonblocking: an already queued wake also guarantees publication.
+            let _ = wake.write(&[1]);
         }
     }
 
