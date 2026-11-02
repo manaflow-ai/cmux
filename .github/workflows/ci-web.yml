@@ -525,6 +525,10 @@ jobs:
           # Keep jsdom and browser workers below the 16-vCPU saturation point. The Session Info
           # test set grew enough that twelve plain workers starved each other and timed out.
           CMUX_WEB_TEST_JOBS: "8"
+          # Browser files launch Chromium or WebKit and contend for the same CPU and memory as
+          # jsdom files. Keep that pool serial on the 16-vCPU lane so browser timing assertions
+          # measure the test instead of a saturated worker; plain files retain seven workers.
+          CMUX_WEB_TEST_BROWSER_JOBS: "1"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.

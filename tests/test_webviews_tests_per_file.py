@@ -739,6 +739,8 @@ class PerFileRunner(unittest.TestCase):
         step = step[: step.index("\n      - name:", 10)]
         # The step's wrapper runs this runner, then compares a pull request's reds with its base's.
         self.assertIn("scripts/ci/webviews-tests-new-reds.sh", step)
+        self.assertIn('CMUX_WEB_TEST_JOBS: "8"', step)
+        self.assertIn('CMUX_WEB_TEST_BROWSER_JOBS: "1"', step)
         self.assertIn('bash "$here/run-webviews-tests.sh"', (RUNNER.parent / "webviews-tests-new-reds.sh").read_text())
         self.assertNotIn("bun run test", step)
 
