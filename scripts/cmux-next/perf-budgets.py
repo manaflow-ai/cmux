@@ -413,6 +413,7 @@ def main():
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
+    ap.add_argument("--raw", default="", help="benches whose whole report goes into the --json result (under raw)")
     ap.add_argument("--palette-rounds", type=int, default=6, help="palette opens per command (6: the budget gate's)")
     ap.add_argument("--load", default="",
                     help="phases to run every bench in: idle, default (agent-like load at the default priority) and "
@@ -542,6 +543,8 @@ def finish(opts, budgets, only, runs, values):
     result = {"tag": opts.tag, "host_class": cls, "host": platform.node(), "baseline_file": base_path if baseline else None,
               "rows": rows, "regressed": regressed, "over_budget": over, "incomplete": incomplete,
               "counts": counts, "runs": runs,
+              "raw": {name: load(run["report"]) for name, run in runs.items()
+                      if name.split("@", 1)[0] in opts.raw.split(",") and run.get("report")},
               "profile_split": profile_split}
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
