@@ -130,3 +130,44 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
     drop(removed);
     mux.shutdown();
 }
+
+/// A rolled-back routing change (a respawn whose durable commit failed restores the state it cloned:
+/// `terminal_respawn.rs`, `*state = before`) restores the old table without an insert or remove; the kept terminal
+/// found in between must not be used after it.
+#[cfg(unix)]
+#[test]
+fn a_rolled_back_route_drops_the_kept_terminal() {
+    let mux = test_mux();
+    let (old, client, writer) = attached_terminal(&mux);
+    let before = mux.with_state(|state| state.clone());
+    // A routing change that the next key sees and keeps.
+    let removed = mux.remove_surface_runtime_for_test(old.id).expect("the placement had a runtime");
+    let interim =
+        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), std::sync::Weak::new())
+            .unwrap();
+    let (interim_sent, interim_input) = mpsc::channel();
+    interim.replace_input_writer_for_test(Box::new(InputRecorder(interim_sent)));
+    mux.insert_surface_runtime_for_test(interim);
+    handle_command(&mux, client, key(old.id, b'a'), &writer).unwrap();
+    assert_eq!(
+        interim_input.try_recv().ok(),
+        Some(b"a".to_vec()),
+        "the key reached the interim terminal"
+    );
+    // The rollback: the whole state, its tables included, goes back to the clone.
+    let (old_sent, old_input) = mpsc::channel();
+    old.replace_input_writer_for_test(Box::new(InputRecorder(old_sent)));
+    mux.replace_state_for_test(before);
+    handle_command(&mux, client, key(old.id, b'b'), &writer).unwrap();
+    assert_eq!(
+        old_input.try_recv().ok(),
+        Some(b"b".to_vec()),
+        "after the rollback the key did not reach the restored terminal"
+    );
+    assert!(
+        interim_input.try_recv().is_err(),
+        "after the rollback the key went to the rolled-back terminal"
+    );
+    drop(removed);
+    mux.shutdown();
+}
