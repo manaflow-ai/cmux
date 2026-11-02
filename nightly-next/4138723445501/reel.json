@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4138723445501",
+  "notes": "notes/4138723445501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31676,
+      "title": "ci(next): give the broad Swift pass 40 minutes so a width-1 runner finishes its last shard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31672,
+      "title": "test(next): NewTabHoldCancellationTests closes its fixture windows instead of ordering them out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31774,
+      "title": "pre-push: refuse a Cargo.lock that no longer matches its manifests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31748,
+      "title": "journeys tui-kit: tk-gradient, the 120 fps gradient in compiled Rust (byte-identical, rate verdict)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31752,
+      "title": "Session Info: the running wave sweeps slower than the transcript's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31706,
+      "title": "journeys tui-kit loads: heavy build stops between steps; test asserts; docs (review follow-up)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31776,
+      "title": "base red: transcript-rhythm measures the reply footer row from #31690",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31765,
+      "title": "fix(acpmux): close purge event and cache races",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31751,
+      "title": "backend: cmux-next development runs on Vitess (projection writes and reads on MySQL, Postgres as shadow)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31763,
+      "title": "backend: cmux-next staging runs on Vitess (projection primary MySQL, Postgres shadow)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31744,
+      "title": "typing probe: each row names its key's NSEvent time (event_uptime_ns)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31730,
+      "title": "cloud set-network-access: the read-apply-write moves to CmuxNextCloud (app_lines +6, #31666)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31733,
+      "title": "fix(next): every createAndShow create goes through WorkspaceSpawner: claim at the press, release on failure (#31658)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31749,
+      "title": "fix(next): a process-group child starts with no signal blocked and default dispositions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31755,
+      "title": "ci(nightly): a change to the Release build script makes the next build clean",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31527,
+      "title": "cmux NEXT agent chat: a sent video shows its poster and length in its bubble, and plays on click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31630,
+      "title": "Cloud create: show a failed snapshot list with Retry; guest page ends on share.closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31635,
+      "title": "acpmux: fix closed summary cache invalidation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31750,
+      "title": "ci(nightly): a change under Prototypes/ keeps the warm Release build",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
