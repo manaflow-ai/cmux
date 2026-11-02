@@ -22,7 +22,7 @@ struct AgentPaneAddAccountTests {
 
     @Test(arguments: ["claude", "codex"])
     func onlyOneRealGestureForwardsTheTypedAddThroughTheLocalSocket(family: String) async throws {
-        let params = params.merging(["family": family]) { _, value in value }
+        let params = self.params.merging(["family": family]) { _, value in value }
         let socket = FileManager.default.temporaryDirectory.appendingPathComponent("a-\(UUID().uuidString).sock").path
         let relay = try OneShotRelay(path: socket, replies: [
             #"{"jsonrpc":"2.0","id":1,"result":{"_meta":{"acpmux":{"origin":"local"}}}}"#,
