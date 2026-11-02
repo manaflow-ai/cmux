@@ -26,12 +26,8 @@ struct AgentPaneAddAccountTests {
             #"{"jsonrpc":"2.0","id":2,"result":{"id":"work","kind":"direct-subscription","name":"Work login"}}"#,
         ])
         defer { relay.stop() }
-        let server = AcpmuxStandInServer()
-        try await server.start()
-        defer { server.stop() }
         let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
-        let connection = try await model.transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil, socketPath: socket))
-        defer { model.transport.close(connection: connection) }
+        model.transport.acpmuxSocket = socket
         let request = AgentPaneRequest(body: ["method": "account.add", "params": params])
         let refused = await model.respond(to: request)
         #expect((refused["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
