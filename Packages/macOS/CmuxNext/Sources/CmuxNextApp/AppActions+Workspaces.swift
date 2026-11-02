@@ -189,13 +189,17 @@ extension AppActions {
             do {
                 made = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
-                var shown = quiet == nil
-                if let quiet, let made, let target, let controller = windows.controller(for: target), controller.window?.hasTextInputKeyboard != true {
+                // A window with no controller yet (a launch window to build, a new one) has nobody typing in it: it shows.
+                if let quiet, let made, let target, windows.controller(for: target)?.window?.hasTextInputKeyboard != true {
                     windows.claims.quiet.remove(made) // claimed again, out loud: shown now if listed, else when listed (reconcile)
-                    ActionRunScope.carrying(ActionRunScope(origin: quiet.origin, allowsViewChange: true)) { windows.claimNew(workspaceID: made, window: target) }
-                    shown = true
+                    // --activate runs inside the show's scope, so a window awaiting its content is raised too.
+                    ActionRunScope.carrying(ActionRunScope(origin: quiet.origin, allowsViewChange: true)) {
+                        windows.claimNew(workspaceID: made, window: target)
+                        if focus.activatesApp { focusWindow(windows, target) }
+                    }
+                } else if quiet == nil, focus.activatesApp, let target {
+                    focusWindow(windows, target)
                 }
-                if shown, focus.activatesApp, let target { focusWindow(windows, target) }
                 // In the window the workspace opened in (with every window closed, the new one).
                 if let cloudNotice, let window = target.flatMap(windows.controller(for:))?.window ?? windows.active?.window {
                     CmuxToastCenter.shared.show(CmuxToast(id: "cloud-new-workspace-here", message: cloudNotice, duration: .seconds(8)), in: window)
