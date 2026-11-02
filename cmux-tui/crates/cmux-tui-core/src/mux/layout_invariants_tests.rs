@@ -849,6 +849,32 @@ fn check_step(mux: &Mux, before: &State, outcome: &Outcome, rejections: usize) {
     assert_durable_matches_memory(mux);
 }
 
+/// The case `layout_ops_conserve_tabs` shrank to on the base (6f1ef70f,
+/// 1 of 5 runs): after a cross-workspace move and closes, a tab's index in
+/// its pane changed, the scoped projection did not restate it, and the
+/// debug cross-check (scoped vs full projection) panicked: "the scoped
+/// projection omits a changed tab ... index 3 ... the full projection
+/// index 1".
+#[test]
+fn a_closed_tab_restates_the_indexes_of_the_tabs_after_it() {
+    let mux = test_mux("layout-invariants-shrunk-index");
+    build(&mux, &[vec![1], vec![1], vec![1, 3, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::MoveTab { tab: 24, pane: 0, index: 0, undoable: false },
+        Op::MoveTab { tab: 0, pane: 15, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::MoveTab { tab: 15, pane: 0, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::Close { tab: 2 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}
+
 fn proptest_cases() -> u32 {
     std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(64)
 }
