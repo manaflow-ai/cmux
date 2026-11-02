@@ -853,7 +853,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             warn_unstable_handles(method, &value, global.output);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
-                    .or_else(|| super::vm::created_line(&params, &value))
+                    .or_else(|| super::vm::created_line(&params, &value, global))
             {
                 print!("{line}");
                 return Ran::Done(0);

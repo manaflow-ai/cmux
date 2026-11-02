@@ -112,9 +112,7 @@ struct CloudMachineCreateFlow {
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
         let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
-                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { request in
-            await confirm(.approval(request: request, machine))
-        }
+                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         return answer["machine"] ?? answer
     }
 

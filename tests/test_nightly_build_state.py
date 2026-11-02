@@ -364,6 +364,18 @@ class DedicatedBuilder(unittest.TestCase):
             with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': value}):
                 self.assertFalse(state.builder_label())
 
+    def test_kept_package_state_is_not_sanitized_away(self):
+        """The warm builder skips the R2 package restore, so its kept workspace-state.json names this
+        workspace; deleting it made xcodebuild re-fetch every package (up to 222 s, run 41439348303)."""
+        workflow = (ROOT / '.github/workflows/nightly.yml').read_text()
+        job = workflow[workflow.index('\n  build-nightly-app:\n'):workflow.index('\n  build-nightly-remote-daemon:\n')]
+        restore = job[job.index('      - name: Cache Swift packages\n'):]
+        restore = restore[:restore.index('\n      - name:', 1)]
+        sanitize = job[job.index('      - name: Sanitize Swift package cache\n'):]
+        sanitize = sanitize[:sanitize.index('\n      - name:', 1)]
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", restore)
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", sanitize)
+
 
 if __name__ == '__main__':
     unittest.main()
