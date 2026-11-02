@@ -191,7 +191,7 @@ struct AgentChatsScreen: View {
             .alert(model.stopResult?.summary ?? "", isPresented: Binding(get: { model.stopResult != nil }, set: { if !$0 { model.stopResult = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                if let reason = model.stopResult?.reason { Text(reason) }
+                if let detail = model.stopResult?.detail { Text(detail) }
             }
             .alert("Couldn't do that", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
                 Button("OK", role: .cancel) {}

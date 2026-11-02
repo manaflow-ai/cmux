@@ -26,8 +26,12 @@ struct NewAgentChatIntent: AppIntent {
 
 #if DEBUG
 extension NewAgentChatIntent {
+    @MainActor private static var ranFromLaunchArguments = false
+
     @MainActor
     static func runFromLaunchArguments() async {
+        guard !ranFromLaunchArguments else { return }
+        ranFromLaunchArguments = true
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-cmux-mobile-run-intent"), arguments.indices.contains(index + 1),
               arguments[index + 1] == "new-agent-chat" else { return }

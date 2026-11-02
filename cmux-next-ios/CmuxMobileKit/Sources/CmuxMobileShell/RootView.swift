@@ -522,7 +522,7 @@ struct ShellView: View {
             CloudChatsScreen(shell: shell, attention: item.attention)
         }
         .sheet(item: $shell.messagingChief) { subject in
-            ChiefMessageAboutSheet(subject: subject) { text in shell.sendToChief(text, about: subject) }
+            ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }

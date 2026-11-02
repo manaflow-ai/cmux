@@ -133,6 +133,8 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         let acpmux = try readyAcpmux(macID)
         do {
             _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.session_cancel_ownership" {
+            throw AgentChatOwnedByMac(error.message)
         } catch let error as AcpmuxConnection.RPCError {
             throw WorkspaceCreationError(error.message, isForPerson: true)
         }

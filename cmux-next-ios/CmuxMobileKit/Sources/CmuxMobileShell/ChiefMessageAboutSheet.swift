@@ -7,6 +7,8 @@ import SwiftUI
 /// Chief that starts with a link to what it is about, then what the person writes.
 struct ChiefMessageAboutSheet: View {
     let subject: ChiefMessageAbout
+    /// The message is on its way: Send waits (no second send), and the sheet can't be closed.
+    let sending: Bool
     let send: (String) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -39,14 +41,17 @@ struct ChiefMessageAboutSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark") { dismiss() }
+                        .disabled(sending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send", systemImage: "arrow.up") { send(message) }
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(sending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("chief.messageAbout.send")
                 }
             }
         }
+        .overlay { if sending { ProgressView().controlSize(.large) } }
+        .interactiveDismissDisabled(sending)
         .presentationDetents([.medium, .large])
         .onAppear { focused = true }
     }

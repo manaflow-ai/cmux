@@ -64,8 +64,9 @@ import Testing
         func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab { throw WorkspaceCreationError("no") }
         func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
             if refuse.contains(chat.id) {
-                throw WorkspaceCreationError("This chat runs on the machine that started it, and only its owner can stop it", isForPerson: true)
+                throw AgentChatOwnedByMac("This chat runs on the machine that started it, and only its owner can stop it")
             }
+            if chat.id == "offline" { throw WorkspaceCreationError("Not connected") }
             stopped.append(chat.id)
         }
     }
@@ -81,9 +82,14 @@ import Testing
         #expect(backend.stopped == ["a", "b"])
         #expect(result.stopped.map(\.id) == ["a", "b"])
         #expect(result.refused.map(\.id) == ["mac-started"])
-        #expect(result.summary == "Stopped 2 agents. 1 started on the Mac keeps running: stop them on the Mac.")
+        #expect(result.summary == "Stopped 2 agents. 1 started on the Mac keeps running: stop it on the Mac.")
         #expect(result.reason?.contains("only its owner can stop it") == true)
         let none = await StopBackend(refuse: []).stopAll([chat("x", "running")], on: "m")
         #expect(none.summary == "Stopped 1 agent.")
+        // A chat it couldn't reach is not called the Mac's.
+        let offline = await StopBackend(refuse: []).stopAll([chat("offline", "running")], on: "m")
+        #expect(offline.refused.isEmpty && offline.failed.map(\.id) == ["offline"])
+        #expect(offline.summary == "Stopped 0 agents. Couldn't stop 1.")
+        #expect(offline.detail == "Not connected")
     }
 }
