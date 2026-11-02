@@ -99,8 +99,14 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 offset += wrote
             }
             guard offset == read else { break }
-            guard counting else { continue }
             line.append(contentsOf: buffer[0..<read])
+            guard counting else {
+                while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
+                    noteEvent(line[line.startIndex..<newline])
+                    line.removeSubrange(line.startIndex...newline)
+                }
+                continue
+            }
             while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
                 note(line[line.startIndex..<newline])
                 line.removeSubrange(line.startIndex...newline)
@@ -122,10 +128,35 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         }
     }
 
+    private var sequenceLog = 0
+    private var lastCommand = "-"
+    private func noteEvent(_ line: Data) {
+        guard line.count < 200_000, let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let event = object["event"] as? String else { return }
+        lock.withLock {
+            if event == "tree-changed" { counts["DIAGTC after \(lastCommand)", default: 0] += 1 }
+            if sequenceLog < 400, !["surface-output", "agent-presence", "scroll-changed", "title-changed"].contains(event) {
+                sequenceLog += 1
+                let entity = object["entity"] as? [String: Any]
+                let screens = (entity?["screens"] as? [Any])?.count
+                print("DIAGSEQ ev \(event) ws=\(object["workspace"] ?? "-") screens=\(screens.map(String.init) ?? "-")")
+            }
+        }
+    }
+
+    func diag() -> String {
+        lock.withLock { counts.filter { $0.key.hasPrefix("DIAGTC") || $0.key == Self.snapshotRead }.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " | ") }
+    }
+
     private func note(_ request: Data) {
         guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
               let command = object["cmd"] as? String else { return }
         lock.withLock {
+            lastCommand = command
+            if sequenceLog < 400, !["identify", "set-client-info", "resize-attached-view", "set-client-sizing"].contains(command) {
+                sequenceLog += 1
+                print("DIAGSEQ cmd \(command)")
+            }
             if pendingTreeRead {
                 pendingTreeRead = false
                 let snapshot = command == "list-personal" || command == "list-saved-tab-groups"

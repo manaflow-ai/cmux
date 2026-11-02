@@ -317,6 +317,7 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
         let launch = await sim.launch()
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        print("DIAGTAP \(sim.tap?.diag() ?? "-")")
         let snapshots = try #require(launch.snapshots)
         #expect(snapshots == 0, "\(snapshots) full store snapshots while the run made \(profile.expectedCount) workspaces")
         await sim.settle()
