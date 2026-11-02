@@ -14,6 +14,40 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdWIdleTerminalClosesInItsTurnTests {
     @Test func cmdWOnAnIdleFocusedTerminalLeavesInTheKeysTurn() async throws {
+        try await Self.withIdleFocusedTerminal { services, store, pane, tab in
+            let performed = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            #expect(performed)
+            #expect(!TabCloseGuard.reading.contains(tab.id), "Cmd-W waited for the daemon's read of the terminal")
+            #expect(!pane.orderedIDs.map(\.rawValue).contains(tab.id), "the tab did not leave the strip in the key's turn")
+            try await PinnedPageTests.until({ store.tab(surface: tab.surface) == nil },
+                                            report: { "waiting for the daemon close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
+        }
+    }
+
+    /// Review of #31875: the answer read at the prompt must not stand for a command that starts after it. A read made
+    /// between the shell's OSC 133 C and the command's exec still sees the shell, and the command's state does not change
+    /// until it ends, so that "no program" would hold for a whole build. Once a command runs, Cmd-W reads at the key again
+    /// and the tab stays until the daemon answers (the close question can show).
+    @Test func cmdWAfterACommandStartedReadsAtTheKeyAgain() async throws {
+        try await Self.withIdleFocusedTerminal { services, _, pane, tab in
+            // The shell runs a command now (OSC 133 C: `extra.busy.since_ms`), and leaves its prompt.
+            tab.promptSinceMs = nil
+            tab.commandSinceMs = 1_762_000_001_000
+            #expect(services.terminalReadAhead.fresh([tab]) == nil, "the prompt's answer stands for a running command")
+
+            // The read is held, so what the key's turn decides is seen before the daemon answers.
+            let hold = services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            let performed = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            #expect(performed)
+            #expect(TabCloseGuard.reading.contains(tab.id), "Cmd-W on a terminal running a command did not ask the daemon")
+            #expect(pane.orderedIDs.map(\.rawValue).contains(tab.id), "a terminal running a command left before its close question")
+        }
+    }
+
+    /// A focused live terminal at its prompt, read before the key (its answer is fresh).
+    private static func withIdleFocusedTerminal(_ body: (AppServices, DaemonStore, PaneController, TabModel) async throws -> Void) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
@@ -35,13 +69,7 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
                                             report: { "no answer read before the key for \(tab.surface) (\(tab.id)); focus \(String(describing: services.windows.active?.focus.state.resolved)), live \(tab.isLiveTerminal)" })
             let answer = try #require(services.terminalReadAhead.fresh([tab]))
             #expect(answer.keys.contains(tab.surface) && answer.programNames.isEmpty, "the idle shell read as running a program: \(answer)")
-
-            let performed = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
-            #expect(performed)
-            #expect(!TabCloseGuard.reading.contains(tab.id), "Cmd-W waited for the daemon's read of the terminal")
-            #expect(!pane.orderedIDs.map(\.rawValue).contains(tab.id), "the tab did not leave the strip in the key's turn")
-            try await PinnedPageTests.until({ store.tab(surface: surface) == nil },
-                                            report: { "waiting for the daemon close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
+            try await body(services, store, pane, tab)
         }
     }
 }
