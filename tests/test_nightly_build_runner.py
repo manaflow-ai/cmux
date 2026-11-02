@@ -632,6 +632,31 @@ class Main(unittest.TestCase):
 
 
 class SharedWait(unittest.TestCase):
+    def test_owned_route_before_any_wait_keeps_using_the_document(self):
+        idle = dict(runner(SIDE), id=1, name="synthetic-owned", os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [idle]}, scale_sets={})
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                   DEDICATED_LABEL=DEDICATED, OWNED_LABELS=SIDE, GITHUB_EVENT_NAME="push",
+                   GITHUB_REF="refs/heads/nightly-next", CANDIDATE=LARGE,
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], Clock()
+
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(picker, "write_output") as write, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(picker.main(env, sleep=clock.sleep, clock=clock), 0)
+        self.assertEqual(write.call_args.args[1]["owned"], SIDE)
+        self.assertEqual(clock.sleeps, [])
+        self.assertEqual(paths, [])
+
     def test_busy_document_is_rechecked_live_before_giving_up_the_builder(self):
         idle = dict(runner(DEDICATED), id=1, name="synthetic-builder", os="macOS")
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
@@ -642,6 +667,7 @@ class SharedWait(unittest.TestCase):
                    CANDIDATE=LARGE, CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
         paths, clock = [], [0.0]
         def api(path):
+            self.assertGreater(clock[0], 0, "the first look must make no org runner-list calls")
             paths.append(path)
             if "visible_to_repository" in path:
                 return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
