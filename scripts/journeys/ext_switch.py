@@ -818,6 +818,43 @@ def _cpu_wakeups(pid):
     return (int(buf[2]) + int(buf[3])) * tb.numer // tb.denom, int(buf[4]) + int(buf[5])
 
 
+def _daemon_event_counts(j, seconds):
+    """Event names the daemon sends a `subscribe` client (`tree_events: deltas`, as the app's DaemonStore) over
+    `seconds`, counted off the app: what the app's connection receives for hidden terminals. {name: count}."""
+    import socket as socketlib
+    from collections import Counter
+    sock = j.app.daemon_socket()
+    counts = Counter()
+    if not sock:
+        return {"error": "no daemon socket"}
+    try:
+        with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as conn:
+            conn.settimeout(2)
+            conn.connect(sock)
+            conn.sendall((json.dumps({"id": 1, "cmd": "subscribe", "tree_events": "deltas"}) + "\n").encode())
+            end, buf = time.monotonic() + seconds, b""
+            while time.monotonic() < end:
+                try:
+                    chunk = conn.recv(1 << 16)
+                except socketlib.timeout:
+                    continue
+                if not chunk:
+                    break
+                buf += chunk
+                *lines, buf = buf.split(b"\n")
+                for line in lines:
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        counts["(unparsed)"] += 1
+                        continue
+                    name = msg.get("event") or (msg.get("value") or {}).get("event") if isinstance(msg, dict) else None
+                    counts[name or ("reply" if "id" in msg else "(other)")] += 1
+    except OSError as error:
+        return {"error": str(error)}
+    return dict(counts.most_common(20))
+
+
 def step_switch_warmbusy(j, step):
     """SF-2 gate (lead 12:0xZ): the app's CPU and idle wakeups while `counts` hidden terminals print output. Each
     busy workspace runs a timed print loop (`hz` lines per second); after each count a quiet workspace is shown, so
@@ -855,6 +892,8 @@ def step_switch_warmbusy(j, step):
                "wakeup_ledger": json.dumps(ledger, default=str)[:6000]}
         print("WARMBUSY " + json.dumps({k: v for k, v in row.items() if k != "wakeup_ledger"}), flush=True)
         print("WARMBUSY-LEDGER %d %s" % (made, row["wakeup_ledger"]), flush=True)  # the owners by name (video/ is not pulled back on a fail)
+        if step.get("daemon_events"):
+            print("WARMBUSY-EVENTS %d %s" % (made, json.dumps(_daemon_event_counts(j, float(step["daemon_events"])))), flush=True)
         return row
 
     rows, made = [], 0

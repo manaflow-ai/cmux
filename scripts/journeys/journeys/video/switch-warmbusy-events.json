@@ -1,0 +1,58 @@
+{
+ "priority": "P2",
+ "source": "SWITCH FRAMES SF-2; handoff/resize-videos/SWITCH-FRAMES.md",
+ "id": "switch-warmbusy-events",
+ "budget_seconds": 250,
+ "title": "SWITCH FRAMES SF-5: which daemon events reach the app while hidden terminals print",
+ "why": "Lead 12:0xZ: hidden busy terminals must not raise app CPU or wakeups at the new warm-set size (hidden work is model-only).",
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 100% of the visible frame",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "switch_warmbusy",
+   "title": "busy gate: app CPU and wakeups with 0, 4, 8, 16, 24 hidden terminals printing 20 lines/s",
+   "prefix": "wb-${nonce}",
+   "counts": [
+    0,
+    8,
+    24
+   ],
+   "hz": 20,
+   "window": 20,
+   "daemon_events": 5
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the shown marker workspace prints WARMBUSY-QUIET in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "WARMBUSY-QUIET"
+    },
+    {
+     "app_text_contains": "WARMBUSY-QUIET"
+    },
+    {
+     "frame_text": "WARMBUSY-QUIET"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
