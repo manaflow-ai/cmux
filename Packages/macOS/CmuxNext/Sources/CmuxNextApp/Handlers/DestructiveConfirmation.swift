@@ -93,7 +93,7 @@ enum DestructiveConfirmation {
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
-            return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
+            return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
         case "taskManager.killProcess":
             // A process Kill Process refuses is not asked about: the handler says why.
             let key = services.taskManager.process(invocation["process"]?.stringValue)

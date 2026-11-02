@@ -32,7 +32,7 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
             // The app read what the terminal runs while it had the focus, before the key (TerminalProcessReadAhead).
             try await PinnedPageTests.until({ services.terminalReadAhead.fresh([tab]) != nil }, within: .seconds(10),
-                                            report: { "no answer read before the key for \(tab.surface)" })
+                                            report: { "no answer read before the key for \(tab.surface) (\(tab.id)); focus \(String(describing: services.windows.active?.focus.state.resolved)), live \(tab.isLiveTerminal)" })
             let answer = try #require(services.terminalReadAhead.fresh([tab]))
             #expect(answer.keys.contains(tab.surface) && answer.programNames.isEmpty, "the idle shell read as running a program: \(answer)")
 

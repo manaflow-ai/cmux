@@ -120,18 +120,12 @@ enum TabCloseGuard {
         return (warnTab, warnAgent, terminals.compactMap(workingAgent), terminals.filter { workingAgent($0) == nil })
     }
 
-    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]),
-                                 _ asked: RunningPrograms) -> DestructiveConfirmation.Prompt? {
+    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]), _ asked: RunningPrograms) -> DestructiveConfirmation.Prompt? {
         CloseWarning.of(agents: reads.agents, programs: asked.programNames, warnTab: reads.warnTab, warnAgent: reads.warnAgent).map { prompt($0, closing: tabs) }
     }
 
-    /// The question for closing `tabs` (a tab, a selection, a tab group), or
-    /// nil to close at once: only a working agent or a foreground program asks.
-    static func prompt(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices) async -> DestructiveConfirmation.Prompt? {
-        await promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
-    }
-
-    /// `prompt`, plus each terminal it asked and its answer.
+    /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
+    /// agent or a foreground program asks), plus each terminal it asked and its answer.
     static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
                                  services: AppServices) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         guard let reads = reads(tabs, services: services) else { return (nil, [:]) }

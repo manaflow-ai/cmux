@@ -84,6 +84,10 @@ final class FocusEffectApplier: FocusEffectApplying {
                 controller.services.cache.existingBrowser(tab)?.chrome.showsFocusModeIndicator = active
             }
         }
+        // The active window's focused terminal is read now, so its Cmd-W decides the close in the key's turn (TabCloseGuard).
+        guard controller.services.windows.active === controller else { return }
+        let pane = { if case .terminal(let key, let id) = state.resolved { content?.paneController(key: key).map { ($0, $0.tab(StripTabID(id))) } } else { nil } }()
+        controller.services.terminalReadAhead.focus(pane?.1, on: pane?.0.daemon)
     }
 
     // MARK: Responder
@@ -433,8 +437,6 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
-        // What the focused terminal runs is read now, so its Cmd-W decides the close in the key's turn (TabCloseGuard).
-        services.terminalReadAhead.focus(controller.focusedPane?.selectedTab, on: controller.focusedPane?.daemon)
         if registry.context != next { registry.context = next }
     }
 
