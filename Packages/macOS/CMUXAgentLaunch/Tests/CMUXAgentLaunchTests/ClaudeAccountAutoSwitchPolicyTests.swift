@@ -30,6 +30,14 @@ import Testing
     @Test func ignoresNonUsageLimit() {
         #expect(decide("rate_limit: slow down", current: account("a")) == .notUsageLimit)
         #expect(decide(nil, current: account("a")) == .notUsageLimit)
+        // Only the token itself, or the token and `: <message>`, is a usage limit.
+        #expect(decide("usage_limited_elsewhere", current: account("a")) == .notUsageLimit)
+        #expect(decide("usage_limits: other", current: account("a")) == .notUsageLimit)
+    }
+
+    @Test func bareUsageLimitTokenSwitches() {
+        // `ClaudeStopFailure.journalDetail` emits the bare token when the failure has no message.
+        #expect(decide("usage_limit", current: account("default")) == .switchTo(account("a"), sendContinue: true))
     }
 
     @Test func rotatesAfterCurrentAndWraps() {
