@@ -1278,9 +1278,14 @@ def positive(text):
     return value
 
 
-def pace_args(p):
-    p.add_argument("--pace", choices=PACE_MODES, default="sleep",
-                   help="how a frame wait ends: sleep, hybrid (sleep, then poll the last --spin-ms), spin")
+def pace_args(p, default):
+    # gradient defaults to spin: on a fleet mini (job 0a364ec0ef40, cmux21, 30 s each) sleep and hybrid
+    # woke in bursts (frame interval p50 0.4 ms, p95 47 / 43 ms, about 1100-1300 wake-ups for 3600
+    # frames; taskpolicy -t0 -l0, taskpolicy -B and caffeinate -i did not change it), while spin held
+    # p50 8.33 / p95 8.33 / max 8.34 ms at one core. A load that is meant to draw at 120 fps spins.
+    p.add_argument("--pace", choices=PACE_MODES, default=default,
+                   help="how a frame wait ends: sleep, hybrid (sleep, then poll the last --spin-ms), spin "
+                        "(default %s)" % default)
     p.add_argument("--spin-ms", type=float, default=2.0, help="hybrid: milliseconds polled before each frame")
 
 
@@ -1300,7 +1305,7 @@ def build_parser():
     p = sub.add_parser("gradient", help="120 fps truecolor gradient, art, CJK, emoji, frame counter")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=120.0)
-    pace_args(p)
+    pace_args(p, "spin")
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
     p.set_defaults(fn=cmd_gradient)
@@ -1338,7 +1343,7 @@ def build_parser():
     p = sub.add_parser("top", help="htop look-alike (seeded, synthetic)")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=30.0)
-    pace_args(p)
+    pace_args(p, "sleep")
     p.add_argument("--cores", type=int, default=10)
     p.set_defaults(fn=cmd_top)
     p = sub.add_parser("agent-stream", help="a coding agent's streamed answer in a terminal")

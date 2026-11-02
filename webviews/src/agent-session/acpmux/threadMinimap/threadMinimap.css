@@ -274,6 +274,17 @@
 .acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
+/* Another session's message (model.ts promptSender): it keeps its row, but its tick is set in from the
+   rail's edge and shorter, as the full-height map sets a reply in, so the person's own prompts stand out
+   (Leo 2026-10-27: "shouldn't they be designated as like a special sort of thing?"). Its tones are
+   the person's ticks'. */
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar,
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__dot {
+  left: 6px;
+}
+.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar {
+  width: min(20px, calc(100% - 6px));
+}
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
    remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
@@ -325,6 +336,15 @@
   font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
+}
+/* The sender of another session's message, above its words: secondary text, one line. */
+.acpmux-minimap__from {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-minimap__title {
   display: flex;
