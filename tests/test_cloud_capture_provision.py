@@ -136,6 +136,32 @@ class Provision(unittest.TestCase):
             stack(FakeStack(users)).find(provision.EMAIL)
 
 
+class GrantOnly(unittest.TestCase):
+    OWNER = "cmux-cloud-capture-owner3@manaflow.dev"
+
+    def test_an_existing_capture_account_gets_only_the_plan_grant(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.OWNER, "password": PASSWORD,
+                           "client_read_only_metadata": {"cmuxPlan": "free", "keep": 1}}])
+        provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
+        self.assertEqual(fake.users["u1"]["client_read_only_metadata"], {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"})
+        self.assertEqual(fake.users["u1"]["password"], PASSWORD)
+        patches = [body for method, _, _, body in fake.requests if method == "PATCH"]
+        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"}}])
+
+    def test_a_missing_account_is_never_created(self):
+        fake = FakeStack()
+        with self.assertRaises(provision.ProvisionError):
+            provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
+        self.assertFalse([r for r in fake.requests if r[0] in ("POST", "PATCH")])
+
+    def test_any_other_email_is_refused_before_any_request(self):
+        for email in ("someone@manaflow.dev", "cmux-cloud-capture@manaflow.dev.evil.com", "cmux-cloud-capture@gmail.com"):
+            fake = FakeStack()
+            with self.assertRaises(provision.ProvisionError):
+                provision.grant_only(stack(fake), email, log=lambda _: None)
+            self.assertEqual(fake.requests, [])
+
+
 class Guards(unittest.TestCase):
     def test_another_stack_project_is_refused_before_any_request(self):
         fake = FakeStack()
