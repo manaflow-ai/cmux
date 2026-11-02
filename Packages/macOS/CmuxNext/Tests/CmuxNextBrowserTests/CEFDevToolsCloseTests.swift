@@ -198,7 +198,7 @@ import Testing
         #expect(tab.devToolsController.reservesRoom)
     }
 
-    /// The bounded wait never cuts a DevTools that did open: OPENED cancels it.
+    /// A guard, not a red test: the bounded wait never cuts a DevTools that did open (OPENED cancels it).
     @Test func anOpenedDevToolsKeepsItsRoomPastTheWait() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -207,6 +207,7 @@ import Testing
         tab.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
         tab.performDevTools(.dock(.bottom))
         rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        try await clock.waitForSleeper()
         rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools, docked: true))
         clock.advance(by: CEFDevToolsController.openedLimit * 2)
         for _ in 0..<20 { await Task.yield() }
@@ -232,6 +233,30 @@ import Testing
         #expect(frames.devTools != tab.container.bounds, "the new DevTools has its docked frame, not the device-mode cover")
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one, retired
         #expect(!tab.devToolsController.deviceModeOn)
+    }
+
+    /// Review FIX at 2bbae18e7ed: after an unreported open, a stand-in reuses the kept views; it must show them, and
+    /// its rollback (Chromium opens nothing) must keep the host view Chromium was given.
+    @Test func aStandInAfterAnUnreportedOpenShowsAndKeepsTheHost() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let clock = ManualClock()
+        tab.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
+        tab.performDevTools(.dock(.right))
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        let host = try #require(tab.devToolsController.views?.host)
+        try await clock.waitForSleeper()
+        clock.advance(by: CEFDevToolsController.openedLimit)
+        await rig.until { !tab.devToolsController.reservesRoom }
+        ShimLog.calls = []
+        tab.performDevTools(.show)  // the stand-in reuses the kept views
+        #expect(tab.devToolsController.standIn)
+        #expect(!host.isHiddenOrHasHiddenAncestor, "the stand-in shows the pane's ground")
+        await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
+        await Task.yield()
+        #expect(!tab.devToolsController.reservesRoom, "Chromium opened nothing: the stand-in rolled back")
+        #expect(tab.devToolsController.views?.host === host, "the host Chromium was given stays alive")
     }
 
     // MARK: Rig
@@ -328,7 +353,10 @@ private nonisolated enum ShimLog {
         let bounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                     UnsafeMutablePointer<Int32>?) -> Int32 = { _, x, y, width, height in
             guard let area = ShimLog.inspectedBounds else { return 0 }
-            (x?.pointee, y?.pointee, width?.pointee, height?.pointee) = (area.0, area.1, area.2, area.3)
+            x?.pointee = area.0
+            y?.pointee = area.1
+            width?.pointee = area.2
+            height?.pointee = area.3
             return 1
         }
         let nothing: @convention(c) () -> Int = { 0 }

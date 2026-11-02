@@ -34,6 +34,9 @@ final class CEFDevToolsController {
     var openTimer = DemandTimer(owner: "CEFDevToolsController.opened")
     /// How long a DevTools Chromium began may take to report it opened before its room is given back.
     static let openedLimit: Duration = .seconds(5)
+    /// Chromium was given `views.host` as a DevTools parent and never reported it opened or closed: the shim keeps that
+    /// (unretained) view, so it stays alive, hidden when unused, until OPENED or CLOSED.
+    private var hostHeldByChromium = false
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
@@ -104,6 +107,7 @@ final class CEFDevToolsController {
             return
         }
         if views == nil { _ = makeViews(in: tab) }
+        showViews()
         opening = true
         standIn = true
         standInGeneration &+= 1
@@ -178,11 +182,15 @@ final class CEFDevToolsController {
     /// whole frame back. The views stay, hidden: Chromium was given the host view (unretained) as its parent, so a late
     /// OPENED still finds it; the next open or that OPENED shows them again (`showViews`).
     private func openNeverReported() {
-        guard opening, !standIn, let tab, !tab.devTools.isOpen, let views else { return }
+        guard opening, !standIn, let tab, !tab.isClosed, !tab.devTools.isOpen, views != nil else { return }
         opening = false
-        views.host.isHidden = true
-        views.divider.isHidden = true
+        hideViews()
         tab.container.layoutContent()
+    }
+
+    private func hideViews() {
+        views?.host.isHidden = true
+        views?.divider.isHidden = true
     }
 
     /// Shows views an unreported open hid (`openNeverReported`).
@@ -196,7 +204,7 @@ final class CEFDevToolsController {
         guard standIn else { return }
         standIn = false
         opening = false
-        removeViews()
+        if hostHeldByChromium { hideViews() } else { removeViews() }
         tab?.container.layoutContent()
     }
 
@@ -294,9 +302,6 @@ final class CEFDevToolsController {
         standIn = false
         endClosingForNewDevTools()
         opening = true
-        // A creation that fails sends no OPENED: the room it reserved stayed for good (an empty DevTools area beside a
-        // narrowed page). After a bounded wait the room goes back, as a stand-in rolls back.
-        openTimer.schedule(after: Self.openedLimit) { @MainActor [weak self] in self?.openNeverReported() }
         let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
         // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
         // reports that as a dock-side choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side
@@ -320,6 +325,10 @@ final class CEFDevToolsController {
             let size = views.host.bounds.size
             shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
+            hostHeldByChromium = true
+            // A creation that fails sends no OPENED: the room it reserved stayed for good (an empty DevTools area beside
+            // a narrowed page). After a bounded wait the room goes back, as a stand-in rolls back.
+            openTimer.schedule(after: Self.openedLimit) { @MainActor [weak self] in self?.openNeverReported() }
         } else {
             opening = false
             removeViews()
@@ -344,6 +353,7 @@ final class CEFDevToolsController {
         guard let tab else { return }
         endClosingForNewDevTools()
         openTimer.cancel()
+        hostHeldByChromium = false
         showViews()
         opening = false
         devToolsBrowserID = browser
@@ -366,6 +376,8 @@ final class CEFDevToolsController {
         if browser == retiredBrowserID { retiredBrowserID = nil; return }
         guard let tab, devToolsBrowserID == nil || devToolsBrowserID == browser else { return }
         opening = false
+        openTimer.cancel()
+        hostHeldByChromium = false
         // Closed by cmux's close (`closeInThisTurn`): the pane and the tab's state already show it closed.
         let shownClosed = closing
         closing = false
