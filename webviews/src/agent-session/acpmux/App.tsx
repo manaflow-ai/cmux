@@ -32,7 +32,6 @@ import { applyAgentTheme } from "../shared/theme";
 import { agentKey } from "../shared/agentKey";
 import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
-import { afterDrawnFrame } from "./paintReport";
 import {
   layoutConversation,
   onlyQuietThoughts,
@@ -9552,13 +9551,14 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    // A hidden page (an adopted spare the host still holds covered) draws no frame: it reports at once.
-    afterDrawnFrame(() => {
-      void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
-      void loadDiffPanel();
-      void loadHighlightedCode();
-      void loadEditDiffHunks();
-    });
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
+        void loadDiffPanel();
+        void loadHighlightedCode();
+        void loadEditDiffHunks();
+      }, 0),
+    );
   }, [showsWhatItIs, drewKeptTail]);
   const summary = snapshot.summary;
   const localCwd =
