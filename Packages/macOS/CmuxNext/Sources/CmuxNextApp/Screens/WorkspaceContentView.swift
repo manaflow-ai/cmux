@@ -23,9 +23,8 @@ final class WorkspaceContentView: NSView {
         }
     }
     private var tokenObservation: Task<Void, Never>?
-    /// Parked in its window (``ParkingContainer``): set with `isHidden` by `WindowRootView`, so it is
-    /// redundant while hidden parking is the only parking.
-    private(set) var isParkedOffScreen = false
+    /// Parked in its window (``ParkingContainer``, set with `isHidden` by `WindowRootView`), and its size then.
+    private(set) var isParkedOffScreen = false, parkedSize: CGSize?
 
     /// Parks or shows this workspace's subtree. Observers hear it only while the view is not hidden
     /// (``AppKit/NSView/notifyParkingChange()``): hidden parking sets this after hiding and clears it
@@ -33,6 +32,7 @@ final class WorkspaceContentView: NSView {
     func setParked(_ parked: Bool) {
         guard parked != isParkedOffScreen else { return }
         isParkedOffScreen = parked
+        if parked { parkedSize = frame.size } // shown again at another size, its pages redraw first (+PaintHold)
         notifyParkingChange()
     }
 

@@ -8227,7 +8227,8 @@ Errors:
 
 Says whether this connection's snapshot attach of `surface` shows the terminal.
 A hidden viewer's output is batched, as Chrome throttles a hidden page's timers:
-it goes out once per wall-clock second (every hidden viewer of the daemon on the
+the first output of each hidden period goes out at once (with
+`attach-visibility-shown-v1`), the rest once per wall-clock second (every hidden viewer of the daemon on the
 same second), at once when the batch passes 256 KiB, before any snapshot, and at
 once when the viewer is shown again. Offsets stay contiguous and no byte is
 dropped. Other attach events (snapshots, resizes, colors) are not delayed. A new

@@ -20,7 +20,7 @@ public extension TerminalHostView {
     }
 }
 
-/// The terminals a workspace shows (in no hidden view): the ones a switch to it waits for.
+/// The terminals a workspace shows on screen (in no hidden view, inside its bounds): the ones a switch to it waits for.
 @MainActor
 public struct TerminalsCatchingUp {
     public let terminals: [TerminalHostView]
@@ -29,7 +29,9 @@ public struct TerminalsCatchingUp {
         var found: [TerminalHostView] = []
         func visit(_ view: NSView) {
             for child in view.subviews where !child.isHidden {
-                if let terminal = child as? TerminalHostView { found.append(terminal) } else { visit(child) }
+                guard let terminal = child as? TerminalHostView else { visit(child); continue }
+                // On screen only: a keep-alive pane scrolled out of the viewport holds no switch.
+                if terminal.convert(terminal.bounds, to: root).intersects(root.bounds) { found.append(terminal) }
             }
         }
         visit(root)

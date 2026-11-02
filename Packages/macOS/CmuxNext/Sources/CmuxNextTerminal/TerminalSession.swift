@@ -481,7 +481,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
-            contentQueued()
+            screenQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -492,7 +492,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
-            contentQueued()
+            screenQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -500,7 +500,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
-            contentQueued()
+            screenQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
@@ -524,7 +524,7 @@ public final class TerminalSession {
             surfaceView.updateReflowPreview()
             view.showStatus(status)
             // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
+            if status != .connected { view.showSizedFor(nil); catchUp.finish() } // a waiting switch shows what there is
         case .sizedFor(let sizedFor): view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         case .caughtUp: catchUp.caughtUp()
         }

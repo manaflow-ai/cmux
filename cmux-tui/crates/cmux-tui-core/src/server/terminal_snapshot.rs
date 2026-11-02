@@ -586,6 +586,9 @@ struct SnapshotWorker {
     /// The gate's show count this worker answered, and the output offset a newer show owes `shown` at.
     shows_seen: u64,
     owed_shown: Option<u64>,
+    /// This hidden period batched a byte: its first went out at once, so the viewer knows the terminal printed while
+    /// hidden and waits for `shown` when it is shown again (`attach-visibility-shown-v1`). Cleared at each show.
+    printed_while_hidden: bool,
 }
 
 /// A hidden viewer's batch goes out at once past this many bytes (a hidden `yes` stays bounded).
@@ -621,6 +624,7 @@ impl SnapshotWorker {
         let shows = self.gate.shows();
         if shows != self.shows_seen {
             self.shows_seen = shows;
+            self.printed_while_hidden = false;
             // The output offset runs on across grid generations: the byte count printed before the show.
             let at_show = self.surface.snapshot_stream_position().map(|(_, offset)| offset);
             self.owed_shown = Some(at_show.unwrap_or(self.offset));
@@ -758,6 +762,22 @@ impl SnapshotWorker {
                     digest_at = None;
                     batch_at = None;
                     self.flush_hidden_batch() && self.send_local_ready(&ready)
+                }
+                Ok(ViewerEvent::Frame(AttachFrame::Output(output)))
+                    if self.gate.is_hidden() && !self.printed_while_hidden =>
+                {
+                    // The first byte of a hidden period goes out at once: the viewer then knows a show must wait for
+                    // `shown`, and one that printed nothing shows at once (one message per hidden period).
+                    self.printed_while_hidden = !output.is_empty();
+                    self.offset += output.len() as u64;
+                    if !output.is_empty() {
+                        digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+                    }
+                    let frame = AttachFrame::Output(output);
+                    match frame_json(self.surface_id, &frame, self.generation, self.offset) {
+                        Some(value) => self.send(&value),
+                        None => true,
+                    }
                 }
                 Ok(ViewerEvent::Frame(AttachFrame::Output(output))) if self.gate.is_hidden() => {
                     // Hidden: the bytes join the batch, which goes out on the aligned second or past its cap.
@@ -961,6 +981,7 @@ fn attach(
         hidden_batch: Vec::new(),
         shows_seen: 0,
         owed_shown: None,
+        printed_while_hidden: false,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

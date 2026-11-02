@@ -16,12 +16,13 @@ import Testing
 /// first shown frame: the pane, or the window for a workspace, keeps what it showed until the terminal drew everything
 /// the daemon sent up to its `shown` marker; never the older screen, never a catch-up frame after it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TerminalSwitchCatchUpTests {
-    /// A daemon attach with `attach-visibility-v1`: hidden, the output waits in the daemon; shown again, it comes
-    /// one round trip later, then the `shown` marker (``TerminalIOEvent/caughtUp``).
+    /// A daemon attach with `attach-visibility-v1`: hidden, the first output goes out at once and the rest waits in
+    /// the daemon; shown again, what waits comes one round trip later, then the `shown` marker
+    /// (``TerminalIOEvent/caughtUp``).
     nonisolated final class BatchingIO: TerminalIO {
         let scripted = ScriptedTerminalIO()
         private let hidden = Mutex(false)
-        private let waiting = Mutex<[Data]>([])
+        private let waiting = Mutex<[Data]?>(nil)
 
         var events: AsyncStream<TerminalIOEvent> { scripted.events }
         func write(_ data: Data) async {}
@@ -32,17 +33,27 @@ import Testing
 
         func send(_ event: TerminalIOEvent) { scripted.send(event) }
 
-        func hide() { hidden.withLock { $0 = true } }
+        func hide() {
+            hidden.withLock { $0 = true }
+            waiting.withLock { $0 = nil }
+        }
 
         /// The program prints while the view is hidden: the daemon keeps it.
-        func printWhileHidden(_ data: Data) { waiting.withLock { $0.append(data) } }
+        func printWhileHidden(_ data: Data) {
+            let first = waiting.withLock { waiting -> Bool in
+                guard waiting != nil else { waiting = []; return true }
+                waiting?.append(data)
+                return false
+            }
+            if first { scripted.send(.output(data)) }
+        }
 
         /// The show reached the daemon: after `roundTrip` what waited arrives, then the marker.
         func show(roundTrip: Duration) {
             hidden.withLock { $0 = false }
             let owed = waiting.withLock { waiting in
-                defer { waiting = [] }
-                return waiting
+                defer { waiting = nil }
+                return waiting ?? []
             }
             Task { [scripted] in
                 try? await Task.sleep(for: roundTrip)
@@ -108,9 +119,12 @@ import Testing
     static let oldScreen = Data(("\u{1b}[?25l\u{1b}[2J\u{1b}[H" + Array(repeating: String(repeating: "M", count: 30), count: 4)
         .joined(separator: "\r\n")).utf8)
     /// The screen cleared, four lines of text at the bottom.
-    static let newScreen: Data = {
+    /// The screen cleared (the first bytes, which the daemon sends at once), then four lines of text at the bottom
+    /// (held until the show).
+    static let newScreen: [Data] = {
         let line = String(repeating: "W", count: 30)
-        return Data(("\u{1b}[2J\u{1b}[999;1H\u{1b}[3A\r" + [line, line, line, line].joined(separator: "\r\n")).utf8)
+        return [Data("\u{1b}[2J".utf8),
+                Data(("\u{1b}[999;1H\u{1b}[3A\r" + [line, line, line, line].joined(separator: "\r\n")).utf8)]
     }()
 
     /// A terminal whose view the caller puts in a window.
@@ -187,7 +201,7 @@ import Testing
         io.hide()
         pane.show(other)
         pane.layoutSubtreeIfNeeded()
-        io.printWhileHidden(Self.newScreen)
+        Self.newScreen.forEach(io.printWhileHidden)
         try await Task.sleep(for: .milliseconds(100))
 
         // Back to the terminal: the reveal (unsuspended, then the IO shown) comes before the pane shows it.
@@ -246,7 +260,7 @@ import Testing
         show(b)
         session.isRenderingSuspended = true
         io.hide()
-        io.printWhileHidden(Self.newScreen)
+        Self.newScreen.forEach(io.printWhileHidden)
         try await Task.sleep(for: .milliseconds(100))
 
         // Back to A: its terminal is revealed in the switch's turn (here just before the window shows A).
@@ -257,5 +271,46 @@ import Testing
             !a.isHidden && a.alphaValue > 0 ? Self.onScreen(session, old: old) : .kept
         }
         Self.check(samples, "workspace switch")
+    }
+
+    /// A hidden terminal that printed nothing shows at once: no switch waits on the daemon's round trip.
+    @Test func aTabSwitchToAnIdleHiddenTerminalShowsItAtOnce() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 640, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A")]),
+                                   reveal: LaunchReveal(deadline: .zero))
+        pane.barOrder = .aboveToolbar
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        window.orderFrontRegardless()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (io, session) = try Self.terminal()
+        defer {
+            session.close()
+            io.scripted.finish()
+        }
+        pane.show(session.view)
+        pane.layoutSubtreeIfNeeded()
+        _ = try await Self.drawOld(io, session)
+        session.isRenderingSuspended = true
+        io.hide()
+        pane.show(NSView())
+        pane.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+        session.isRenderingSuspended = false
+        io.show(roundTrip: .milliseconds(200))
+        pane.show(session.view)
+        pane.layoutSubtreeIfNeeded()
+        #expect(!session.awaitsCatchUp, "a terminal that printed nothing while hidden waits for the daemon")
+        #expect(pane.contentHost.subviews.contains { $0 === session.view && !$0.isHidden && $0.alphaValue > 0 },
+                "the switch to an idle terminal did not show it in its own turn")
     }
 }
