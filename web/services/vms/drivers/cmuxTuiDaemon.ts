@@ -302,6 +302,17 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   ].join(" && ");
 }
 
+/** Keep the canonical user service's ~/.local/bin/acpmux path valid. */
+export function cmuxTuiAcpmuxLinkCommand(binary = '"$CMUX_TUI_BIN"', global = false): string {
+  return [
+    `mkdir -p "$CMUX_TUI_HOME/.local/bin"`,
+    `chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local" "$CMUX_TUI_HOME/.local/bin"`,
+    `ln -sfn ${binary} "$CMUX_TUI_HOME/.local/bin/acpmux"`,
+    `chown -h "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local/bin/acpmux"`,
+    ...(global ? [`ln -sfn ${binary} /usr/local/bin/acpmux`] : []),
+  ].join(" && ");
+}
+
 /** Install and start acpmux's canonical per-user service on a baked Linux image. */
 export function cmuxTuiServiceInstallCommand(): string {
   const unit = `[Unit]
@@ -393,12 +404,12 @@ const ACPMUX_TMP = '"$CMUX_TUI_ACPMUX_TMP"';
  * always have the work user's own bin directories). None for a manifest without it.
  */
 function acpmuxInstallSteps(source: CmuxTuiSource): string[] {
-  if (!source.acpmuxUrl || !source.acpmuxSha256) return [];
+  if (!source.acpmuxUrl || !source.acpmuxSha256) return [cmuxTuiAcpmuxLinkCommand()];
   return [
     `CMUX_TUI_ACPMUX_BIN="$(dirname "$CMUX_TUI_BIN")/acpmux"`,
     `CMUX_TUI_ACPMUX_TMP="$CMUX_TUI_ACPMUX_BIN.tmp"`,
     `if [ -x ${ACPMUX_BIN} ] && ${pinnedFile(source.acpmuxSha256, ACPMUX_BIN)}; then :; else ${fetchTo(ACPMUX_TMP, source.acpmuxUrl)} && ${pinnedFile(source.acpmuxSha256, ACPMUX_TMP)} && chmod 755 ${ACPMUX_TMP} && mv -f ${ACPMUX_TMP} ${ACPMUX_BIN}; fi`,
-    `mkdir -p "$CMUX_TUI_HOME/.local/bin" && chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local" "$CMUX_TUI_HOME/.local/bin" && ln -sfn ${ACPMUX_BIN} "$CMUX_TUI_HOME/.local/bin/acpmux" && chown -h "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local/bin/acpmux" && ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
+    cmuxTuiAcpmuxLinkCommand(ACPMUX_BIN, true),
     `${ACPMUX_BIN} --version`,
   ];
 }
