@@ -8453,7 +8453,7 @@ function AcpmuxPane() {
       return count(subagentProcesses(registryProcesses, scopedRows ?? []), scopedTasks) + scopedOwn.scheduled;
     return count(registryProcesses, transcriptWork.tasks) + transcriptWork.scheduled + workflows.length;
   }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
-  // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
+  // The Inspector (Debug Settings `agent.sessionInfo`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const sessionInfoSummary = sessionInfoSnapshot.summary;
   const sessionInfoLocal =

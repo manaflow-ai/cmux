@@ -169008,7 +169008,7 @@
         }
       }
     },
-    "settings.agentPane.display.inspector": {
+    "settings.agentPane.display.sessionInfo": {
       "comment": "Settings > Appearance > Agent Chat: the row choosing how Session Info (the chat's right-hand panel, formerly the Inspector) opens",
       "extractionState": "manual",
       "localizations": {
@@ -169140,7 +169140,7 @@
         }
       }
     },
-    "settings.agentPane.display.inspector.help": {
+    "settings.agentPane.display.sessionInfo.help": {
       "comment": "Settings > Appearance > Agent Chat > Inspector: help for the Push / Overlay choice",
       "extractionState": "manual",
       "localizations": {
@@ -169272,7 +169272,7 @@
         }
       }
     },
-    "settings.choice.agentChatInspectorPush": {
+    "settings.choice.agentChatSessionInfoPush": {
       "comment": "Settings > Agent Chat > Inspector choice: the Inspector pushes the chat aside, which narrows",
       "extractionState": "manual",
       "localizations": {
@@ -169404,7 +169404,7 @@
         }
       }
     },
-    "settings.choice.agentChatInspectorOverlay": {
+    "settings.choice.agentChatSessionInfoOverlay": {
       "comment": "Settings > Agent Chat > Inspector choice: the Inspector lies over the chat",
       "extractionState": "manual",
       "localizations": {

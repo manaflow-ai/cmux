@@ -18,7 +18,7 @@ const CATALOGS: [file: string, keys: RegExp][] = [
   ["webviews/src/agent-session/acpmux/Localizable.xcstrings", /^sessionInfo\./],
   [
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-    /^settings\.(agentPane\.display\.inspector|choice\.agentChatInspector)/,
+    /^settings\.(agentPane\.display\.sessionInfo|choice\.agentChatSessionInfo)/,
   ],
   ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings", /^agentPane\.sessionInfo\./],
   ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/Localizable.xcstrings", /^action\.agentPane\.toggleSessionInfo$/],
@@ -45,11 +45,11 @@ describe("Session Info is never called Inspector", () => {
       // The debug setting's and the Settings row's English defaults.
       [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables.swift",
-        /"agent\.inspector", PageTunables\.section, "([^"]*)",\s*help: "([^"]*)"/,
+        /"agent\.sessionInfo", PageTunables\.section, "([^"]*)",\s*help: "([^"]*)"/,
       ],
       [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/AgentPaneDisplaySettingsSchema.swift",
-        /settings\.agentPane\.display\.inspector(?:\.help)?",\s*"([^"]*)"/g,
+        /settings\.agentPane\.display\.sessionInfo(?:\.help)?",\s*"([^"]*)"/g,
       ],
       [
         "webviews/src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx",
