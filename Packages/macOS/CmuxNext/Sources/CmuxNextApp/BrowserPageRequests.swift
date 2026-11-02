@@ -343,6 +343,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
         services.linkOpener.open(from: source) { target, placed in
+            if target === source, placed == nil {
+                self.open(url: url, adopting: child, engine: engine, profile: profile, in: pane,
+                          opener: opener, background: false)
+                return
+            }
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }
@@ -406,6 +411,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private func reuseExistingTab(_ url: URL, in pane: PaneModel, engine: String, profile: String?, background: Bool) -> Bool {
         guard let services, let match = pane.tabs.first(where: { tab in
             guard tab.kind == .browser else { return false }
+            guard services.cache.existingBrowser(tab.id)?.tab != nil else { return false }
             let tabProfile = services.browserProfiles.profileID(ofTab: tab)
             guard tabProfile == (profile ?? BrowserProfileRecord.defaultID) else { return false }
             let tabEngine = tab.browserEngine ?? BrowserEngineTag.webkit.rawValue
@@ -415,7 +421,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }) else { return false }
 
         let shown = services.cache.existingBrowser(match.id)?.tab.state.url ?? match.url.flatMap(URL.init(string:))
-        if shown?.fragment != url.fragment, let page = services.cache.existingBrowser(match.id)?.tab {
+        if !background, shown?.fragment != url.fragment, let page = services.cache.existingBrowser(match.id)?.tab {
             page.load(url)
         }
         guard !background, let controller = services.paneController(for: pane) else { return true }
