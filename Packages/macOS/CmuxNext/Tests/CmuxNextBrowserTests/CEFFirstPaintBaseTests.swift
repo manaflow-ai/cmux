@@ -96,7 +96,14 @@ import Testing
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
             try? FileManager.default.removeItem(at: root)
+            // The runtime is `unowned` in its tabs and hosts, and a tab shown in a window outlives the test's locals
+            // (its views, the window): ending the runtime first crashed the run at teardown on the fleet ("read an
+            // unowned reference ... already destroyed"). Each rig lives to the end of the test process.
+            Self.kept.append(self)
         }
+
+        /// Rigs kept alive (see `close`).
+        static var kept: [Rig] = []
     }
 }
 
