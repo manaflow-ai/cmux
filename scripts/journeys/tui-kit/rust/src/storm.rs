@@ -166,11 +166,7 @@ impl Target {
                 text.push_str(&String::from_utf8_lossy(&stderr));
                 Outcome {
                     ok: false,
-                    error: Some(format!(
-                        "exit {:?}: {}",
-                        status.code(),
-                        text.trim().chars().take(200).collect::<String>()
-                    )),
+                    error: Some(format!("exit {:?}: {}", status.code(), error_text(&text))),
                     tab_made: None,
                 }
             }
@@ -197,7 +193,7 @@ impl Target {
             },
             Ok(line) => Outcome {
                 ok: false,
-                error: Some(line.chars().take(200).collect()),
+                error: Some(error_text(&line)),
                 tab_made: None,
             },
             Err(e) => Outcome {
@@ -207,6 +203,14 @@ impl Target {
             },
         }
     }
+}
+
+/// The whole error a call returned, trimmed, up to ERROR_CHARS characters: the reason of a refusal comes after
+/// the code and the idempotency details (a 200-character cut lost it: L6 tab.create refusals, STATUS 7765).
+const ERROR_CHARS: usize = 4000;
+
+fn error_text(text: &str) -> String {
+    text.trim().chars().take(ERROR_CHARS).collect()
 }
 
 fn s(text: &str) -> String {
@@ -343,5 +347,16 @@ mod tests {
             Some(s("tab_77"))
         );
         assert_eq!(tab_id(r#"{"value":{"tab_id":"tab_8"}}"#), Some(s("tab_8")));
+    }
+
+    #[test]
+    #[ignore = "run by scripts/measure/tui-kit-selftest.sh"]
+    fn an_error_keeps_its_reason_past_200_characters() {
+        let long = format!(" {}\"message\":\"the reason\" ", "x".repeat(300));
+        assert!(error_text(&long).ends_with("\"message\":\"the reason\""));
+        assert_eq!(
+            error_text(&"y".repeat(ERROR_CHARS + 50)).chars().count(),
+            ERROR_CHARS
+        );
     }
 }
