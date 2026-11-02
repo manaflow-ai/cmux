@@ -2347,7 +2347,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
 
 FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     # A recorded GitHub: routes are (substring of the joined arguments, stdout) in order.
-    import json, os, sys
+    import json, os, re, sys
     from pathlib import Path
     x = json.loads(Path(os.environ['FIXTURE']).read_text())
     a = sys.argv[1:]
@@ -2389,9 +2389,17 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     else:
         for needle, out in x['routes']:
             if needle in joined:
-                if '--paginate' in a and '--slurp' not in a and isinstance(out, list) and all(isinstance(p, dict) for p in out):
+                page = re.search(r'[?&]page=([0-9]+)', joined)
+                paged = isinstance(out, list) and all(isinstance(p, dict) for p in out)
+                if '--paginate' in a and '--slurp' not in a and paged:
                     # Real gh without --slurp prints each recorded page object back to back.
                     print(''.join(json.dumps(page) for page in out))
+                elif page and paged and any(isinstance(v, list) for p in out for v in p.values()):
+                    # An explicit `page=N` read gets the Nth recorded page object, then an
+                    # empty one, as GitHub ends a listing (main_fix_evidence pages this way).
+                    n = int(page.group(1))
+                    print(json.dumps(out[n - 1] if n <= len(out) else
+                                     {k: [] if isinstance(v, list) else v for k, v in out[0].items()}))
                 else:
                     print(out if isinstance(out, str) else json.dumps(out))
                 sys.exit(0)

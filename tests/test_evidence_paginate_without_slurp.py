@@ -33,6 +33,8 @@ FAKE_GH = textwrap.dedent("""\
         sys.stdout.write('{"total_count":2,"check_runs":[{"id":2,"name":"swift test","app":{"slug":"github-actions"}}]}\\n')
     elif "check-runs" in route:
         sys.stdout.write('{"total_count":2,"check_runs":[]}\\n')
+    elif "/ignores-page" in route:
+        sys.stdout.write('{"jobs":[{"id":7}]}\\n')  # every page the same, as a server that ignores `page`
     elif "/files" in route:
         sys.stdout.write('[{"filename":"a.py","patch":"+x"}]\\n' if page == 1 else '[{"filename":"b.py","patch":"+y"}]\\n' if page == 2 else '[]\\n')
     else:
@@ -60,6 +62,11 @@ class PaginateWithoutSlurp(unittest.TestCase):
     def test_latest_checks_reads_every_page(self):
         checks = evidence.latest_checks("o/r", "abc", evidence.GitHub())
         self.assertEqual(sorted(checks), ["lint", "swift test"])
+
+    def test_a_listing_that_ignores_page_ends_instead_of_hanging(self):
+        # 2026-11-02: CI fast guards hung until its timeout paging a fake that served one page forever.
+        pages = evidence.GitHub().json("repos/o/r/ignores-page/jobs?per_page=100", paginate=True)
+        self.assertEqual(pages, [{"jobs": [{"id": 7}]}])
 
     def test_array_pages_iterate_as_files(self):
         pages = evidence.GitHub().json("repos/o/r/pulls/1/files?per_page=100", paginate=True)
