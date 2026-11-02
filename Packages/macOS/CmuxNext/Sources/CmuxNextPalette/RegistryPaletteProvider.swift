@@ -29,6 +29,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
     /// Keyboard Shortcut…); nil hides that command.
     public var editShortcut: (@MainActor (ActionID) -> Void)?
+    /// Rows this provider built (a `PaletteItem` made for an action), for the reopen tests.
+    private(set) var builtRows = 0
 
     public init(registry: ActionRegistry, includeUnbound: Bool = RegistryPaletteProvider.defaultIncludeUnbound) {
         self.registry = registry
@@ -124,6 +126,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
             item.rankBias = Self.rankBias(for: descriptor.paletteTier)
             tiers[item.id] = descriptor.paletteTier
+            builtRows += 1
             items.append(item)
         }
         let arranged = Self.arranged(items, tiers: tiers)
