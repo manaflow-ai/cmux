@@ -56,8 +56,17 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// `app.reorderOnNotification`). Off by default: the sidebar keeps the
     /// order the user made and shows attention as a badge (Leo 2026-10-20).
     public var movesToTop = false
+    /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
+    /// looking at moves its workspace to the top, as `movesToTop` does for every
+    /// notification (`notifications.attention.moveToTopOnAgentFinish`, cmux#31513).
+    /// Off by default, like `movesToTop`.
+    public var movesToTopOnAgentFinish = false
 
     public init() {}
+
+    /// Whether a notification moves its workspace to the top: every one with `movesToTop`,
+    /// an agent's finished turn (`finishedTurn`) with `movesToTopOnAgentFinish` too.
+    public func movesToTop(finishedTurn: Bool) -> Bool { movesToTop || finishedTurn && movesToTopOnAgentFinish }
 
     /// Whether the pane being drawn shows a ring: its look and the arrival style are not none.
     public var drawsRing: Bool { style != .none && ringStyle != .none }

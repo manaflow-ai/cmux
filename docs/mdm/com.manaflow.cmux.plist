@@ -8045,6 +8045,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.moveToTopOnAgentFinish</string>
+			<key>pfm_title</key>
+			<string>Move the Workspace to the Top When Its Agent Finishes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu.</string>
