@@ -968,7 +968,48 @@ exec_real_claude_passthrough() {
     # Passthrough launches get no hooks; drop any speculative settings job.
     cmux_claude_discard_hook_settings
     clear_cmux_claude_passthrough_env
+    case "${1:-}" in attach|agents) activate_native_attach_observer ;; esac
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+}
+
+# Experimental, local-only native daemon observation. No shared socket proxy.
+# Cache only public JS, never routing credentials, because the bundle path can
+# contain spaces and Bun's BUN_OPTIONS parser does not accept quoted paths.
+prepare_native_attach_observer() {
+    [[ "${CMUX_CLAUDE_ATTACH_OBSERVER:-0}" == "1" ]] || return 0
+    cmux_claude_wrapper_target_is_native_executable "$REAL_CLAUDE" || return 0
+    local wrapper_path="$(/usr/bin/perl -MCwd=abs_path -e 'print abs_path($ARGV[0])' "$0" 2>/dev/null)"
+    local source="$(dirname "$wrapper_path")/../claude-attach-observer.cjs"
+    [[ -f "$source" && -x /usr/bin/perl ]] || return 0
+    cmux_attach_module="$(/usr/bin/perl -MFile::Path=make_path -MDigest::SHA=sha256_hex -MFcntl=:DEFAULT,:mode -e '
+        my ($source,$home)=@ARGV; local $/; open my $in,"<",$source or exit 1;
+        my $content=<$in>; my $parent="$home/.cmuxterm"; my $dir="$parent/claude-attach-observer";
+        for my $p ($parent,$dir) {
+          if (!-e $p) { mkdir $p,0700 or exit 1; }
+          my @s=lstat $p; exit 1 unless @s && S_ISDIR($s[2]) && $s[4]==$< && ($s[2]&0077)==0;
+        }
+        my $file="$dir/".sha256_hex($content).".cjs";
+        if (sysopen my $out,$file,O_WRONLY|O_CREAT|O_EXCL,0600) { print $out $content; close $out or exit 1; }
+        my @s=lstat $file; exit 1 unless @s && S_ISREG($s[2]) && $s[4]==$< && ($s[2]&0077)==0;
+        print $file;
+    ' "$source" "$HOME" 2>/dev/null)" || return 0
+    case "$cmux_attach_module" in *[[:space:]]*) cmux_attach_module=""; return 0 ;; esac
+    cmux_attach_context="$(/usr/bin/perl -MJSON::PP -e '
+        my @keys=qw(HOME CFFIXED_USER_HOME CLAUDE_CONFIG_DIR CMUX_SURFACE_ID CMUX_WORKSPACE_ID CMUX_STABLE_SURFACE_ID CMUX_SOCKET_PATH CMUX_SOCKET_PASSWORD CMUX_SOCKET_CAPABILITY CMUX_CLAUDE_HOOK_STATE_PATH CMUX_AGENT_HOOK_STATE_DIR);
+        my %env=map { exists $ENV{$_} ? ($_=>$ENV{$_}) : () } @keys;
+        print encode_json({cli=>$ARGV[0],environment=>\%env});
+    ' "$(resolve_hook_cmux_bin)" 2>/dev/null)"
+}
+
+activate_native_attach_observer() {
+    [[ -n "${cmux_attach_module:-}" && -n "${cmux_attach_context:-}" ]] || return 0
+    export CMUX_CLAUDE_ATTACH_CONTEXT="$cmux_attach_context"
+    export CMUX_CLAUDE_ATTACH_BUN_OPTIONS_PRESENT=0
+    if [[ ${BUN_OPTIONS+x} ]]; then
+        export CMUX_CLAUDE_ATTACH_BUN_OPTIONS_PRESENT=1
+        export CMUX_CLAUDE_ATTACH_ORIGINAL_BUN_OPTIONS="$BUN_OPTIONS"
+    fi
+    export BUN_OPTIONS="--preload $cmux_attach_module ${BUN_OPTIONS:-}"
 }
 
 # Find real claude.
@@ -1812,6 +1853,7 @@ fi
 
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
+prepare_native_attach_observer
 if ! should_inject_claude_hooks "$@"; then
     clear_inherited_claude_auth_selection_env
     exec_real_claude_passthrough "$@"
@@ -1933,6 +1975,9 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     bind_routed_claude_account "$@"
 fi
 install_cmux_node_options "$REAL_CLAUDE"
+if [[ "${CMUX_CLAUDE_HEADLESS:-0}" != "1" ]]; then
+    activate_native_attach_observer
+fi
 
 # Build Claude settings JSON. The bundled CLI owns the lifecycle-hook delivery
 # contract so Claude and the installed agent integrations cannot drift. A

@@ -23,3 +23,22 @@ The initial integration is opt-in through `CMUX_CLAUDE_ATTACH_OBSERVER=1`. Nativ
 - PID reuse, wrong config directory, wrong app socket and dead/moved viewers must fail closed.
 - Existing explicit routing flags and remote hook identity rules retain precedence.
 - No upstream merge; open a reviewable PR only after scoped checks pass. Full Xcode is currently unavailable.
+
+## Current candidate and compatibility
+
+Set `CMUX_CLAUDE_ATTACH_OBSERVER=1` only for a new managed native Claude launch under test. The default remains off. Native Claude Code 2.1.316 was exercised with a local mock API, including a real attach ACK, completion output and natural Ctrl+Z. Internal agent-picker transitions and a complete tagged cmux app have not yet been exercised.
+
+The observer runs inside the client through Bun's preload facility, restores the previous Bun flags immediately, and observes only proto-1 Unix attach handshakes for this UID. It neither proxies nor replaces the shared daemon socket. A subscription mutation is synchronous and limited to 500 ms per attach/close, not per output frame; this prevents an asynchronous subscribe from overtaking its disconnect. Abrupt client death is rejected by kernel process-generation checks on the next hook.
+
+The native short job ID is resolved through the existing same-config background registry. Records retain worker/viewer PID generations and the admitting cmux socket. The newest live, app-corroborated viewer is the primary notification target; other leases remain eligible after it closes. Remote relays, explicit hook targets and already-admitted replay snapshots keep their existing semantics.
+
+Only the public preload code is cached under the user's private cmux directory. Bun's environment parser did not accept quoted preload paths in the tested native client, so a cache path containing whitespace disables this experimental observer rather than breaking the launch. No authentication fields or terminal output are written to lease records.
+
+## Verification commands
+
+- `node --test tests/test_claude_attach_observer.cjs`: real Unix-stream ACK/close, rejected/oversized/unrelated messages, byte preservation and child-environment restoration. Also invoked by the existing wrapper CI lane.
+- `python3 tests/test_claude_attached_viewer_policy.py`: compile the actual Swift policy sources and exercise live generation, PID reuse, socket isolation, newest-viewer selection and independent removal, without requiring Swift Testing or the app.
+- `python3 tests/test_claude_wrapper_hooks.py`: full affected wrapper suite; report baseline failures separately from new failures.
+- `python3 scripts/verify-local.py --swift-changed`: scoped static verification only.
+
+A full Xcode app/CLI build, queued-hook integration and actual desktop notification delivery remain required before enabling this candidate by default.

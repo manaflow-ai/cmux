@@ -396,7 +396,7 @@ extension CMUXCLI {
         resolvesProcessRoute: Bool = true,
         runsInHookProcess: Bool = true
     ) throws {
-        let environment = agentHookOrderingEnvironment(
+        var environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
@@ -404,6 +404,17 @@ extension CMUXCLI {
             resolvesProcessRoute: resolvesProcessRoute,
             runsInHookProcess: runsInHookProcess
         )
+        // Resolve acknowledged native viewers at admission, while worker PID
+        // identity is still live. Replay keeps this immutable pane snapshot.
+        if agent == "claude", resolvesProcessRoute, !client.isRelayBacked,
+           processEnvironment[agentHookRelayOriginEnvironmentKey] != "1",
+           let workerPID = environment["CMUX_CLAUDE_PID"].flatMap(Int.init),
+           let sessionID = parseClaudeHookInput(rawInput: rawPayload).sessionId,
+           let viewer = try liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
+            environment["CMUX_WORKSPACE_ID"] = viewer.workspaceId
+            environment["CMUX_SURFACE_ID"] = viewer.surfaceId
+            environment[Self.agentHookRouteSnapshotEnvironmentKey] = "1"
+        }
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,

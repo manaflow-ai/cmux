@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const { once } = require('node:events');
+const { spawnSync } = require('node:child_process');
 
 const modulePath = path.resolve(__dirname, '../Resources/claude-attach-observer.cjs');
 // On the unfixed base, native sockets have no attachment observer.
@@ -60,4 +61,19 @@ test('unrelated socket is never observed', async t => {
 });
 test('oversized protocol line fails closed without modifying transport', async t => {
   assert.deepEqual(await exchange(t, '{"ok":true,"op":"attach"}\n', { oversized: true }), []);
+});
+test('preload restores Bun options and removes private context before children', () => {
+  const result = spawnSync(process.execPath, ['--require', modulePath, '-e', `
+    const assert=require('node:assert/strict');
+    assert.equal(process.env.BUN_OPTIONS,'--smol');
+    assert.equal(process.env.CMUX_CLAUDE_ATTACH_CONTEXT,undefined);
+    assert.equal(process.env.CMUX_CLAUDE_ATTACH_ORIGINAL_BUN_OPTIONS,undefined);
+    const child=require('node:child_process').spawnSync(process.execPath,['-e',
+      'process.stdout.write(JSON.stringify({bun:process.env.BUN_OPTIONS,context:process.env.CMUX_CLAUDE_ATTACH_CONTEXT}))'],{encoding:'utf8'});
+    assert.deepEqual(JSON.parse(child.stdout),{bun:'--smol'});
+  `], { encoding:'utf8', env:{...process.env,
+    BUN_OPTIONS:'--preload /private/module --smol',
+    CMUX_CLAUDE_ATTACH_CONTEXT:JSON.stringify({cli:'/nonexistent-test-sink',environment:{}}),
+    CMUX_CLAUDE_ATTACH_ORIGINAL_BUN_OPTIONS:'--smol',CMUX_CLAUDE_ATTACH_BUN_OPTIONS_PRESENT:'1'} });
+  assert.equal(result.status,0,result.stderr);
 });

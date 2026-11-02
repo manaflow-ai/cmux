@@ -3607,6 +3607,38 @@ def install_native_fake_claude_with(extra_env: dict[str, str]):
     return setup
 
 
+def test_native_attach_observer_is_opt_in_and_keeps_attach_arguments(failures: list[str]) -> None:
+    def setup(enabled: bool):
+        def configure(tmp: Path, env: dict[str, str]) -> None:
+            install_native_fake_claude(tmp, env)
+            source = tmp / "native-claude.c"
+            source.write_text(NATIVE_FAKE_CLAUDE_C.replace('getenv("NODE_OPTIONS")', 'getenv("BUN_OPTIONS")'), encoding="utf-8")
+            compiled = subprocess.run(["cc", "-o", str(tmp / "real-bin" / "claude"), str(source)], capture_output=True, text=True)
+            if compiled.returncode:
+                raise RuntimeError(compiled.stderr)
+            resource = tmp / "cmux.app" / "Contents" / "Resources" / "claude-attach-observer.cjs"
+            shutil.copy2(ROOT / "Resources" / "claude-attach-observer.cjs", resource)
+            env.pop("BUN_OPTIONS", None)
+            env["CMUX_CLAUDE_ATTACH_OBSERVER"] = "1" if enabled else "0"
+        return configure
+
+    for enabled in (False, True):
+        result = run_wrapper(socket_state="live", argv=["attach", "aabbccdd"], setup_sandbox=setup(enabled))
+        expect(result[0] == 0, f"attach observer: {result[3]}", failures)
+        expect(result[1] == ["attach", "aabbccdd"], f"attach argv changed: {result[1]}", failures)
+        if enabled:
+            expect(result[5].startswith("--preload ") and "/claude-attach-observer/" in result[5],
+                   f"opt-in observer missing from native launch: {result[5]!r}", failures)
+        else:
+            expect(result[5] == "__UNSET__", f"observer enabled by default: {result[5]!r}", failures)
+
+
+def test_native_attach_observer_transport(failures: list[str]) -> None:
+    result = subprocess.run(["node", "--test", str(ROOT / "tests" / "test_claude_attach_observer.cjs")],
+                            text=True, capture_output=True, timeout=20)
+    expect(result.returncode == 0, f"attach observer transport: {result.stdout}\n{result.stderr}", failures)
+
+
 def install_native_fake_claude_at_volta_path(*, as_shim: bool):
     """Put the native fake at ~/.volta/bin/claude: either as Volta installs it
     (a symlink to its `volta-shim` launcher) or as a plain native binary."""
@@ -3955,6 +3987,8 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_keeps_node_options_injection(failures)
     test_live_socket_native_claude_skips_node_options_injection(failures)
+    test_native_attach_observer_is_opt_in_and_keeps_attach_arguments(failures)
+    test_native_attach_observer_transport(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)

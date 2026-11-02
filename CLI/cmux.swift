@@ -112,6 +112,8 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Native daemon viewers admitted by their acknowledged attach connections.
+    var claudeAttachedViewers: [ClaudeAttachedViewer]? = nil
     /// Restart-stable panel identity carried by the managed terminal environment.
     /// Runtime surface IDs are re-minted when a session is restored.
     var stableSurfaceId: String? = nil
@@ -9784,6 +9786,9 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
+        case "__claude-viewer":
+            guard try runClaudeViewerHook(commandArgs: commandArgs, client: client) else { exit(1) }
+
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -31197,7 +31202,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        rawInputOverride: String? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? "help"
@@ -31273,8 +31279,19 @@ struct CMUXCLI {
             agentPid: liveHookAgentPID
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let rawInput = rawInputOverride
+            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        if preferCallerTTYRouting, liveProcessIdentityAllowed,
+           let sessionID = parsedInput.sessionId, let workerPID = liveHookAgentPID,
+           let viewerTarget = try liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
+            try runClaudeHook(
+                commandArgs: commandArgs + ["--workspace", viewerTarget.workspaceId, "--surface", viewerTarget.surfaceId],
+                client: client, telemetry: telemetry, socketPassword: socketPassword,
+                rawInputOverride: rawInput
+            )
+            return
+        }
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()

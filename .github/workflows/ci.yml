@@ -574,7 +574,7 @@ jobs:
                   browser=true
                   ci_workflow_changed=true
                   ;;
-                Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py)
+                Resources/bin/cmux-claude-wrapper|Resources/claude-attach-observer.cjs|tests/test_claude_attach_observer.cjs|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py)
                   # Not tests/test-execution.toml: every new test registers
                   # there, and the wrapper entry is pinned by a Linux guard.
                   claude_wrapper=true
