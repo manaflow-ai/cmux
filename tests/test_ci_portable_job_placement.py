@@ -115,7 +115,7 @@ class NightlyOnly(unittest.TestCase):
     def test_nightly_light_placement_reads_the_reservation_variable(self):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         step = text[text.index("- name: Place the light jobs on a free mini"):]
-        step = step[:step.index("run: python3 scripts/ci/portable_job_placement.py")]
+        step = step[:step.index("run: bash scripts/ci/nightly-steps/light-placement.sh start")]
         self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
 
 
@@ -551,7 +551,7 @@ class Wiring(unittest.TestCase):
 
     def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
         nightly = jobs("nightly.yml")
-        step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light")
+        step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
         expected_pools = {"prepare-nightly-variant-primary": "linux_32",
                           "prepare-nightly-variant": "linux_16",
