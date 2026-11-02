@@ -176,7 +176,9 @@ def step_video_start(j, step):
     j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started, "bypass_dialog": dialog,
                "trace_views": trace.get("views"), "notes": {}}
     # The first frames show the layout at rest: the judge's reference.
-    time.sleep(float(step.get("lead", 0.4)))
+    # The capture start itself costs the app one or two late refreshes (window-server side, not app code: STATUS
+    # record_start profiles, 2026-11-02 05:1xZ); 1 s of lead keeps that stall out of every judged motion window.
+    time.sleep(float(step.get("lead", 1.0)))
     # The refresh the app's display link runs at on the window's screen (the recording precondition, KIT.md): a
     # pacing case (`require_hz`) does not record at another rate; a geometry case records it.
     refresh = float(_motion(j, "trace_read", path=str(_vdir(j) / ".trace-refresh.json")).get("refresh_ms") or 0)
