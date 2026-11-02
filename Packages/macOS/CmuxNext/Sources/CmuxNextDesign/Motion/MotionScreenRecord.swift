@@ -102,7 +102,7 @@ final class MotionScreenRecord {
 /// One `record_*` recording: ScreenCaptureKit's frames go to an AVAssetWriter and a scanline file, both on
 /// `queue`, off the main thread.
 // Counts live in a Mutex. start() starts the writer before the stream exists; finish() hops onto `queue` to close.
-// crash-allow: the writer, its input and the scan file are not Sendable but are used on `queue` only (see above).
+// crash-allow: the writer, its input and the scan bytes are not Sendable but are touched on `queue` only (see above).
 nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     nonisolated struct Options: Sendable {
         let url: URL
@@ -150,7 +150,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
-    private let scan: FileHandle
+    /// The scan file's bytes, written whole at the end (no file handle stays open while frames come).
+    private var scan = Data()
+    // concurrency-allow: the counts are touched by ScreenCaptureKit's queue and the main actor; each hold copies or
+    // appends a value and never waits on I/O, a call out or an await.
     private let state = Mutex(State())
     private let limit = DemandTimer(owner: "debug.motion.record.limit")
     @MainActor private var stream: SCStream?
@@ -180,15 +183,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
         guard writer.canAdd(input) else { throw Failure(description: "the movie writer refused the video input") }
         writer.add(input)
-        let scanURL = options.url.appendingPathExtension("scan")
-        guard FileManager.checked.createFile(atPath: scanURL.path, contents: nil) else {
-            throw Failure(description: "cannot create \(scanURL.path)")
-        }
-        scan = try FileHandle(forWritingTo: scanURL)
         super.init()
         let header: [String: Any] = ["width": options.width, "height": options.height, "rows": options.rows,
                                      "columns": options.columns, "format": "BGRA", "time": "float64-le host seconds"]
-        try scan.blockingWrite(contentsOf: JSONSerialization.data(withJSONObject: header) + Data([0x0A]))
+        scan = try JSONSerialization.data(withJSONObject: header) + Data([0x0A])
     }
 
     @MainActor
@@ -252,7 +250,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     /// On `queue`: the side files, then the movie.
     private func close() {
-        try? scan.close()
+        try? scan.blockingWrite(to: options.url.appendingPathExtension("scan"))
         let snapshot = state.withLock { $0 }
         let frames = snapshot.frames.map { [$0.time, $0.status, $0.inMovie] as [Any] }
         let index: [String: Any] = ["frames": frames, "rows": options.rows, "columns": options.columns,
@@ -327,16 +325,16 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         var record = Data(capacity: 8 + 4 * (options.rows.count * options.width + options.columns.count * options.height))
         withUnsafeBytes(of: time.bitPattern.littleEndian) { record.append(contentsOf: $0) }
         for y in options.rows {
-            var line = [UInt32](repeating: 0, count: options.width)
+            var line = [UInt32](repeating: 0, count: max(0, options.width))
             if y < height { for x in 0..<width { line[x] = base.load(fromByteOffset: y * stride + x * 4, as: UInt32.self) } }
             line.withUnsafeBytes { record.append(contentsOf: $0) }
         }
         for x in options.columns {
-            var line = [UInt32](repeating: 0, count: options.height)
+            var line = [UInt32](repeating: 0, count: max(0, options.height))
             if x < width { for y in 0..<height { line[y] = base.load(fromByteOffset: y * stride + x * 4, as: UInt32.self) } }
             line.withUnsafeBytes { record.append(contentsOf: $0) }
         }
-        try? scan.blockingWrite(contentsOf: record)
+        scan.append(record)
     }
 
     private static func name(_ status: SCFrameStatus) -> String {
@@ -376,6 +374,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     /// Resumes a continuation once; later results are dropped.
     private nonisolated final class Once<T: Sendable>: Sendable {
+        // concurrency-allow: held only to take or set the continuation; resuming it happens after the unlock.
         private let slot = Mutex<CheckedContinuation<T, any Error>?>(nil)
         func set(_ continuation: CheckedContinuation<T, any Error>) { slot.withLock { $0 = continuation } }
         func resume(_ result: Result<T, any Error>) {
