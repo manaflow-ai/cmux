@@ -107,8 +107,9 @@ const MAX_MESSAGE_BYTES: usize = 8 << 20;
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
-    This chat runs in cmux: a terminal, tab or workspace the person asks for is a cmux one, \
-    made with these tools, not your own shell. \
+    This chat runs in cmux: a terminal, tab, pane, column or workspace the person asks for \
+    (\"my logs column\", \"on my right\") is a cmux one, made with these tools, not your own \
+    shell or a file. \
     Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \

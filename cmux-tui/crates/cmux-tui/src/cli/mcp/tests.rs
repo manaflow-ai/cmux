@@ -2031,6 +2031,8 @@ fn open_splits_and_opens_in_one_call() {
                        "arguments": {"kind": "file", "path": "./docs/notes.md", "where": "below"}}))
         .expect("a tool result");
     assert_ne!(result["isError"], true, "{result}");
+    // The answer names the pane, for a second open beside it.
+    assert_eq!(result["structuredContent"]["pane"], pane, "{result}");
     let sent = server.backend.sent.borrow();
     let split = sent.iter().find(|s| s["request"]["operation"] == "pane.split");
     let split = split.unwrap_or_else(|| panic!("{sent:?}"));
