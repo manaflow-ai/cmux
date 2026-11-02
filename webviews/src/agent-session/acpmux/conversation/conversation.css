@@ -4966,7 +4966,8 @@ a.cv-sha:focus-visible {
    arrow, so the arrow carries a soft halo of the surface and stays legible over them. */
 @supports not (-webkit-backdrop-filter: none) {
   .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
-    filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 2.5px var(--glass-surface));
+    filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 1px var(--glass-surface))
+      drop-shadow(0 0 3px var(--glass-surface));
   }
 }
 @media (prefers-reduced-motion: no-preference) {
