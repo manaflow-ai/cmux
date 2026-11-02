@@ -79,7 +79,12 @@ def first_pane(case_id, heavy):
 
 def start_load(index, heavy):
     cmd = load_cmd(index, heavy)
-    return [] if not cmd else [{"do": "type", "text": cmd, "enter": True, "title": f"set-up: load in pane p{index}"}]
+    if not cmd:
+        return []
+    # The program draws on the alternate screen: the prompt line leaves the daemon's screen once it runs.
+    return [{"do": "type", "text": cmd, "enter": True, "title": f"set-up: load in pane p{index}", "mark": f"load{index}"},
+            {"do": "expect", "title": f"set-up: the load program runs in p{index} (its alternate screen hides the prompt)",
+             "since": f"load{index}", "timeout": 8, "all": [{"daemon_lacks": "J> "}]}]
 
 
 def add_pane(index, action, heavy):
@@ -91,10 +96,11 @@ def add_pane(index, action, heavy):
 
 def theme(dark):
     name = "Builtin Dark" if dark else "Builtin Light"
-    return {"do": "settings_file", "title": f"set-up: theme {name}, no close warning, columns a third of the window",
+    return {"do": "settings_file", "title": f"set-up: theme {name}, no close warning, new columns share the strip",
             "set": {"appearance": {"theme": name, "appTheme": "followTerminal"},
                     "app": {"warnBeforeClosingTab": False},
-                    "layout": {"defaultColumnWidth": 0.3333}}}
+                    # New columns share the strip with the visible ones, so 2..4 columns all show side by side.
+                    "layout": {"newColumnWidth": "fitScreen"}}}
 
 
 def after_check():

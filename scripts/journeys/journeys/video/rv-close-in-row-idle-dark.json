@@ -11,7 +11,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: theme Builtin Dark, no close warning, columns a third of the window",
+   "title": "set-up: theme Builtin Dark, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Dark",
@@ -21,7 +21,7 @@
      "warnBeforeClosingTab": false
     },
     "layout": {
-     "defaultColumnWidth": 0.3333
+     "newColumnWidth": "fitScreen"
     }
    }
   },

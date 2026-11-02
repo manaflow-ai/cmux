@@ -11,7 +11,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: theme Builtin Light, no close warning, columns a third of the window",
+   "title": "set-up: theme Builtin Light, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Light",
@@ -21,7 +21,7 @@
      "warnBeforeClosingTab": false
     },
     "layout": {
-     "defaultColumnWidth": 0.3333
+     "newColumnWidth": "fitScreen"
     }
    }
   },
@@ -76,7 +76,19 @@
    "do": "type",
    "text": "python3 /tmp/jr-tuikit.py gradient --seed 1000 --fps 120",
    "enter": true,
-   "title": "set-up: load in pane p0"
+   "title": "set-up: load in pane p0",
+   "mark": "load0"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the load program runs in p0 (its alternate screen hides the prompt)",
+   "since": "load0",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_lacks": "J> "
+    }
+   ]
   },
   {
    "do": "wait",
