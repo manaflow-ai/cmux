@@ -706,6 +706,9 @@ mod tests {
             turn_seq: 1,
             control: super::super::Control::Local,
             doing: Default::default(),
+            trigger: false,
+            notice: false,
+            persons: true,
         });
         // Legacy resend behavior stays intact, but recovery must not answer interrupted.
         assert_eq!(
