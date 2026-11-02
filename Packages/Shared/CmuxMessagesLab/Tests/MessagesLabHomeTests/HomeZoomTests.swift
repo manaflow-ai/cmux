@@ -44,7 +44,7 @@ import Testing
         #expect(host.frame.size == CGSize(width: 600, height: 600))
 
         view.zoom = 9  // clamped
-        #expect(view.zoom == 2)
+        #expect(view.zoom == 3)
 
         view.zoom = 1
         rig.resize(width: 600)

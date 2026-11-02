@@ -27,16 +27,18 @@ import Testing
         container.addSubview(view)
         container.layoutSubtreeIfNeeded()
         try #require(view.transcript.controller.host.bareTop, "the chat has no header with the tunable off")
-        #expect(view.firstRun.frame.minY == HostView.bareTopInset)
+        // The chat draws at its zoom (Agent Chat Zoom over its default size), so its header is that many points tall.
+        let zoom = view.transcript.zoom
+        #expect(view.firstRun.frame.minY == HostView.bareTopInset * zoom)
 
         view.setHeaderPanels([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: false)])
         container.layoutSubtreeIfNeeded()
         let rowsTop = PaneHeaderView.bareAccessoryTop + HomeHeaderPanelBar.buttonSize + 8
-        #expect(view.headerHeight == rowsTop)
-        #expect(view.firstRun.frame.minY == rowsTop)
+        #expect(view.headerHeight == rowsTop * zoom)
+        #expect(view.firstRun.frame.minY == rowsTop * zoom)
 
         view.setHeaderPanels([])
         container.layoutSubtreeIfNeeded()
-        #expect(view.firstRun.frame.minY == HostView.bareTopInset)
+        #expect(view.firstRun.frame.minY == HostView.bareTopInset * zoom)
     }
 }
