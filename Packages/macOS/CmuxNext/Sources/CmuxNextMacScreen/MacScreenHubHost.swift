@@ -145,7 +145,7 @@ public final class MacScreenHubHost {
             end(ticket.sessionId, reason: .failed, hub: hub)
             return
         }
-        let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
+        let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
                                                     servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))))
         let (events, sink) = AsyncStream.makeStream(of: MacScreenRdHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { event in sink.yield(event) }

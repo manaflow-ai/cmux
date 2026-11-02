@@ -126,9 +126,16 @@ public final class MacScreenSession {
 
     // MARK: Signaling and the link process
 
+    /// Whether `process` is still this session's (a restart replaced it, or Stop ended it): an
+    /// old session's tasks resume after `connect()` started the next one and must not touch it.
+    private func isCurrent(_ process: MacScreenRdProcess) -> Bool {
+        self.process === process && !Task.isCancelled
+    }
+
     private func followSignaling(_ signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
         do {
             for try await signal in signaling.messages() {
+                guard isCurrent(process) else { return }
                 switch signal {
                 case let .answer(text):
                     guard let answer = MacScreenRdDocument(text: text) else { continue }
@@ -144,7 +151,7 @@ public final class MacScreenSession {
                 }
             }
         } catch {
-            if phase == .connecting {
+            if isCurrent(process), phase == .connecting {
                 fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
             }
         }
@@ -162,6 +169,7 @@ public final class MacScreenSession {
                                servers: MacScreenRdServers) async {
         var offered = false
         for await line in process.lines {
+            guard isCurrent(process) else { return }
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
@@ -172,6 +180,7 @@ public final class MacScreenSession {
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
                 do { try await signaling.send(.offer(offer.text)) } catch {
+                    guard isCurrent(process) else { return }
                     fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
                     return
                 }
@@ -183,14 +192,14 @@ public final class MacScreenSession {
             if let path = line.path {
                 streamPath = Self.pathLabel(path.kind)
                 stats.latencyMs = path.rttMs
-                if let kind = path.kind { try? await signaling.send(.path(relay: kind.contains("relay"))) }
+                if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
                 end(reason)
                 return
             }
         }
-        if phase == .connecting {
+        if isCurrent(process), phase == .connecting {
             fail(process.stderrTail.isEmpty ? L.t("macScreen.rd.viewerStopped", "The screen viewer stopped.") : process.stderrTail)
         }
     }
@@ -228,7 +237,8 @@ public final class MacScreenSession {
         tasks.append(Task { [weak self] in
             var askedKeyframe = false
             for await status in statuses {
-                guard let self else { return }
+                // A stopped transport's end belongs to the session it served, not to a newer one.
+                guard let self, self.transport === transport, !Task.isCancelled else { return }
                 switch status.state {
                 case .streaming:
                     if !askedKeyframe {
@@ -262,6 +272,11 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).
+    nonisolated static func isRelayed(_ kind: String) -> Bool {
+        ["turn_relay", "do_relay", "via_cloud_region"].contains(kind)
     }
 
     static func pathLabel(_ kind: String?) -> String {

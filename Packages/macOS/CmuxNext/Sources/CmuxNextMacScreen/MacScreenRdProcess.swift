@@ -138,6 +138,9 @@ nonisolated final class MacScreenRdProcess: Sendable {
         writes.async { try? handle.write(contentsOf: line) }
     }
 
+    /// Whether `start` launched the process.
+    var started: Bool { state.withLock { $0.process != nil } }
+
     /// The last stderr bytes, for an error message.
     var stderrTail: String { state.withLock { String(data: $0.stderrTail, encoding: .utf8) ?? "" } }
 

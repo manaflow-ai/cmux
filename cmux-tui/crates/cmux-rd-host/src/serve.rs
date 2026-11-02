@@ -242,6 +242,9 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
+    // descriptor never sees them.
+    carrier.pump_app()?;
     while hello.is_none() || start.is_none() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
@@ -266,7 +269,11 @@ fn serve_session(
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                     return Ok("viewer closed the link".into())
                 }
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
+                    // The round trip sizes the frames in flight when the stream starts.
+                    if rtt_us.is_some() {
+                        carrier.link.rtt_us = rtt_us;
+                    }
                     carrier.link.paths.push(path)
                 }
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
