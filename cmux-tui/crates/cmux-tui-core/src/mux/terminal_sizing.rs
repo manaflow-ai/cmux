@@ -61,7 +61,8 @@ impl Mux {
         client: u64,
         view: Option<&str>,
     ) -> Option<bool> {
-        self.note_terminal_activity_of(&self.surface(surface)?, client, view)
+        let surface = self.surface(surface)?;
+        self.note_terminal_activity_of(&surface, client, view)
     }
 
     /// [`Self::note_terminal_activity`] for a terminal the caller holds (no session lock).
