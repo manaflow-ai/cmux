@@ -63,6 +63,20 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
+/// Read-only check of the actual guest folder before reusing a completed chat copy.
+/// A link failure leaves the recorded checkout untouched for a retry.
+pub(super) fn chat_folder_exists(socket: &Path, chat: &str) -> Result<bool, (String, String)> {
+    let unavailable = || {
+        (
+            "checkout.unavailable".to_string(),
+            "Cannot check the Cloud chat folder; reconnect to the machine and retry this send."
+                .to_string(),
+        )
+    };
+    let mut remote = Remote::connect(socket).map_err(|_| unavailable())?;
+    remote.kind(chat).map(|kind| kind.as_deref() == Some("dir")).map_err(|_| unavailable())
+}
+
 const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy

@@ -388,7 +388,11 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
         Ok(json!({}))
     };
     let first = copy.run(&path, &push);
-    let retry = StartCopy { key: copy.key.to_lowercase(), ..copy.clone() }.run(&path, &push);
+    let retry = StartCopy { key: copy.key.to_lowercase(), ..copy.clone() }.run_with_probe(
+        &path,
+        &push,
+        &|_, _| Ok(true),
+    );
     assert_eq!(*count.borrow(), 1);
     assert_eq!(retry["copied"], json!(false));
     assert_eq!(retry["chat"], first["chat"]);
@@ -396,6 +400,87 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+/// A completed ledger entry is a hint, not a guest checkout. A deleted folder,
+/// a file replacing the directory, and a link outage must never look ready.
+#[test]
+fn a_cached_chat_checks_the_guest_and_never_recopies_over_old_work() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "src");
+    let first = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(first["ok"], json!(true), "{first}");
+    assert_eq!(first["checkout_state"], json!("directory_present"));
+    assert_eq!(first["dependencies_state"], json!("unverified"));
+    let ledger_before = std::fs::read(&path).unwrap();
+    let no_push = |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> {
+        panic!("a finished chat must never be overwritten")
+    };
+    let missing = copy.run_with_probe(&path, &no_push, &|socket, chat| {
+        assert_eq!(socket, copy.socket);
+        assert_eq!(chat, first["chat"].as_str().unwrap());
+        Ok(false)
+    });
+    assert_eq!(missing["error_code"], json!("checkout.missing"), "{missing}");
+    assert_eq!(missing["checkout_state"], json!("missing"));
+    assert_eq!(missing["seed_state"], json!("failed"));
+    assert!(missing["error"].as_str().unwrap().contains("start a new chat"));
+    let unavailable = copy.run_with_probe(&path, &no_push, &|_, _| {
+        Err(("checkout.unavailable".into(), "reconnect and retry".into()))
+    });
+    assert_eq!(unavailable["error_code"], json!("checkout.unavailable"));
+    assert_eq!(unavailable["checkout_state"], json!("unverified"));
+    assert_eq!(unavailable["dependencies_state"], json!("unverified"));
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        ledger_before,
+        "retry must keep original pin and copy"
+    );
+    let recovered = copy.run_with_probe(&path, &no_push, &|_, _| Ok(true));
+    assert_eq!(recovered["ok"], json!(true), "{recovered}");
+    assert_eq!(recovered["copied"], json!(false));
+    assert_eq!(recovered["chat"], first["chat"]);
+    assert_eq!(recovered["seed_phase"], json!("cached"));
+    assert_eq!(recovered["dependencies_state"], json!("unverified"));
+}
+
+/// A real fs.stat response is the only evidence for an existing cached folder.
+/// A symlink or file, even at the same path, cannot be used as a checkout.
+#[test]
+fn cached_checkout_probe_reads_the_daemons_fs_stat() {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::os::unix::net::UnixListener;
+
+    for (answer, exists, unavailable) in [
+        (json!({"ok": true, "data": {"kind": "dir"}}), true, false),
+        (json!({"ok": true, "data": {"kind": "file"}}), false, false),
+        (json!({"ok": true, "data": {"kind": "symlink"}}), false, false),
+        (json!({"ok": false, "error_code": "fs.not_found", "error": "gone"}), false, false),
+        (json!({"ok": false, "error_code": "fs.unavailable", "error": "offline"}), false, true),
+    ] {
+        let dir = scratch();
+        let socket = dir.path().join("daemon.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let machine = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["cmd"], json!("fs.stat"));
+            assert_eq!(request["path"], json!("/work/chats/send/src"));
+            let mut answer = answer;
+            answer["id"] = request["id"].clone();
+            stream.write_all(format!("{answer}\n").as_bytes()).unwrap();
+        });
+        let probed = super::super::sync_cli::chat_folder_exists(&socket, "/work/chats/send/src");
+        if unavailable {
+            assert_eq!(probed.unwrap_err().0, "checkout.unavailable");
+        } else {
+            assert_eq!(probed.unwrap(), exists);
+        }
+        machine.join().unwrap();
+    }
 }
 
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
@@ -421,7 +506,11 @@ fn copy_answer_reports_clone_timing_only() {
     assert_eq!(answer["seed_phase"], json!("complete"));
     assert_copy_timings(&answer);
 
-    let cached = copy.run(&path, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    let cached = copy.run_with_probe(
+        &path,
+        &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"),
+        &|_, _| Ok(true),
+    );
     assert_eq!(cached["seed_state"], json!("done"));
     assert_eq!(cached["seed_phase"], json!("cached"));
     assert_eq!(cached["copied"], json!(false));
@@ -469,7 +558,11 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     assert_eq!(answer["source_trusted"], json!(false), "{answer}");
     let chat = app.to_string_lossy().into_owned();
     std::fs::write(&record, json!({ (chat): "trusted" }).to_string()).unwrap();
-    let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    let trusted = copy.run_with_probe(
+        &ledger,
+        &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"),
+        &|_, _| Ok(true),
+    );
     assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
     let failed = StartCopy { key: key(), ..copy }
         .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
@@ -717,7 +810,7 @@ fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
         *count.borrow_mut() += 1;
         Ok(json!({}))
     };
-    assert_eq!(copy.run(&path, &never)["chat"], retry["chat"]);
+    assert_eq!(copy.run_with_probe(&path, &never, &|_, _| Ok(true))["chat"], retry["chat"]);
     assert_eq!(*count.borrow(), 0);
 }
 
@@ -856,7 +949,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
     };
     let never =
         |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
-    assert_eq!(copy.run(&path, &never)["copied"], json!(false));
+    assert_eq!(copy.run_with_probe(&path, &never, &|_, _| Ok(true))["copied"], json!(false));
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
     assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));
@@ -1457,7 +1550,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     // A second send from the SAME Mac workspace has a new send key. The platform must recheck the
     // machine's boot request, using its original create key, before the new send is pinned to it.
     let second = self::key();
-    let reused = plan_with(&path, &request(&second, "user-leo/"), &mut "token-2\n".as_bytes(), &made);
+    let reused =
+        plan_with(&path, &request(&second, "user-leo/"), &mut "token-2\n".as_bytes(), &made);
     assert_eq!(reused["machine"], json!("vm-hot"), "{reused}");
     assert_eq!(asked.borrow().len(), 2);
     assert_eq!(asked.borrow()[1].0["clientKey"], json!(Keys::of(&key).create));
@@ -1494,7 +1588,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(pin(&legacy_path, &self::key(), ACCOUNT, "vm-app", Some("ws-1"))["ok"], json!(true));
     let mut legacy: Value = serde_json::from_str(&request(&self::key(), ACCOUNT)).unwrap();
     legacy["stored"] = json!(["vm-app"]);
-    let no_platform = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("App machine must not ensure") };
+    let no_platform =
+        |_: &Ensure, _: &str| -> Result<Value, E> { panic!("App machine must not ensure") };
     let legacy_answer =
         plan_with(&legacy_path, &legacy.to_string(), &mut "token-4\n".as_bytes(), &no_platform);
     assert_eq!(legacy_answer["machine"], json!("vm-app"), "{legacy_answer}");
@@ -1517,14 +1612,19 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
     let no_route =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
-    let fallback =
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
+    let fallback = plan_with(
+        &fallback_path,
+        &request(&self::key(), "user-leo/"),
+        &mut "t\n".as_bytes(),
+        &no_route,
+    );
     assert_eq!(
         (fallback["ok"].clone(), fallback["machine"].clone()),
         (json!(true), Value::Null),
         "{fallback}"
     );
-    let empty = plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
+    let empty =
+        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
     assert_eq!(
         (empty["ok"].clone(), empty["machine"].clone()),
         (json!(true), Value::Null),
@@ -1535,8 +1635,12 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
         Err(E::Status { status: 404, code: "cloud_environment.not_found" })
     };
-    let refused =
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
+    let refused = plan_with(
+        &fallback_path,
+        &request(&self::key(), "user-leo/"),
+        &mut "t\n".as_bytes(),
+        &theirs,
+    );
     assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
     for (status, code, expected) in [
         (401, "", "refused"),
@@ -1548,9 +1652,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         (503, "workspace_machine.usage_unavailable", "workspace_machine.usage_unavailable"),
         (503, "workspace_machine.admission_changed", "workspace_machine.admission_changed"),
     ] {
-        let denied = |_: &Ensure, _: &str| -> Result<Value, E> {
-            Err(E::Status { status, code })
-        };
+        let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
         let outcome = plan_with(
             &fallback_path,
             &request(&self::key(), "user-leo/"),
@@ -1569,7 +1671,12 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let lost =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
     assert_eq!(
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
+        plan_with(
+            &fallback_path,
+            &request(&self::key(), "user-leo/"),
+            &mut "t\n".as_bytes(),
+            &lost
+        )["error_code"],
         json!("unreachable")
     );
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
