@@ -242,7 +242,8 @@ test("Return on the focused held card approves it", async () => {
 
 test("approved, it waits as a queued message with no Approve or Decline", async () => {
   const { host, button } = await heldCard(rowOf([{ id: "g-1", prompt: ASK, author: CY }]));
-  expect(host.querySelector(".cv-received__queued")?.textContent).toBe("Read after this turn");
+  expect(host.querySelector(".cv-received__queued")).toBeNull();
+  expect(host.textContent ?? "").not.toContain("Read after this turn");
   expect(button("Approve")).toBeUndefined();
   expect(host.querySelector(".cv-held[data-held]")).toBeNull();
 });

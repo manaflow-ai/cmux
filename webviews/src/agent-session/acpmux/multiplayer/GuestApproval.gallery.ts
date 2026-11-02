@@ -73,7 +73,7 @@ export default agentPaneEntry({
       snapshot: chat(working(), { ...title, ...here(CY, DEV), isWorking: true, queue: THREE }),
     },
     approved: {
-      note: "Approved: the message waits as any queued message, Read after this turn; nothing else of it is the owner's to change.",
+      note: "Approved: the message waits as any queued message, with no note; nothing else of it is the owner's to change.",
       snapshot: chat(working(), {
         ...title,
         ...here(CY),
