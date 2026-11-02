@@ -13,6 +13,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
+    cloud_mobile: bool,
     author: Option<Value>,
     writer: MessageWriter,
 ) {
@@ -124,6 +125,7 @@ pub(super) fn connect_and_attach(
         session: resolved,
         record_session,
         read_only: AtomicBool::new(read_only),
+        cloud_mobile,
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),

@@ -24,7 +24,7 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// Present only for a Cloud VM resolved by the native machine registry.
     public var cloudMachineID: String?
     public var cloudAccount: [String?]?
-    public var cloudCredentialRecoveryAvailable = false
+    public var cloudCredentialRecoveryAvailable = false, cloudTeamMachine = false // the start passed no personal login (team machine)
     /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
     public var cloudHandoffs = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
@@ -32,6 +32,9 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     public var servesKeyedReason = false
+    /// The machine's daemon relays a chat's own sign-in (`agent-session-login-v1`): a new chat's
+    /// page offers Sign in from its first turn.
+    public var servesLogin = false
     /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     public var ownerLink: AgentSessionAttachClient.OwnerLink?
@@ -52,15 +55,8 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// One-shot machine-daemon forwarding for page-host actions, including when the page's ACP
     /// transport itself is local to this Mac.
     public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-        let result: Result<Data, any Error>
-        do {
-            result = .success(try await client.cloudRepository(method: method, params: params, timeout: timeout))
-        } catch {
-            result = .failure(error)
-        }
-        await client.close()
-        return try result.get()
+        try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
+                                                              method: method, params: params, timeout: timeout)
     }
 
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
@@ -126,17 +122,7 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let attachment = CloudTurnAttachment(endpoint: endpoint, ownerLink: ownerLink, turn: mode == .attach ? cloudTurn : nil)
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: attachment.endpoint)
-                let cloudRepository: RemoteAcpmuxWire.CloudRepository = { method, params, timeout in
-                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                    let result: Result<Data, any Error>
-                    do {
-                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
-                    } catch {
-                        result = .failure(error)
-                    }
-                    await requestClient.close()
-                    return try result.get()
-                }
+                let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudTurn: attachment.turn, cloudRepository: cloudRepository)
             }
         } else if let start, mode == .attach {
@@ -147,26 +133,17 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 return RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
                     let started: Started
                     do {
-                        started = try await Self.keyedStart(cwd, harness, model, approvals: approvals,
-                                                            servesKeyedReason: servesKeyedReason, updateMachine: updateMachine,
-                                                            proceed: Self.proceedAlways, start: start)
+                        started = try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason,
+                                                                  updateMachine: updateMachine)
+                            .keyedStart(cwd, harness, model, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: attachment.endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudTurn: attachment.turn,
-                cloudRepositoryStart: { surface, method, params, timeout in
-                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                    let result: Result<Data, any Error>
-                    do {
-                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
-                    } catch {
-                        result = .failure(error)
-                    }
-                    await requestClient.close()
-                    return try result.get()
-                })
+                cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
+                servesLogin: servesLogin)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -176,10 +153,9 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if session != nil { handshake.sessionMustExist = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
-        handshake.cloudMachineID = cloudMachineID
-        handshake.cloudAccount = cloudAccount
-        handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
-        handshake.cloudRepositoryAvailable = true
+        (handshake.cloudMachineID, handshake.cloudAccount) = (cloudMachineID, cloudAccount)
+        (handshake.cloudCredentialRecoveryAvailable, handshake.cloudTeamMachine) = (cloudCredentialRecoveryAvailable, cloudTeamMachine ? true : nil)
+        handshake.cloudRepositoryAvailable = cloudMachineID != nil
         if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
     }
@@ -198,52 +174,8 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             try await proceed()
             try await prepareCloudTurns()
         }
-        return try await Self.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason,
-                                         updateMachine: updateMachine, proceed: proceed, start: start)
+        return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine)
+            .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
 
-    /// The chat's Allow needs this app's key on that machine's agent daemon (cx-oa6ah): an idle
-    /// daemon gets it before the start; a busy one waits for the person's restart click on the
-    /// Allow notice. That machine's cmux-tui decides whether a restart loses nothing (cx-0w0jj):
-    /// the start asks for this app's key, and its `needs_keyed_start` answer says whether to
-    /// restart; after the restart (or without one) the chat starts as it is.
-    private static func keyedStart(
-        _ cwd: String?, _ harness: String?, _ model: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
-        updateMachine: (@Sendable () async -> Bool)? = nil,
-        proceed: @escaping @Sendable () async throws -> Void,
-        start unchecked: @escaping @Sendable (String?, String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> Started
-    ) async throws -> Started {
-        let start = { @Sendable (cwd: String?, harness: String?, model: String?, key: AgentSessionAttachClient.PersonKey?) in
-            try await proceed()
-            do {
-                return try await unchecked(cwd, harness, model, key)
-            } catch let refusal as AgentRemoteStartRefusal where AgentRemoteStartRefusal.olderDaemonCodes.contains(refusal.code) {
-                // The machine's daemon may be older than this app's: update it now, then once more.
-                guard let updateMachine, await updateMachine() else { throw refusal }
-                try await proceed()
-                return try await unchecked(cwd, harness, model, key)
-            }
-        }
-        guard let approvals, let prepare = approvals.prepare else { return try await start(cwd, harness, model, nil) }
-        guard servesKeyedReason else {
-            // An older cmux-tui: the app's own status check (remove with ``AgentPaneRemoteApprovals/Preparation/checkStatus``).
-            try await proceed()
-            _ = await prepare(.checkStatus)
-            return try await start(cwd, harness, model, nil)
-        }
-        let key = AgentSessionAttachClient.PersonKey(instance: AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID))
-        do {
-            return try await start(cwd, harness, model, key)
-        } catch let refusal as AgentRemoteStartRefusal where refusal.code == AgentSessionAttachError.needsKeyedStart {
-            // Another chat's keyed restart bound a new key meanwhile: never restart again over it.
-            // (nil: a restart runs or failed; prepare joins it or tries again)
-            let current = AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID)
-            let rebound = current != nil && current != key.instance
-            if refusal.keyedRestartSafe == true, !rebound {
-                try await proceed()
-                _ = await prepare(.daemonSaidSafe)
-            }
-            return try await start(cwd, harness, model, nil)
-        }
-    }
 }

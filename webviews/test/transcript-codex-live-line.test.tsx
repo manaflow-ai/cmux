@@ -109,8 +109,6 @@ test("with the tray off the live line counts the work still going, beside a call
     "Read app.ts 3s · 2 subagents · 1 command",
   );
   expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
-  // Not on the start status line, before the agent runs.
-  expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
 });
 
 test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {

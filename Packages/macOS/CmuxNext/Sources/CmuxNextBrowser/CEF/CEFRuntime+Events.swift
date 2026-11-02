@@ -121,8 +121,12 @@ extension CEFRuntime {
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
             if !devToolsCalls.resolve(key, with: result) {
-                // A synchronous answer: devTools(_:method:) takes it when the shim call returns.
-                synchronousDevToolsResults?[key] = result
+                if unawaitedDevTools[key] != nil {
+                    unawaitedDevTools[key] = result // its caller waits from a later turn (startDevTools)
+                } else {
+                    // A synchronous answer: devTools(_:method:) takes it when the shim call returns.
+                    synchronousDevToolsResults?[key] = result
+                }
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
@@ -167,6 +171,8 @@ extension CEFRuntime {
     /// which Chromium would dispatch from the Chromium toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
+        // A paste is about to reach the page: a cmux page records it first (`pagePasted`).
+        if Self.isPaste(event) { tab.pagePasted?() }
         if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
            router.browserTab(tab, keyEquivalent: event) == .handledByHost {
             return true
@@ -176,6 +182,13 @@ extension CEFRuntime {
         let store = extensionStores.readyStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
+    }
+
+    /// Whether `event` is Cmd-V (Paste): Command alone of the chord modifiers (Caps Lock aside).
+    /// Cmd-Shift-V is Paste and Match Style, plain text only.
+    nonisolated static func isPaste(_ event: NSEvent) -> Bool {
+        event.type == .keyDown && event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "v"
     }
 
     /// The page left a Command or Control chord unhandled: the host runs the shortcut it held
@@ -239,6 +252,7 @@ extension CEFRuntime {
             orphans.closedUnregistered(browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
+        unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         failEvaluations(of: browser)
         // The fork counts a browser's window until its destructor, after this close.
@@ -332,6 +346,10 @@ extension CEFRuntime {
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
+        // The stopping engine answers no DevTools call (a page picture among them): each waiter ends now with
+        // `closed`, not after the browsers close or the timeout, and a late answer is dropped.
+        devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        unawaitedDevTools.removeAll()
         shim.closeAll()
         pump?.pumpNow()
         shutdownProgressed()

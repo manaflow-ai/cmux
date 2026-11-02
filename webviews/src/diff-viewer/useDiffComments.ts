@@ -94,9 +94,13 @@ export function useDiffComments({
   const remove = (comment: DiffCommentRecord) => {
     const targetRepoRoot = repoRoot;
     if (bridgeAvailable && repoRoot != null) {
-      bridgeDeleteComment(repoRoot, comment.id).catch((error) =>
-        console.warn("cmux diff comment delete failed", error),
-      );
+      // The comment leaves the page at once; if the host could not delete it, it comes back: it is
+      // still stored (and still goes to the agent with the next submit), so the page must not say
+      // it is gone.
+      bridgeDeleteComment(repoRoot, comment.id).catch((error) => {
+        console.warn("cmux diff comment delete failed", error);
+        if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment });
+      });
     }
     if (activeRepoRoot.current === targetRepoRoot) {
       dispatch({ type: "remove-comment", id: comment.id });

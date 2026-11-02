@@ -214,44 +214,18 @@ enum CloudHandlers {
         return false
     }
 
-    /// The machine's first workspace, created (with a terminal) when it has none.
+    /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
     private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
-        let daemon = session.daemon
+        let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return try await firstWorkspaceResult(in: daemon.store, beforeCreate: beforeCreate) {
-            await context.services.windows.createWorkspace(on: daemon)
-        }
-    }
-
-    @MainActor static func firstWorkspaceResult(in store: DaemonStore, beforeCreate: () throws -> Void,
-                                                create: () async -> String?) async throws -> (id: String, created: Bool) {
-        if let first = try await existingWorkspace(in: store) { return (first, false) }
-        // The live tree, rather than the stale pre-wait tree, decides whether creation needs consent.
-        try beforeCreate()
-        guard let id = await create() else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return (id, true)
+        return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
+                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
     }
 
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         try await firstWorkspaceResult(on: session, context).id
-    }
-
-    /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
-    /// before its first tree is applied (right after a resume), and the list then is the last
-    /// connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`), up to
-    /// `limit`, so an open never makes a second workspace. The connection is published before the
-    /// store hears `.connected` (which moves the epoch), so the store must say connected too. A tree
-    /// that never comes within `limit` throws "not connected": never "none", which would make one.
-    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async throws -> String? {
-        let current = { @MainActor @Sendable in
-            if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
-            return false
-        }
-        if !(await current()), await !CloudWait.holds(within: limit, until: current) {
-            throw ActionFailure(message: CloudStrings.notConnected)
-        }
-        return store.workspaces.first?.id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
@@ -375,16 +349,18 @@ enum CloudHandlers {
     /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
     /// waits for its daemon instead of refusing with "not connected". A
     /// legacy machine with no connection reads its record again first, since
-    /// the app's copy may still say running. A machine that is not paused
-    /// returns at once, as before.
+    /// the app's copy may still say running. `waitsForLink` (Open Machine, Leo 2026-11-01: "when i tried to
+    /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
-                         within limit: Duration = .seconds(300)) async throws {
+                         within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
         try requireAttachableState(session)
         await session.refreshIfMaybePaused()
         try requireAttachableState(session)
         session.attach(origin: connectOrigin(for: invocation))
-        guard session.resuming else { return }
         let daemon = session.daemon
+        if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
+            within: limit, connected: { daemon.connection != nil }, failure: { session.stage.failure }, deadline: CloudStrings.notConnected) { throw ActionFailure(message: reason) }
+        guard session.resuming else { return }
         _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -405,15 +381,12 @@ enum CloudHandlers {
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
-        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) {
-            throw ActionFailure(message: reason)
-        }
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-            throw ActionFailure(message: CloudStrings.commandRequired)
-        }
+        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
     }
 }

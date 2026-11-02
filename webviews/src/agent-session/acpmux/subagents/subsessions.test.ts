@@ -3,7 +3,14 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import {
+  SubsessionStore,
+  subagentDisplayName,
+  subsessionDisplayName,
+  subsessionInfo,
+  subsessionRows,
+  waitingLine,
+} from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -141,7 +148,6 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(store.get("a")).toBeUndefined();
 });
 
-
 test("a sender name shared by live chats never chooses the first one arbitrarily", () => {
   const store = new SubsessionStore();
   let changes = 0;
@@ -220,4 +226,17 @@ test("another agent's message finds its sender's chat by name, and that chat's h
   expect(store.find("coord-deputy")).toBeUndefined();
   expect(renamed).toBe(2);
   expect(notified).toBe(1);
+});
+
+test("a subagent named only by its raw session/tool call id shows as Subagent, never the id", () => {
+  const t = translate;
+  const id = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  expect(subagentDisplayName(t, { id, name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id: "other", name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id, name: "Review the diff" })).toBe("Review the diff");
+  expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
+  expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
+  const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
+  expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
 });

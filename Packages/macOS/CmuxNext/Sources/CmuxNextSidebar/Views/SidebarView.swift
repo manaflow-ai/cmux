@@ -137,6 +137,7 @@ public final class SidebarView: NSView {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        list.keepsSpareRow = true // a new workspace's row takes a view made before its key (SidebarListView+SpareRow)
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()

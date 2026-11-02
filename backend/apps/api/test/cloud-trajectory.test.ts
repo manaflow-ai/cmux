@@ -111,6 +111,14 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     expect((await worker.fetch(`https://api.test/v1/cloud/machines/${s.machine}/trajectories/list`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(401)
   })
 
+  it("an install goes through team selection and the sign-in policy too", async () => {
+    // Before, only a session was checked: an install's x-cmux-team (and its team's SSO rule) went unread.
+    // Every token kind takes the same path now, so the refusal comes before CloudDO or any machine.
+    const a = await signedInWithInstall("traj-4-gate", "mac")
+    const res = await worker.fetch(`https://api.test/v1/cloud/machines/vm_${"0".repeat(20)}/trajectories/list`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}`, "x-cmux-team": "team_0000000000000000000f" }, body: "{}" })
+    expect([res.status, ((await res.json()) as { error: { message: string } }).error.message]).toEqual([403, "an install token acts only in the team it was minted for"])
+  })
+
   it("a machine restored from its creator's snapshot reads the source's chats (read only) and keeps its own", async () => {
     const s = await setup("traj-5")
     await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, meta: meta("chat-a", 3), lines: lines(1, 3) })

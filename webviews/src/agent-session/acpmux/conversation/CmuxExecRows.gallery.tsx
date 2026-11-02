@@ -83,7 +83,10 @@ const rows = (running: boolean): AcpmuxActivity[] => [
       result: {
         query: "browser tab",
         tools: [
-          { name: "tab_create_browser", description: "Opens a browser tab.\nTakes url and an optional pane." },
+          {
+            name: "tab_create_browser",
+            description: "Opens a browser tab.\nTakes url and an optional pane.",
+          },
           { name: "workspace_open_url", description: "Opens a URL in the workspace's browser." },
         ],
       },
@@ -156,13 +159,17 @@ function CmuxExecRowsGallery({ look, mode }: Props) {
         data-look={look}
         data-cmux-exec-rows
       >
-        <ToolVerbColumn className="cv-tools">
-          {look === "before" ? (
-            items.map((item, index) => <BeforeRow key={item.tool!.id} item={item} open={index === 1} />)
-          ) : (
+        {look === "before" ? (
+          <ToolVerbColumn className="cv-tools">
+            {items.map((item, index) => (
+              <BeforeRow key={item.tool!.id} item={item} open={index === 1} />
+            ))}
+          </ToolVerbColumn>
+        ) : (
+          <div className="cv-tools">
             <AfterRows items={items} />
-          )}
-        </ToolVerbColumn>
+          </div>
+        )}
       </main>
     </TranscriptDisclosureProvider>
   );

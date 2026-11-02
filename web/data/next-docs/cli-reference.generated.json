@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 791,
-    "mcp": 707
+    "verbs": 792,
+    "mcp": 708
   },
   "nouns": [
     {
@@ -2578,6 +2578,13 @@
           "id": "pane.toggleTabBar",
           "mcp": true,
           "mcpTool": "app_pane_toggle_tab_bar"
+        },
+        {
+          "command": "cmux pane toggle-vertical-tabs",
+          "title": "Turn On Vertical Tabs",
+          "id": "tabs.verticalTabs.toggle",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_vertical_tabs"
         }
       ]
     },

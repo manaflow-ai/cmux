@@ -301,10 +301,24 @@ impl Git {
         index: Option<&Path>,
         on_line: &mut dyn FnMut(&str),
     ) -> Result<Vec<u8>, Failure> {
+        let env: Vec<(&str, &std::ffi::OsStr)> =
+            index.map(|index| ("GIT_INDEX_FILE", index.as_os_str())).into_iter().collect();
+        self.run_env(cwd, credential, args, &env, on_line)
+    }
+
+    /// [`Self::run`] with `env` set for git (an index file, a fixed author).
+    pub fn run_env(
+        &self,
+        cwd: Option<&Path>,
+        credential: &Credential,
+        args: &[&str],
+        env: &[(&str, &std::ffi::OsStr)],
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<Vec<u8>, Failure> {
         let mut command = self.command(cwd, credential);
         command.args(args);
-        if let Some(index) = index {
-            command.env("GIT_INDEX_FILE", index);
+        for (name, value) in env {
+            command.env(name, value);
         }
         let mut child =
             command.spawn().map_err(|error| Failure::of(format!("cannot run git: {error}")))?;

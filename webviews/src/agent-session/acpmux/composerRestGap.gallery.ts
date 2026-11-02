@@ -22,8 +22,9 @@ const rows = Array.from({ length: 10 }, (_, index) => {
   ];
 }).flat();
 
-/// The newest row's line (its box less the 16px turn gap it keeps) sits `want` px over the bottom
-/// stack's top.
+/// The newest row's line sits `want` px over the bottom stack's top. A row keeps no gap of its own on
+/// the grid (#27580, model.ts `TURN_GAP` 0): the newest row here is the last answer's footer row, its
+/// box is its line, and the rest gap starts at its bottom edge.
 const gapIs =
   (want: number): Play =>
   async (ctx: PlayContext) => {
@@ -38,9 +39,12 @@ const gapIs =
       part.classList.contains("acpmux-composer") ? [...part.children] : [part],
     );
     const top = Math.min(
-      ...parts.map((part) => part.getBoundingClientRect()).filter((rect) => rect.height > 0).map((rect) => rect.top),
+      ...parts
+        .map((part) => part.getBoundingClientRect())
+        .filter((rect) => rect.height > 0)
+        .map((rect) => rect.top),
     );
-    const gap = top - (last.getBoundingClientRect().bottom - 16);
+    const gap = top - last.getBoundingClientRect().bottom;
     if (Math.abs(gap - want) > 1) throw new Error(`The rest gap is ${gap.toFixed(1)}px, not ${want}px`);
   };
 

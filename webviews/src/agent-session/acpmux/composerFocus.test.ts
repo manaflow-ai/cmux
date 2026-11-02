@@ -161,3 +161,64 @@ describe("composer click-away focus", () => {
     expect(dom!.window.document.activeElement).not.toBe(editor);
   });
 });
+
+function LocationStripHarness() {
+  useComposerKeyboard(() => {
+    document.querySelector<HTMLElement>(".acpmux-composer-box [contenteditable]")?.focus();
+    return true;
+  });
+  return React.createElement(
+    "main",
+    null,
+    React.createElement(
+      "div",
+      { className: "acpmux-composer-strip" },
+      React.createElement("button", { className: "folder" }, "folder"),
+      React.createElement("button", { className: "machine" }, "machine"),
+    ),
+    React.createElement(
+      "div",
+      { className: "acpmux-composer-box" },
+      React.createElement("div", { contentEditable: true, tabIndex: 0 }),
+    ),
+  );
+}
+
+// Leo 2026-10-20: "clicking tab, it first goes through the two machines or like the folders and then
+// the machines, and then it somehow lands into focus into the composer".
+describe("Tab with nothing focused", () => {
+  const press = (init: KeyboardEventInit) => {
+    const event = new dom!.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    dom!.window.document.body.dispatchEvent(event);
+    return event;
+  };
+
+  test("Tab goes to the prompt, not the location strip's chips above it", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(LocationStripHarness));
+    });
+    (dom!.window.document.activeElement as HTMLElement | null)?.blur();
+    expect(dom!.window.document.activeElement).toBe(dom!.window.document.body);
+    const event = press({ key: "Tab" });
+    expect(event.defaultPrevented).toBe(true);
+    expect(dom!.window.document.activeElement).toBe(container.querySelector("[contenteditable]"));
+  });
+
+  test("Shift-Tab and Tab from a focused chip keep the browser's order", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(LocationStripHarness));
+    });
+    (dom!.window.document.activeElement as HTMLElement | null)?.blur();
+    expect(press({ key: "Tab", shiftKey: true }).defaultPrevented).toBe(false);
+    const chip = container.querySelector<HTMLElement>(".folder")!;
+    chip.focus();
+    const event = new dom!.window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    chip.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(dom!.window.document.activeElement).toBe(chip);
+  });
+});

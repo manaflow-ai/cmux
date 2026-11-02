@@ -24,6 +24,7 @@ mod replay;
 pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
 #[cfg(feature = "net")]
 pub mod net;
+pub mod turn;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;

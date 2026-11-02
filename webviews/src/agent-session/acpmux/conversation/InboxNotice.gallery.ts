@@ -8,7 +8,7 @@
 // default are inboxNoticeLook.ts's (`theme.inboxNoticeLook`). Names and messages are made up.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
+import { SESSION_ID, activity, assistant, chat, session, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -158,6 +158,71 @@ function snapshot(notices: Thread[][], before = false) {
   );
 }
 
+/// A sender no chat here lists, named like another harness (a Codex lane called `claude-…`): its
+/// line draws the neutral agent glyph, never a mark guessed from the name.
+const UNLISTED: Thread = {
+  threadId: "from:claude-mesh-lane/pr:5805",
+  label: "#5805",
+  messages: [{ from: "claude-mesh-lane", text: "HQ#5805 at b070cf5 opened its verification issue." }],
+};
+
+/// Two messages from one session that wait for the agent's turn to end (PendingMessagesCard.tsx):
+/// "2 messages from 1 session", the case Leo named.
+const WAITING = [
+  "Review passed at e34ce27; landing #2210 now.",
+  "Landed #2210; the nightly picks it up in its next run.",
+].map((text, index) => ({
+  id: `w${index + 1}`,
+  prompt: text,
+  message: { name: "grid-lane", sessionId: "s-grid", harness: "claude", text, raw: text },
+}));
+
+/// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
+/// line, a delivered group of one sender's threads, one of several senders', and the messages that
+/// wait (Leo, 2026-11-01: "i wanted this to be left aligned with the other tool calls" and "let's
+/// just make this look better"). Every group's head is a tool row (MessageGroupHead.tsx).
+/// inbox-row-icon-column.test.ts measures it.
+function amongTools() {
+  const run = (minutes: number) =>
+    activity(
+      [
+        tool("Run", "execute", "completed", {
+          command: "gh pr checks 2210",
+          output: "web / react-apps-base-check pass\n",
+        }),
+        tool("Run", "execute", "completed", { command: "git log --oneline -1", output: "6d9ae71 base autofix\n" }),
+      ],
+      minutes,
+    );
+  return chat(
+    [
+      user("Hand the three polish lanes their briefs and land what comes back reviewed.", 12),
+      run(11),
+      notice([BLOAT], 10),
+      run(9),
+      notice([UNLISTED], 8.5),
+      run(8),
+      notice([GRID, FYI], 7),
+      run(6),
+      notice([PLAN, REVIEW, RAIL], 5),
+      run(4),
+      assistant("Landing #2210 once its review comes back…", 3, { streaming: true }),
+    ],
+    {
+      title: "polish-coordinator",
+      isWorking: true,
+      queue: WAITING,
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
+        session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
+        session({ sessionId: "s-grid", title: "grid-lane", name: "grid-lane", harness: "claude" }),
+        session({ sessionId: "s-picker", title: "picker-lane", name: "picker-lane", harness: "codex" }),
+        session({ sessionId: "s-review", title: "review-box", name: "review-box", harness: "codex" }),
+      ],
+    },
+  );
+}
+
 const ONE = [[BLOAT]];
 const THREE = [[BLOAT, PLAN, GRID]];
 // Leo's case: notices in a row, each its own prompt; six threads in all.
@@ -196,10 +261,37 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/InboxNoticeCard.tsx",
     "agent-session/acpmux/conversation/InboxNoticeCard.css",
+    "agent-session/acpmux/conversation/MessageGroupHead.tsx",
+    "agent-session/acpmux/conversation/MessageGroupHead.css",
+    "agent-session/acpmux/conversation/LaneNoticeBatch.tsx",
+    "agent-session/acpmux/conversation/PendingMessagesCard.tsx",
     "agent-session/acpmux/conversation/inboxNotice.ts",
     "agent-session/acpmux/conversation/incomingMessage.ts",
   ],
   variants: {
+    "icon-column": {
+      note: "Inbox rows among tool rows: one thread's line, a delivered group of one sender (its harness mark), one of several (the messages glyph), and the messages that wait (\"2 messages from 1 session\"). Every row's glyph sits in the tool rows' icon column, its words start where theirs do, and a group's head is a tool row, their height, gap and type, its chevron shown on hover. A sender no chat lists draws the neutral agent glyph.",
+      snapshot: amongTools(),
+    },
+    "icon-column-look-chevron": {
+      note: "Gallery version (theme inboxNoticeLook group-chevron): the group's chevron always shown.",
+      theme: { inboxNoticeLook: "group-chevron" },
+      snapshot: amongTools(),
+    },
+    "icon-column-look-count": {
+      note: "Gallery version (theme inboxNoticeLook group-count): the count alone; the senders in its tooltip.",
+      theme: { inboxNoticeLook: "group-count" },
+      snapshot: amongTools(),
+    },
+    "icon-column-open": {
+      note: "The same, the group of several opened: its threads' lines under it.",
+      snapshot: amongTools(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
+        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
+      },
+    },
     "before-six": {
       note: "Before: three notices in a row, as acpmux wrote them and the pane drew them: each its text for the agent in the person's bubble.",
       snapshot: snapshot(SIX, true),

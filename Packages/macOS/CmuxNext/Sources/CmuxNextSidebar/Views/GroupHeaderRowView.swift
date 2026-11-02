@@ -373,10 +373,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
-        let pad = (barHeight * 0.62).rounded()
+        let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
-        let lead = SidebarStyle.horizontalInset + railReach
+        let lead = columns.lead
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
@@ -385,16 +385,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
         chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
-        let control = barHeight - Metrics.space1
-        // The more button and the + center on the slots left of the chevron (`trailingSlotCenterX`), the lines a hovered
-        // row's chevron and menu take, whatever the header's control size (Leo 2026-10-29: "MISALIGNED").
-        // At most one slot wide, so neighbors never overlap (at a comfortable app density the control outgrows the pitch).
-        let slotWidth = min(control, SidebarStyle.trailingSlotPitch)
-        func slotFrame(_ slot: Int) -> NSRect {
-            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - slotWidth / 2)
-            return NSRect(x: x, y: (b.height - control) / 2, width: slotWidth, height: control)
-        }
-        moreButton.frame = slotFrame(1)
+        let control = SidebarStyle.controlSize
+        // The more button sits left of the chevron.
+        moreButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
         // focus or while the editor is open. Hidden (not only clear): a click
         // there collapses the group, and VoiceOver uses the header's custom
@@ -411,7 +404,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fades = fadesNextHover && !onColumn
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
-        addButton.frame = slotFrame(2)
+        addButton.frame = columns.trailingFrame(index: 2, centerY: b.midY, side: control)
         // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
         // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
         let offersAdd = onAdd != nil
@@ -422,13 +415,13 @@ final class GroupHeaderRowView: SidebarRowView {
         // workspace or whatever, just don't show the spinner": a hover hides it at once and brings the
         // chevron back on the column, with the + and more left of it; never the spinner beside them.
         setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
-        var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
+        var trailing = columns.trailingEdge(before: showsActions ? (offersAdd ? addButton.frame : moreButton.frame) : chevronFrame)
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
-            badge.frame = NSRect(x: trailing - w, y: (b.height - h) / 2, width: w, height: h)
-            trailing = badge.frame.minX - Metrics.space2
+            badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
+            trailing = columns.trailingEdge(before: badge.frame)
         } else {
             badge.isHidden = true
         }
@@ -441,7 +434,7 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphSide = min(SidebarStyle.iconBox, barHeight)
+        let glyphSide = min(SidebarStyle.iconColumnBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
@@ -452,26 +445,31 @@ final class GroupHeaderRowView: SidebarRowView {
         let scale = window?.backingScaleFactor ?? 2
         let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
         pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
-        let iconLead = pinned ? SidebarStyle.leadingTextX(leading: lead) : lead
-        glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        // After a pin, the header's own icon and name move one icon column in, as a pinned row's do.
+        let inner = pinned ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
+        glyph.frame = NSRect(x: inner.lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        // A remote group's machine mark leads in the icon's place, on the same icon column (its image centers in the box).
         if leadsWithMachineMark {
             machineMark.frame = glyph.frame
         }
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = (hasIcon || leadsWithMachineMark ? glyph.frame.maxX + Metrics.space3 : iconLead) - Metrics.space1
+        let nx = inner.text(hasLeadingMark: hasIcon || leadsWithMachineMark) - SidebarStyle.labelCellPadding
         var countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
         if nx + countWidth + Metrics.space2 > trailing { countWidth = 0 }
-        let countRoom = countWidth > 0 ? countWidth + Metrics.space2 : 0
-        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - countRoom - nx))
         let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
         count.isHidden = countWidth == 0
-        count.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
+        if countWidth > 0 {
+            count.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: countWidth, height: nh))
+            count.frame.origin.y = SidebarStyle.textY(count, centerY: b.midY)
+            trailing = count.frame.minX - LayoutGrid.base
+        }
+        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - nx))
+        name.frame = NSRect(x: nx, y: SidebarStyle.textY(name, centerY: b.midY), width: nameWidth, height: nh)
         // The name and the color line only: no bar (cx-7yywz).
         pill.isHidden = look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
-        pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
+        pill.frame = b
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
         pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
         // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).

@@ -45,7 +45,7 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
       open={state.open}
       onOpenChange={(open) => !open && store.close()}
       label={t(sections[section])}
-      className="cloud-environment-sheet"
+      className="ui-glass ui-glass-floats cloud-environment-sheet"
       backdropClassName="cloud-environment-backdrop"
       side="top"
     >
