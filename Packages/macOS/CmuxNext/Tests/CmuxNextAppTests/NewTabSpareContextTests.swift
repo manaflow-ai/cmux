@@ -56,7 +56,7 @@ struct NewTabSpareContextTests {
             // The workspace's terminal pane gets the focus: a docked agent chat column can hold it (fleet run d87741821d15:
             // the focused pane showed a conversation, so the page had no folder).
             @MainActor func terminalPane() -> PaneController? {
-                controller.content?.panes.values.first { pane in pane.selectedTab.map { "\($0.kind)" == "terminal" } ?? false }
+                controller.content?.panes.values.first { pane in pane.selectedTab?.kind == .pty }
             }
             try await PasswordManagerRouteTests.until({
                 guard controller.state.workspaceID == workspace, let pane = terminalPane() else { return false }
