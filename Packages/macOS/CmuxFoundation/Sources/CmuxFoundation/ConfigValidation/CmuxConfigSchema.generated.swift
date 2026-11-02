@@ -2117,6 +2117,7 @@ enum CmuxEmbeddedConfigSchema {
             "urgentCount": {
               "type": "integer",
               "minimum": 0,
+              "maximum": 20,
               "default": 3,
               "descriptionKey": "schemaDescriptions.automation.sessionPriorityUrgentCount",
               "description": "How many of the highest-priority sessions count as urgent. All other sessions count as slow."
