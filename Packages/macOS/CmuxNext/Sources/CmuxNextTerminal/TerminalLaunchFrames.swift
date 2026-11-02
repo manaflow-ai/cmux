@@ -130,8 +130,11 @@ public final class TerminalLaunchFrames {
         self.markAt = markAt
         let reader = reader
         let read = LaunchRead(on: work) {
+            let listed = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
             let frames = Self.readAll(in: directory, reader)
             mark("terminal.launch_frames_read")
+            mark("diag.read.listed.\(listed.count).decoded.\(frames.count).dir.\(directory.path.replacingOccurrences(of: "/", with: "|"))")
+            for name in listed.sorted().prefix(16) { mark("diag.read.file.\(name)") }
             return frames
         }
         self.read = read
