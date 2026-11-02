@@ -506,7 +506,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
     # feat-cmux-next only; its ci-web.yml call's small jobs read the Linux pool (vars.RUNNER_POOLS).
     ".github/workflows/cmux-next-web.yml",
-    ".github/workflows/fast-checks.yml",  # feat-cmux-next only
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
     # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
