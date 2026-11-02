@@ -13,6 +13,9 @@ struct PaneArrival: Equatable {
     var seed: CGRect
     /// How far the shared edge (and the divider on it) starts from its target.
     var edgeOffset: CGVector
+    /// The pane that gave up the space (the split pane), when one did: the new pane and its divider follow where it
+    /// shows across the split's axis (`SplitMotion.ride`, `follow`). Nil for a dock column or a handoff.
+    var giver: PaneID?
 
     /// The arrival of a pane whose frame will be `target`, given every pane's
     /// frame before (`previous`) and after (`next`) the change; nil when no
@@ -25,18 +28,18 @@ struct PaneArrival: Equatable {
         func across(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> Bool { min(b, d) - max(a, c) > slack }
         // Beside: at most a pane gap apart (a pane further along the chain shrinks too).
         func beside(_ near: CGFloat, _ far: CGFloat) -> Bool { far >= near - slack && far - near <= gap }
-        let shrank = previous.compactMap { pane, before -> (before: CGRect, after: CGRect)? in
+        let shrank = previous.compactMap { pane, before -> (pane: PaneID, before: CGRect, after: CGRect)? in
             // Overlaps its old frame, not inside it: with even sizing shown in the split's own
             // layout (`LayoutModel.showSplitSizing`) the split pane also slides along the chain.
             guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).intersects(after),
                   after.width * after.height < before.width * before.height - 1 else { return nil }
-            return (before, after)
+            return (pane, before, after)
         }
         // The side the split pane kept, in the order a split adds a pane (Cmd-D right, Cmd-Shift-D
         // down, then left and up): with even sizing the pane past the new one shrinks too, and the
         // new divider must ride the split pane's edge, not that one's.
         for side in 0..<4 {
-            for (before, after) in shrank {
+            for (giver, before, after) in shrank {
                 let rows = across(after.minY, after.maxY, target.minY, target.maxY)
                 let columns = across(after.minX, after.maxX, target.minX, target.maxX)
                 switch side {
@@ -45,19 +48,19 @@ struct PaneArrival: Equatable {
                     // divider between them keep one distance in every frame.
                     let x = before.maxX + (target.minX - after.maxX)
                     return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
-                                       edgeOffset: CGVector(dx: before.maxX - after.maxX, dy: 0))
+                                       edgeOffset: CGVector(dx: before.maxX - after.maxX, dy: 0), giver: giver)
                 case 1 where columns && beside(after.maxY, target.minY) && before.maxY > after.maxY + slack:
                     let y = before.maxY + (target.minY - after.maxY)
                     return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
-                                       edgeOffset: CGVector(dx: 0, dy: before.maxY - after.maxY))
+                                       edgeOffset: CGVector(dx: 0, dy: before.maxY - after.maxY), giver: giver)
                 case 2 where rows && beside(target.maxX, after.minX) && before.minX < after.minX - slack:
                     let x = before.minX - (after.minX - target.maxX)
                     return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
-                                       edgeOffset: CGVector(dx: before.minX - after.minX, dy: 0))
+                                       edgeOffset: CGVector(dx: before.minX - after.minX, dy: 0), giver: giver)
                 case 3 where columns && beside(target.maxY, after.minY) && before.minY < after.minY - slack:
                     let y = before.minY - (after.minY - target.maxY)
                     return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
-                                       edgeOffset: CGVector(dx: 0, dy: before.minY - after.minY))
+                                       edgeOffset: CGVector(dx: 0, dy: before.minY - after.minY), giver: giver)
                 default:
                     continue
                 }
