@@ -15,7 +15,10 @@
 //! reflogs. A linked worktree arrives as a plain repository: the common
 //! folder without its checkout's own state, then the worktree's own HEAD,
 //! index, logs and in-progress state over it. A repository that borrows
-//! objects from another (`objects/info/alternates`) is refused.
+//! objects from another (`objects/info/alternates`, as `git clone --shared`
+//! or `--reference` and worktree mirrors make) arrives standing alone: the
+//! borrowed stores' object files go into its `objects/` too, and the
+//! alternates file, whose paths name folders of this Mac, never goes.
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
@@ -25,7 +28,8 @@
 //! named with why ([`Skips`]), except the git path's untracked `.env*` and
 //! non-UTF-8 paths, which are counted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -155,12 +159,6 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
-    if git.common.join("objects/info/alternates").exists() {
-        bail!(
-            "{} borrows objects from another repository (objects/info/alternates); clone it without --shared or --reference first",
-            folder.display()
-        );
-    }
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
         if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
             set.skipped += 1;
@@ -183,7 +181,113 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             add_git(&mut set, relative, path)
         })?;
     }
+    // Borrowed objects go after the repository's own, which win a name both
+    // hold (a loose object or pack of the same hash is the same data).
+    for borrowed in borrowed_objects(&git.common.join("objects"))? {
+        walk(&borrowed, &borrowed, &mut |relative, path| {
+            if borrowed_skipped(relative) {
+                return Ok(());
+            }
+            let target = format!(".git/objects/{relative}");
+            if set.files.contains_key(&target) {
+                return Ok(());
+            }
+            add(&mut set, target, path)
+        })?;
+    }
     Ok(set)
+}
+
+/// Most alternates levels git follows.
+const ALTERNATES_DEPTH: usize = 5;
+
+/// The object folders `objects` borrows from (`info/alternates`), and the
+/// ones those borrow from in turn, each once, nearest first. A path in an
+/// alternates file is absolute or relative to the object folder holding it.
+fn borrowed_objects(objects: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut seen: BTreeSet<PathBuf> =
+        BTreeSet::from([std::fs::canonicalize(objects).unwrap_or_else(|_| objects.into())]);
+    let mut found = Vec::new();
+    let mut level = vec![objects.to_path_buf()];
+    for _ in 0..ALTERNATES_DEPTH {
+        let mut next = Vec::new();
+        for dir in &level {
+            let Ok(bytes) = std::fs::read(dir.join("info/alternates")) else { continue };
+            for line in bytes.split(|byte| *byte == b'\n') {
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                if line.is_empty() || line.starts_with(b"#") {
+                    continue;
+                }
+                let named = unquote(line);
+                let path = dir.join(std::ffi::OsStr::from_bytes(&named));
+                let path = std::fs::canonicalize(&path).with_context(|| {
+                    format!(
+                        "{} borrows objects from {}, which cannot be read",
+                        dir.display(),
+                        path.display()
+                    )
+                })?;
+                if seen.insert(path.clone()) {
+                    found.push(path.clone());
+                    next.push(path);
+                }
+            }
+        }
+        level = next;
+    }
+    Ok(found)
+}
+
+/// An alternates line as a path: one in double quotes is C-quoted the way
+/// git writes it (`\\`, `\"`, `\t`, `\n`, octal `\NNN`).
+fn unquote(line: &[u8]) -> Vec<u8> {
+    let Some(inner) = line.strip_prefix(b"\"").and_then(|rest| rest.strip_suffix(b"\"")) else {
+        return line.to_vec();
+    };
+    let mut out = Vec::with_capacity(inner.len());
+    let mut bytes = inner.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        if byte != b'\\' {
+            out.push(byte);
+            continue;
+        }
+        match bytes.next() {
+            Some(b'n') => out.push(b'\n'),
+            Some(b't') => out.push(b'\t'),
+            Some(digit @ b'0'..=b'7') => {
+                let mut value = u32::from(digit - b'0');
+                for _ in 0..2 {
+                    match bytes.peek().copied() {
+                        Some(next @ b'0'..=b'7') => {
+                            value = value * 8 + u32::from(next - b'0');
+                            bytes.next();
+                        }
+                        _ => break,
+                    }
+                }
+                out.push(u8::try_from(value).unwrap_or(u8::MAX));
+            }
+            Some(other) => out.push(other),
+            None => out.push(b'\\'),
+        }
+    }
+    out
+}
+
+/// Whether a file of a borrowed object folder (by its path in the folder)
+/// stays here: its own alternates and the indexes that describe only its
+/// packs or commits (the repository's own describe the copy).
+fn borrowed_skipped(relative: &str) -> bool {
+    matches!(
+        relative,
+        "info/alternates"
+            | "info/http-alternates"
+            | "info/packs"
+            | "info/commit-graph"
+            | "info/commit-graphs/commit-graph-chain"
+    ) || relative.starts_with("pack/multi-pack-index")
+        || relative.ends_with(".lock")
+        || relative.rsplit('/').next().is_some_and(|name| name.starts_with("tmp_"))
 }
 
 /// A working copy's own git folder and the common one (the same folder
@@ -263,6 +367,10 @@ fn is_per_worktree(relative: &str) -> bool {
 fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
     if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
+        return Ok(());
+    }
+    // Paths of this Mac: the borrowed objects go instead ([`collect`]).
+    if matches!(relative, "objects/info/alternates" | "objects/info/http-alternates") {
         return Ok(());
     }
     // Below refs/, logs/ and objects/ names are refs and hashes, never
@@ -502,4 +610,32 @@ fn without_user_info(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{borrowed_skipped, unquote};
+
+    #[test]
+    fn an_alternates_line_is_a_path_plain_or_c_quoted() {
+        assert_eq!(unquote(b"/a/b/objects"), b"/a/b/objects");
+        assert_eq!(unquote(br#""/a b/\"q\"/\\/x\tz/\303\251""#), b"/a b/\"q\"/\\/x\tz/\xc3\xa9");
+        assert_eq!(unquote(b"\"unterminated"), b"\"unterminated");
+    }
+
+    #[test]
+    fn a_borrowed_store_keeps_its_own_alternates_and_indexes() {
+        for kept_here in [
+            "info/alternates",
+            "info/commit-graphs/commit-graph-chain",
+            "pack/multi-pack-index",
+            "pack/tmp_pack_x",
+            "pack/pack-1.idx.lock",
+        ] {
+            assert!(borrowed_skipped(kept_here), "{kept_here}");
+        }
+        for goes in ["pack/pack-1.pack", "pack/pack-1.idx", "pack/pack-1.promisor", "ab/cdef"] {
+            assert!(!borrowed_skipped(goes), "{goes}");
+        }
+    }
 }
