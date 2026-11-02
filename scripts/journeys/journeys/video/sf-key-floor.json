@@ -1,0 +1,19 @@
+{
+ "id": "sf-key-floor",
+ "priority": "P1",
+ "title": "SHORTCUT FRAMES floor: a plain AppKit app's key-to-photon (layer keyDown, menu key equivalent, NSTextView typing), real HID, harness recorder set-up",
+ "why": "Lead 2026-11-02: even Cmd-K in a terminal is 3 refreshes; measure the macOS pipeline's floor (HID -> WindowServer -> app -> CA commit -> render server -> display) on the same mini, 120 Hz virtual display and real HID keys, so every SHORTCUT FRAMES row reads as refreshes over the floor.",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md",
+ "budget_seconds": 240,
+ "options": {"key_path": "real"},
+ "steps": [
+  {"do": "smoke_ready", "timeout": 60},
+  {"do": "key_floor", "seconds": 40, "presses": 20, "interval": 0.5},
+  {"do": "smoke_make_key"},
+  {"do": "new_terminal", "via": "key", "name": "kf"},
+  {"do": "neutral_prompt"},
+  {"do": "type", "text": "echo kf-done-${nonce}", "enter": true, "mark": "done"},
+  {"do": "expect", "title": "the app still answers", "since": "done", "timeout": 15,
+   "all": [{"app_text_contains": "kf-done-${nonce}"}, {"daemon_prompt": true}, {"pane_frame_text": "kf-done-${nonce}"}]}
+ ]
+}

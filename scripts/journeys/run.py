@@ -374,6 +374,7 @@ def kit_tar(specs):
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
         tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(HERE / "sck_probe.swift", arcname="sck_probe.swift")  # built only by ext_video's sck_probe step
+        tar.add(HERE / "key_floor_probe.swift", arcname="key_floor_probe.swift")  # built only by ext_keyfloor's key_floor step
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
