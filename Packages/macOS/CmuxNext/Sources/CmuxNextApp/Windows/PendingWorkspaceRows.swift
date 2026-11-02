@@ -32,7 +32,7 @@ final class PendingWorkspaceRows {
     /// Rows whose daemon workspace has taken over the stand-in (the row stays until the sidebar document places it):
     /// a close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
     @ObservationIgnored private var takenOver: Set<String> = []
-    @ObservationIgnored private(set) var unpinned: Set<String> = [] // creates whose workspace stays unpinned (an agent's chat open)
+    @ObservationIgnored private(set) var unpinned: Set<String> = [] // an agent's chat open: unpinned, its stand-in held from the add (taken over from the start)
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
@@ -42,7 +42,7 @@ final class PendingWorkspaceRows {
     private(set) var unsentSlots: Set<String> = []
 
     /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
-    func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
+    func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id); takenOver.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
     func add(_ row: Row, name: String) {
         rows.append(row)
         names[row.id] = (row.machine, name)
