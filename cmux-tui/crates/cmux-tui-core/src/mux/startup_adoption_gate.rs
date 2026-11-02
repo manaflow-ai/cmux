@@ -121,6 +121,8 @@ impl StartupAdoptionGate {
     /// [`Self::turn`], and once `first` holds the waiter takes the next free
     /// slot before every ticket in line (the person now sees its terminal).
     /// It still takes a slot: the slots bound the waiters that go first too.
+    /// Once `first` held the waiter keeps its priority, also if the person
+    /// looks away again (bounded: it still waits for a slot).
     /// `first` runs with the gate's lock released (it may take the mux's
     /// locks), at the start and after each wake-up, until it holds; a wake-up
     /// while it runs is not lost (the waiter checks again before it sleeps).
