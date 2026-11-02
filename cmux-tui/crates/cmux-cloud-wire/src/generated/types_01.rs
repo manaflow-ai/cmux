@@ -455,6 +455,14 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetwork {
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub ipv4_cidr: String,
+    pub ipv4: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetworkPolicyView {
     pub schema_version: IntLit<2>,
     pub machine: MachineId,
@@ -894,15 +902,3 @@ wire_enum! {
 
 /// A server-side grant; tokens carry only its id.
 pub type GrantId = String;
-
-/// A cloud group, minted by TeamDO (grp_ + 20 lowercase hex).
-pub type GroupId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupPlacement {
-    pub kind: GroupPlacementKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-}

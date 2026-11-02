@@ -1513,6 +1513,42 @@
         }
       }
     },
+    "CloudVmNetwork": {
+      "kind": "object",
+      "fields": {
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "ipv4_cidr": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "ipv4": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "CloudVmNetworkPolicyView": {
       "kind": "object",
       "fields": {

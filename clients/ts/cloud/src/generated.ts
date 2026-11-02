@@ -245,6 +245,13 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
+export type CloudVmNetwork = {
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly ipv4_cidr: string
+  readonly ipv4: string | null
+}
+
 export type CloudVmNetworkPolicyView = {
   readonly schema_version: 2
   readonly machine: MachineId
