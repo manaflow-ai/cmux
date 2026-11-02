@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextTabs
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -430,4 +431,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         panes[pane]?.setPresence(surfacePresence)
     }
+}
+
+/// A split's key turn takes a pane view tree built ahead, out of the window, instead of building a strip, a content view
+/// and their layout in the turn the key must commit (RESIZE VIDEOS F1 step 1a). Its content view's identifier is
+/// `cmux.sparePane` (tests read it).
+extension WorkspaceContentController {
+    /// Builds the spare pane at rest (no motion, input quiet).
+    func refillSparePane() {}
+
+    /// Takes the spare pane for a new pane's controller; nil when none is ready.
+    func takeSparePane() -> (stripModel: TabStripModel, view: PaneContentView)? { nil }
 }

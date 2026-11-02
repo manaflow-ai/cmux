@@ -2498,7 +2498,7 @@ CmuxNextApp	class	FileQuitDocuments	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources
 CmuxNextApp	class	FlushAnswer	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FileQuitDocument.swift	from class FileQuitDocument:11: unsaved document: drafts, hash, writable, quit participation
 CmuxNextApp	struct	MarkdownFileLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownFileLocation.swift	MarkdownFileLocation value
 CmuxNextApp	struct	MarkdownFileLocationReader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownFileLocationReader.swift	reads git location of a file
-CmuxNextApp	struct	MarkdownGitLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitLocation.swift	file state vs upstream (pushed, modified, ...)
+CmuxNextFiles	struct	MarkdownGitLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownGitLocation.swift	file state vs upstream (pushed, modified, ...)
 CmuxNextApp	protocol	MarkdownGitRunning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	from struct MarkdownGitOutput:5: process runner for read-only git (OS process API)
 CmuxNextApp	struct	MarkdownGitOutput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	process runner for read-only git (OS process API)
 CmuxNextApp	struct	ProcessMarkdownGitRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	from struct MarkdownGitOutput:5: process runner for read-only git (OS process API)
@@ -3117,6 +3117,7 @@ CmuxNextApp	extension	PaneController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextApp	struct	WorkspaceAutoNameWiring	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceAutoNameWiring.swift	from struct WorkspaceAutoNameWiring:8: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	WorkspaceContentController	0	MIXED	29	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController+Intents.swift	layout gesture intents to daemon (platform ~170); gesture transaction settle (logic ~69)
 CmuxNextApp	class	WorkspaceContentController	0	MIXED	0	60	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController.swift	mirrors daemon split tree/columns into layout model (mirror ~250); pane view hosting platform
+CmuxNextApp	extension	WorkspaceContentController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController.swift	spare pane view tree built ahead (AppKit view building, RESIZE VIDEOS F1)
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceCoreCompatibility.swift	from extension SidebarBridge:15: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	AppServices	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceCoreCompatibility.swift	from extension SidebarBridge:15: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	AppServices	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceCoreCompatibility.swift	from extension SidebarBridge:15: AppKit/SwiftUI view, host or thin daemon call site
