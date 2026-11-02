@@ -448,12 +448,12 @@ public final class TerminalLaunchFrames {
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
     /// frames of every key not in it (terminals this run does not show), once the launch read has ended.
     nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?) {
-        let manager = FileManager.default
+        let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
         if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
-           (try? data.write(to: url, options: [.atomic])) != nil {
+           (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
@@ -465,7 +465,7 @@ public final class TerminalLaunchFrames {
 
     /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
     nonisolated static func removeAll(of key: String, in directory: URL) {
-        let manager = FileManager.default
+        let manager = FileManager.checked
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
             try? manager.removeItem(at: directory.appending(path: old))
         }
