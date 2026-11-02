@@ -224,7 +224,16 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
   );
 }
 
-export function ChannelsCard() {
+/** The `?focus=` value that scrolls to this card: the palette's Install an Earlier Nightly… opens
+ * `#/settings/updates?focus=channels`. */
+export const CHANNELS_FOCUS = "channels";
+
+/** Scrolls the card into view once it draws, for the route that focuses it. */
+function revealCard(card: HTMLElement | null): void {
+  card?.scrollIntoView?.({ block: "start" });
+}
+
+export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   // The row's value moves before the host has the write, so the card marks it, not a re-read.
   const ring = useSettingsState().rows.get("updates.channel")?.value;
@@ -234,7 +243,7 @@ export function ChannelsCard() {
   const state = useQuery({ ...channelsQuery(store, shown), placeholderData: keepPreviousData }).data ?? null;
   if (!state) return null;
   return (
-    <section className="group" data-card="channels">
+    <section className="group" data-card="channels" ref={focus === CHANNELS_FOCUS ? revealCard : undefined}>
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
       {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}

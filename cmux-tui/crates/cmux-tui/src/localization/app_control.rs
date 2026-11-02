@@ -59,6 +59,24 @@ pub(crate) struct AppControlMessages {
     pub cloud_secret_help: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
+    /// `cmux nightly list|install` (cli/app/nightly.rs).
+    pub nightly: NightlyMessages,
+}
+
+/// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct NightlyMessages {
+    pub usage: &'static str,
+    pub no_builds: &'static str,
+    pub cannot_switch: &'static str,
+    pub unknown_build: &'static str,
+    pub no_previous: &'static str,
+    pub installed_already: &'static str,
+    pub pulled: &'static str,
+    pub installing: &'static str,
+    pub here: &'static str,
+    pub kept: &'static str,
+    pub pulled_tag: &'static str,
 }
 
 /// The labels of `cmux version`'s text report; the JSON keys stay English.
@@ -134,11 +152,24 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         updates: "Updates",
         last_check: "Last check",
     },
+    nightly: NightlyMessages {
+        usage: "usage: cmux nightly list [--limit N] | install previous|<build>\n  list     the recent nightly builds, newest first (* marks the one this Mac runs)\n  install  installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n           and checks it, restarts cmux into it with every session, and stops offering the build left behind",
+        no_builds: "no nightly builds are listed (the feed could not be read)",
+        cannot_switch: "this cmux follows no update feed, so it cannot install another build",
+        unknown_build: "build {build} is not one of the recent nightly builds; `cmux nightly list` shows them",
+        no_previous: "no earlier nightly build to install below {build}",
+        installed_already: "this Mac already runs build {build}",
+        pulled: "build {build} was pulled from the feed ({reason}); pick another with `cmux nightly list`",
+        installing: "Installing build {build} ({version}, {date}). cmux restarts into it and keeps every session; build {from} is no longer offered.",
+        here: "this Mac",
+        kept: "kept",
+        pulled_tag: "pulled",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
-    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
@@ -199,9 +230,22 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         updates: "アップデート",
         last_check: "最終確認",
     },
+    nightly: NightlyMessages {
+        usage: "使い方: cmux nightly list [--limit N] | install previous|<ビルド>\n  list     最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  install  そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n           ダウンロードして検証し、すべてのセッションを保ったまま cmux を再起動し、元のビルドは今後提案しません",
+        no_builds: "ナイトリービルドの一覧がありません (フィードを読み取れませんでした)",
+        cannot_switch: "この cmux はアップデートフィードに従っていないため、他のビルドをインストールできません",
+        unknown_build: "ビルド {build} は最近のナイトリービルドにありません。`cmux nightly list` で一覧を表示します",
+        no_previous: "{build} より前にインストールできるナイトリービルドがありません",
+        installed_already: "この Mac はすでにビルド {build} で動作しています",
+        pulled: "ビルド {build} はフィードから取り下げられました ({reason})。`cmux nightly list` で別のビルドを選んでください",
+        installing: "ビルド {build} ({version}、{date}) をインストールしています。cmux はすべてのセッションを保ったまま再起動します。ビルド {from} は今後提案しません。",
+        here: "この Mac",
+        kept: "保存済み",
+        pulled_tag: "取り下げ",
+    },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
-    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  nightly       以前のナイトリービルドに戻す (list、install previous|<ビルド>)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };

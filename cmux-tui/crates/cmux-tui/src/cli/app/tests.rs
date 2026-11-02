@@ -17,6 +17,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1110,6 +1111,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
