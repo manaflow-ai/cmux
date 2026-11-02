@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4141861940901",
+  "notes": "notes/4141861940901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31890,
+      "title": "fix(cef shim): docked DevTools shows only after its frontend reported loadCompleted, as Chrome does",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32034,
+      "title": "acpmux: a remote chain keeps acpmux's own --disallowedTools NAME",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32020,
+      "title": "docs(agent-pane): describe row chat targets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31996,
+      "title": "perf(layout): workspace switch reuses divider catcher panels instead of making a window per divider",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32038,
+      "title": "docs(agent-pane): describe recorded session row target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31969,
+      "title": "cloud.startChat: a composer Cloud start works on the app server's link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32018,
+      "title": "cmux-vm: let a listed service through the mesh experiment gate (CMUX_VM_MESH_SERVICE_IDS)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
