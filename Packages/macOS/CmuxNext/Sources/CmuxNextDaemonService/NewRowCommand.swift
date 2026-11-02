@@ -31,7 +31,8 @@ public struct NewRowCommand: Sendable {
         options.tabID = provisional.tabID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, height = height, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
         let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("new-row", intent, transaction: transaction) { connection in

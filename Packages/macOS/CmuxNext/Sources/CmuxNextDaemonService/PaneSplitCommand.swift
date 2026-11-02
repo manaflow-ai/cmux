@@ -55,7 +55,8 @@ public struct PaneSplitCommand: Sendable {
         options.splitID = provisional.splitID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time, as New Column and New Row do: a split pressed on a split still in flight names that
         // split's stand-in, which the daemon does not know ("unknown pane"); by the time this goes out (the workspace's
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over
