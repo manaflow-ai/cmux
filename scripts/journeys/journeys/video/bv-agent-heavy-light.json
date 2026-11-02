@@ -76,7 +76,7 @@
   {
    "do": "bv_action",
    "action": "palette.newAgentChat",
-   "as": "open-1"
+   "note": "open-1"
   },
   {
    "do": "wait",
@@ -112,7 +112,7 @@
    "seconds": 6,
    "chunk_chars": 24,
    "chunk_ms": 16,
-   "as": "stream-1"
+   "note": "stream-1"
   },
   {
    "do": "wait",
@@ -121,7 +121,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "streaming-1"
+   "note": "streaming-1"
   },
   {
    "do": "hid_key",
@@ -152,7 +152,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "after-1"
+   "note": "after-1"
   },
   {
    "do": "hid_key",
@@ -193,7 +193,7 @@
   {
    "do": "bv_action",
    "action": "palette.newAgentChat",
-   "as": "open-2"
+   "note": "open-2"
   },
   {
    "do": "wait",
@@ -229,7 +229,7 @@
    "seconds": 6,
    "chunk_chars": 24,
    "chunk_ms": 16,
-   "as": "stream-2"
+   "note": "stream-2"
   },
   {
    "do": "wait",
@@ -238,7 +238,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "streaming-2"
+   "note": "streaming-2"
   },
   {
    "do": "hid_key",
@@ -269,7 +269,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "after-2"
+   "note": "after-2"
   },
   {
    "do": "hid_key",
@@ -310,7 +310,7 @@
   {
    "do": "bv_action",
    "action": "palette.newAgentChat",
-   "as": "open-3"
+   "note": "open-3"
   },
   {
    "do": "wait",
@@ -346,7 +346,7 @@
    "seconds": 6,
    "chunk_chars": 24,
    "chunk_ms": 16,
-   "as": "stream-3"
+   "note": "stream-3"
   },
   {
    "do": "wait",
@@ -355,7 +355,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "streaming-3"
+   "note": "streaming-3"
   },
   {
    "do": "hid_key",
@@ -386,7 +386,7 @@
   {
    "do": "bv_agent",
    "action": "readiness",
-   "as": "after-3"
+   "note": "after-3"
   },
   {
    "do": "hid_key",

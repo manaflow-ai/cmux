@@ -27,17 +27,17 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
         name = f"{jid}-r{r}"
         steps += [{"do": "bv_scroll", "page": page}, {"do": "wait", "seconds": 0.3},
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 20},
-                  {"do": "bv_state", "page": page, "as": "before"}, {"do": "wait", "seconds": 0.3}]
+                  {"do": "bv_state", "page": page, "note": "before"}, {"do": "wait", "seconds": 0.3}]
         if r == 0:
-            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "as": "open"})
+            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open"})
         else:
             steps.append(dict(OPEN_KEY, mark=f"open-r{r}", title="open DevTools: real Cmd-Opt-I"))
         steps += [{"do": "bv_devtools", "page": page, "open": True, "timeout": 5},
-                  {"do": "wait", "seconds": 1.2 if r == 0 else 0.6}, {"do": "bv_state", "page": page, "as": "open"},
+                  {"do": "wait", "seconds": 1.2 if r == 0 else 0.6}, {"do": "bv_state", "page": page, "note": "open"},
                   {"do": "wait", "seconds": 0.3},
                   dict(OPEN_KEY, mark=f"close-r{r}", title="close DevTools: real Cmd-Opt-I"),
                   {"do": "bv_devtools", "page": page, "open": False, "timeout": 5},
-                  {"do": "wait", "seconds": 0.4}, {"do": "bv_state", "page": page, "as": "after"},
+                  {"do": "wait", "seconds": 0.4}, {"do": "bv_state", "page": page, "note": "after"},
                   {"do": "video_stop", "name": name, "tail": 0.2}, {"do": "wait", "seconds": 0.5}]
     return {"id": jid, "priority": "P1",
             "title": f"Video: DevTools docked {dock} open and close (real Cmd-Opt-I), {page} page, {theme}, recorded every frame",
@@ -62,7 +62,7 @@ def pane(page, theme, rounds=3, mbps=60):
                   {"do": "wait", "seconds": 1.6},
                   {"do": "bv_open", "page": page, "title": "navigate the new pane's tab (a focused Chromium tab on the page)"},
                   {"do": "wait", "seconds": 1.0},
-                  {"do": "bv_state", "page": page, "as": f"open-{r}"},
+                  {"do": "bv_state", "page": page, "note": f"open-{r}"},
                   {"do": "hid_key", "key": "2", "modifiers": ["cmd"], "mark": f"away-{r}", "title": "switch away (Cmd-2)"},
                   {"do": "wait", "seconds": 1.0},
                   {"do": "hid_key", "key": "1", "modifiers": ["cmd"], "mark": f"back-{r}", "title": "switch back (Cmd-1)"},
@@ -71,7 +71,7 @@ def pane(page, theme, rounds=3, mbps=60):
                   {"do": "wait", "seconds": 1.0},
                   {"do": "hid_key", "key": "right", "modifiers": ["control", "cmd"], "mark": f"resize-b-{r}", "title": "resize the pane (Ctrl-Cmd-Right)"},
                   {"do": "wait", "seconds": 1.0},
-                  {"do": "bv_state", "page": page, "as": f"resized-{r}"},
+                  {"do": "bv_state", "page": page, "note": f"resized-{r}"},
                   {"do": "hid_key", "key": "w", "modifiers": ["cmd"], "mark": f"close-tab-{r}", "title": "close the page tab (Cmd-W)"},
                   {"do": "wait", "seconds": 1.0},
                   {"do": "hid_key", "key": "w", "modifiers": ["cmd"], "mark": f"close-{r}", "title": "close the browser pane (Cmd-W)"},
@@ -95,20 +95,20 @@ def agent(load, theme, rounds=3, mbps=60):
         steps += [{"do": "hid_key", "key": "1", "modifiers": ["cmd"], "title": "set-up: the first workspace"},
                   {"do": "wait", "seconds": 0.8},
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 30},
-                  {"do": "bv_action", "action": "palette.newAgentChat", "as": f"open-{r}"},
+                  {"do": "bv_action", "action": "palette.newAgentChat", "note": f"open-{r}"},
                   {"do": "wait", "seconds": 2.0},
                   {"do": "bv_agent", "action": "focus_composer"},
                   {"do": "hid_key", "key": "h", "mark": f"type-{r}"}, {"do": "hid_key", "key": "i"},
                   {"do": "hid_key", "key": "return", "mark": f"send-{r}", "title": "send (Return)"},
                   {"do": "wait", "seconds": 0.8},
-                  {"do": "bv_agent", "action": "stream", "rows": 400, "seconds": 6, "chunk_chars": 24, "chunk_ms": 16, "as": f"stream-{r}"},
+                  {"do": "bv_agent", "action": "stream", "rows": 400, "seconds": 6, "chunk_chars": 24, "chunk_ms": 16, "note": f"stream-{r}"},
                   {"do": "wait", "seconds": 1.5},
-                  {"do": "bv_agent", "action": "readiness", "as": f"streaming-{r}"},
+                  {"do": "bv_agent", "action": "readiness", "note": f"streaming-{r}"},
                   {"do": "hid_key", "key": "2", "modifiers": ["cmd"], "mark": f"away-{r}", "title": "switch away (Cmd-2)"},
                   {"do": "wait", "seconds": 0.8},
                   {"do": "hid_key", "key": "1", "modifiers": ["cmd"], "mark": f"back-{r}", "title": "switch back (Cmd-1)"},
                   {"do": "wait", "seconds": 2.5},
-                  {"do": "bv_agent", "action": "readiness", "as": f"after-{r}"},
+                  {"do": "bv_agent", "action": "readiness", "note": f"after-{r}"},
                   {"do": "hid_key", "key": "w", "modifiers": ["cmd"], "mark": f"close-{r}", "title": "close the chat (Cmd-W)"},
                   {"do": "wait", "seconds": 1.0},
                   {"do": "video_stop", "name": name, "tail": 0.2}]

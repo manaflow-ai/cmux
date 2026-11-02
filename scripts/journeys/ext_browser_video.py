@@ -13,12 +13,12 @@ Steps (`do`):
   bv_open        {page, scroll?: 400}       a Chromium tab on the page (openBrowser.chromium, focused), waits for its
                                             title, scrolls; ${bv_tab_<page>} is its tab id
   bv_scroll      {page, y?: 400}
-  bv_state       {page, as}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
+  bv_state       {page, note}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
                                             scheme, plus debug.cef's DevTools frames; kept in the recording's notes
-  bv_action      {action, as?, args?}        action.run with origin user; its send time kept under `as`
+  bv_action      {action, note?, args?}        action.run with origin user; its send time kept under `note`
   bv_devtools    {page, open?: true, timeout?: 5, quiet?: 0.6}  waits for the DevTools state; a StepError when it does not come
-  bv_agent       {action, as?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
-                                            kept in the recording's notes under `as`
+  bv_agent       {action, note?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
+                                            kept in the recording's notes under `note`
 """
 import functools
 import http.server
@@ -125,28 +125,28 @@ def step_bv_state(j, step):
     cef = j.app.rpc("debug.cef") or {}
     devtools = cef.get("devtools") if isinstance(cef, dict) else None
     value = {"t": D.now(), "page": _state(j, tab), "devtools": devtools}
-    _note(j, step["as"], value)
+    _note(j, step["note"], value)
     return value
 
 
 def step_bv_agent(j, step):
-    params = dict((k, v) for k, v in step.items() if k not in ("do", "as", "title"))
+    params = dict((k, v) for k, v in step.items() if k not in ("do", "note", "title"))
     sent = D.now()
     reply = j.app.rpc("debug.agent_pane", params) or {}
     value = {"t_sent": sent, "t_returned": D.now(), "reply": reply}
-    if step.get("as"):
-        _note(j, step["as"], value)
+    if step.get("note"):
+        _note(j, step["note"], value)
     return value
 
 
 def step_bv_action(j, step):
     """`action.run` ACTION (origin user, as a menu or palette pick) with its send time kept in the recording's notes
-    under `as` (the judge counts refreshes from it, as from a hid_key's t_sent)."""
+    under `note` (the judge counts refreshes from it, as from a hid_key's t_sent)."""
     sent = D.now()
     reply = j.app.rpc("action.run", {"action": step["action"], "origin": "user", "args": step.get("args") or {}})
     value = {"t_sent": sent, "t_returned": D.now(), "action": step["action"], "reply": reply}
-    if step.get("as"):
-        _note(j, step["as"], value)
+    if step.get("note"):
+        _note(j, step["note"], value)
     return value
 
 

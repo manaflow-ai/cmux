@@ -91,7 +91,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open-1"
+   "note": "open-1"
   },
   {
    "do": "hid_key",
@@ -150,7 +150,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "resized-1"
+   "note": "resized-1"
   },
   {
    "do": "hid_key",
@@ -227,7 +227,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open-2"
+   "note": "open-2"
   },
   {
    "do": "hid_key",
@@ -286,7 +286,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "resized-2"
+   "note": "resized-2"
   },
   {
    "do": "hid_key",
@@ -363,7 +363,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open-3"
+   "note": "open-3"
   },
   {
    "do": "hid_key",
@@ -422,7 +422,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "resized-3"
+   "note": "resized-3"
   },
   {
    "do": "hid_key",

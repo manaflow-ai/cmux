@@ -56,7 +56,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -65,7 +65,7 @@
   {
    "do": "bv_action",
    "action": "devtools.openDocked",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "bv_devtools",
@@ -80,7 +80,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -109,7 +109,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
@@ -137,7 +137,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -166,7 +166,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -195,7 +195,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
@@ -223,7 +223,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -252,7 +252,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -281,7 +281,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
@@ -309,7 +309,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -338,7 +338,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -367,7 +367,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
@@ -395,7 +395,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -424,7 +424,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -453,7 +453,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
@@ -481,7 +481,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "before"
+   "note": "before"
   },
   {
    "do": "wait",
@@ -510,7 +510,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "open"
+   "note": "open"
   },
   {
    "do": "wait",
@@ -539,7 +539,7 @@
   {
    "do": "bv_state",
    "page": "light",
-   "as": "after"
+   "note": "after"
   },
   {
    "do": "video_stop",
