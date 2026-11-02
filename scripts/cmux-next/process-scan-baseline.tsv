@@ -6,7 +6,7 @@
 # (peer authentication of one connected socket, one held child, this process's
 # own children); a new `keep` row needs a review note in the commit.
 cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
-cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them
+cmux-tui/crates/acpmux/src/agent_host/tree.rs	7	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them: its ps listing, and each child's exact argv (KERN_PROCARGS2, /proc/<pid>/cmdline), executable (proc_pidpath, /proc/<pid>/exe) and folder (proc_pidinfo PROC_PIDVNODEPATHINFO, /proc/<pid>/cwd) to tell its MCP servers apart (#27558, #27925)
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
@@ -20,6 +20,7 @@ cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs	1	remove	cx-t2sqm.8
 cmux-tui/crates/cmux-tui-platform/src/windows_processes.rs	4	remove	cx-t2sqm.9
 cmux-tui/crates/cmux-tui/src/config/ghostty_helper.rs	1	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs	1	remove	cx-t2sqm.10
+cmux-tui/crates/cmux-link/src/caller/supervised.rs	1	keep	peer authentication of the retained Child only: verify its captured Linux start ticks before admitting a connected socket; no enumeration or caller-selected pid
 cmux-tui/crates/cmux-host/src/github_cli.rs	2	keep	this helper's own ancestors only (at most 8, no enumeration): the git command that called it, to ask for a read token on a fetch and write on a push; the credential protocol does not say which
 cmux-tui/crates/cmux-host/src/linux/procs.rs	2	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-host/src/team_ssh/linux_host.rs	2	remove	cx-t2sqm.10
@@ -30,7 +31,7 @@ cmux-tui/crates/cmux-browser-host/src/egress_listeners.rs	5	keep	security egress
 cmux-tui/crates/cmux-browser-host/src/egress_holders.rs	4	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 cmux-tui/crates/cmux-browser-host/src/egress_services.rs	5	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ProcessUsage.swift	7	remove	cx-t2sqm.11
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	7	remove	cx-t2sqm.11
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxServerPeer.swift	6	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxVersionHandoff.swift	1	remove	cx-t2sqm.11
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/PeerProcess.swift	4	keep	peer authentication of one proxy connection (this app and its own children)

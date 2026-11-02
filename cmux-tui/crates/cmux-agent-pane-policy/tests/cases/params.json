@@ -532,7 +532,8 @@
    "method": "_acpmux/sessions",
    "params": {
     "limit": 1,
-    "cursor": 1
+    "cursor": 1,
+    "usage": 1
    }
   },
   "mode_fields": null,
@@ -870,7 +871,8 @@
    "method": "acp.session.fork",
    "params": {
     "sessionId": 1,
-    "throughSeq": 1
+    "throughSeq": 1,
+    "live": true
    }
   },
   "mode_fields": null,
@@ -1945,6 +1947,60 @@
     "runId": "wf_run",
     "agentId": "agent",
     "maxBytes": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "an older native page names only its chat and marked cursor",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "mark": "transcript-boundary-mark"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "an older native page never names a file",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/native_history",
+   "params": {
+    "sessionId": "s",
+    "before": 4096,
+    "file": "/etc/passwd"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/peers every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/peers refuses any param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/peers",
+   "params": {
+    "peer": "other"
    }
   },
   "mode_fields": null,

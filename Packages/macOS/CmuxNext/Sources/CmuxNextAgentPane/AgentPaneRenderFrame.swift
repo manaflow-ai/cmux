@@ -30,6 +30,8 @@ nonisolated enum AgentPaneRenderFrame {
 
     static let artifactPolicy = [
         "default-src 'none'",
+        "sandbox allow-scripts",
+        "frame-ancestors cmux-agent://pane",
         "script-src 'unsafe-inline'",
         "style-src 'unsafe-inline'",
         "img-src data: blob:",

@@ -100,7 +100,8 @@ a `[no reply]` note that names the messages, says why, and forbids
 failure note in the message's thread ("I could not answer your message ...
 Please send it again.") and logs a note so the next turn does not answer it
 again. Only the owner's stop (chief.stop) and a retraction close a message
-with no post.
+with no post. Explicit `chief.continue` reopens the last stopped batch, and
+`chief.retry` reopens a named owner message; neither resubmits that message.
 
 Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
 conversation when the person's last message has had no reply for 2 minutes,
@@ -278,6 +279,22 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   turn and the other subagents go on. A stopped or cancelled subagent is not
   at work any more, even when its session never ends the turn: its slot frees
   at once.
+- `chief.continue` reopens the person messages the last owner Stop closed and
+  starts one turn with a `[continue]` note. It returns `{"continued": true}`;
+  with no stopped turn it returns `{"continued": false}` and starts nothing.
+  A stopped turn can continue even when it already answered its person messages.
+  The stopped batch expires on the next person message or turn. A running turn
+  returns `{"continued": false, "reason": "busy"}`. Home offers Continue in the
+  Stop button's place after an accepted Stop.
+- `chief.retry {message: "ID"}` reopens and re-answers that owner's message in
+  this Chief conversation, with a `[retry]` note naming it. Existing replies
+  stay in the conversation. It returns `{"retried": true}`, or
+  `{"retried": false, "reason": "busy"}` while a turn runs or waits to start.
+  Unknown, retracted, other-person and other-conversation messages are refused
+  with `reason: "invalid_message"`; a disconnected conversation owner returns
+  `reason: "unavailable"`. Home's Retry Reply menu action on delivered own
+  messages uses this method; Not Delivered's Try Again still retries sending.
+  Both methods use the same owner-only daemon control boundary as `chief.stop`.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
@@ -601,11 +618,18 @@ byte-identical across turns. The request the model gets is not fully ours:
   on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) for 2 days
-  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
-  and the session directory's project settings); on claude-sr the
-  transcripts are under `~/.claude/projects/`, and whether a project-level
-  `cleanupPeriodDays` governs that sweep is not checked.
+  Each turn's transcript (the whole view) is kept for 2 days: Claude Code's
+  `cleanupPeriodDays` in the isolated configuration, and the host's
+  TurnRetention (`turn_retention.rs`), which prunes exactly the turn
+  project (and the compactor's slot projects a crash left, after 1 day) in
+  the user's Claude home. No Chief project settings file (turn, subagent,
+  compactor slot) sets `cleanupPeriodDays`: Claude Code reads it from the
+  merged settings and its sweep walks every project of the store the
+  session runs on, which for these sessions is the user's own
+  `~/.claude`, so a project-level 2 deleted the user's other chats'
+  transcripts (checked against Claude Code 2.1.312; cmux#27740's
+  investigation). `tests/harness.rs`
+  `chief_project_settings_never_set_the_stores_retention` holds it.
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
@@ -1222,6 +1246,7 @@ all chief approvals. chief should never have to ask for approvals"):
 | One that reads the Home workspace block (the host reads it on every turn) | the configured one |
 | One a paired device of the owner started | the configured one |
 | Another person wrote in it (a shared Chief, a channel), or it reads the report of a subagent spawned under such a turn | `ask`, and the host refuses every local effect at once |
+| Another agent wrote it: `cmux chief -p`, `cmux chief send` or `cmux chief acp` run by an acpmux session (its `client_msg_id` names the session, `cmux_conversation::agent_sender`; the text shows `[from NAME]`), or an acpmux session's answer to the Chief's `tell(id: "session:NAME")` | `ask`, as for another person |
 
 History: Lawrence added the device gate on 2026-10-05 (0654733226a, default
 ask), made auto-approve the default on 2026-10-06 (8f1b5b9c65b, "i dont want
@@ -1240,7 +1265,9 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   `sleep`, `spawn` (its children take the floor), `send` without
   attachments, `profile` reads (`history` or no field), and `control`
   `status`, `interrupt` with no message and `answer` with `deny`, plus a
-  `tell` or `control` to a subagent that runs with `ask` itself. Plain
+  `tell` or `control` to a subagent that runs with `ask` itself, `control
+  sessions`, and a `tell` to `session:NAME` when the turn carries NAME's own
+  message (it answers that agent, never starts a talk with another). Plain
   replies need nothing.
 - Refused: everything else (a shell command, a file write or edit, computer
   use, a `send` with attachments, a `profile` write or undo, a `tell` or

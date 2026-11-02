@@ -22,6 +22,7 @@ impl WorkspaceRegistry {
         resource_result: &Value,
         resource_deltas: &Value,
         workspace_close: Option<&ResourceWorkspaceClose>,
+        restates_all: bool,
     ) -> anyhow::Result<TerminalResourceCloseCommit> {
         const OPERATION: &str = "terminal.close";
 
@@ -127,7 +128,7 @@ impl WorkspaceRegistry {
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
         drop(db);
-        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
+        self.record_public_fold(previous_revision, revision, &resource_deltas, restates_all);
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource, workspace_revision })
     }
 }

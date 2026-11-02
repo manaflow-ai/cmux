@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
+import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
@@ -7,10 +8,12 @@ import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import type { ProjectRepo } from "./projectRepos";
+import { chooserRows, type ProjectRepo } from "./projectRepos";
+import { machineColor } from "./machineColor";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
-/// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
+/// its row carries the machine's computer, in the machine's own color, and its name, and a pick
+/// starts the chat there. `repo` is the
 /// folder's repository as this Mac's host read it (projectRepos.ts).
 export type Project = {
   cwd: string;
@@ -27,7 +30,7 @@ const NO_PROJECT_KEY = "\u0000none";
 const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
-/// projects the user has chats in, newest first. Picking one other than the current
+/// projects the user has chats in, newest first, one row per repository. Picking one other than the current
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
@@ -54,7 +57,7 @@ export function ProjectChooser({
   currentLabel?: string;
   icon: React.ReactNode;
   onPick(cwd: string, peer?: string): void;
-  onBrowse?(): void;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onNoProject?(): void;
   /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
   noProject?: boolean;
@@ -73,13 +76,12 @@ export function ProjectChooser({
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
 
-  const shown = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return projects.filter((project) => {
-      const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
-      return words.every((word) => text.includes(word));
-    });
-  }, [projects, query]);
+  // One row per repository; a lane's worktree or a scratch folder only when the search names it
+  // (projectRepos.ts chooserRows).
+  const shown = useMemo(
+    () => chooserRows(projects, query, currentPeer ? undefined : current),
+    [projects, query, current, currentPeer],
+  );
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
     if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });
@@ -206,8 +208,12 @@ export function ProjectChooser({
               if (key === ADD_PROJECT_KEY)
                 return (
                   <>
-                    <PlusIcon />
-                    <span>{t("project.new")}</span>
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      <PlusIcon />
+                    </span>
+                    <span className="acpmux-menu-text">
+                      <span className="acpmux-menu-label">{t("project.new")}</span>
+                    </span>
                   </>
                 );
               const row = rowsByKey.get(key);
@@ -216,14 +222,22 @@ export function ProjectChooser({
               const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
               return (
                 <>
-                  {project ? <ProjectBadge project={project} /> : row ? <NoProjectIcon /> : icon}
+                  {project ? (
+                    <ProjectBadge project={project} />
+                  ) : (
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      {row ? <NoProjectIcon /> : icon}
+                    </span>
+                  )}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
-                    {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
+                    {project && !titledByPath(project) && (
+                      <span className="acpmux-menu-description" data-path={project.cwd} />
+                    )}
                   </span>
                   {project?.host && (
-                    <span className="acpmux-project-host">
-                      <GlobeIcon />
+                    <span className="acpmux-project-host" data-peer={project.peer}>
+                      <MachineIcon name={project.peer ? project.host : undefined} />
                       <span>{project.host}</span>
                     </span>
                   )}
@@ -254,21 +268,34 @@ export function ProjectChooser({
   );
 }
 
-function GlobeIcon() {
+/// A folder the host names by its own path (a home folder has no project name): its title is
+/// already the path, so the row shows it once (Leo, ":( alignemnt").
+function titledByPath(project: Project) {
+  const trim = (path: string) => path.trim().replace(/(.)\/+$/, "$1");
+  return trim(project.label) === trim(project.cwd);
+}
+
+/// The machine a project is on: the computer the composer's chip and the environment list draw for
+/// it, in that machine's own color (machineColor), so each machine reads as itself instead of one
+/// globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
+/// this is a computer symbol. This is a computer symbol"). This Mac stays quiet.
+function MachineIcon({ name }: { name?: string }) {
   return (
     <svg
       className="acpmux-icon"
+      style={name ? { color: machineColor(name) } : undefined}
       width={12}
       height={12}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      <circle cx="8" cy="8" r="5.75" />
-      <path d="M2.25 8h11.5M8 2.25c-1.8 1.6-2.6 3.5-2.6 5.75S6.2 12.15 8 13.75M8 2.25c1.8 1.6 2.6 3.5 2.6 5.75S9.8 12.15 8 13.75" />
+      <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
+      <path d="M1.75 12.5h12.5" strokeLinecap="round" />
     </svg>
   );
 }

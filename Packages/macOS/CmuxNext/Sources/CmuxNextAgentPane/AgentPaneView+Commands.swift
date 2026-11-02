@@ -6,6 +6,12 @@ import Foundation
 extension AgentPaneView {
     /// Toggles Session Info through the same page callback as the header button.
     public func toggleSessionInfo() { send("toggleSessionInfo") }
+    /// Runs a header toggle the page offers now (``AgentPageCommand``, ``AgentPaneModel/pageCommands``).
+    public func run(_ command: AgentPageCommand) {
+        // A queued command belongs to this chat, even if the page selects another before delivery.
+        let value = "header:\(command.rawValue)|\(model.sessionId ?? "")"
+        deliver([.command(value)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\(JSONValue.string(value).compactText));"])
+    }
 
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
@@ -54,7 +60,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)
         send(command)
     }
 }

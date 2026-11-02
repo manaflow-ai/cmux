@@ -53,6 +53,20 @@ public final class AgentPaneGitLink {
         }
     }
 
+    /// Typed command `request` on the read connection, with its own deadline: a Cloud machine's
+    /// `fs.*` reads and writes for a file page (#25581), kept off the control connection as the git
+    /// reads are. Throws `DaemonError.notConnected` when the link does not open (nothing was
+    /// sent), else the command's own `DaemonError`.
+    public func request<R: DaemonRequest>(_ request: R, timeout: Duration) async throws -> R.Response {
+        let connection: DaemonConnection
+        do {
+            connection = try await self.connection()
+        } catch {
+            throw DaemonError.notConnected
+        }
+        return try await connection.request(request, timeout: timeout)
+    }
+
     /// A whole diff, status or search result can be megabytes of JSON: encoded off the main actor.
     @concurrent private nonisolated static func encode(_ result: JSONValue) async throws -> Data {
         try JSONEncoder().encode(result)

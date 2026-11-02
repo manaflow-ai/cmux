@@ -45,7 +45,7 @@ struct ChiefSubagentTabsAfterAppAcpmuxMoveTests {
         let old = "01a1201b-d3c3-7be1-8c40-1f1cbc87b8dc"
         try FileManager.default.createDirectory(at: home.acpmuxHome.appendingPathComponent("sessions/\(old)", isDirectory: true),
                                                 withIntermediateDirectories: true)
-        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), ensureHost: {}, startHost: { false },
+        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), daemons: AcpmuxLocalDaemons(), ensureHost: {}, startHost: { false },
                                     ownHost: { _ in NamedHost(name: "chief-own") })
 
         #expect(await reached(chief.paneHost, session: old) == "chief-own")

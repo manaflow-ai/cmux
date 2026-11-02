@@ -28,7 +28,7 @@
 //! answered from the ledger with the first run's outcome, and its own copy is deleted ([`Saved`]).
 //!
 //! No cap: an inline message is one JSON-RPC message on every hop (CLI, outbox record, peer link,
-//! agent), at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so the senders go by reference before that.
+//! agent), at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so the senders go by reference before that.
 //! [`check_wire`] answers a raw protocol sender whose inline request would not fit one message on
 //! the next hop, rather than let a hop drop it.
 
@@ -712,7 +712,7 @@ mod tests {
         assert!(!fits_inline(&[INLINE_FILE_BYTES + 1], "big"));
         assert!(!fits_inline(&[1; INLINE_FILES + 1], "many"));
         assert!(!fits_inline(&[3 << 20, 3 << 20, 3 << 20, 3 << 20], "together"));
-        assert!(!fits_inline(&[3 << 20], &"x".repeat(12 << 20)), "with its text");
+        assert!(!fits_inline(&[3 << 20], &"x".repeat(28 << 20)), "with its text");
         // Every message the senders put inline fits one JSON-RPC message.
         let most = [INLINE_TOTAL_BYTES / 4; 4];
         assert!(fits_inline(&most, "t"));
@@ -722,12 +722,14 @@ mod tests {
 
     #[test]
     fn a_message_too_big_for_one_frame_is_refused() {
-        let half = vec![0u8; (10 << 20) / 2];
+        // Two 11 MiB files fit below 31 MiB once encoded; the extra 2 MiB metadata pushes the
+        // complete request over the transport limit.
+        let half = vec![0u8; 11 << 20];
         let mut request = json!({"prompt": [block("a.bin", &half), block("b.bin", &half)]});
         assert!(check_wire(&request).is_ok());
         request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
         let refused = check_wire(&request).unwrap_err();
-        assert!(refused.message.contains("15 MiB"), "{refused}");
+        assert!(refused.message.contains("31 MiB"), "{refused}");
     }
 
     #[tokio::test]

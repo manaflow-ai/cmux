@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { initials as appInitials } from "../src/pages/apps/model";
 import { graphemePrefix, initials } from "../src/ui/initials";
 
 test("flag initials keep the complete flag with grapheme support", () => {
@@ -49,4 +50,13 @@ test("initials import when Intl.Segmenter construction throws", async () => {
   }
   expect(fallback.initials("🦊 Fox")).toBe("🦊F");
   expect(fallback.graphemePrefix("𠮷田", 1)).toBe("𠮷");
+});
+
+test("App Store fallback icons keep whole characters (cmuxterm-hq#4380)", () => {
+  expect(appInitials("😀 Apps")).toBe("😀A");
+  expect(appInitials("𠮷 Tools")).toBe("𠮷T");
+  expect(appInitials("A😀")).toBe("A😀");
+  expect(appInitials("GitHub PRs")).toBe("GP");
+  expect(appInitials("Caffeinate")).toBe("CA");
+  expect(appInitials("   ")).toBe("?");
 });

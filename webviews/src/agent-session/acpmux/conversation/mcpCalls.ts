@@ -6,7 +6,16 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { envelopeImages, losesNumbers, oneLine, peelEnvelope, printable, toolResult } from "./toolResult";
+import {
+  envelopeImages,
+  formatToolText,
+  losesNumbers,
+  oneLine,
+  peelEnvelope,
+  printable,
+  toolResult,
+} from "./toolResult";
+import { stripAnsi } from "./toolOutput";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -357,6 +366,13 @@ export function prettyOutput(output: string | undefined, strip = false): string 
   // each other part as the JSON it is, never cleaned or parsed again (toolResult.ts).
   if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
   return prettyValue(mcpValue(output));
+}
+
+/// The response as both its readable body and Find see it. Keep the MCP reader's recursive
+/// context cleaning, then remove terminal controls and classify without peeling its text again.
+export function mcpOutputResult(output: string | undefined, strip: boolean, name: string) {
+  const text = prettyOutput(output, strip);
+  return text ? formatToolText(stripAnsi(text), { title: name }) : undefined;
 }
 
 function flat(value: unknown): string | undefined {

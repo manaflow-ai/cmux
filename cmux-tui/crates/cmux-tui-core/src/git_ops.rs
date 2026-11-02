@@ -18,6 +18,7 @@ mod checkpoint;
 mod commit;
 mod commit_args;
 mod diff;
+mod diff_pages;
 mod files;
 mod journal;
 mod list;

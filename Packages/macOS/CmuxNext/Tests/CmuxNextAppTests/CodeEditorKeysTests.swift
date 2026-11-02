@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -13,7 +14,7 @@ import WebKit
 /// focus inside the editor: Ghostty's own default keybinds (`super+d=new_split:right`,
 /// `super+alt+down=goto_split:down`) won after cmux's defaults stepped aside; Cmd-[ / Cmd-] (outdent,
 /// indent) were consumed as browser-only Back / Forward.
-@MainActor @Suite struct CodeEditorKeysTests {
+@MainActor @Suite(.closesItsWindows) struct CodeEditorKeysTests {
     static let bound: [ActionID] = [
         "splitRight", "splitDown", "openBrowser", "focusUp", "focusDown", "focusLocation", "browserBack", "browserForward",
         "focusHistoryBack", "focusHistoryForward", "toggleChecklistItemComplete", "toggleSplitZoom", "quit",

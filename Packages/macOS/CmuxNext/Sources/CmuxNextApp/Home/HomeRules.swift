@@ -32,7 +32,8 @@ enum HomeRules {
         return isHome(window.state.workspaceID.flatMap(services.workspace(id:))) ? RefusalStrings.homeNotClosable : nil
     }
 
+    /// The store's home workspace, or a window's own Home (cmux#27880), which closes only with its window.
     static func isHome(_ workspace: WorkspaceModel?) -> Bool {
-        workspace?.kind == SidebarMapping.homeKind
+        workspace?.isAnyHome == true
     }
 }
