@@ -248,7 +248,7 @@ fn parse(args: &[String]) -> Option<Command> {
         (Some(head), Some(index), Some(work))
             if [&head, &index, &work].iter().all(|sha| sync_cli::is_sha(sha)) =>
         {
-            Some(SeedBase { head, index, work })
+            Some(SeedBase { head, index, work, stash: None, stash_known: false })
         }
         _ => return None,
     };
