@@ -31,13 +31,19 @@ struct CmuxMobileApp: App {
         _auth = State(initialValue: auth)
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
+        #if DEBUG
+        // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
+        LiveFeedFixture.shared.startIfRequested()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
             #if DEBUG
-            if TerminalFloodBenchRoot.isRequested {
+            if BrowserEventsDemoRoot.isRequested {
+                BrowserEventsDemoRoot()
+            } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()

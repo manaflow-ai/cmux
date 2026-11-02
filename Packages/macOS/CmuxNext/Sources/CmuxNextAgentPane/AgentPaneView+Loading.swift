@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextWakeups
 import os
 
@@ -171,15 +172,18 @@ public final class AgentPaneLoadingView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if !fades || !overImage { page.alphaValue = 1 }
+        PageWebView.syncChromiumVisibility(in: page)
         CATransaction.commit()
         guard fades else { return left(page) }
         Motion.home.animate(.fadeIn, in: self, {
             if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
+            PageWebView.syncChromiumVisibility(in: page)
         }, completion: { [weak self, weak page] in self?.left(page) })
     }
 
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
+        if let page { PageWebView.syncChromiumVisibility(in: page) }
         leaving = false
         #if DEBUG || CMUX_BENCH_HOOKS
         // Still in its pane: the pane's trace takes it.
@@ -252,7 +256,8 @@ extension AgentPaneView {
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
-        loadingView.paint(AgentPaneTheme.underPageColor(tokens, surface: surfaceKind).nsColor)
+        // In this view's scope: over its workspace's picture the loading state stays clear (#28867).
+        loadingView.paint(performWithTheme { AgentPaneTheme.underPageColor(tokens, surface: surfaceKind) }.nsColor)
     }
 }
 

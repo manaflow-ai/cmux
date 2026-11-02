@@ -22,6 +22,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var machineConfigPath: String?
     /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
     public var repo: CloudMachineRepo?
+    /// The chat's pick (``CloudWorkPick/autosize``): the server sizes the machine for the task
+    /// unless ``memoryMb`` names a size. Not a request option of its own (``isDefault``): a bare
+    /// create from a chat still takes the plain path, sized for that chat.
+    public var autosize: CloudAutosizeRequest?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
@@ -30,6 +34,13 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// The team the first send went to (`X-Cmux-Team-Id`): the key is scoped per team, so every
     /// retry, and the bootstrap and idle-pause calls on the machine, go to this team.
     public var team: String?
+    /// The approval request this create's key was answered with: a Retry while the approved create
+    /// still runs waits for it instead of answering a request that is already closed.
+    public var approvedRequest: String?
+    /// The approval request an attempt with this key began answering (set before the answer goes out):
+    /// a Retry after that attempt was cancelled mid-answer may find the request running, its feed item
+    /// closed, and waits for it like an answered one.
+    public var answeringRequest: String?
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?

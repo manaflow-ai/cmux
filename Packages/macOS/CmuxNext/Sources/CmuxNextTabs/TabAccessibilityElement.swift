@@ -11,8 +11,9 @@ import os
 nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
     nonisolated(unsafe) var onClose: (@MainActor () -> Void)?
-    /// "Mute tab" or "Unmute tab" and its handler while the tab shows a speaker (`updateAccessibility`).
-    nonisolated(unsafe) var audioAction: (name: String, run: @MainActor () -> Void)? // crash-allow: set in updateAccessibility and read in accessibilityCustomActions, both on the main thread only (onMain guard), as onClose
+    /// The tab's badge actions and their handlers (`updateAccessibility`): "Mute tab" or "Unmute tab"
+    /// while it shows a speaker, "Exit Zoom" while it shows a zoomed pane's indicator.
+    nonisolated(unsafe) var badgeActions: [(name: String, run: @MainActor () -> Void)] = [] // crash-allow: set in updateAccessibility and read in accessibilityCustomActions, both on the main thread only (onMain guard), as onClose
     /// VoiceOver moved its focus onto (true) or off (false) this element.
     nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
     /// The tab's x as a pressable child: its press runs ``onClose``. It is a child while the tab
@@ -53,8 +54,7 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard Self.onMain("custom actions") else { return nil }
-        var named: [(name: String, run: @MainActor () -> Void)] = []
-        if let audioAction { named.append(audioAction) }
+        var named = badgeActions
         if let onClose { named.append((MainActor.assumeIsolated { Strings.axClose }, onClose)) } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
         guard !named.isEmpty else { return nil }
         return named.map { action in
@@ -92,6 +92,7 @@ extension TabCell {
         if let presence = item.presence { parts.append(presence.summary) }
         if let audio = item.audio { parts.append(audio == .muted ? Strings.axMuted : Strings.axPlayingAudio) }
         if let theme = item.themeBadge { parts.append(Strings.axTheme(theme.name)) }
+        if showsZoom { parts.append(Strings.axZoomed) }
         switch item.status {
         case .needsInput: parts.append(item.blockedKind.flatMap { StatusIndicatorState.waiting(kind: $0).shortLabel } ?? Strings.axNeedsInput)
         case .success: parts.append(Strings.axSuccess)
@@ -102,9 +103,11 @@ extension TabCell {
         accessibility.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue)")
         accessibility.closeButton.setAccessibilityLabel(Strings.axClose)
         accessibility.closeButton.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue).close")
-        accessibility.audioAction = item.audio.flatMap { audio in
-            accessibilityToggleAudio.map { (audio == .muted ? Strings.unmuteTab : Strings.muteTab, $0) }
+        let audioAction = item.audio.flatMap { audio in
+            accessibilityToggleAudio.map { (name: audio == .muted ? Strings.unmuteTab : Strings.muteTab, run: $0) }
         }
+        let zoomAction = showsZoom ? accessibilityToggleZoom.map { (name: Strings.exitZoom, run: $0) } : nil
+        accessibility.badgeActions = [audioAction, zoomAction].compactMap(\.self)
         accessibility.setAccessibilityValue(isSelected ? 1 : 0)
         accessibility.setAccessibilityHelp([item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", "))
     }
@@ -116,9 +119,16 @@ extension TabCell {
     func setCloseButtonRect(_ drawn: CGRect?, pill: CGRect) {
         closeButtonRect = drawn
         let m = metrics, side = m.closeButtonSize
-        let hoverRect = item.isClosable && !item.isPinned && visibility != .hidden
-            ? CGRect(x: pixel(pill.width - m.contentTrailingInset - side), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
-            : nil
+        // Point the hidden accessibility child where the close glyph will
+        // actually appear on hover, including the centered narrow swap.
+        // A pinned, protected or transition-hidden tab has no close child: a
+        // pinned tab closes from its menu (Lawrence msg 19392).
+        let hover = TabChromeVisibility.resolve(
+            width: layer.bounds.width, isPinned: item.isPinned, isSelected: isSelected,
+            isHovered: true, isClosable: item.isClosable, style: style, metrics: m)
+        let hoverRect = hover.closeButtonOriginX(pillWidth: pill.width, metrics: m).map { x in
+            CGRect(x: pixel(x), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
+        }
         let rect = drawn ?? hoverRect
         guard let rect else { return accessibility.closeButton.setAccessibilityFrameInParentSpace(.zero) }
         let height = layer.bounds.height

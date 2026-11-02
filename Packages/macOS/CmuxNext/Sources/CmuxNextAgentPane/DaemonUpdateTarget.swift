@@ -20,7 +20,8 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` it updates mid-turn too:
     /// the restarted daemon resumes what it interrupted. The policy asks so from the first ask
     /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero by default). It also answers
-    /// `busy` when it cannot update now, such as an unreachable machine or another update running.
+    /// `busy` when it cannot update now, such as another update running, and
+    /// ``DaemonUpdateOutcome/unreachable`` when the machine cannot be reached.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
     /// its build is unknown, ahead of every other waiting target and without waiting out another
@@ -46,6 +47,9 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
     /// running); nothing changed. The policy asks again later.
     case busy
+    /// The machine could not be reached (offline); nothing changed. Like ``busy`` the policy asks
+    /// again later, and also once it connects again; never a failure or a toast.
+    case unreachable
     /// No binary for its platform (`target`, a Rust triple) could be found; nothing changed. The
     /// next launch asks again.
     case needsBinary(target: String)
@@ -139,6 +143,9 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         /// non-zero ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, not idle yet): the policy
         /// asks again with backoff.
         case retrying
+        /// The machine is offline (``DaemonUpdateOutcome/unreachable``): it updates once it is back.
+        /// One quiet line, never a toast.
+        case offline
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)
@@ -172,3 +179,26 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, notify: notify, build: build)
     }
 }
+
+#if DEBUG
+nonisolated extension DaemonUpdateEvent.State {
+    /// The state names `debug.daemon_update` takes (its `state`), in this order.
+    public static let fixtureNames = ["updating", "retrying", "offline", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
+
+    /// The state named `name` (one of ``fixtureNames``): `reason` for a failure (for `cannot_update`,
+    /// the whole line), `build` for an update. Nil for another name.
+    public init?(fixtureName name: String, reason: String, build: String) {
+        switch name {
+        case "updating": self = .updating
+        case "retrying": self = .retrying
+        case "offline": self = .offline
+        case "updated": self = .updated(build: build)
+        case "failed": self = .failed(reason: reason, rolledBack: false)
+        case "rolled_back": self = .failed(reason: reason, rolledBack: true)
+        case "cannot_update": self = .cannotUpdate(reason: reason)
+        case "cleared": self = .cleared
+        default: return nil
+        }
+    }
+}
+#endif

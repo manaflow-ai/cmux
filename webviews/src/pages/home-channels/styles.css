@@ -368,6 +368,7 @@ body,
   transition: opacity var(--cmux-motion-quick) ease-out;
 }
 .hc-msg:hover .hc-msg-actions,
+.hc-msg:has([data-popup-open]) .hc-msg-actions,
 .hc-msg:focus-within .hc-msg-actions,
 .hc-msg-actions.pinned {
   opacity: 1;
@@ -765,6 +766,15 @@ body,
 }
 .hc-gate-error {
   color: var(--hc-danger);
+}
+/* A connect that lasted past the grace (DaemonGate.tsx): one quiet muted line, no title. */
+.hc-gate-line {
+  display: block;
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
 }
 /* The field's right-click menu host adds no box of its own. */
 .hc-composer-field-menu {

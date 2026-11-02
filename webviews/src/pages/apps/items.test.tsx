@@ -78,7 +78,8 @@ test("the state badge says Installed or Disabled, and nothing before install", (
 test("the action is Install, Remove, or Hide/Show for an app that ships with cmux", () => {
   const action = (overrides: Partial<CatalogApp>) =>
     renderToStaticMarkup(<ItemAction app={app(overrides)} store={store} strings={strings} />);
-  expect(action({})).toContain(`apps-button primary">${en["store.action.install"]}<`);
+  expect(action({})).toContain('class="apps-button primary"');
+  expect(action({})).toContain(`>${en["store.action.install"]}<`);
   expect(action({ installed: true })).toContain(`>${en["store.action.remove"]}<`);
   expect(action({ installed: true, tier: "first-party" })).toContain(`>${en["store.action.hide"]}<`);
   expect(action({ installed: true, hide_only: true, hidden: true })).toContain(`>${en["store.action.show"]}<`);

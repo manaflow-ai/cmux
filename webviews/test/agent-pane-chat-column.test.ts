@@ -370,7 +370,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
-    const columns: Record<number, { main: number; row: number[]; composer: number[] }> = {};
+    const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
       const page = await open(chat, width);
       columns[width] = await page.evaluate(() => {
@@ -379,15 +379,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           const box = document.querySelector(selector)!.getBoundingClientRect();
           return [Math.round(box.left - main.left), Math.round(main.right - box.right)];
         };
+        // The column's minimum edge as the pane draws it (conversation.css --cv-edge, the grid's 16).
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;visibility:hidden;width:var(--cv-edge)";
+        document.querySelector(".acpmux-main")!.append(probe);
+        const edge = Math.round(probe.getBoundingClientRect().width);
+        probe.remove();
         return {
           main: Math.round(main.width),
           row: edges(".acpmux-row.acpmux-assistant"),
           composer: edges(".acpmux-composer-box"),
+          edge,
         };
       });
       await page.close();
     }
-    const pageEdge = 18;
+    // The minimum edge is the grid's 16 (leo-workspace design/grid.md 5.5: "the minimum edge is 16
+    // (today's 18 moves to it)"; #27580 set --cv-edge to it), read from the pane's own token.
+    const pageEdge = columns[480]!.edge;
+    expect(pageEdge).toBe(16);
     const column = (viewport: number) => {
       const { main, row } = columns[viewport]!;
       return main - row[0]! - row[1]!;

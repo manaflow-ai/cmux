@@ -1,0 +1,844 @@
+name: cmux NEXT Stable
+
+# cmux NEXT Stable: once a night, the newest cmux NEXT nightly build, gated harder, re-signed as its
+# own app and published to its own feed (scripts/ci/stable_next.py has the whole contract; docs/ci/stable-next.md).
+#
+#   app    cmux NEXT Stable, com.cmuxterm.app.nightly.cmux-next-stable, regular cmux icon,
+#          sign-in scheme cmux-next-stable (scripts/ci/stable-next-identity.sh)
+#   feed   https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml, bucket cmux-nightly-next,
+#          the cmux NEXT Sparkle key; every item tagged cmux-next-stable; the feed keeps 3 builds
+#   when   a scheduled tick every hour from 21:00 to 06:59 America/Los_Angeles dispatches one publish
+#          run on nightly-next (release-next holds the signing, notary, Sparkle and R2 secrets and
+#          deploys only there), until a stable build is published that night or 3 runs failed
+#
+# Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
+#   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
+#   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
+#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
+#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
+#                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
+#   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
+#                 launch, then a first session (terminal echo, split, Chromium and WebKit pages,
+#                 palette, Settings, sidebar, close, Home, quit), scripts/ci/stable_next_ui_journey.py
+#   smoke-26      the same UI tests on Blacksmith macOS 26 (the basic sanity on 26)
+#   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
+#                 and Sentry saw no new unhandled issue first seen in its release
+# Runners (no M6 mini; every owned macOS job also refuses an M6 chip at its first step):
+#   swift-suites, perf-budgets  attempt 1: glaeda-gui-std (owned M4 Pro, macOS 27, console session), the
+#                 route cmux-next.yml's swift test takes; a re-run: Blacksmith macOS (perf-budgets fails
+#                 closed there: its only baseline is apple-m4-pro-macos27). The gateway label admits
+#                 only its listed cmux-ci client jobs, and the controller does not trust a CI tailnet tag.
+#   smoke-27      attempt 1: glaeda-gui-std (the owned M4 Pro GUI pool with a console session that
+#                 cmux-next's own UI suites use); a re-run takes Blacksmith, where its macOS 27 check
+#                 fails it. ci-owned-pool-rescue does not watch this workflow (main lists it unrescued):
+#                 main's tick cancels a run with a job waiting over 90 min, and the next tick starts fresh.
+#   sign          a publish run: Blacksmith macOS 26, so the Developer ID certificate, notary key and
+#                 Sparkle key never reach an owned Mac; a dry run (ad hoc, no secret): the GUI pool
+#                 on attempt 1, else Blacksmith
+#   smoke-26      Blacksmith macOS 26
+# The std side lane (CI_SIDE_LANE_RUNNER) is not used: PR side lanes fill it (54 queued on 2026-10-31).
+#
+# This workflow adds no job to any push, pull request or nightly run (repo rule: no new gates there).
+# It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
+# (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
+# publishes nothing; it needs no secret.
+#
+# Undo: stable-next-rollback.yml (bad_build / to_build), on nightly-next.
+# A schedule and a dispatch register only from the default branch, so this file is on main too;
+# there its only job is the tick.
+on:
+  schedule:
+    - cron: "5 4-14 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: publish (nightly-next only) or dry-run (gates and an ad-hoc signed copy; publishes nothing)
+        required: false
+        default: publish
+        type: choice
+        options: [publish, dry-run]
+      build:
+        description: The cmux NEXT feed build to promote (digits); empty takes the newest Nightly build
+        required: false
+        default: ''
+        type: string
+      force:
+        description: Run even when tonight's stable build is already published
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [stable-next-dry-run]
+
+permissions: {}
+
+# No run-level concurrency: a run holds the night's gates for hours, and a group would make a
+# rollback wait behind them, or a dispatch replace a pending rollback. The tick starts at most one
+# publish run at a time, and every feed write (publish, rollback) is a compare-and-swap on R2.
+
+env:
+  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  # The path keeps /nightly-next/: UpdateFeedResolver classifies the feed by it.
+  STABLE_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
+  STABLE_APPCAST: appcast-arm64.xml
+  STABLE_R2_BUCKET: cmux-nightly-next
+  STABLE_R2_PREFIX: nightly-next/stable/
+  # The nightly-next-guard.py name prefix every cmux NEXT download carries.
+  STABLE_DMG_PREFIX: cmux-nightly-next-macos-stable-arm64-
+  # The same pinned key as nightly.yml: stable ships the nightly's bits with their SUPublicEDKey.
+  NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+  MODE: ${{ github.event_name == 'push' && 'dry-run' || inputs.mode || 'publish' }}
+  STABLE_XCODE_APP: /Applications/Xcode_26.6.app
+
+jobs:
+  # main's copy, every hour of the night: dispatch one publish run on nightly-next.
+  tick:
+    if: github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # The tooling comes from nightly-next, where the publish run runs.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: nightly-next
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout-cone-mode: false
+
+      - name: Is this the night window
+        id: window
+        run: |
+          if [ ! -f scripts/ci/stable_next.py ]; then
+            echo "::notice title=cmux NEXT Stable::nightly-next has no stable tooling yet (scripts/ci/stable_next.py); no run tonight"
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 -I scripts/ci/stable_next.py window
+
+      - name: Was tonight's stable build published
+        id: tonight
+        if: steps.window.outputs.open == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
+            || : > "$RUNNER_TEMP/stable.xml"
+          python3 -I scripts/ci/stable_next.py published-tonight --stable "$RUNNER_TEMP/stable.xml" \
+            --night-start "${{ steps.window.outputs.night_start }}"
+
+      - name: Dispatch tonight's stable run
+        if: steps.window.outputs.open == 'true' && steps.tonight.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHT_START: ${{ steps.window.outputs.night_start }}
+        run: |
+          set -euo pipefail
+          # A run with a job that has waited for a runner over 90 minutes (an owned pool or the
+          # Blacksmith macOS lane not taking jobs) is cancelled, so it never holds the night; the next
+          # hourly tick dispatches a fresh run once the cancel has landed. It counts the job's own wait,
+          # not the run's age: a run is "queued" too while a later job waits briefly after hours of gates.
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&status=queued&per_page=20" \
+              --jq '.workflow_runs[].id'); do
+            stuck="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.status == "queued" and (now - (.created_at | fromdateiso8601)) > 5400)] | length')"
+            if [ "${stuck:-0}" -gt 0 ]; then
+              echo "::warning title=cmux NEXT Stable::run $id has a job waiting for a runner over 90 min; cancelling it"
+              gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+            fi
+          done
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&event=workflow_dispatch&created=%3E%3D$NIGHT_START&per_page=50" \
+            --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")]')"
+          active="$(jq '[.[] | select(startswith("completed") | not)] | length' <<<"$runs")"
+          failed="$(jq '[.[] | select(. == "completed:failure")] | length' <<<"$runs")"
+          echo "tonight's runs since $NIGHT_START: $runs"
+          if [ "$active" -gt 0 ]; then echo "a stable run is already queued or running"; exit 0; fi
+          if [ "$failed" -ge 3 ]; then
+            echo "::warning title=cmux NEXT Stable::$failed runs failed tonight; no more attempts until tomorrow night (see the 'cmux NEXT Stable blocked' issue)"
+            exit 0
+          fi
+          gh workflow run stable-next.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f mode=publish
+          echo "dispatched tonight's stable run on nightly-next"
+
+  plan:
+    if: github.event_name != 'schedule' && github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/nightly-next' || github.event_name == 'push' || inputs.mode == 'dry-run')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      build: ${{ steps.pick.outputs.build }}
+      short_version: ${{ steps.pick.outputs.short_version }}
+      url: ${{ steps.pick.outputs.url }}
+      length: ${{ steps.pick.outputs.length }}
+      minimum_system_version: ${{ steps.pick.outputs.minimum_system_version }}
+      commit: ${{ steps.commit.outputs.commit }}
+      matrix: ${{ steps.shards.outputs.matrix }}
+      go: ${{ steps.go.outputs.go }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Read the cmux NEXT and stable feeds
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
+            || echo '[]' > "$RUNNER_TEMP/pulled.json"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
+            || : > "$RUNNER_TEMP/stable.xml"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable-pulled.json" "$STABLE_FEED_BASE/pulled.json" \
+            || echo '[]' > "$RUNNER_TEMP/stable-pulled.json"
+
+      - name: Pick the candidate build
+        id: pick
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          args=()
+          [ -z "$BUILD" ] || args=(--build "$BUILD")
+          python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --stable "$RUNNER_TEMP/stable.xml" \
+            --pulled "$RUNNER_TEMP/pulled.json" --stable-pulled "$RUNNER_TEMP/stable-pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts" ${args[@]+"${args[@]}"}
+
+      # The commit the build was compiled from: nightly.yml's build_sha (the resolved cmux-tui tree,
+      # which can trail the run's head, or a recovered run's source), as its release notes record it
+      # (notes/<build>.json "head"). stable-next-identity.sh checks it against the bundle's own
+      # CMUXCommit, so a gate never vouches for another commit than the one shipped.
+      - name: Resolve the commit the build was compiled from
+        id: commit
+        env:
+          BUILD: ${{ steps.pick.outputs.build }}
+        run: |
+          set -euo pipefail
+          # nightly.yml publishes the notes a few minutes after the feed names the build (publish-release-notes
+          # follows publish-nightly), so a build picked right after it went live waits for them (run 41153970072).
+          curl -fsS --retry 20 --retry-delay 30 --retry-all-errors -A cmux-stable-next/1 \
+            -o "$RUNNER_TEMP/notes.json" "$NEXT_FEED_BASE/notes/$BUILD.json" \
+            || { echo "::error title=cmux NEXT Stable::notes/$BUILD.json is not published after 10 minutes"; exit 1; }
+          sha="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["build"] == sys.argv[2]; print(d["head"])' \
+            "$RUNNER_TEMP/notes.json" "$BUILD")"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$BUILD.json names no commit" >&2; exit 1; }
+          echo "commit=$sha" >> "$GITHUB_OUTPUT"
+          echo "build $BUILD was compiled from $sha"
+
+      - name: Shard the CmuxNext test targets
+        id: shards
+        env:
+          COMMIT: ${{ steps.commit.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$COMMIT"
+          git show "$COMMIT:Packages/macOS/CmuxNext/Package.swift" > "$RUNNER_TEMP/Package.swift"
+          python3 -I scripts/ci/stable_next.py test-shards --package "$RUNNER_TEMP/Package.swift" --shards 4
+
+      - name: Decide
+        id: go
+        env:
+          SKIP: ${{ steps.pick.outputs.skip }}
+          SKIP_REASON: ${{ steps.pick.outputs.skip_reason }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          go=true
+          if [ "$SKIP" = true ] && [ "$FORCE" != true ] && [ "$MODE" = publish ]; then go=false; fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          {
+            echo "### cmux NEXT Stable ($MODE)"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| build | ${{ steps.pick.outputs.build }} (${{ steps.pick.outputs.short_version }}) |"
+            echo "| commit | ${{ steps.commit.outputs.commit }} |"
+            echo "| canary verdict | ${{ steps.pick.outputs.verdict }} |"
+            echo "| runs | $go${SKIP_REASON:+ ($SKIP_REASON)} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  crash-class:
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      # This workflow's own copy of the delta tool: the candidate commit may predate it.
+      - name: Checkout the stable tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: .stable-tooling
+          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout-cone-mode: false
+      - name: Crash-class concurrency rules
+        run: scripts/ci/crash-class-gate.sh
+      - name: Crash-class rule tests
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -I tests/test_check_concurrency_generic_deinit.py
+          python3 -I tests/test_check_concurrency_pipe_reads.py
+      - name: Unrecognized-selector rule (super calls)
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/cmux-next/check-objc-selectors.py
+      - name: CEF Objective-C contract
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/cmux-next/check-cef-objc-contract.py
+      # The crash-class ratchet against the commit the stable feed serves: no new hit since the last
+      # stable build. (The whole-tree ratchet is red on feat-cmux-next itself, so it would block
+      # every night on debt the last stable build already shipped.) The first stable build has no
+      # base and is not blocked by it.
+      - name: No crash-class hit added since the last stable build
+        if: ${{ !cancelled() }}
+        env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
+            || : > "$RUNNER_TEMP/stable.xml"
+          served="$(grep -o -E '<sparkle:version>[0-9]+' "$RUNNER_TEMP/stable.xml" | sed 's/.*>//' | sort -n | tail -1 || true)"
+          if [ -z "$served" ]; then
+            echo "::notice title=cmux NEXT Stable::no stable build yet; the crash-class delta has no base"
+            exit 0
+          fi
+          base="$(curl -fsS --retry 3 -A cmux-stable-next/1 "$NEXT_FEED_BASE/notes/$served.json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$served.json names no commit" >&2; exit 1; }
+          git fetch --no-tags --depth=1 origin "$base" "$COMMIT"
+          mkdir -p "$RUNNER_TEMP/base-tree" "$RUNNER_TEMP/head-tree"
+          git archive "$base" | tar -x -C "$RUNNER_TEMP/base-tree"
+          git archive "$COMMIT" | tar -x -C "$RUNNER_TEMP/head-tree"
+          echo "stable serves $served ($base); candidate $COMMIT"
+          python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
+
+  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
+  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
+  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
+  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
+  swift-suites:
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    name: swift suites ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: This runner is not an M6 mini
+        run: |
+          chip="$(sysctl -n machdep.cpu.brand_string)"
+          echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
+          case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
+        env:
+          FILTERS: ${{ matrix.filters }}
+        run: |
+          set -uo pipefail
+          # One retry: one flaky suite does not lose the night; a suite red twice is red.
+          for attempt in 1 2; do
+            status=0
+            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
+            [ "$status" = 0 ] && exit 0
+            echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
+          done
+          exit "$status"
+
+  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh on an owned M4 Pro GUI mini
+  # (macOS 27): fails when a row's p95 is over 10 % above the apple-m4-pro-macos27 baseline.
+  perf-budgets:
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: This runner is not an M6 mini
+        run: |
+          chip="$(sysctl -n machdep.cpu.brand_string)"
+          echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
+          case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Perf budgets gate
+        run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
+      - name: Upload the perf report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stable-next-perf
+          path: artifacts/split-spring
+          if-no-files-found: ignore
+          retention-days: 3
+
+  sign:
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    # Publish runs sign with the release-next secrets; a dry run signs ad hoc with none.
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      dmg_sha256: ${{ steps.hand.outputs.dmg_sha256 }}
+      dmg_name: ${{ steps.hand.outputs.dmg_name }}
+    env:
+      BUILD: ${{ needs.plan.outputs.build }}
+      COMMIT: ${{ needs.plan.outputs.commit }}
+      SIGN: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'developer-id' || 'ad-hoc' }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Parse signing and notarize scripts with /bin/bash 3.2
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/stable-next.yml
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the nightly's DMG
+        env:
+          URL: ${{ needs.plan.outputs.url }}
+          LENGTH: ${{ needs.plan.outputs.length }}
+        run: |
+          set -euo pipefail
+          mkdir -p next-in
+          curl -fsSL --proto '=https' --retry 3 -A cmux-stable-next/1 -o "next-in/next.dmg" "$URL"
+          [ "$(stat -f %z next-in/next.dmg)" = "$LENGTH" ] || { echo "the DMG is not the feed's $LENGTH bytes" >&2; exit 1; }
+
+      # The notarize step's bundle notice check reads the build's own source tree.
+      - name: Check out the build's own source for the bundle checks
+        if: env.SIGN == 'developer-id'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$COMMIT"
+          # An owned Mac keeps its workspace between jobs while RUNNER_TEMP is emptied:
+          # drop an earlier job's build-src registration whose folder is gone.
+          git worktree prune
+          git worktree add --detach "$RUNNER_TEMP/build-src" "$COMMIT"
+          (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
+          bash scripts/ci/init-submodule.sh ghostty-next
+          echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        if: env.SIGN == 'developer-id'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.4"
+
+      - name: Install create-dmg
+        if: env.SIGN == 'developer-id'
+        run: |
+          CMUX_NODE_BIN="$(command -v node)"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@8.0.0"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Import signing cert
+        if: env.SIGN == 'developer-id'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
+      - name: Re-sign the build as cmux NEXT Stable
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.SIGN == 'developer-id' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          set -euo pipefail
+          EXPECTED_COMMIT="$COMMIT" STABLE_FEED_URL="$STABLE_FEED_BASE/$STABLE_APPCAST" EXPECTED_SPARKLE_PUBLIC_KEY="$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" \
+            ./scripts/ci/stable-next-identity.sh next-in/next.dmg "$BUILD" stable-app
+
+      - name: Notarize and staple the cmux NEXT Stable DMG
+        if: env.SIGN == 'developer-id'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # No bundle code runs where a signing secret exists; smoke-27 and smoke-26 launch it.
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+        run: |
+          set -euo pipefail
+          mkdir -p stable-out
+          : > "$RUNNER_TEMP/unused-helper-state"
+          # Overnight there is time to wait for Apple; a run still waiting fails and the next tick retries.
+          CMUX_CHANNEL=next-stable \
+          CMUX_NOTARY_WAIT_TIMEOUT=90m \
+          CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
+          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
+          CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/stable.notarization.state" \
+          CMUX_NOTARY_OUTPUT_FILE="$RUNNER_TEMP/stable.notarization.log" \
+            ./scripts/ci/notarize-nightly-dmg.sh "stable-app/cmux NEXT Stable.app" \
+              "stable-out/release.dmg" "stable-out/${STABLE_DMG_PREFIX}${BUILD}-${GITHUB_RUN_ID}.dmg"
+          codesign --verify --deep --strict --verbose=2 "stable-app/cmux NEXT Stable.app"
+          spctl -a -vv --type execute "stable-app/cmux NEXT Stable.app"
+          xcrun stapler validate "stable-app/cmux NEXT Stable.app"
+          xcrun stapler validate "stable-out/${STABLE_DMG_PREFIX}${BUILD}-${GITHUB_RUN_ID}.dmg"
+
+      - name: Package the ad-hoc dry-run DMG
+        if: env.SIGN == 'ad-hoc'
+        run: |
+          set -euo pipefail
+          mkdir -p stable-out
+          hdiutil create -volname "cmux NEXT Stable" -srcfolder "stable-app/cmux NEXT Stable.app" -ov -format UDZO \
+            "stable-out/${STABLE_DMG_PREFIX}${BUILD}-${GITHUB_RUN_ID}.dmg"
+
+      - name: Generate the Sparkle item
+        if: env.SIGN == 'developer-id'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          derived="$(printf '%s' "$SPARKLE_PRIVATE_KEY" | env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin)"
+          [ "$derived" = "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" ] || { echo "SPARKLE_NEXT_PRIVATE_KEY does not derive the pinned key" >&2; exit 1; }
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "stable-app/cmux NEXT Stable.app")"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          DOWNLOAD_URL_PREFIX="$STABLE_FEED_BASE/" \
+          RELEASE_NOTES_URL="https://github.com/manaflow-ai/cmux/releases/tag/nightly-next" \
+            ./scripts/sparkle_generate_appcast.sh "stable-out/${STABLE_DMG_PREFIX}${BUILD}-${GITHUB_RUN_ID}.dmg" nightly-next "stable-out/$STABLE_APPCAST"
+          ! grep -q 'sparkle:deltas' "stable-out/$STABLE_APPCAST" || { echo "the stable item must be a full archive" >&2; exit 1; }
+
+      - name: Hand the DMG to the smoke and publish jobs
+        id: hand
+        run: |
+          set -euo pipefail
+          name="${STABLE_DMG_PREFIX}${BUILD}-${GITHUB_RUN_ID}.dmg"
+          mkdir -p stable-signed
+          cp "stable-out/$name" stable-signed/
+          [ ! -f "stable-out/$STABLE_APPCAST" ] || cp "stable-out/$STABLE_APPCAST" stable-signed/
+          sha="$(shasum -a 256 "stable-signed/$name" | awk '{print $1}')"
+          { echo "dmg_sha256=$sha"; echo "dmg_name=$name"; } >> "$GITHUB_OUTPUT"
+          echo "### $name ($SIGN): sha256 $sha" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stable-next-signed
+          path: stable-signed/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Cleanup keychain
+        if: always() && env.SIGN == 'developer-id'
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
+
+  # The signed stable app from a fresh home, the way a first install launches it. macOS 27 on an
+  # owned M4 Pro mini; smoke-26 below is the same check on Blacksmith macOS 26.
+  smoke-27:
+    needs: [plan, sign]
+    if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      tested: ${{ steps.smoke.outputs.tested }}
+    steps:
+      - name: This runner is an M4 Pro mini on macOS 27
+        run: |
+          chip="$(sysctl -n machdep.cpu.brand_string)"; os="$(sw_vers -productVersion)"
+          echo "runner $RUNNER_NAME: $chip, macOS $os"
+          case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
+          [ "${os%%.*}" = 27 ] || { echo "::error::smoke-27 needs macOS 27, $RUNNER_NAME has $os"; exit 1; }
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/fresh_home_launch_smoke.py
+            scripts/ci/stable_next_ui_journey.py
+            scripts/ci/nightly_next_launch_smoke.py
+            scripts/ci/frame-pacing/console-session.sh
+            scripts/ci/lib/signing-runtime-guard.sh
+            scripts/ci/stable-next-smoke.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: stable-next-signed
+          path: stable-signed
+      - name: UI tests of cmux NEXT Stable (macOS 27)
+        id: smoke
+        env:
+          DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
+          EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
+          SIGNED: ${{ github.ref == 'refs/heads/nightly-next' && inputs.mode == 'publish' && 'true' || 'false' }}
+        run: bash scripts/ci/stable-next-smoke.sh
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stable-next-smoke-macos27
+          path: ${{ runner.temp }}/launch-smoke
+          if-no-files-found: ignore
+          retention-days: 3
+
+  smoke-26:
+    needs: [plan, sign]
+    if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      tested: ${{ steps.smoke.outputs.tested }}
+    steps:
+      - name: This runner is macOS 26
+        run: |
+          os="$(sw_vers -productVersion)"; echo "runner $RUNNER_NAME: $(sysctl -n machdep.cpu.brand_string), macOS $os"
+          [ "${os%%.*}" = 26 ] || { echo "::error::smoke-26 needs macOS 26, $RUNNER_NAME has $os"; exit 1; }
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/fresh_home_launch_smoke.py
+            scripts/ci/stable_next_ui_journey.py
+            scripts/ci/nightly_next_launch_smoke.py
+            scripts/ci/frame-pacing/console-session.sh
+            scripts/ci/lib/signing-runtime-guard.sh
+            scripts/ci/stable-next-smoke.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: stable-next-signed
+          path: stable-signed
+      - name: UI tests of cmux NEXT Stable (macOS 26)
+        id: smoke
+        env:
+          DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
+          EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
+          SIGNED: ${{ github.ref == 'refs/heads/nightly-next' && inputs.mode == 'publish' && 'true' || 'false' }}
+        run: bash scripts/ci/stable-next-smoke.sh
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stable-next-smoke-macos26
+          path: ${{ runner.temp }}/launch-smoke
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # Still on the feed, never pulled, no fail verdict, and no new crash in Sentry for its release.
+  soak:
+    needs: [plan, sign]
+    if: needs.plan.outputs.go == 'true'
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout-cone-mode: false
+      - name: The build is still on the cmux NEXT feed and was never pulled
+        env:
+          BUILD: ${{ needs.plan.outputs.build }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
+            || echo '[]' > "$RUNNER_TEMP/pulled.json"
+          python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts" --build "$BUILD" > /dev/null
+          echo "build $BUILD: on the feed, not pulled, no fail verdict"
+      - name: No new unhandled Sentry issue first seen in this release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          RELEASE: cmux-next@${{ needs.plan.outputs.short_version }}+${{ needs.plan.outputs.build }}
+          # warn (default): an unreadable Sentry warns; a new crash found always fails. enforce: an
+          # unreadable Sentry fails too (set it once the token's issue read is proven).
+          SENTRY_GATE: ${{ vars.STABLE_NEXT_SENTRY_GATE || 'warn' }}
+        run: |
+          set -uo pipefail
+          status=0
+          python3 -I scripts/ci/stable_next.py sentry-new-crashes --release "$RELEASE" | tee "$RUNNER_TEMP/sentry.md" || status=${PIPESTATUS[0]}
+          { echo "### Sentry: $RELEASE"; echo; cat "$RUNNER_TEMP/sentry.md"; } >> "$GITHUB_STEP_SUMMARY"
+          case "$status" in
+            0) exit 0 ;;
+            1) echo "::error title=cmux NEXT Stable::new unhandled Sentry issues in $RELEASE"; exit 1 ;;
+            *) if [ "$MODE" = dry-run ] || [ "$SENTRY_GATE" = warn ]; then
+                 echo "::warning title=cmux NEXT Stable::Sentry could not be read for $RELEASE (gate: ${SENTRY_GATE}, mode: $MODE)"
+                 exit 0
+               fi
+               echo "::error title=cmux NEXT Stable::Sentry could not be read for $RELEASE"; exit 1 ;;
+          esac
+
+  publish:
+    needs: [plan, crash-class, swift-suites, perf-budgets, sign, smoke-27, smoke-26, soak]
+    concurrency:
+      group: stable-next-publish-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: needs.plan.outputs.go == 'true' && !cancelled() && needs.crash-class.result == 'success' && needs.swift-suites.result == 'success' && needs.perf-budgets.result == 'success' && needs.sign.result == 'success' && needs.smoke-27.result == 'success' && needs.smoke-26.result == 'success' && needs.soak.result == 'success'
+    environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      BUILD: ${{ needs.plan.outputs.build }}
+      DMG_NAME: ${{ needs.sign.outputs.dmg_name }}
+      DMG_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
+      PUBLISH: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'true' || 'false' }}
+      NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+      NIGHTLY_NEXT_R2_PREFIX: nightly-next/stable/
+      NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: stable-next-signed
+          path: stable-signed
+      - name: Publish only the DMG both smokes tested
+        env:
+          TESTED_27: ${{ needs.smoke-27.outputs.tested }}
+          TESTED_26: ${{ needs.smoke-26.outputs.tested }}
+        run: |
+          set -euo pipefail
+          actual="$(shasum -a 256 "stable-signed/$DMG_NAME" | awk '{print $1}')"
+          for tested in "$TESTED_27" "$TESTED_26"; do
+            [ "$tested" = "$actual" ] || { echo "smoked $tested, publishing $actual: refused" >&2; exit 1; }
+          done
+          [ "$actual" = "$DMG_SHA256" ] || { echo "the DMG is not the one the sign job made" >&2; exit 1; }
+      - name: Dry run - compose the feed the publish would write
+        if: env.PUBLISH != 'true'
+        run: |
+          set -euo pipefail
+          length="$(stat -c %s "stable-signed/$DMG_NAME")"
+          cat > "$RUNNER_TEMP/new.xml" <<EOF
+          <?xml version="1.0" encoding="utf-8"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+              <channel>
+                  <title>cmux NEXT Stable</title>
+                  <item>
+                      <title>${{ needs.plan.outputs.short_version }}</title>
+                      <sparkle:version>$BUILD</sparkle:version>
+                      <sparkle:shortVersionString>${{ needs.plan.outputs.short_version }}</sparkle:shortVersionString>
+                      <sparkle:minimumSystemVersion>${{ needs.plan.outputs.minimum_system_version }}</sparkle:minimumSystemVersion>
+                      <enclosure url="$NIGHTLY_NEXT_FEED_BASE/$DMG_NAME" length="$length" type="application/octet-stream" sparkle:edSignature="dry-run"/>
+                  </item>
+              </channel>
+          </rss>
+          EOF
+          curl -fsS -A cmux-stable-next/1 -o "$RUNNER_TEMP/live.xml" "$NIGHTLY_NEXT_FEED_BASE/$STABLE_APPCAST" || : > "$RUNNER_TEMP/live.xml"
+          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" \
+            || { echo "::notice::the live stable feed already serves build $BUILD or newer; composing against an empty feed"
+                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST"; }
+          python3 -I scripts/ci/nightly-next-guard.py appcast "$RUNNER_TEMP/$STABLE_APPCAST"
+          { echo "### Dry run: the stable feed it would publish (nothing written)"; echo; echo '```xml'; cat "$RUNNER_TEMP/$STABLE_APPCAST"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the DMG and write the stable feed
+        if: env.PUBLISH == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash scripts/ci/stable-next-publish.sh
+      - name: Summary
+        if: env.PUBLISH == 'true'
+        run: |
+          {
+            echo "### cmux NEXT Stable $BUILD (${{ needs.plan.outputs.short_version }}) is live"
+            echo
+            echo "- feed: $NIGHTLY_NEXT_FEED_BASE/$STABLE_APPCAST"
+            echo "- download: $NIGHTLY_NEXT_FEED_BASE/$DMG_NAME"
+            echo "- commit: ${{ needs.plan.outputs.commit }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # One rolling issue: opened or updated when a publish run fails, closed by the next publish.
+  report:
+    needs: [plan, crash-class, swift-suites, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
+    if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the "cmux NEXT Stable blocked" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS: >-
+            plan=${{ needs.plan.result }} crash-class=${{ needs.crash-class.result }} swift-suites=${{ needs.swift-suites.result }}
+            perf-budgets=${{ needs.perf-budgets.result }} sign=${{ needs.sign.result }} smoke-27=${{ needs.smoke-27.result }}
+            smoke-26=${{ needs.smoke-26.result }} soak=${{ needs.soak.result }} publish=${{ needs.publish.result }}
+          BUILD: ${{ needs.plan.outputs.build }}
+          SHORT_VERSION: ${{ needs.plan.outputs.short_version }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          PUBLISHED: ${{ needs.publish.result == 'success' }}
+          ASSIGNEE: ${{ vars.STABLE_NEXT_OWNER || 'azooz2003-bit' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="cmux NEXT Stable blocked"
+          number="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          if [ "$PUBLISHED" = true ]; then
+            [ -z "$number" ] || gh issue close "$number" -R "$GITHUB_REPOSITORY" --comment "Published build $BUILD: $RUN_URL"
+            # Every published stable build is announced on one open issue; the owner is mentioned, so the
+            # first stable release (and every later one) reaches them as a GitHub notification.
+            log="cmux NEXT Stable releases"
+            releases="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$log\" in:title" --json number,title \
+              --jq "map(select(.title == \"$log\")) | .[0].number // empty")"
+            note="$(printf '@%s cmux NEXT Stable %s (build %s, commit %s) is live: https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml\n\nRun: %s' \
+              "$ASSIGNEE" "$SHORT_VERSION" "$BUILD" "$COMMIT" "$RUN_URL")"
+            if [ -z "$releases" ]; then
+              gh issue create -R "$GITHUB_REPOSITORY" --title "$log" --assignee "$ASSIGNEE" --body "$note"
+            else
+              gh issue comment "$releases" -R "$GITHUB_REPOSITORY" --body "$note"
+            fi
+            exit 0
+          fi
+          failed="$(tr ' ' '\n' <<<"$RESULTS" | grep -v -E '=(success|skipped)$' | grep . | paste -sd ' ' -)"
+          body="Build $BUILD (commit $COMMIT) did not ship: ${failed:-cancelled}. Run: $RUN_URL"
+          if [ -z "$number" ]; then
+            gh label create stable-next-blocked -R "$GITHUB_REPOSITORY" --color B60205 \
+              --description "cmux NEXT Stable could not publish" --force >/dev/null
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --label stable-next-blocked --assignee "$ASSIGNEE" \
+              --body "$(printf '%s\n\nThe nightly stable tick retries hourly until 07:00 Pacific, at most 3 failed runs a night. Undo a bad stable build with stable-next-rollback.yml.\n' "$body")"
+          else
+            gh issue comment "$number" -R "$GITHUB_REPOSITORY" --body "$body"
+          fi

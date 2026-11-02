@@ -1,5 +1,14 @@
 # Lane: daemon-protocol
 
+## 2026-10-27 computer use v2 target guard (uncommitted)
+
+The Swift helper checks all explicit app targets before invoking Cua Driver. The acpmux bridge
+carries `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` as the `allowed_target_bundle_ids` envelope field,
+outside model tool arguments. Legacy exact scope rules apply: tagged cmux DEV builds and terminals
+can be unlocked; release cmux, the driver and security apps cannot. Desktop input needs an explicit
+target. PID, window and app-name resolution fail closed. PL-acpmux owns the bridge area.
+Unit tests and the bridge scope regression are written but not run, per the task's local build ban.
+
 ## Active streams
 - 2026-10-26 chat-multiplayer (PL-daemon handoff: REPORT.md): agents proxy checks per-surface shares and daemon generation; same-user proxy-bind fixes WhoIs author. Consent is CLI TTY only in this slice; no MCP or app action.
 - 2026-10-20 remote service authority (security audit): every remote auth grant now carries an immutable explicit service set, copied into the logical client connection, required to match across physical lanes and reconnects, and checked before `ServiceControl::Open` reaches a handler. Existing grants retain exactly the six services present at landing; future services default to denied until a tier explicitly includes them. The remote-transport plan makes this gate a completed prerequisite to catalog, transcript/ACP, media and later identity tiers. No wire format, user-facing string, action, setting or focus behavior changed.

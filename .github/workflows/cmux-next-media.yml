@@ -127,6 +127,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false

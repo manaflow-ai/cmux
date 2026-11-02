@@ -33,6 +33,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import nightly_text  # noqa: E402  (moved step scripts put back inline)
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 BACKGROUND = ROOT / "scripts/ci/background_build.py"
@@ -62,7 +65,7 @@ INPUTS_JOB = "build-nightly-inputs"
 class WorkflowStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cls.jobs = yaml.safe_load(nightly_text())["jobs"]
         cls.app = cls.jobs["build-nightly-app"]
         cls.names = [step.get("name", "") for step in cls.app["steps"]]
 

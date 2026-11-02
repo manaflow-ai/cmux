@@ -1,3 +1,5 @@
+import { userScrollIntent } from "./conversation/userScroll";
+
 /// cmux:// links the page copies (the deep links contract). The host hands over this build's URL
 /// scheme in the handshake (`linkScheme`, with the other bootstrap values); the page never hardcodes
 /// `cmux://`, so a tagged build copies links that open in itself.
@@ -80,12 +82,17 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
   return false;
 }
 
+/// Pending reveals belong to one explicit request, and end on the reader's next input.
+function revealIntent(root: ParentNode) {
+  const node = (root as HTMLElement).closest?.(".acpmux-scroll") ?? root.querySelector<HTMLElement>(".acpmux-scroll");
+  return node ? userScrollIntent(node as HTMLElement) : undefined;
+}
+
 /// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
 /// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
 /// Gives up quietly when it never mounts, or when `stale` says the row's chat is no longer the one
 /// on screen, leaving the view where it is. Returns the way to stop waiting, which is what keeps a
-/// later reveal's reader from being pulled back to this row. A reader who only scrolls away inside
-/// the wait is still taken to the row when it is drawn, as a reveal they asked for should.
+/// later reveal's reader from being pulled back to this row. Manual input also ends the wait.
 function markWhenDrawn(
   rowId: string,
   root: ParentNode,
@@ -97,16 +104,20 @@ function markWhenDrawn(
 ): () => void {
   const deadline = Date.now() + waitMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let unsubscribe: (() => void) | undefined;
+  const stop = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    unsubscribe?.();
+  };
+  unsubscribe = revealIntent(root)?.subscribe(stop);
   const tick = () => {
     timer = undefined;
-    if (stale?.() || scrollToRow(rowId, root) || Date.now() >= deadline) return;
+    if (stale?.() || scrollToRow(rowId, root) || Date.now() >= deadline) return stop();
     timer = setTimeout(tick, pollMs);
   };
   tick();
-  return () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
-  };
+  return stop;
 }
 
 let pendingReveal: (() => void) | undefined;
@@ -116,6 +127,7 @@ let pendingMark: (() => void) | undefined;
 /// Runs `attempt` now, then every `pollMs` until it succeeds or `waitMs` passes, giving up quietly.
 /// A later reveal replaces a pending one. Resolves whether it scrolled.
 function revealWhenShown(
+  root: ParentNode,
   attempt: () => boolean,
   { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
@@ -126,14 +138,17 @@ function revealWhenShown(
   return new Promise((resolve) => {
     const deadline = Date.now() + waitMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe: (() => void) | undefined;
     const finish = (revealed: boolean) => {
       if (timer !== undefined) clearTimeout(timer);
+      unsubscribe?.();
       if (pendingReveal === cancel) pendingReveal = undefined;
       resolve(revealed);
     };
     const cancel = () => finish(false);
     const poll = () => {
       timer = undefined;
+      unsubscribe ??= revealIntent(root)?.subscribe(cancel);
       if (attempt()) finish(true);
       else if (Date.now() >= deadline) finish(false);
       else timer = setTimeout(poll, pollMs);
@@ -151,7 +166,7 @@ export function revealTurnWhenShown(
   root: ParentNode = document,
   options: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
-  return revealWhenShown(() => scrollToTurn(turnId, root), options);
+  return revealWhenShown(root, () => scrollToTurn(turnId, root), options);
 }
 
 /// Brings message `messageId`'s row in once the chat has it (a link's `message=<id>`): the
@@ -170,12 +185,16 @@ export function revealMessageWhenShown(
   options: { waitMs?: number; pollMs?: number; chat?: () => string | undefined } = {},
 ): Promise<boolean> {
   const { chat } = options;
-  return revealWhenShown(() => {
-    const rowId = show(messageId);
-    if (rowId === undefined) return false;
-    // The chat that answered with this row, read now that there is one.
-    const asked = chat?.();
-    pendingMark = markWhenDrawn(rowId, root, { ...options, stale: () => chat?.() !== asked });
-    return true;
-  }, options);
+  return revealWhenShown(
+    root,
+    () => {
+      const rowId = show(messageId);
+      if (rowId === undefined) return false;
+      // The chat that answered with this row, read now that there is one.
+      const asked = chat?.();
+      pendingMark = markWhenDrawn(rowId, root, { ...options, stale: () => chat?.() !== asked });
+      return true;
+    },
+    options,
+  );
 }

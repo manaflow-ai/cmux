@@ -1,5 +1,5 @@
-// An agent a shell call started (`codex exec …`, `acpmux run …`; subagentFold.ts `reduceRun`) where
-// it started in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
+// An explicit acpmux child session (subagentFold.ts `reduceChild`) where its parent call started
+// in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
 // first line of what it was asked, its state (the working spinner while it
 // runs, never a dot) and time, under them its harness, model and effort and the machine it
 // runs on, and once it ended, what it finally
@@ -40,6 +40,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
     <AgentCard
       name={agent.name}
       harness={agent.harness}
+      identity={agent.id}
       sessionId={chat}
       // The model and the machine on the line under the name, which keeps the head's room for the
       // name at a narrow width.

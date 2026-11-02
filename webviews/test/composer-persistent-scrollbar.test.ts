@@ -143,8 +143,8 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
     return { bar: box.bar, thumb: drawn >= 8, track: drawn > png.height - 8 };
   }
 
-  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 2,000 characters and
-  /// 20 lines, so it lands as text, not a Pasted text chip, pastedText.ts).
+  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 750 words and
+  /// 10,000 characters, so it lands as text, not a Pasted text chip, pastedText.ts).
   async function paste(page: Page, lines: number) {
     await page.locator(EDITABLE).click();
     await page.evaluate(

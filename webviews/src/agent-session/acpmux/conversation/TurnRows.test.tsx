@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolGroups } from "./toolGroups";
-import { shouldFoldToolRun } from "./TurnRows";
+import { renderToStaticMarkup } from "react-dom/server";
+import { runStretches, ToolRows, shouldFoldToolRun } from "./TurnRows";
+import { Globe, MultiTool } from "./icons";
 
 const command = (id: string, text: string): AcpmuxActivity => ({
   kind: "tool",
@@ -38,6 +40,31 @@ test("folds a run the Codex-style runs settled, made only of tool groups", () =>
   ];
   expect(toolGroups(items)).toHaveLength(2);
   expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
+});
+
+const fetchCall = (id: string, url: string): AcpmuxActivity => ({
+  kind: "tool",
+  text: `Fetch ${url}`,
+  tool: { id, title: `Fetch ${url}`, kind: "fetch", status: "completed" },
+});
+
+// The folded run's line: the several-tools glyph when its calls did more than one kind of work, the
+// one kind's glyph otherwise.
+test("a folded run of several kinds of work draws the several-tools glyph", () => {
+  const items: AcpmuxActivity[] = [
+    command("one", "bun test one"),
+    { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
+  ];
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain(renderToStaticMarkup(<MultiTool />));
+});
+
+test("a folded run of one kind of work keeps that kind's glyph", () => {
+  const items = [fetchCall("one", "https://example.com/a"), fetchCall("two", "https://example.com/b")];
+  expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain(renderToStaticMarkup(<Globe size={16} strokeWidth={1.1} />));
+  expect(html).not.toContain(renderToStaticMarkup(<MultiTool />));
 });
 
 test("keeps each group of an ended turn's run on its own line", () => {
@@ -91,4 +118,25 @@ test("merges consecutive thoughts into one item with their texts and summed dura
   });
   // A call between two thoughts keeps them apart.
   expect(toolGroups([first, command("c2", "ls"), second])).toHaveLength(3);
+});
+
+test("grouped starts stay visible before an ordinary tool in a folded run", () => {
+  const starts: AcpmuxActivity[] = ["tests", "docs", "lint"].map((name) => ({
+    kind: "tool",
+    text: "mcp__cmux-subsessions__start_session",
+    tool: {
+      id: `start-${name}`,
+      title: "mcp__cmux-subsessions__start_session",
+      status: "completed",
+      inputSummary: JSON.stringify({ name, prompt: `Run ${name}` }),
+      output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
+    },
+  }));
+  const items = [...starts, command("ordinary", "bun test")];
+  const groups = toolGroups(items);
+  expect(groups[0]?.type).toBe("subsessionGroup");
+  expect(runStretches(row(items), groups)[0]).toMatchObject({ fold: false, groups: [groups[0]] });
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain("Started 3 sub-sessions: tests, docs, lint");
+  expect(html).toContain('class="cv-disclosure__line cv-agent-activity-row"');
 });

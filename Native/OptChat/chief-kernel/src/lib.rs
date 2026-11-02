@@ -9,6 +9,7 @@ mod cron;
 pub mod ledger;
 pub mod prompt;
 mod record;
+pub mod replies;
 pub mod tools;
 
 pub use record::{Record, render_record};

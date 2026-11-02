@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextWakeups
 
 /// Pending window record saves: at most one in flight and one after it, in order.
@@ -137,9 +138,13 @@ final class WindowRecordSaver {
         for ticket in leftover { await services.daemon.closeTicket(ticket, label: "save window records", error: nil) }
     }
 
-    /// Writes the records; returns why they were not stored, or nil.
+    /// Writes the records; returns why they were not stored, or nil. Nothing is written while the
+    /// stored records are unread (`WindowManager.savedWindowsUnread`): they would be replaced by this
+    /// launch's windows alone, and the next launch would lose the others (#26681). That skip answers
+    /// nil: the action that asked for the save did its work, only its record is not kept.
     @discardableResult
     func saveNow() async -> (any Error)? {
+        guard !manager.savedWindowsUnread else { return nil }
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()

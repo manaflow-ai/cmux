@@ -87,6 +87,8 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
     private let action: ActionID
     private let argument: String
     private let target: ActionTargetRef?
+    /// The machine that owns `target` (a menu scoped to it, ``ActionRegistry/scope(_:toMachine:)``).
+    var machineID: String?
 
     init(registry: ActionRegistry, action: ActionID, argument: String, target: ActionTargetRef?) {
         self.registry = registry
@@ -97,10 +99,10 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
         let value = (item?.representedObject as? ActionMenuPayload)?.arguments[argument]?.stringValue
-        registry?.choicePreview?(action, argument, value, target)
+        registry?.choicePreview?(action, argument, value, target, machineID)
     }
 
     func menuDidClose(_ menu: NSMenu) {
-        registry?.choicePreview?(action, argument, nil, target)
+        registry?.choicePreview?(action, argument, nil, target, machineID)
     }
 }

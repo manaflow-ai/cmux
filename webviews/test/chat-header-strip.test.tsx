@@ -1,7 +1,7 @@
 // The chat header's top strip as Claude Code desktop draws it (Leo 2026-10-21: "why do you still have
 // this spacing and these separators"): no separators between the tools, and one glyph size
 // (HEADER_GLYPH) for every icon button: the quick actions, the summary button, the "..." menu, the
-// Needs you inbox and the Inspector toggle. header.css gives them one 24px square on a 26px pitch;
+// Needs you inbox and Session Info toggle. header.css gives them one 24px square on a 26px pitch;
 // the gallery's grouped-controls play measures that in a real browser.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -142,11 +142,15 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     expect(glyph.style.width).toBe("16px");
     expect(glyph.style.height).toBe("16px");
     expect(glyph.style.mask).toContain(template);
-    expect(glyph.style.color).toBe(button.getAttribute("aria-pressed") === "true" ? "var(--agent-accent)" : "");
+    expect(glyph.style.color).toBe(
+      button.getAttribute("aria-pressed") === "true" ? "var(--agent-lit-glyph, var(--agent-accent))" : "",
+    );
   }
   await act(async () => root!.render(<PanelToggle label="Session Info" shown={false} onToggle={() => {}} />));
   const unpressed = host.querySelector<HTMLElement>("[data-symbol]")!;
   expect(unpressed.dataset.symbol).toBe("list.bullet");
   expect(unpressed.style.color).toBe("");
-  act(() => setHarnessSymbolHost(undefined));
+  act(() => {
+    setHarnessSymbolHost(undefined);
+  });
 });

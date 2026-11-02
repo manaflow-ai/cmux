@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 import os
@@ -21,6 +22,10 @@ public final class DictationSession {
     /// update (``DictationUpdate/audio``): the pane's harness takes voice
     /// input. Read at each start.
     public var recordsAudio = false
+    /// A fresh folder for a session's recording (an upload folder of the pane's chat, so it goes
+    /// with the chat or after its uploads' age); nil: one under this user's temporary folder.
+    /// Asked at each start that records.
+    public var recordingFolder: (@MainActor () -> URL?)?
     /// Called on every change, on the main actor.
     public var onUpdate: ((DictationUpdate) -> Void)?
 
@@ -42,7 +47,10 @@ public final class DictationSession {
     private var listening: Task<Void, Never>?
     private var levels: Task<Void, Never>?
     /// This session's audio, when ``recordsAudio`` was on at its start.
-    private var recording: DictationAudioRecording?
+    private(set) var recording: DictationAudioRecording?
+    /// ``finish(_:)`` closing the ended session's recording file; its update waits for it, so the
+    /// recording reaches the page with the words (a few milliseconds). A cancel drops it.
+    private(set) var closing: Task<Void, Never>?
 
     /// - Parameters:
     ///   - makeTranscriber: A fresh single-session engine fed by the meter.
@@ -79,7 +87,7 @@ public final class DictationSession {
         transcript = DictationTranscript()
         committed = ""
         level = 0
-        recording = recordsAudio ? DictationAudioRecording() : nil
+        recording = recordsAudio ? DictationAudioRecording(folder: recordingFolder?()) : nil
         set(.starting)
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
         listening = Task { [weak self] in await self?.listen(session) }
@@ -114,7 +122,10 @@ public final class DictationSession {
         endLevels()
         finishEngine()
         transcriber = nil
+        recording?.discard()
         recording = nil
+        closing?.cancel()
+        closing = nil
         phase = .idle
         onUpdate?(DictationUpdate(phase: .idle, cancelled: true))
     }
@@ -122,13 +133,14 @@ public final class DictationSession {
     /// Anything still held for a session: the engine, its tasks, the stop deadline.
     /// False whenever the phase is startable (tests check nothing leaks).
     public var holdsResources: Bool {
-        transcriber != nil || listening != nil || levels != nil || recording != nil || deadline.isScheduled
+        transcriber != nil || listening != nil || levels != nil || recording != nil || closing != nil || deadline.isScheduled
     }
 
     private func listen(_ session: Int) async {
         guard await authorizeMicrophone(), session == generation else {
             if session == generation {
                 listening = nil
+                recording?.discard()
                 recording = nil
                 set(.denied(.microphone))
             }
@@ -188,11 +200,28 @@ public final class DictationSession {
         // sure it let go of the microphone.
         finishEngine()
         transcriber = nil
-        let audio = recording?.wav()
-        let omitted = recording?.omission
-        recording = nil
-        phase = .idle
-        onUpdate?(DictationUpdate(phase: .idle, text: committed, audio: audio, audioOmitted: omitted))
+        let text = committed
+        guard let recording else {
+            phase = .idle
+            onUpdate?(DictationUpdate(phase: .idle, text: text))
+            return
+        }
+        self.recording = nil
+        // Not startable until the file is closed and its update sent.
+        phase = .finalizing
+        let ending = generation
+        // task-owner: stored in closing; cancel() and the next session drop it by generation
+        closing = Task { [weak self] in
+            let audio = await recording.finish()
+            guard let self, ending == self.generation, !Task.isCancelled else {
+                // A dropped recording goes whole: its file and the folder it owns, on its writer.
+                if audio?.file != nil { recording.discard() }
+                return
+            }
+            self.closing = nil
+            self.phase = .idle
+            self.onUpdate?(DictationUpdate(phase: .idle, text: text, audio: audio, audioOmitted: recording.omission))
+        }
     }
 
     private func fail(_ session: Int, _ error: any Error) {
@@ -202,6 +231,7 @@ public final class DictationSession {
         endLevels()
         finishEngine()
         transcriber = nil
+        recording?.discard()
         recording = nil
         // Keep the words on screen when it fails mid-phrase.
         if let delta = transcript.commitTrailingVolatileText() { committed += delta }

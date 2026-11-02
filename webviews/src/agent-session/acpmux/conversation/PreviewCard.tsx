@@ -68,7 +68,7 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         </div>
       )}
       {!own && loaded && !live && (
-        <div className="acpmux-turn-preview-frame" aria-hidden="true" onClick={() => onOpen(frame)}>
+        <div className="acpmux-turn-preview-frame" data-interactive="" aria-hidden="true" onClick={() => onOpen(frame)}>
           <iframe
             src={frame}
             title={address}

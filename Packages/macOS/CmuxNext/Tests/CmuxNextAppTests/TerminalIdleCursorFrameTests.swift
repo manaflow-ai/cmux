@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import GhosttyNextKit
 import Testing
 
 /// ghostty-integration-DESIGN.md G7: a focused terminal at rest whose cursor is hidden (agent TUIs keep
 /// DECTCEM off) changes no pixel on a cursor blink tick, so Ghostty must draw no frame for it. Each tick
 /// used to update and draw a frame (about 1.7 a second per terminal).
-@MainActor @Suite(.serialized) struct TerminalIdleCursorFrameTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalIdleCursorFrameTests {
     @Test func aFocusedTerminalWithAHiddenCursorDrawsNothingAtRest() async throws {
         _ = NSApplication.shared
         let drew = WindowDrawPolicy.drawsWhenOccluded

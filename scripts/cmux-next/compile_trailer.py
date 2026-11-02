@@ -15,16 +15,21 @@ matches the pushed head:
     (base..head). It is refused when
     - the push's own change differs from the one the job compiled (its -/+ lines in any Swift file or Package.swift:
       an edit after the compile, or a rebase conflict resolved), or
-    - a Package.swift of a package the push touches differs upstream, or another one declares a module the push's
-      modules use, or
+    - a Package.swift of a package the push touches differs upstream outside its target calls, or in the call of a
+      target the push's modules are or use other than one that only gained dependencies (2026-10-28, a803: any
+      target's edit refused), or another
+      package's declares a module the push's modules use, or
     - upstream changed Swift in a module the push's files are in or use (their targets' dependencies, transitively,
       by name in any package under Packages/, plus `@_exported import`s) and that change meets the push's files, or
       upstream changed Swift in a module that is or uses the push's modules and the push's change meets upstream's
       new lines. Two changes meet where one side changed or removed a declaration (its signature line, a header
-      continuation, an attribute, a struct's stored property without a default, an enum case, a protocol
-      requirement, an initializer, a conformance) or added one, and the other side's code names it: a changed or
+      continuation, an attribute, a struct's stored property without a default, an enum case changed or removed, a
+      protocol requirement, an initializer, a conformance) or added one, and the other side's new lines name it: a changed or
       new member only where that code also names a type it sits in, a removed or top-level one by name alone, a
-      private one only in its own file. An enum whose cases changed also meets a `switch` the other side adds.
+      private one only in its own file. An enum whose cases changed (a new case too) also meets a `switch` the
+      other side adds in a file that names the enum or one of its cases. A side's unchanged lines are the other side's base, which built with that side's change, so
+      only its new lines (and the types they sit in) count (2026-10-28, a803: a file both sides edited held
+      upstream's own new declaration, and that refused).
     A body-only change (a function or accessor body, a comment) meets nothing. A file the light Swift reader cannot
     follow refuses (upstream) or counts every identifier in it (the push's). Before 2026-10-28 any upstream Swift in
     those modules refused, so a push to the app module was refused almost every time (a751: 11 of 15 rebased pushes;
@@ -53,6 +58,7 @@ import os
 import time
 import re
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -322,6 +328,58 @@ def module_deps(manifest: str) -> dict[str, set[str]]:
     return deps
 
 
+MANIFEST_COMMENT = re.compile(r"(?m)(^|[ \t])//[^\n]*")
+
+
+def manifest_parts(manifest: str) -> tuple[str, dict[str, str]]:
+    """(the text outside the target calls, {target: its call}), comments left out and whitespace collapsed."""
+    text = MANIFEST_COMMENT.sub(r"\1", manifest)
+    targets, rest, at = {}, [], 0
+    for m in TARGET_START.finditer(text):
+        if m.start() < at:
+            continue  # inside a call already taken
+        end = _call_end(text, text.index("(", m.start()))
+        targets[m.group("name")] = " ".join(text[m.start():end].split())
+        rest.append(text[at:m.start()])
+        at = end
+    rest.append(text[at:])
+    return " ".join("".join(rest).split()), targets
+
+
+def _without_dependencies(call: str) -> str:
+    """CALL (a collapsed target call) without its `dependencies:` and `linkerSettings:` lists (what links, not what the
+    push's Swift compiles against; growth of the dependencies is checked apart)."""
+    for label in ("dependencies", "linkerSettings"):
+        found = re.search(rf"{label}:\s*\[", call)
+        if found:
+            end = _call_end(call, found.end() - 1)
+            call = call[:found.start()] + call[end:].lstrip(" ,")
+    call = "".join(call.split())  # compared, not shown: spacing the cut left does not count
+    return re.sub(r",\)", ")", re.sub(r",+", ",", call))  # nor the commas it left (`path:"x",)`)
+
+
+def manifest_meets(old: str | None, new: str | None, scope: set[str]) -> str | None:
+    """Why an upstream change of a package manifest (OLD -> NEW text) can change what the push compiled against: text
+    outside the target calls (platforms, products, settings, a computed target list), or a target in SCOPE (the push's
+    modules and what they use: a module that uses them compiles its own lines, which the symbol check reads); None when only other targets changed."""
+    if old is None or new is None:
+        return "it was added or removed"
+    old_rest, old_targets = manifest_parts(old)
+    new_rest, new_targets = manifest_parts(new)
+    if old_rest != new_rest:
+        return "outside its targets"
+    for name in sorted(set(old_targets) | set(new_targets)):
+        before, after = old_targets.get(name), new_targets.get(name)
+        if before == after or name not in scope:
+            continue
+        if (before is not None and after is not None
+                and _without_dependencies(before) == _without_dependencies(after)
+                and module_deps(before).get(name, set()) <= module_deps(after).get(name, set())):
+            continue  # only gained dependencies: imports are explicit, and the push's lines compiled without them
+        return f"in target {name}, which the push's modules are or use"
+    return None
+
+
 def module_of(path: str) -> tuple[str, str] | None:
     """(package folder, module) of a Swift file under a package's Sources/<Module>/ or Tests/<Target>/, else None."""
     parts = path.split("/")
@@ -563,10 +621,26 @@ def read_swift(text: str | None) -> SwiftFile | None:
 
 class Change(tuple):
     """One declaration a side's change alters: (name, path, scope: the enclosing type names, strict: removed with
-    no declaration of the name left on that side's new lines, private: visible only in PATH)."""
+    no declaration of the name left on that side's new lines, private: visible only in PATH, internal: visible only
+    in PATH's module and to `@testable import`s of it)."""
 
-    def __new__(cls, name: str, path: str, scope: frozenset, strict: bool, private: bool):
-        return super().__new__(cls, (name, path, scope, strict, private))
+    def __new__(cls, name: str, path: str, scope: frozenset, strict: bool, private: bool, internal: bool = False):
+        return super().__new__(cls, (name, path, scope, strict, private, internal))
+
+
+PUBLIC = re.compile(r"(?<![\w.])(?:public|open|package)(?![\w(])")
+TESTABLE = re.compile(r"^[ \t]*@testable[ \t]+import[ \t]+([A-Za-z0-9_]+)", re.MULTILINE)
+
+
+def other_modules_see(kind: str, frames: tuple, code: str) -> bool:
+    """Whether a declaration can be seen from another module without `@testable`: `public`, `open` or `package` on its
+    line, or one whose access the light reader cannot tell from its line (an enum case, a member of an extension or a
+    protocol, an initializer, a conformance): those count as seen."""
+    if kind in ("case", "extension", "init", "deinit", "subscript", "operator"):
+        return True
+    if any(f[0] in ("extension", "protocol") for f in frames if f[0] in TYPE_KINDS):
+        return True
+    return bool(PUBLIC.search(code))
 
 
 class Effect:
@@ -578,11 +652,14 @@ class Effect:
         self.changed: list[Change] = []
         self.new: list[Change] = []
         self.cases: list[Change] = []
+        self.case_names: dict[str, set[str]] = {}  # enum -> its case names on either side (a `switch` lists them)
 
     def extend(self, other: "Effect") -> None:
         self.changed += other.changed
         self.new += other.new
         self.cases += other.cases
+        for enum, names in other.case_names.items():
+            self.case_names.setdefault(enum, set()).update(names)
 
 
 def scope_of(frames: tuple) -> frozenset:
@@ -624,6 +701,7 @@ def side_effect(path: str, old: SwiftFile | None, new: SwiftFile | None, removed
     None). A declaration whose line changed only after its signature (a body moved onto its line) is not a change."""
     effect = Effect()
     seen: list[dict] = [{}, {}]  # per side: (kind, name, scope) -> set of signatures (None: a partial line)
+    outside: set = set()  # the keys another module can see on either side
     existed = {d[1] for row in (old.decls if old else []) for d in row if d[0] in TYPE_KINDS}
     shape: list[tuple] = []  # (type decl, why) a member change alters
     for side, (file, lines) in enumerate(((old, removed), (new, added))):
@@ -646,16 +724,18 @@ def side_effect(path: str, old: SwiftFile | None, new: SwiftFile | None, removed
                 else:
                     text = signature(code)
                 seen[side].setdefault(key, set()).add(text)
+                if partial or other_modules_see(kind, frames, code):
+                    outside.add(key)
                 inner = frames[-1] if frames else None
                 if inner is None or inner[0] not in TYPE_KINDS or partial or inner[1] not in existed:
                     continue
                 if kind == "case" and inner[0] == "enum":
-                    shape.append((inner, "case"))
+                    shape.append((inner, "case", file))
                 elif inner[0] == "protocol":
-                    shape.append((inner, "requirement"))
+                    shape.append((inner, "requirement", file))
                 elif (inner[0] == "struct" and kind in ("var", "let") and "=" not in code and "{" not in code
                       and not re.search(r"(?<!\w)static(?!\w)", code)):
-                    shape.append((inner, "stored"))
+                    shape.append((inner, "stored", file))
     before, after = seen
     for key in sorted(set(before) | set(after), key=str):
         kind, name, scope, private = key
@@ -668,22 +748,41 @@ def side_effect(path: str, old: SwiftFile | None, new: SwiftFile | None, removed
                 # A changed initializer, or a new one in a type that existed: a struct loses its memberwise one.
                 effect.changed.append(Change(name, path, frozenset(), False, private))
             continue
+        internal = key not in outside
         if key in before and key in after:
             if before[key] == after[key] and None not in before[key]:
                 continue  # the same signature: a body or a comment changed
-            effect.changed.append(Change(name, path, scope, False, private))
+            effect.changed.append(Change(name, path, scope, False, private, internal))
         elif key in before:
-            effect.changed.append(Change(name, path, scope, True, private))
+            effect.changed.append(Change(name, path, scope, True, private, internal))
         elif kind == "extension":
             if any(":" in (text or ":") for text in after[key]):
                 effect.changed.append(Change(name, path, frozenset(), False, private))  # a new conformance
         else:
-            effect.new.append(Change(name, path, scope, False, private))
-    for inner, why in shape:
-        row = Change(inner[1], path, scope_of(inner[2]), False, inner[3])
-        effect.changed.append(row)
+            effect.new.append(Change(name, path, scope, False, private, internal))
+    def only_gains_cases(enum: str) -> bool:
+        """Every case ENUM had is still there, the same: code that names the enum still compiles (a `switch` over it
+        may not, which ``Effect.cases`` covers)."""
+        return all(key in after and after[key] == before[key] and None not in before[key]
+                   for key in before if key[0] == "case" and enum in key[2])
+
+    def type_internal(inner: tuple, file: SwiftFile) -> bool:
+        """The type INNER is module-internal: its declaration line in FILE has no public/open/package (and it does not
+        sit in an extension or protocol); a type whose line is not found counts as seen."""
+        for index, row in enumerate(file.decls):
+            if inner in row:
+                return not other_modules_see(inner[0], inner[2], file.code[index])
+        return False
+
+    for inner, why, file in shape:
+        row = Change(inner[1], path, scope_of(inner[2]), False, inner[3], type_internal(inner, file))
         if why == "case":
             effect.cases.append(row)
+            effect.case_names.setdefault(inner[1], set()).update(
+                key[1] for key in set(before) | set(after) if key[0] == "case" and inner[1] in key[2])
+            if only_gains_cases(inner[1]):
+                continue
+        effect.changed.append(row)
     return effect
 
 
@@ -710,14 +809,19 @@ def added_tokens(text: str, added: list[int]) -> set[str]:
     return found
 
 
-def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool]) -> tuple[str, str] | None:
+def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool],
+          testable: dict[str, set[str]] | None = None) -> tuple[str, str] | None:
     """(why, the file) a side with EFFECT can break among FILES {path: the names it uses} (SWITCHES {path: its change
     adds a `switch`}), or None. A changed or new member counts where the file also names a type it sits in (a removed
     one, and a top-level one, by name alone); a private one only in its own file."""
+    home = module_of
     def where(row: Change, need_scope: bool):
         for path, tokens in sorted(files.items()):
             if row[4] and path != row[1]:
                 continue
+            if (len(row) > 5 and row[5] and home(path) != home(row[1])
+                    and (home(row[1]) or ("", ""))[1] not in (testable or {}).get(path, set())):
+                continue  # internal to another module, and this file has no `@testable import` of it
             if row[0] in tokens and (not need_scope or not row[2] or row[2] & tokens):
                 return path
         return None
@@ -730,8 +834,14 @@ def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool])
         if hit:
             return f"`{row[0]}` is new in {row[1]}", hit
     for row in effect.cases:
+        # A switch the other side adds meets the enum where its file names the enum or a case of it (a switch over it
+        # lists them); any switch counted before 2026-10-28 (a803: six refusals over switches on other enums).
+        names = {row[0]} | effect.case_names.get(row[0], set())
         for path, adds in sorted(switches.items()):
-            if adds and (not row[4] or path == row[1]):
+            if (len(row) > 5 and row[5] and module_of(path) != module_of(row[1])
+                    and (module_of(row[1]) or ("", ""))[1] not in (testable or {}).get(path, set())):
+                continue  # an enum internal to another module this file does not `@testable import`
+            if adds and (not row[4] or path == row[1]) and names & files.get(path, set()):
                 return f"enum `{row[0]}` changed its cases in {row[1]}", path
     return None
 
@@ -741,8 +851,12 @@ def blobs(repo: Path, specs: list[str]) -> dict[str, str | None]:
     if not specs:
         return {}
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input="\n".join(specs).encode() + b"\n",
-                            capture_output=True, env=env, timeout=60)
+    # Through a file, never `input=`: a write into a pipe can block in the kernel past any timeout (git_batch.py).
+    with tempfile.TemporaryFile() as stdin:
+        stdin.write("\n".join(specs).encode() + b"\n")
+        stdin.seek(0)
+        result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], stdin=stdin, capture_output=True,
+                                env=env, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"git cat-file failed: {result.stderr.decode(errors='replace').strip()[:200]}")
     out, data, at = {}, result.stdout, 0
@@ -832,9 +946,6 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
         return None
     touched = {module_of(p) for p in own if swift_path(p)} - {None}
     packages = {package for package, _ in touched} | {p.rsplit("/", 1)[0] for p in own if p.endswith("/" + MANIFEST)}
-    manifests = [p for p in upstream if p.endswith("/" + MANIFEST) and p.rsplit("/", 1)[0] in packages]
-    if manifests:
-        return f"{manifests[0]} differs"
     graph = module_graph(repo, head)
     exports = exported_by(repo, head)
     names = {module for _, module in touched}
@@ -844,6 +955,15 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
         for dep in deps:
             users.setdefault(dep, set()).add(target)
     reverse = closure(names, users)
+    # A manifest of a package the push touches: only a change to a target in the push's reach, or outside the
+    # targets, counts (a803, 2026-10-28: another target's dependency list refused its compiled change).
+    manifests = [p for p in upstream if p.endswith("/" + MANIFEST) and p.rsplit("/", 1)[0] in packages]
+    if manifests:
+        texts = blobs(repo, [f"{fork}:{p}" for p in manifests] + [f"{base}:{p}" for p in manifests])
+        for path in manifests:
+            why = manifest_meets(texts[f"{fork}:{path}"], texts[f"{base}:{path}"], forward)
+            if why:
+                return f"{path} differs upstream ({why})"
     for path in upstream:
         if path.endswith("/" + MANIFEST) and path.rsplit("/", 1)[0] not in packages:
             theirs = set(module_deps(blobs(repo, [f"{head}:{path}"]).get(f"{head}:{path}") or ""))
@@ -866,16 +986,21 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
         if (old is None and old_text is not None) or (new is None and new_text is not None):
             return None
         return side_effect(path, old, new, rows[0], rows[1])
-    # Upstream's change against the push's files (they compile against it).
-    own_files = {p: tokens_of(texts[f"{head}:{p}"]) for p in own_swift if texts[f"{head}:{p}"] is not None}
+    # Upstream's change against the push's files (they compile against it). The push's unchanged lines are the
+    # base's, which compile with upstream's change: only its new lines (and the types they sit in) can name what
+    # upstream changed without a compile having seen both (a803, 2026-10-28: a file both sides edited held upstream's
+    # own new declaration, so "the push names it" matched upstream's own line).
+    own_files = {p: added_tokens(texts[f"{head}:{p}"], own_hunks[p][1]) for p in own_swift
+                 if texts[f"{head}:{p}"] is not None}
     own_switches = {p: adds_switch(own_hunks[p][2]) for p in own_files}
+    own_testable = {p: set(TESTABLE.findall(texts[f"{head}:{p}"])) for p in own_files}
     for path in scoped:
         if module_of(path)[1] not in forward:
             continue
         found = effect(path, fork, base, up_hunks[path])
         if found is None:
             return f"upstream changed {path}, in a module the push is in or uses, and the gate could not read it"
-        hit = meets(found, own_files, own_switches)
+        hit = meets(found, own_files, own_switches, own_testable)
         if hit:
             return f"upstream: {hit[0]}, and the push's {hit[1]} names it"
     # The push's change against upstream's changed files in modules that see the push's (they compile against it).
@@ -892,7 +1017,8 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
     # (and the types they sit in) can name what the push changed without the job having seen it.
     up_files = {p: added_tokens(texts[f"{base}:{p}"], up_hunks[p][1]) for p in reverse_paths
                 if texts[f"{base}:{p}"] is not None}
-    hit = meets(own_effect, up_files, {p: adds_switch(up_hunks[p][2]) for p in up_files})
+    hit = meets(own_effect, up_files, {p: adds_switch(up_hunks[p][2]) for p in up_files},
+                {p: set(TESTABLE.findall(texts[f"{base}:{p}"])) for p in up_files})
     if hit:
         return f"the push: {hit[0]}, and upstream's {hit[1]} names it"
     return None

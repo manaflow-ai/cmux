@@ -10,10 +10,17 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::service::{ServiceMultiplexer, ServiceStream};
-use crate::services::MessageStream;
+use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
+use crate::services::{MessageStream, ServicesError};
 
-type PendingResponse = Result<RpcResponse, String>;
+/// The code of a workspace request that failed because the daemon no longer
+/// has the remote session (it outlived the daemon's resume lease, or was
+/// closed there). Nothing on the session can resume: stop redialing it and
+/// offer a new session. Every other carrier failure keeps the code
+/// `transport`.
+pub const SESSION_UNAVAILABLE_CODE: &str = "session-unavailable";
+
+type PendingResponse = Result<RpcResponse, RpcError>;
 type RequestRegistry = Arc<Mutex<WorkspaceRequestRegistry>>;
 type RequestIdMac = Hmac<Sha256>;
 const DROPPED_CANCELLATION_QUEUE: usize = 128;
@@ -450,8 +457,7 @@ impl PendingWorkspaceRequest {
         };
         self.disarm();
         response
-            .map_err(|_| RpcError::new("transport", "workspace RPC response was canceled"))?
-            .map_err(|message| RpcError::new("transport", message))?
+            .map_err(|_| RpcError::new("transport", "workspace RPC response was canceled"))??
             .result
     }
 
@@ -530,7 +536,7 @@ async fn connect_rpc_channel(
                 biased;
                 changed = shutdown_rx.changed() => {
                     if changed.is_err() || *shutdown_rx.borrow() {
-                        break "workspace RPC client closed".to_string();
+                        break RpcError::new("transport", "workspace RPC client closed");
                     }
                     continue;
                 }
@@ -538,16 +544,16 @@ async fn connect_rpc_channel(
             };
             let encoded = match received {
                 Ok(Some(encoded)) => encoded,
-                Ok(None) => break "workspace RPC stream closed".to_string(),
-                Err(error) => break error.to_string(),
+                Ok(None) => break RpcError::new("transport", "workspace RPC stream closed"),
+                Err(error) => break transport_error(error),
             };
             let response = match serde_json::from_slice::<RpcResponse>(&encoded) {
                 Ok(response) => response,
-                Err(error) => break error.to_string(),
+                Err(error) => break RpcError::new("transport", error.to_string()),
             };
             if let Err(error) = route_response(response, &requests) {
                 failure_shutdown.send_replace(true);
-                break error;
+                break RpcError::new("transport", error);
             }
         };
         let _ = messages.close().await;
@@ -702,8 +708,28 @@ async fn await_opened(stream: &ServiceStream, expected_lane: Lane) -> Result<(),
     }
 }
 
-fn transport_error(error: impl std::fmt::Display) -> RpcError {
-    RpcError::new("transport", error.to_string())
+/// A carrier failure under the workspace RPC layer. A session the daemon no
+/// longer has keeps its own code ([`SESSION_UNAVAILABLE_CODE`]), so a caller
+/// can tell it from a broken link it should wait out.
+trait TransportFailure: std::fmt::Display {
+    fn session_unavailable(&self) -> bool;
+}
+
+impl TransportFailure for ServiceError {
+    fn session_unavailable(&self) -> bool {
+        self.is_session_unavailable()
+    }
+}
+
+impl TransportFailure for ServicesError {
+    fn session_unavailable(&self) -> bool {
+        matches!(self, ServicesError::Service(error) if error.is_session_unavailable())
+    }
+}
+
+fn transport_error(error: impl TransportFailure) -> RpcError {
+    let code = if error.session_unavailable() { SESSION_UNAVAILABLE_CODE } else { "transport" };
+    RpcError::new(code, error.to_string())
 }
 
 fn attach_process_handle(

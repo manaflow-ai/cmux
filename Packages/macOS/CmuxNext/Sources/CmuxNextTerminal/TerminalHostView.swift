@@ -13,6 +13,8 @@ import Observation
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
+    /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
+    var onVeil: ((ThemeRGB?) -> Void)?
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
@@ -164,15 +166,24 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
-    /// Builds the restart button once the shell has ended and the App gave an action.
+    /// Builds the restart button once the shell has ended, or cmux lost its
+    /// link to it (Recover), and the App gave an action.
     private func syncRestartButton() {
-        if restartButton == nil, shownStatus == .exited, restartAction != nil {
+        let offered = shownStatus == .exited || shellStall == .linkLost
+        if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
             addOverlay(button)
             restartButton = button
         }
         restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus)
+        restartButton?.show(shownStatus, stall: shellStall)
+    }
+
+    /// The restart button's title while shown ("Restart Shell Here" or
+    /// "Recover"), nil while hidden (diagnostics and tests).
+    var restartButtonTitle: String? {
+        guard let restartButton, !restartButton.isHidden else { return nil }
+        return restartButton.shownTitle
     }
 
     /// Above the status banner, as the find bar is.
@@ -208,6 +219,7 @@ public final class TerminalHostView: NSView {
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        syncRestartButton()
         needsLayout = true
     }
 
@@ -378,7 +390,7 @@ public final class TerminalHostView: NSView {
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
+    /// terminal's own theme differs from theirs: its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
@@ -388,6 +400,11 @@ public final class TerminalHostView: NSView {
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
+        // Under an App Theme, a terminal on the terminal theme draws on the App Theme's one veil
+        // (sidebar and panes alike), its colors raised to read on it; on an opaque window or with
+        // its own theme it keeps its own background.
+        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
+        onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor

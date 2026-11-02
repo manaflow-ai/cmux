@@ -7,17 +7,22 @@
 # (a glaeda runner on a fleet mini) the job must hold the whole mini:
 # glaeda's job-started hook gives the signing jobs the exclusive class (every
 # capacity unit and both fast tokens) and writes GLAEDA_JOB_CLAIM=exclusive to
-# $GITHUB_ENV. This step fails the job, before any secret is read, on an owned
-# Mac without that claim (a hook from before the exclusive class), and removes
-# a signing keychain a killed job on that Mac left behind.
+# $GITHUB_ENV, with GLAEDA_HOOK_SHA256 (the hook's own sha256). This step fails
+# the job, before any secret is read, on an owned Mac without that claim or
+# whose hook glaeda-signing-hooks.txt does not list (a hook from before the
+# leftover-process check), and removes a signing keychain a killed job on that
+# Mac left behind.
 #
 # Usage: signing-runner-claim.sh   (no arguments; reads RUNNER_NAME,
-# GLAEDA_JOB_CLAIM and CMUX_FLEET_DIR, default /Users/Shared/cmux-build-fleet)
+# GLAEDA_JOB_CLAIM, GLAEDA_HOOK_SHA256 and CMUX_FLEET_DIR, default
+# /Users/Shared/cmux-build-fleet)
 set -euo pipefail
 
 FLEET_DIR="${CMUX_FLEET_DIR:-/Users/Shared/cmux-build-fleet}"
 SECURITY_TOOL="${CMUX_SECURITY_TOOL:-security}"
 KEYCHAIN_DIR="${CMUX_KEYCHAIN_DIR:-$HOME/Library/Keychains}"
+# The glaeda hooks whose claim a signing job accepts (one sha256 per line, then a note).
+HOOKS_FILE="${CMUX_SIGNING_HOOKS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/glaeda-signing-hooks.txt}"
 # The keychain names the workflows give signing-keychain.sh create.
 STALE_KEYCHAINS=(build.keychain cmux-next-dev-daily.keychain)
 
@@ -35,7 +40,18 @@ if [ -z "$owned" ]; then
 fi
 
 if [ "${GLAEDA_JOB_CLAIM:-}" != "exclusive" ]; then
-  echo "::error title=Signing runner::This owned Mac ($owned) did not give the job the whole mini (GLAEDA_JOB_CLAIM='${GLAEDA_JOB_CLAIM:-}'). A signing job never runs beside another job; its re-run takes Blacksmith."
+  echo "::error title=Signing runner::This owned Mac ($owned) did not give the job the whole mini (GLAEDA_JOB_CLAIM='${GLAEDA_JOB_CLAIM:-}'). A signing job never runs beside another job; this run's Blacksmith job signs instead."
+  exit 1
+fi
+hook_sha="${GLAEDA_HOOK_SHA256:-}"
+listed=""
+if [[ "$hook_sha" =~ ^[0-9a-f]{64}$ ]] && [ -r "$HOOKS_FILE" ]; then
+  while read -r sha _; do
+    if [ "$sha" = "$hook_sha" ]; then listed=1; fi
+  done < "$HOOKS_FILE"
+fi
+if [ -z "$listed" ]; then
+  echo "::error title=Signing runner::This owned Mac's glaeda hook (GLAEDA_HOOK_SHA256='${hook_sha}') is not one $HOOKS_FILE lists. Only a listed hook waits out an earlier job's leftover processes; this run's Blacksmith job signs instead."
   exit 1
 fi
 

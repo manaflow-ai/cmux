@@ -4,7 +4,7 @@ import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
-import { sessionStateText, sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionStateText, sessionStatus } from "../session-info/ChildSessionRows";
 import {
   SUBAGENT_RETRY,
   sessionRetry,
@@ -331,6 +331,27 @@ describe("Retry reaches acpmux, else the parent", () => {
     const old = deps({ code: "retry.subagent_unsupported" });
     expect(await runRetry({ ...failed, id: "w5" }, "why", old, translate)).toBeUndefined();
     expect((old.calls[1] as unknown[])[0]).toBe("send");
+  });
+
+  test("a Retry the pane can no longer reach is refused with a note, never taken as sent", async () => {
+    const CHAT = "c6";
+    // The pane moved to another chat, or reconnects: nothing is sent, and the row says so.
+    const away = { ...deps(), reaches: () => false };
+    expect(await runRetry(failed, CHAT, away, translate)).toBe("retry.failed");
+    expect(away.calls).toEqual([]);
+    // It moved while acpmux answered: the ask is never sent to the next chat.
+    let here = true;
+    const old = deps({ code: -32601 });
+    const moved = {
+      ...old,
+      request: (method: string, params: Record<string, unknown>) => {
+        here = false;
+        return old.request(method, params);
+      },
+      reaches: () => here,
+    };
+    expect(await runRetry(failed, CHAT, moved, translate)).toBe("retry.failed");
+    expect(old.calls.map((call) => (call as unknown[])[0])).toEqual([RETRY_METHOD]);
   });
 
   test("a row acpmux can't retry asks the parent; a row with no Retry does nothing", async () => {

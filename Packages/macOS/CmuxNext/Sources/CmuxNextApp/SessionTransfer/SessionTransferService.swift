@@ -89,7 +89,7 @@ final class SessionTransferService {
             for surface in surfaces {
                 guard let id = UInt64(surface).map(SurfaceID.init(rawValue:)) else { continue }
                 group.addTask {
-                    let info = try? await connection.request(TerminalProcessInfoRequest(surface: id), timeout: .milliseconds(500))
+                    let info = await connection.readProcessInfo(id, timeout: .milliseconds(500))
                     guard let info, info.foregroundExecutable?.isEmpty == false else { return (surface, nil) }
                     return (surface, .some(info.runningProgram))
                 }

@@ -10,7 +10,7 @@ impl Mux {
     /// projection fails. The ingress path catches the projection error, stages
     /// a durable pending row, and still returns the journal receipt so callers
     /// can retain exactly-once semantics while the terminal becomes available.
-    pub(super) fn apply_agent_hook_record(
+    pub(super) fn project_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
         sequence: u64,
@@ -28,11 +28,23 @@ impl Mux {
         {
             return Ok(());
         }
+        // A child agent changes no lifecycle state, but a turn's finish may wait for it.
+        if ingress.kind.starts_with("agent.child.") {
+            return self.apply_agent_child_hook(ingress, sequence);
+        }
         use crate::journal_reducers::hook_roster_state;
         let native_event =
             ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
-        // Only a kind that moves a terminal under some current state gets past this guard.
-        if hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none() {
+        // Attention-worthy transitions earn a notification even when they
+        // leave the roster state as it is (a failed tool call of a working
+        // agent: PostToolUseFailure keeps it working but still reports the
+        // error).
+        let notification = agent_hook_notification(ingress);
+        // Only a kind that moves a terminal under some current state, or
+        // earns a notification, gets past this guard.
+        if notification.is_none()
+            && hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none()
+        {
             return Ok(());
         }
         let Some(terminal_subject) =
@@ -43,11 +55,16 @@ impl Mux {
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         // A completed tool call resumes only a blocked agent, so the roster's state decides it.
-        let current =
-            self.agent_records.lock().unwrap().get(&terminal_id).map(|record| record.state);
-        let Some(state) = hook_roster_state(&ingress.kind, native_event, current) else {
+        let current = self
+            .agent_records
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&terminal_id)
+            .map(|record| record.state);
+        let state = hook_roster_state(&ingress.kind, native_event, current);
+        if state.is_none() && notification.is_none() {
             return Ok(());
-        };
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -125,19 +142,20 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        let next_fence = HookFence::next(
-            previous_fence.as_ref(),
-            agent_session_id.clone(),
-            sequence,
-            state == AgentState::Done,
-            observed_at_ms,
-        );
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
         // replays the notification instead of posting it twice, and the fence
-        // (stored by the report) still advances exactly once.
-        if let Some((title, body, level)) = agent_hook_notification(ingress) {
+        // (stored by the report) still advances exactly once. A turn that ends
+        // while its child agents run is not done: its finish waits for them
+        // (`agent_hook_children.rs`).
+        let gate =
+            self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
+        if let agent_hook_children::FinishGate::Release(held) = &gate {
+            self.release_held_agent_session_finish(&terminal_id, held, sequence)?;
+        }
+        let held = matches!(gate, agent_hook_children::FinishGate::Hold);
+        if let Some((title, body, level)) = notification.filter(|_| !held) {
             self.create_durable_notification(
                 &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
@@ -150,6 +168,16 @@ impl Mux {
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
+        // A notification that leaves the roster state as it is reports
+        // nothing and leaves the fence where the last report stored it.
+        let Some(state) = state else { return Ok(()) };
+        let next_fence = HookFence::next(
+            previous_fence.as_ref(),
+            agent_session_id.clone(),
+            sequence,
+            state == AgentState::Done,
+            observed_at_ms,
+        );
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -206,38 +234,62 @@ impl Mux {
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
     ) {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             && ingress.payload.get("format").and_then(Value::as_str)
                 != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
         {
             return;
         }
+        let Some(deltas) = self.advance_agent_roster(Some(commit.sequence)) else { return };
+        for (delta, _) in deltas {
+            self.apply_roster_delta(delta, &ingress.kind);
+        }
+    }
+
+    /// Fold the journal into the roster through `through` (the journal head
+    /// when `None`) and save the snapshot with its cursor. Returns the
+    /// plugin deltas, each with its record's kind, or `None` when the roster
+    /// was already there or the tail could not be read.
+    fn advance_agent_roster(
+        &self,
+        through: Option<u64>,
+    ) -> Option<Vec<(crate::journal_reducers::RosterDelta, String)>> {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+        };
         let _fold = self.agent_roster_fold.lock().unwrap();
         // Consume every intervening committed record under registry -> roster
         // lock order. Concurrent appends and delayed hook retries cannot jump
         // the cursor over a record that startup replay would have consumed.
         let (deltas, cursor, snapshot) = {
             let registry = self.workspace_registry.lock().unwrap();
+            let through = match through {
+                Some(through) => through,
+                None => match registry.session_journal_head() {
+                    Ok(head) => head,
+                    Err(error) => {
+                        eprintln!("cmux-tui: reading the journal head failed: {error}");
+                        return None;
+                    }
+                },
+            };
             let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
-                return;
+            if through <= host.cursor {
+                return None;
             }
             let mut deltas = Vec::new();
-            while host.cursor < commit.sequence {
+            while host.cursor < through {
                 // Terminal output between agent events is skipped by the read:
                 // the roster ignores it, and this runs under the registry lock.
                 let (records, reached) = match registry.session_journal_without_output_after(
                     host.cursor,
-                    commit.sequence,
+                    through,
                     512,
                 ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
-                        return;
+                        return None;
                     }
                 };
                 for record in &records {
@@ -249,8 +301,12 @@ impl Mux {
                     if record.payload.get("format").and_then(Value::as_str)
                         == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
                     {
-                        deltas.extend(changes);
+                        deltas
+                            .extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                     }
+                }
+                if reached <= host.cursor {
+                    break;
                 }
                 host.cursor = reached;
             }
@@ -266,8 +322,25 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
-        for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+        Some(deltas)
+    }
+
+    /// Fold the journal tail into the roster and save its cursor at the
+    /// head, so a start replays at most one maintenance tick of records.
+    /// Shutdown does not call it: it takes the registry lock, which a commit
+    /// stuck in admission can hold, and shutdown must stay bounded.
+    ///
+    /// Lawrence 2026-10-30: the cursor moved only with agent events, so a
+    /// quiet stretch left it 9,821 records behind on a nightly registry and
+    /// each start decoded 13 sealed segments (about 300 ms cold) to fold
+    /// records that change nothing. Same fold, locks and save as an agent
+    /// event's ([`Mux::fold_agent_roster`]); a plugin delta it meets first is
+    /// applied here, since the live fold then finds the record behind the
+    /// cursor.
+    pub(super) fn catch_up_agent_roster(&self) {
+        let Some(deltas) = self.advance_agent_roster(None) else { return };
+        for (delta, kind) in deltas {
+            self.apply_roster_delta(delta, &kind);
         }
     }
 

@@ -251,6 +251,25 @@ impl Brain {
     pub(super) fn owner_stop(&mut self) -> Value {
         let turn = self.phase == Phase::Running;
         if turn {
+            if self.turn_side().is_none() {
+                let answers = self
+                    .state
+                    .turn
+                    .as_ref()
+                    .map(|t| t.answers.clone())
+                    .unwrap_or_default();
+                self.state.stopped_reply = Some(crate::state::StoppedReply {
+                    messages: self
+                        .state
+                        .awaiting
+                        .iter()
+                        .filter(|a| answers.contains(&a.id))
+                        .cloned()
+                        .collect(),
+                    requires_approval: self.turn_ask,
+                });
+                self.save();
+            }
             self.owner_stopped = true;
             self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");

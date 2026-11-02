@@ -46,6 +46,33 @@ export function reloaded(error: unknown): boolean {
   );
 }
 
+/**
+ * Vite's own evidence that a stage imported a dependency the optimizer has since replaced: its 504
+ * "Outdated Optimize Dep" answer. A stage that shows it loads again once the optimizer settles.
+ */
+export function outdatedOptimizeDep(message: string | null | undefined): boolean {
+  return /Outdated Optimize Dep/i.test(message ?? "");
+}
+
+/**
+ * A stage that failed to mount on a dynamic import. On its own this is no evidence of the
+ * optimizer (a missing or broken module fails the same way): the warm-up waits for the optimizer
+ * and loads again only when the optimizer then reloaded the page (reloadsSent), else fails at once.
+ */
+export function dynamicImportFailed(message: string | null | undefined): boolean {
+  return /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(
+    message ?? "",
+  );
+}
+
+/** A goto that has not committed in this long is stuck on its page: the load starts again on a new one. */
+export const NAVIGATION_ATTEMPT_MS = 30_000;
+
+/** Whether a load error is a goto that did not commit within its attempt (NAVIGATION_ATTEMPT_MS). */
+export function stalled(error: unknown): boolean {
+  return /^TimeoutError: (?:page\.)?goto: Timeout \d+ms exceeded/.test(String(error).split("\n")[0]!);
+}
+
 /** `/gallery/frame.html` for one variant of one entry, narrowed to the entry's own file. */
 export function galleryFrame(entry: string, params: Params = {}): string {
   const query = new URLSearchParams({ entry, entryPath: galleryEntryPath(entry) });
@@ -84,22 +111,29 @@ function reloadsSent(server: ViteDevServer | string): number {
 async function optimizerSettled(server: ViteDevServer, left: () => number): Promise<void> {
   const client = server.environments.client;
   for (;;) {
-    await client.waitForRequestsIdle();
+    // Both waits share the warm-up's deadline: an optimizer that never goes idle fails it, with
+    // the page closed by the caller, instead of hanging past timeoutMs.
+    await withinDeadline(client.waitForRequestsIdle(), left, "the dev server's requests did not go idle");
     const pending = Object.values(client.depsOptimizer?.metadata.discovered ?? {})
       .map((dep) => dep.processing)
       .filter((processing): processing is Promise<void> => processing !== undefined);
     if (pending.length === 0) break;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("the dependency optimizer did not settle")), left());
-    });
-    try {
-      await Promise.race([Promise.all(pending), timedOut]);
-    } finally {
-      clearTimeout(timer);
-    }
+    await withinDeadline(Promise.all(pending), left, "the dependency optimizer did not settle");
   }
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** `work`, or a rejection naming `what` once `left()` milliseconds pass first. */
+async function withinDeadline<T>(work: Promise<T>, left: () => number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(what)), left());
+  });
+  try {
+    return await Promise.race([work, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -128,17 +162,31 @@ export async function warmGalleryFrame(
   let requests = 0;
   try {
     for (const entry of typeof entries === "string" ? [entries] : entries) {
-      const page = await (browser ?? own!).newPage();
-      page.on("request", () => requests++);
+      const target = browser ?? own!;
+      const open = async () => {
+        const opened = await target.newPage();
+        opened.on("request", () => requests++);
+        return opened;
+      };
+      let page = await open();
       try {
         let ready: string | undefined;
         let message: string | null = null;
         // Vite's dependency optimizer can reload the page while it bundles a new dependency, during
-        // the navigation or after it; each reload starts the load again, within the same budget.
+        // the navigation or after it, or leave the stage importing a module it has since replaced
+        // (a reload it sends, or its 504 Outdated Optimize Dep); each starts the load again, within
+        // the same budget, on a fresh page. The last document's module requests can hold its
+        // connections while the optimizer bundles, and
+        // a goto on that page then never commits: #26637's warm-up on a cold fleet worker waited out
+        // its whole budget in one goto (85 s, 2026-10-28), where a new page loaded in about 1 s.
         for (;;) {
           const sent = reloadsSent(server);
+          let raced = false;
           try {
-            await page.goto(`${base}${galleryFrame(entry, params)}`, { waitUntil: "commit", timeout: left() });
+            await page.goto(`${base}${galleryFrame(entry, params)}`, {
+              waitUntil: "commit",
+              timeout: Math.min(left(), NAVIGATION_ATTEMPT_MS),
+            });
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
               timeout: left(),
             });
@@ -146,13 +194,24 @@ export async function warmGalleryFrame(
               document.documentElement.dataset.galleryReady,
               document.body.textContent,
             ]);
-            if (typeof server !== "string" && ready !== "error") await optimizerSettled(server, left);
-            // A reload since this load began: load again, as for a reload during the load.
-            if (reloadsSent(server) === sent) break;
+            // A failed dynamic import may be the optimizer replacing a dependency mid-load: let it
+            // settle, so the reload it sends for that is counted before deciding.
+            const importFailed = ready === "error" && dynamicImportFailed(message);
+            if (typeof server !== "string" && (ready !== "error" || importFailed)) await optimizerSettled(server, left);
+            raced = ready === "error" && outdatedOptimizeDep(message);
+            // A reload since this load began (the optimizer's own signal), or Vite's 504 for a
+            // stale optimized dependency: load again. Any other mount error fails below at once.
+            if (reloadsSent(server) === sent && !raced) break;
           } catch (error) {
-            if (Date.now() >= deadline || !reloaded(error))
+            if (Date.now() >= deadline || !(reloaded(error) || stalled(error)))
               throw new Error(`warmGalleryFrame: ${entry}: ${String(error)}`, { cause: error });
           }
+          if (Date.now() >= deadline)
+            throw new Error(
+              `warmGalleryFrame: ${entry}: ${raced ? message : "the dependency optimizer was still reloading the page"} at the ${timeoutMs} ms deadline`,
+            );
+          await page.close();
+          page = await open();
         }
         if (ready === "error") throw new Error(`warmGalleryFrame: ${entry}: ${message}`);
       } finally {

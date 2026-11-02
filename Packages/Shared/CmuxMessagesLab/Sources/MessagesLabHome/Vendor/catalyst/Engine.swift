@@ -140,9 +140,11 @@ enum Action {
     /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
     /// written through; a height change animates like any row change.
     case setCustomPart(ID, Int, CustomPart)
-    /// cmux: an attachment part's bytes arrived or its upload moved
-    /// (HomeStore); replaces the part with the same attachment id, no motion.
-    case cmuxSetAttachment(ID, Attachment)
+    /// cmux: attachment parts' bytes arrived or their uploads moved
+    /// (HomeStore); each replaces the part with the same attachment id in its message, no motion.
+    /// One action for every change of a refresh: one commit re-derives the rows once (it was one
+    /// commit per attachment, each re-deriving every row below it: multi-second hangs at a chat's open).
+    case cmuxSetAttachments([(id: ID, attachment: Attachment)])
     /// cmux: my send's parts as the owner stored them (Reply to Selection's quote run), the
     /// same number of parts; replaced in place, no motion.
     case cmuxSetParts(ID, [Part])
@@ -331,11 +333,13 @@ enum Reducer {
             break
         case let .setNotice(text):
             s.ui.notice = text
-        case let .cmuxSetAttachment(id, a):  // cmux
-            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
-                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
-            else { break } // cmux: checked
-            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxSetAttachments(updates):  // cmux
+            for (id, a) in updates {
+                guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                      let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
+                else { continue } // cmux: checked
+                s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+            }
         case let .cmuxSetParts(id, parts):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   s.conversation.messages[checked: i]?.parts.count == parts.count else { break } // cmux: checked

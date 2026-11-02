@@ -50,6 +50,45 @@ pub fn parse_vmstat_pswpout(text: &str) -> Option<u64> {
     text.lines().find_map(|l| l.strip_prefix("pswpout ")?.trim().parse().ok())
 }
 
+/// Any `/proc/pressure/*` file: the `avg60` of its `some` or `full` line.
+pub fn parse_psi_avg60(text: &str, line: &str) -> Option<f64> {
+    let found = text.lines().find(|l| l.split_whitespace().next() == Some(line))?;
+    found.split_whitespace().find_map(|w| w.strip_prefix("avg60=")?.parse().ok())
+}
+
+/// `/proc/vmstat`: processes the OOM killer killed since boot (`oom_kill`).
+pub fn parse_vmstat_oom_kill(text: &str) -> Option<u64> {
+    text.lines().find_map(|l| l.strip_prefix("oom_kill ")?.trim().parse().ok())
+}
+
+/// `/proc/meminfo`: (SwapTotal - SwapFree) / SwapTotal; none without swap.
+pub fn parse_meminfo_swap_used(text: &str) -> Option<f64> {
+    let kb = |key: &str| {
+        text.lines().find_map(|l| {
+            l.strip_prefix(key)?.trim().trim_end_matches("kB").trim().parse::<f64>().ok()
+        })
+    };
+    let total = kb("SwapTotal:").filter(|t| *t > 0.0)?;
+    Some(((total - kb("SwapFree:")?) / total).clamp(0.0, 1.0))
+}
+
+/// `/proc/stat`'s aggregate `cpu` line as (all jiffies, idle jiffies). Idle counts
+/// `idle` and `iowait`; `guest` and `guest_nice` are already inside `user` and `nice`.
+pub fn parse_proc_stat_cpu(text: &str) -> Option<(u64, u64)> {
+    let line = text.lines().find(|l| l.split_whitespace().next() == Some("cpu"))?;
+    let n: Vec<u64> = line.split_whitespace().skip(1).map_while(|w| w.parse().ok()).collect();
+    let idle = n.get(3)?.saturating_add(n.get(4).copied().unwrap_or(0));
+    let total = n.iter().take(8).fold(0u64, |sum, j| sum.saturating_add(*j));
+    Some((total, idle))
+}
+
+/// The share of all CPUs busy between two [`parse_proc_stat_cpu`] readings (0..1).
+pub fn cpu_busy(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
+    let total = after.0.checked_sub(before.0).filter(|t| *t > 0)?;
+    let idle = after.1.saturating_sub(before.1).min(total);
+    Some(total.saturating_sub(idle) as f64 / total as f64)
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use super::Sample;

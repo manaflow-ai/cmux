@@ -7,10 +7,8 @@ extension NSView {
     /// `SidebarContainerView.visibleEdgeOutset`). A view in no sidebar container answers its own
     /// frame. Nil out of a window.
     ///
-    /// A sidebar row's hover card stands one device pixel off this edge
-    /// (`HoverCardEscapeGeometry.rowBand(row:column:)`, Lawrence 2026-10-21: "horizontally only
-    /// 1 pixel gap"). Every sidebar surface with row cards (the list, a thin rail) reads it here,
-    /// so the cards all line up on one edge.
+    /// Group and rail hover cards use this column band (`HoverCardEscapeGeometry.rowBand(row:column:)`).
+    /// Workspace previews use their drawn row's fill instead, before the resize/drag edge.
     public var sidebarColumnOnScreen: CGRect? {
         guard let window else { return nil }
         var container: SidebarContainerView?

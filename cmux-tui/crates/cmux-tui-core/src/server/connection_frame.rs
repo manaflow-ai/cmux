@@ -41,6 +41,10 @@ pub(super) fn handle_connection_frame(
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
     let message: &str = &upgraded;
+    // A remote device never names an incognito workspace's objects (#31210).
+    if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
+        return keep_open;
+    }
     // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
     // daemon serves (agent_session_proxy.rs).
     #[cfg(unix)]
@@ -112,10 +116,15 @@ pub(super) fn handle_connection_frame(
     if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }
-    let request = match serde_json::from_str::<Request>(message) {
+    #[cfg(unix)]
+    if let Some(keep_open) = cloud_repos::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    let mut request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
@@ -142,7 +151,12 @@ pub(super) fn handle_request_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
-    let Request { id, cmd } = request;
+    let Request { id, cmd, remote_line } = request;
+    // Queued since it arrived: the Mac may have opened or switched to an
+    // incognito workspace meanwhile (#31210).
+    if let Some(error) = remote_line.and_then(|line| incognito_remote::recheck(mux, &line)) {
+        return send_request_error(writer, id, &error);
+    }
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }

@@ -96,6 +96,19 @@ final class TabContentCache {
     var crashedPages: Set<String> = []
     /// A restored tab (not opened in this run) started its page (`AppRunMarker.notePageStarted`).
     var onRestoredPageStart: ((String) -> Void)?
+    /// A web page was mounted for a tab, whatever opened it (a daemon tab or a pane's local tab, a
+    /// link, a popup, a duplicate, an agent, a restore): the app notes that the browser was used
+    /// (AgentPaneFeatureTipRecords). Called from ``mount(_:as:)``, the one place every page passes,
+    /// for ``isBrowserPage(_:)`` pages only: the app's own pages in a browser tab (History,
+    /// Bookmarks, Agent Activity, Screenshots, Vault, Remote View, a machine's not-ready page) are
+    /// not browser use.
+    var onBrowserTab: (() -> Void)?
+
+    /// Whether `page` is a web page on a browser engine (WebKit, Chromium, or a Chromium tab waiting
+    /// for Chromium to start), decided by its kind, never by its address.
+    static func isBrowserPage(_ page: any BrowserTab) -> Bool {
+        page is WebKitTab || page is CEFTab || page is DeferredBrowserTab
+    }
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
@@ -409,6 +422,7 @@ final class TabContentCache {
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
+        if Self.isBrowserPage(page) { onBrowserTab?() }
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler

@@ -11,7 +11,17 @@ this job's own copy of the app are stopped, by exact PID.
 Usage: agent-pane-live.py <stage> --job <cmux-ci job id> --tag <the build's tag>
 Teardown checks: CMUX_LIVE_INJECT_FAILURE=1 fails once the app is up; CMUX_LIVE_HOLD_SECONDS=N
 holds N seconds once the app is up (it prints the script PID for a SIGTERM or SIGINT).
-Run under nx-remote on cmux-lawrence-2 (NX_ARTIFACTS is the output directory)."""
+Run under nx-remote on cmux-lawrence-2 (NX_ARTIFACTS is the output directory).
+
+The `run` stage times three arms of a harness switch (pick to the new session, `pick_to_ready_ms`; bench_arms.py),
+each with p50/p95/p99/max:
+  warm   the five switches above: each waits up to 45 s for a ready pooled entry of the target harness (and else
+         `_acpmux/prewarm` with wait, up to 120 s) before the pick
+  quick  `--quick N` (default 3) switches, each right after the one before showed its session, with no wait for
+         the pool to refill and no prewarm
+  cold   cold, no wait: the launch's first chat, picked as soon as the app answers, with no pool wait
+The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
+`HEADLINE agent-pane/switch pick_to_ready_ms = <arm> arm ...`; the warm arm alone never stands for the bench."""
 import glob, json, os, plistlib, re, signal, socket, subprocess, sys, time
 
 import argparse
@@ -19,6 +29,7 @@ _parser = argparse.ArgumentParser()
 _parser.add_argument("stage", nargs="?", default="run")
 _parser.add_argument("--job", required=True)
 _parser.add_argument("--tag", required=True)
+_parser.add_argument("--quick", type=int, default=3, help="run stage: switches right after the one before, no pool wait")
 _opts = _parser.parse_args()
 STAGE = _opts.stage
 JOB = _opts.job
@@ -621,12 +632,16 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         raise SystemExit(0)
     # Step 2: harness switches.
     harnesses = ["claude", "codex"]
+    t_first = time.time()
     first = pane("new_chat", pane=PANE, harness="claude")
     click()
     say("first send", json.dumps(pane("send_prompt", pane=PANE, text="Reply with the single word ok."))[:300])
     say("first chat", json.dumps(first)[:300])
-    current = wait(lambda: (lambda s: s if s and s.get("sessionId") and s.get("harness") else None)(state()), 120, 0.5)
+    current = wait(lambda: (lambda s: s if s and s.get("sessionId") and s.get("harness") else None)(state()), 120, 0.05)
     say("first chat state", json.dumps(current)[:400])
+    # The cold arm: the launch's first chat, picked with no pool wait (bench_arms.py).
+    cold_row = {"arm": "cold", "target": "claude", "pick_to_ready_ms": round((time.time() - t_first) * 1000) if current else None}
+    say("SWITCH", json.dumps(cold_row))
     wait(lambda: (lambda st_: st_ if st_ and not st_.get("isWorking") else None)(state()), 90, 1)
     switches = []
     cur_h = (current or {}).get("harness") or "claude"
@@ -667,7 +682,30 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         switches.append(row)
         cur_h = (ready or {}).get("harness") or target
         wait(lambda: (lambda st_: st_ if st_ and not st_.get("isWorking") else None)(state()), 90, 1)
-    report["switches"] = switches
+    def quick_switch(n):
+        """A switch right after the one before showed its session: no pool wait, no prewarm."""
+        global cur_h
+        target = "codex" if "claude" in cur_h else "claude"
+        old = (state() or {}).get("sessionId")
+        t0 = time.time()
+        reply = pane("new_chat", pane=PANE, harness=target)
+        click()
+        pane("send_prompt", pane=PANE, text="Reply with the single word ok.")
+        ready = wait(lambda: (lambda s: s if s and s.get("sessionId") and s.get("sessionId") != old and s.get("harness") else None)(state()), 120, 0.05)
+        row = {"arm": "quick", "n": n, "target": target, "harness": (ready or {}).get("harness"),
+               "pick_to_ready_ms": round((time.time() - t0) * 1000) if ready else None,
+               "pool_before_pick": [(e.get("harness"), e.get("state")) for e in pool_entries()], "reply": json.dumps(reply)[:200]}
+        say("SWITCH", json.dumps(row))
+        cur_h = (ready or {}).get("harness") or target
+        return row
+    quick = [quick_switch(n + 1) for n in range(_opts.quick)]
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bench_arms
+    report["switches"] = switches + quick + [cold_row]
+    report["arms"] = bench_arms.report("agent-pane/switch", "pick_to_ready_ms", "ms",
+                                       {"warm": [r["pick_to_ready_ms"] for r in switches],
+                                        "quick": [r["pick_to_ready_ms"] for r in quick],
+                                        "cold": [cold_row["pick_to_ready_ms"]]}, out=say)
     dlog = os.path.join(HOME_ACP, "daemon.log")
     say("daemon log pool lines", "\n".join([l for l in open(dlog).read().splitlines() if "pool" in l.lower()][-20:]) if os.path.exists(dlog) else "none")
 

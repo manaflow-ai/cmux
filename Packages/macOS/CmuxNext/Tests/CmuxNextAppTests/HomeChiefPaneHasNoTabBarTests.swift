@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// tabbar" (and 2026-10-20: "should not even show tabs UI for left hand side chief"). #24052 (Leo
 /// 2026-10-21) made Home's Chief pane, its pinned chat dock, show its tab bar; it shows none again,
 /// and Hide/Show Tab Bar and New Horizontal Tab are not offered for it (plans/cmux-next/home-chief-pane.md H1).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct HomeChiefPaneHasNoTabBarTests {
     @Test func theLoneHomeChiefPaneShowsNoTabBar() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in

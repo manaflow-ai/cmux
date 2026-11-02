@@ -5,7 +5,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -18,12 +18,22 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
+import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
-export function CommandRow({ item }: { item: AcpmuxActivity }) {
+// direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
+// render/output work; the row's own disclosure, Find and language subscriptions still update it.
+export const CommandRow = memo(function CommandRow({
+  item,
+  grouped = false,
+}: {
+  item: AcpmuxActivity;
+  grouped?: boolean;
+}) {
   const t = useT();
   const tool = item.tool!;
-  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
+  // The Verbose transcript view opens the command to its output.
+  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
   // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(
@@ -55,11 +65,17 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
     command: "\u0000",
   }).split("\u0000");
+  const line = (
+    <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
+      {short}
+    </code>
+  );
   return (
     <>
       <button
         type="button"
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-id={tool.id}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={(node) => {
@@ -78,21 +94,20 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             // Find counts the command, not this, so it is not highlighted.
             <span data-find-skip>{tool.description}</span>
           ) : (
-            <>
+            // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+            <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
               {before && <span data-find-skip>{before}</span>}
-              <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
-                {short}
-              </code>
+              {line}
               {after && <span data-find-skip>{after}</span>}
-            </>
+            </ToolLabel>
           )}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
           {foreground ? (
-            <Spinner size={12} />
+            !grouped && <Spinner size={12} />
           ) : tool.background ? (
-            <BackgroundMark background={tool.background} />
+            <BackgroundMark background={tool.background} showActivity={!grouped} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>
               {failureWord(t, failure)}
@@ -124,4 +139,4 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       )}
     </>
   );
-}
+});

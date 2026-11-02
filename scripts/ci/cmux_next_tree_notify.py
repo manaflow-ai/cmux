@@ -44,6 +44,10 @@ from typing import Callable, Protocol
 SHA = re.compile(r"^[0-9a-f]{40}$")
 REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 TIERS = ("daemon", "scheme")
+# A marker's tip_suite -> the tiers it may carry and the dispatch input that names its same-tree run
+# (`cmux-next tip daemon suite · <sha>`, `cmux-next base tier · <sha>`).
+TIP_SUITES = {"daemon": {"daemon"}, "base": {"daemon", "scheme"}}
+TIP_SUITE_INPUTS = {"daemon": "tip_daemon_suite", "base": "base_tier"}
 MAX_MARKERS = 50
 WORKFLOW = "cmux-next.yml"
 TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
@@ -134,6 +138,16 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
             return None
     elif dev_daily is not False:
         return None
+    # The tip daemon suite (cmux-next.yml tip_daemon_suite): a dispatch on feat-cmux-next of the daemon
+    # tier only, which tests its exact commit whatever the tip is by then. The base tier
+    # (cmux-next.yml base_tier, cmux-next-base-tier-kick.yml) likewise, with the daemon and scheme tiers.
+    tip_suite = marker.get("tip_suite")
+    if tip_suite is not None and (not isinstance(tip_suite, str) or tip_suite not in TIP_SUITES
+                                  or marker.get("origin") != "dispatch" or dev_daily
+                                  or marker.get("branch") != "feat-cmux-next"
+                                  or marker.get("ref_kind", "heads") != "heads"
+                                  or not set(tiers) <= TIP_SUITES[tip_suite]):
+        return None
     if marker.get("origin") in ("push", "dispatch"):
         if dev_daily and marker.get("origin") != "push":
             return None
@@ -171,6 +185,11 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
         # admission signal for this marker. same-tree mode checks out the
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
+            return True
+        # Likewise the tip daemon suite and the base tier: each is the base's verdict for that commit, and in a
+        # landing burst the tip always moves before its tree publishes (2026-10-30: no base daemon-test
+        # verdict for hours, so no pull request's daemon-test red could be compared with the base).
+        if marker.get("tip_suite"):
             return True
         # A tag has no head to move on (and is not a branch to look up).
         if marker.get("ref_kind") == "tags":
@@ -223,6 +242,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         }
         if marker.get("dev_daily"):
             inputs.update(dev_daily="true", dev_daily_sha=marker["dev_daily_sha"])
+        if marker.get("tip_suite"):
+            # Names the run `cmux-next tip daemon suite · <sha>` or `cmux-next base tier · <sha>`, which
+            # the dispatchers and base_red_excuse.py look up.
+            inputs[TIP_SUITE_INPUTS[marker["tip_suite"]]] = "true"
         for ref in dispatch_refs(marker, repo):
             status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": ref, "inputs": inputs})
             if status == 204:

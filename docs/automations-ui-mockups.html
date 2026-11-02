@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cmux automations: UI options</title>
+<!-- Static mockups for docs/automations-platonic-ideal.md section 8. Not shipped UI. -->
+<style>
+  :root { font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  body { margin: 0; padding: 24px; background: #888; }
+  h1 { color: #fff; font-size: 20px; margin: 0 0 4px; }
+  .lede { color: #f2f2f2; font-size: 13px; margin: 0 0 20px; }
+  .opt { margin-bottom: 36px; }
+  .opt h2 { color: #fff; font-size: 16px; margin: 0 0 10px; }
+  .pair { display: flex; gap: 20px; }
+  .win { width: 760px; height: 440px; border-radius: 12px; overflow: hidden; display: flex; box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12.5px; }
+  .light { --bg:#ffffff; --side:#f2f2f4; --fg:#1d1d1f; --mute:#86868b; --line:#e3e3e6; --sel:#e2e2e7; --card:#f7f7f9; --acc:#0a84ff; --bad:#ff3b30; --ok:#30a14e; --warn:#ff9f0a; --chip:#ececf0; }
+  .dark  { --bg:#1e1e20; --side:#161618; --fg:#f2f2f7; --mute:#8e8e93; --line:#2c2c2e; --sel:#2c2c30; --card:#262628; --acc:#0a84ff; --bad:#ff453a; --ok:#32d74b; --warn:#ff9f0a; --chip:#2c2c2e; }
+  .win { background: var(--bg); color: var(--fg); }
+  .side { width: 200px; background: var(--side); border-right: 1px solid var(--line); padding: 34px 8px 8px; box-sizing: border-box; position: relative; }
+  .lights { position: absolute; top: 12px; left: 12px; display: flex; gap: 7px; }
+  .lights i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+  .row { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; white-space: nowrap; overflow: hidden; }
+  .row.sel { background: var(--sel); }
+  .row .ic { width: 16px; text-align: center; color: var(--mute); }
+  .row .n { margin-left: auto; color: var(--mute); font-size: 11px; }
+  .badge { margin-left: auto; background: var(--bad); color: #fff; border-radius: 9px; font-size: 10.5px; padding: 0 6px; font-weight: 600; }
+  .grp { color: var(--mute); font-size: 11px; font-weight: 600; padding: 10px 8px 3px; display: flex; }
+  .grp .p { margin-left: auto; }
+  .child { padding-left: 26px; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .bar { height: 38px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; font-weight: 600; gap: 8px; }
+  .bar .sp { flex: 1; }
+  .btn { background: var(--acc); color: #fff; border-radius: 6px; padding: 3px 10px; font-weight: 500; font-size: 12px; }
+  .btn.g { background: var(--chip); color: var(--fg); }
+  .sec { color: var(--mute); font-size: 11px; font-weight: 600; padding: 10px 14px 4px; text-transform: uppercase; letter-spacing: .03em; }
+  .item { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); align-items: center; }
+  .item.sel { background: var(--sel); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .ok{background:var(--ok)} .bad{background:var(--bad)} .warn{background:var(--warn)} .off{background:var(--mute)}
+  .t { font-weight: 600; }
+  .s { color: var(--mute); font-size: 11.5px; grid-column: 2 / 4; }
+  .chip { background: var(--chip); border-radius: 5px; padding: 1px 6px; font-size: 11px; color: var(--fg); }
+  .split { display: flex; flex: 1; min-height: 0; }
+  .list { width: 300px; border-right: 1px solid var(--line); overflow: hidden; }
+  .detail { flex: 1; padding: 12px 16px; overflow: hidden; }
+  .detail h3 { margin: 0 0 2px; font-size: 15px; }
+  .kv { color: var(--mute); margin: 2px 0 10px; }
+  .prompt { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; line-height: 1.4; }
+  .hist div { display: flex; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .hist .w { color: var(--mute); margin-left: auto; font-size: 11px; }
+  .chat { flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .bub { max-width: 70%; padding: 7px 11px; border-radius: 16px; line-height: 1.35; }
+  .me { align-self: flex-end; background: var(--acc); color: #fff; }
+  .them { align-self: flex-start; background: var(--card); border: 1px solid var(--line); }
+  .card { align-self: flex-start; width: 78%; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; }
+  .card .h { display: flex; gap: 7px; align-items: center; font-weight: 600; margin-bottom: 3px; }
+  .card .h .w { margin-left: auto; color: var(--mute); font-weight: 400; font-size: 11px; }
+  .card .b { color: var(--fg); line-height: 1.35; margin-bottom: 6px; }
+  .card .a { display: flex; gap: 6px; }
+  .tabs { display: flex; gap: 4px; padding: 6px 14px 0; border-bottom: 1px solid var(--line); }
+  .tabs span { padding: 5px 10px; border-radius: 6px 6px 0 0; color: var(--mute); }
+  .tabs span.on { color: var(--fg); font-weight: 600; border-bottom: 2px solid var(--acc); }
+  .label { color: #fff; font-size: 12px; margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<h1>cmux automations: where they live</h1>
+<p class="lede">Three options from docs/automations-platonic-ideal.md section 8. Default picked: A. Each option is shown light and dark.</p>
+
+<template id="sideA">
+  <div class="side"><div class="lights"><i></i><i></i><i></i></div>
+    <div class="row"><span class="ic">⌂</span>Home</div>
+    <div class="row sel"><span class="ic">◷</span>Automations<span class="badge">1</span></div>
+    <div class="grp">cmux-next</div>
+    <div class="row"><span class="ic">▸</span>Fix Home hangs</div>
+    <div class="row"><span class="ic">▸</span>Pro plans port</div>
+    <div class="row"><span class="ic">▸</span>Settings sections</div>
+    <div class="grp">Billing</div>
+    <div class="row"><span class="ic">▸</span>Invoice queue</div>
+  </div>
+</template>
+
+<template id="mainA">
+  <div class="main">
+    <div class="bar">Automations <span class="chip">6 active</span><span class="sp"></span><span class="btn g">Search</span><span class="btn">New</span></div>
+    <div class="split">
+      <div class="list">
+        <div class="sec">Needs you</div>
+        <div class="item"><span class="dot bad"></span><span class="t">Nightly deps PR</span><span class="chip">Failed</span><span class="s">Daily 2:00 · tests red at 2:14</span></div>
+        <div class="sec">Today</div>
+        <div class="item sel"><span class="dot ok"></span><span class="t">Morning brief</span><span class="chip">9:00</span><span class="s">Weekdays · This Mac → Cloud</span></div>
+        <div class="item"><span class="dot ok"></span><span class="t">Unblock agents</span><span class="chip">in 12m</span><span class="s">Every 30 min · This Mac</span></div>
+        <div class="item"><span class="dot ok"></span><span class="t">cmux.com uptime</span><span class="chip">in 4m</span><span class="s">Every 10 min · Cloud</span></div>
+        <div class="sec">Later</div>
+        <div class="item"><span class="dot ok"></span><span class="t">Weekly changelog</span><span class="chip">Fri 17:00</span><span class="s">Weekly · Cloud</span></div>
+        <div class="sec">Paused</div>
+        <div class="item"><span class="dot off"></span><span class="t">Clean DerivedData</span><span class="chip">Paused</span><span class="s">Hourly · This Mac</span></div>
+      </div>
+      <div class="detail">
+        <h3>Morning brief</h3>
+        <div class="kv">Weekdays at 9:00 Pacific · <span class="chip">This Mac</span> → <span class="chip">Cloud</span> · Claude · next Fri 9:00</div>
+        <div class="prompt">Summarize overnight mail, calendar, merged PRs and Slack mentions. Report only what needs me today.</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px"><span class="btn">Run now</span><span class="btn g">Pause</span><span class="btn g">Edit</span></div>
+        <div class="hist">
+          <div><span class="dot ok"></span>Thu 9:01 · reported 3 items<span class="w">This Mac · 2m 10s</span></div>
+          <div><span class="dot ok"></span>Wed 9:00 · nothing to report<span class="w">Cloud (Mac asleep) · 1m 48s</span></div>
+          <div><span class="dot warn"></span>Tue 9:00 · ran late at 11:42<span class="w">This Mac · 2m 3s</span></div>
+          <div><span class="dot ok"></span>Mon 9:02 · reported 1 item<span class="w">This Mac · 1m 55s</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="sideB">
+  <div class="side"><div class="lights"><i></i><i></i><i></i></div>
+    <div class="row"><span class="ic">⌂</span>Home</div>
+    <div class="grp">Automations<span class="p">+</span></div>
+    <div class="row"><span class="ic">◷</span>Morning brief<span class="n">9:00</span></div>
+    <div class="row child sel"><span class="ic">✓</span>Thu run</div>
+    <div class="row"><span class="ic">◷</span>Nightly deps PR<span class="badge">!</span></div>
+    <div class="row child"><span class="ic">✕</span>Fri 2:00 run</div>
+    <div class="row"><span class="ic">◷</span>Unblock agents<span class="n">12m</span></div>
+    <div class="row"><span class="ic">◷</span>cmux.com uptime<span class="n">4m</span></div>
+    <div class="row"><span class="ic">◷</span>Weekly changelog</div>
+    <div class="grp">cmux-next</div>
+    <div class="row"><span class="ic">▸</span>Fix Home hangs</div>
+  </div>
+</template>
+
+<template id="mainB">
+  <div class="main">
+    <div class="bar">Morning brief · Thu run<span class="sp"></span><span class="btn g">Archive</span><span class="btn">Run again</span></div>
+    <div class="chat">
+      <div class="them bub">Ran at 9:01 on This Mac (2m 10s).</div>
+      <div class="them bub">3 things need you today: the 11:00 with Leo moved to 11:30; PR #28584 has review comments from Aziz; Stripe sent a test-mode webhook failure.</div>
+      <div class="me bub">reply to Aziz for me</div>
+      <div class="them bub">Drafted. Open the PR to send it?</div>
+    </div>
+  </div>
+</template>
+
+<template id="sideC">
+  <div class="side"><div class="lights"><i></i><i></i><i></i></div>
+    <div class="row sel"><span class="ic">⌂</span>Home<span class="badge">1</span></div>
+    <div class="grp">cmux-next</div>
+    <div class="row"><span class="ic">▸</span>Fix Home hangs</div>
+    <div class="row"><span class="ic">▸</span>Pro plans port</div>
+    <div class="row"><span class="ic">▸</span>Settings sections</div>
+    <div class="grp">Billing</div>
+    <div class="row"><span class="ic">▸</span>Invoice queue</div>
+  </div>
+</template>
+
+<template id="mainC">
+  <div class="main">
+    <div class="tabs"><span class="on">Chief</span><span>Scheduled (6)</span></div>
+    <div class="chat">
+      <div class="me bub">every weekday at 9 give me a morning brief</div>
+      <div class="card"><div class="h">◷ Morning brief<span class="w">new automation</span></div>
+        <div class="b">Weekdays at 9:00 Pacific · next Fri 9:00, Mon 9:00, Tue 9:00<br>Runs on This Mac, Cloud when it sleeps · Claude</div>
+        <div class="a"><span class="btn">Create</span><span class="btn g">Edit</span></div></div>
+      <div class="card"><div class="h"><span class="dot bad"></span>Nightly deps PR failed<span class="w">2:14</span></div>
+        <div class="b">Tests red after bumping swift-collections 1.3. Last line: "TabManagerUnitTests: 2 failures".</div>
+        <div class="a"><span class="btn">Retry</span><span class="btn g">Open run</span><span class="btn g">Pause</span></div></div>
+      <div class="card"><div class="h"><span class="dot ok"></span>Morning brief<span class="w">Thu 9:01 · 3 earlier</span></div>
+        <div class="b">3 things need you today: meeting moved, Aziz review comments, a Stripe webhook failure.</div></div>
+    </div>
+  </div>
+</template>
+
+<div class="opt"><h2>A. One "Automations" row + page (default)</h2><div class="pair" data-s="sideA" data-m="mainA"></div>
+<p class="label">One fixed row, red badge only for failures and needs-you. Runs are history rows, not workspaces. News still arrives in Home.</p></div>
+<div class="opt"><h2>B. Sidebar group, runs as child workspaces</h2><div class="pair" data-s="sideB" data-m="mainB"></div>
+<p class="label">Familiar, but the sidebar grows with every automation and run; successful runs auto-archive after 24 h.</p></div>
+<div class="opt"><h2>C. Home only: cards in the Chief chat + a Scheduled tab</h2><div class="pair" data-s="sideC" data-m="mainC"></div>
+<p class="label">Least chrome. Create and failures happen in the chat; managing many automations happens in the Scheduled tab.</p></div>
+
+<script>
+  for (const pair of document.querySelectorAll('.pair')) {
+    for (const theme of ['light', 'dark']) {
+      const win = document.createElement('div');
+      win.className = 'win ' + theme;
+      win.append(document.getElementById(pair.dataset.s).content.cloneNode(true));
+      win.append(document.getElementById(pair.dataset.m).content.cloneNode(true));
+      pair.append(win);
+    }
+  }
+</script>
+</body>
+</html>

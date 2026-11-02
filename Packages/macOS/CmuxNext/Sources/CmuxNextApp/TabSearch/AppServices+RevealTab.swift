@@ -18,7 +18,7 @@ extension AppServices {
     ///     key window alone (a link opened in the background).
     @discardableResult
     func revealTab(_ id: String, intent: WindowActivation.Intent = .raise) -> Bool {
-        let located = locateTab(id)
+        let located = locateTabOnAnyMachine(id)
         // A `tab_` link names a tab the strip may know by its first id.
         let tabID = located?.0.id ?? id
         guard let paneModel = located?.1,

@@ -22,7 +22,8 @@ use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
 use super::super::{Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, Outcome, PeerUpdate, UpdateOptions, embedded_build, local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, embedded_build, is_own_unit,
+    local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -164,6 +165,8 @@ pub(super) struct Paths {
     pub(super) off: PathBuf,
     /// [`CLOUD_VM_MARK`].
     pub(super) cloud_vm: PathBuf,
+    /// `~/.config/systemd/user/acpmux.service` ([`OWN_UNIT`]).
+    pub(super) unit: PathBuf,
     /// This host's release target, as `acpmux-<target>` names it.
     pub(super) target: &'static str,
 }
@@ -179,6 +182,7 @@ impl Paths {
             off: home.join(NO_AUTO_UPDATE),
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
+            unit: user.join(OWN_UNIT),
             target,
         })
     }
@@ -219,13 +223,13 @@ pub(super) enum Step {
 /// Take the update lock, read the channel and, when the installed binary
 /// differs from the channel's, download this host's binary into
 /// `update/<sha256>/` (kept for the next run; other builds' folders go) and
-/// check its sha256. Errors (a Cloud VM, a channel without this target, a
+/// check its sha256. Errors (a Cloud VM without acpmux's own `acpmux.service`, a channel without this target, a
 /// download that does not match) change nothing on the host.
 pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> Result<Prepared> {
     if paths.off.exists() {
         return Ok(Prepared::Off);
     }
-    if paths.cloud_vm.exists() {
+    if paths.cloud_vm.exists() && !own_unit(&paths.unit) {
         bail!("this host is a cmux Cloud VM: `cmux link machine update --to-bundled` updates it");
     }
     let url = channel_url(channel)?;
@@ -253,6 +257,15 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
     Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, dir, lease }))
+}
+
+/// Whether `unit` is acpmux's own `acpmux.service` ([`is_own_unit`]): a regular
+/// file, not a link. On a cmux Cloud VM only that daemon is this host's to
+/// update; the update's probe then checks the daemon runs under it
+/// (`cloud_vm_check`, `host_update.rs`).
+fn own_unit(unit: &Path) -> bool {
+    std::fs::symlink_metadata(unit).is_ok_and(|m| m.file_type().is_file())
+        && std::fs::read(unit).is_ok_and(|text| is_own_unit(&text))
 }
 
 /// Remove the download folders (`<sha256>/`) of builds other than `keep`,

@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -18,7 +19,7 @@ import Testing
 /// the other faded in. These tests show both in a real window and check that there is one card
 /// on screen at any time, and that going between them morphs that one card: it moves and resizes
 /// from where the last card was to where the next one goes.
-@MainActor @Suite(.serialized) struct SidebarOneMorphingCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarOneMorphingCardTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 220))
@@ -76,7 +77,14 @@ import Testing
             card.hideNotes()
             cards.dismiss(.action)
             cards.unregister(row)
-            for child in window.childWindows ?? [] { child.orderOut(nil) }
+            // The hover card window too when its fade-out already took it off the sidebar's window.
+            var children = window.childWindows ?? []
+            if let panel = cards.panel, !children.contains(panel) { children.append(panel) }
+            for child in children {
+                window.removeChildWindow(child)
+                child.isReleasedWhenClosed = false
+                child.close()
+            }
             window.close()
         }
     }
@@ -183,6 +191,7 @@ import Testing
         let first = try #require(h.shownCards.first, "the workspace card did not show")
         let workspaceSurface = Self.surface(of: first)
         removeAllAnimations(first.contentView?.layer)
+        try restBeforeTheNextShow(h.cards)
 
         h.card.highlights = Highlights()
         h.card.showNotes()
@@ -208,6 +217,7 @@ import Testing
         let first = try #require(h.shownCards.first, "the update card did not show")
         let updateSurface = Self.surface(of: first)
         removeAllAnimations(first.contentView?.layer)
+        try restBeforeTheNextShow(h.cards)
 
         h.cards.pin(h.row.target, from: h.row)
         let second = try #require(h.shownCards.first, "the workspace card did not show")
@@ -233,6 +243,15 @@ import Testing
         #expect(h.shownCards.count == 1, "Reduce Motion shows two cards")
         let animated = Self.morphStartSizes(under: first.contentView?.layer)
         #expect(animated.isEmpty, "the card resizes with motion under Reduce Motion: \(animated)")
+    }
+
+    /// The next show comes later than a sweep (`HoverCardTiming.sweepInterval`): a pointer that
+    /// rested on one card and then went to the other, not one crossing rows, which snaps the card
+    /// at once (0463b5a8e96). The two shows here run in one turn, so the panel's clock steps on.
+    private func restBeforeTheNextShow(_ cards: HoverCardCoordinator) throws {
+        let panel = try #require(cards.panel, "no card window")
+        let rested = CACurrentMediaTime() + HoverCardTiming.sweepInterval.hoverCardSeconds + 1
+        panel.now = { rested }
     }
 
     private func removeAllAnimations(_ layer: CALayer?) {

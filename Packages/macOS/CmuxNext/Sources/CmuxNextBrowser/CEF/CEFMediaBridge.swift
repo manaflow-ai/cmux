@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -80,13 +81,13 @@ final class CEFMediaBridge {
 
     /// A `Runtime.bindingCalled` of the media binding: applies the page's
     /// report. False for every other message (the agent relay's).
-    func handle(_ json: String) -> Bool {
-        if let refused = BrowserProtectedMedia.refused(bindingCall: json) {
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        if let refused = BrowserProtectedMedia.refused(bindingCall: head) {
             tab?.emit(.protectedMediaUnavailable(refused))
             return true
         }
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(BrowserMediaState.channel)\""),
-              let data = json.data(using: .utf8),
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(BrowserMediaState.channel)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel

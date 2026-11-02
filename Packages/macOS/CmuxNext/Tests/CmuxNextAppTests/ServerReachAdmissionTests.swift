@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemonService
 @testable import CmuxNextDaemon
 import CmuxNextRemote

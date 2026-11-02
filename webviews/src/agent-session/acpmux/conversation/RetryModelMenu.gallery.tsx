@@ -65,14 +65,16 @@ export default componentEntry<Record<string, never>>({
         models: claudeModels,
         current: "claude-opus-5-5",
         harness: "Claude Code",
-        top: topModelsFor("claude"),
+        // The current families, plus the 1M Fable row Claude Code's own menu lists: a shown row
+        // with a detail ("1M context"), whose placement retry-model-menu.test.ts measures.
+        top: [...(topModelsFor("claude") ?? []), "claude-fable-5-1[1m]"],
         retry: () => {},
       },
     };
     return function GalleryRetryModelMenu() {
       return (
         // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable).
-        <div className="acpmux-row" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
+        <div className="acpmux-row cv-user" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
           <TurnActionsContext.Provider value={actions}>
             <UserBubble row={prompt} text={prompt.text} />
           </TurnActionsContext.Provider>

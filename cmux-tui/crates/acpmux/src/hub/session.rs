@@ -10,6 +10,50 @@ pub(super) struct SteerNow {
     pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
+    /// What each steer of `waiting` is, by prompt id: the turn it starts when its agent reads
+    /// it after the turn it was steered into ended (`carried_turn.rs`).
+    pub(super) sent: std::collections::HashMap<String, super::carried_turn::SteerSent>,
+    /// The turns the agent's latest carries started, newest last, by the carry's number: a
+    /// steer it reads in one names it (`carried_turn.rs`).
+    pub(super) carries: std::collections::VecDeque<(u64, String)>,
+    /// Each carried turn after the turn it took the place of (from, to), newest last: a Stop
+    /// that saw the turn before still stops the one its agent runs now (`cancel.rs`).
+    pub(super) successors: std::collections::VecDeque<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct PreparedTurn {
+    pub(super) prompt_id: String,
+    pub(super) turn_id: String,
+    pub(super) queued: bool,
+    pub(super) abandoned: bool,
+    pub(super) attempt_id: String,
+    pub(super) generation: u64,
+    pub(super) connection_id: String,
+}
+
+/// Dropping a waiting prepare future (deadline, cancel, disconnect) releases only that attempt.
+/// Once ready is returned, the caller owns explicit abandonment; snapshot latency is unbounded.
+struct PreparationWait<'a> {
+    session: &'a Session,
+    prompt: &'a str,
+    generation: u64,
+    attempt: &'a str,
+    connection: &'a str,
+    ready: bool,
+}
+
+impl Drop for PreparationWait<'_> {
+    fn drop(&mut self) {
+        if !self.ready {
+            self.session.abandon_prepared(
+                self.prompt,
+                self.generation,
+                self.attempt,
+                self.connection,
+            );
+        }
+    }
 }
 
 pub struct Session {
@@ -19,6 +63,8 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Serializes close/purge with transfer retirement before an ID can be reused.
+    pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
@@ -28,6 +74,16 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
+    /// `session.json` in version order (fuzz row g finding g2).
+    pub(super) meta_writer: super::meta_save::MetaWriter,
+    /// Message projection ids, loaded once from the journal on first use; only
+    /// message acceptance/recovery touches this, never streamed tokens.
+    /// Dedupe key is message id plus the target session for sender copies.
+    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Tool output snapshots held back from the log while a newer one may replace them
+    /// (`store/deferred.rs`); taken only under `append_lock`.
+    pub(super) log_deferral: StdMutex<crate::store::Deferral>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -45,18 +101,66 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// Claim retry recovery once per session object; imports may replace a chat with the
+    /// same id and a different journal, which must get its own recovery pass.
+    pub(super) auto_resume_restored: AtomicBool,
+    /// What a daemon start restored here waits for the person: the chat's folder is
+    /// privacy-protected, so its queue, cut turn, inbox and retries start no agent until the
+    /// person opens, types into or prompts the chat (`protected_hold.rs`).
+    pub(super) protected_hold: AtomicBool,
+    /// A retry task may outlive an imported replacement with the same durable id. Its mark
+    /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
+    pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
+    /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
+    /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
+    /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
+    pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
+    /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
+    /// settles the logical turn before its cancel reaches the harness; keeping this lock until
+    /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
+    pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
+    /// not land within the grace (`shutdown.rs` `settle_ends`).
+    pub(super) ending: StdMutex<Option<TurnInfo>>,
+    /// A detach is ending the agent it took under the child lock (`detach_child`): a shutdown
+    /// that meets that lock waits for the detach rather than count the agent as kept.
+    pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Cloud owner capture reservations. Pending reservations serialize prepare calls; accepted
+    /// reservations are retained briefly so a retried prepare can replay its stable turn id.
+    pub(super) prepared: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) cloud_generation: AtomicU64,
+    /// Durable team notices, indexed once per session; receiving one never queues a turn.
+    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
+    /// None until a restored log has been read successfully.
+    pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
+    /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
+    /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
+    pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
+    /// What the messages waiting inbox digests took out of the queue hold, charged against
+    /// `queueMaxBytes` until each digest's turn takes them over or they go back in
+    /// (`queue_admission.rs`). Changed and read only under the `queue` lock, in the same critical
+    /// section that moves the messages, so a new prompt always sees them in one place or the
+    /// other (`DigestTurn::charge`, `DigestTurn::release`).
+    pub(super) digest_bytes: AtomicU64,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -71,6 +175,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -98,6 +205,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -105,6 +216,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -134,9 +249,52 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// The turn id whose forced cancellation was already published. A second
+    /// Stop for the same turn must not publish another forced answer.
+    pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The forced `turn_result` already written for a turn, if any. This is
+    /// separate from `cancel_forced_turn`: several prompt waiters can observe
+    /// the same forced answer, but only one may append the result.
+    pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// The turn a Stop is stopping and has not ended yet (`cancel.rs`): the row reads
+    /// `stopping` until it ends, never ended while its agent still works on it.
+    pub(super) stopping: StdMutex<Option<String>>,
+    /// The turn whose agent acpmux ended because it went on working after Stop (`cancel.rs`):
+    /// that turn's prompt, failing as its process ends, answers as the forced cancel.
+    pub(super) stop_restart: StdMutex<Option<String>>,
+    /// The generation of the agent a Stop ended that way: what it still had in flight is
+    /// not the next turn's (`permissions.rs` inbound loop). 0: none.
+    pub(super) stopped_agent: AtomicU64,
+    /// Start the agent again, on the same conversation, as the turn a Stop ended that way ends
+    /// (`turns.rs`), before the next turn can start.
+    /// The Stop count (`cancels`) plus one when it was set; 0: none.
+    pub(super) stop_respawn: AtomicU64,
+    /// How many taps `Hub::session_tap` made for it; each tap knows its number.
+    pub(super) taps: AtomicU64,
+    /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
+    /// still log is no sign of work (no `heard`, no unstick, no tool state).
+    pub(super) muted_taps: AtomicU64,
+    /// A person's Stop holds other agents' queued messages until the person's next turn
+    /// completes or the queue is resumed (`cancel.rs` `hold_agent_messages`).
+    /// The person's Stop's hold, by its number (`Hub::stop_hold_number`); 0: none.
+    pub(super) stop_hold: AtomicU64,
+    /// `stop_hold` when the running turn started: only a turn started under the hold ends it
+    /// (`turns.rs` `finish_turn`), never one that was ending as the Stop came.
+    pub(super) turn_hold: AtomicU64,
+    /// Claude Code reported that its active turn is compacting. This is kept
+    /// on the session as hosted agents have their translator in the host.
+    pub(super) compacting: AtomicBool,
+    /// A compacting Stop fences untagged compaction metadata for this live
+    /// session instance. Hosted updates can overtake the
+    /// delayed cancel notification, so the controller must drop their
+    /// boundary and summary records as well as the local translator.
+    pub(super) compaction_metadata_fenced: AtomicBool,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
+    /// Counts status changes (`Hub::write_status`): a step that may or may not set the status
+    /// reads it before and after, as an adoption does around its recovery (`hosts.rs`).
+    pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -146,9 +304,19 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
+    /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
+    /// process is. Not persisted: after a daemon restart, a line that continues a control opened
+    /// before it reads as text.
+    pub(super) stderr_stream: StdMutex<SessionStderr>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
+    /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
+    /// of the same prompt id is answered as a duplicate, and that answer names the same kept
+    /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
+    pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -181,6 +349,10 @@ pub struct Session {
     pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
+    /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
+    pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -204,6 +376,8 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
+    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
@@ -216,6 +390,34 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
+    /// Fence untagged compaction metadata for this live session. Claude's
+    /// boundary and summary lines carry no turn id, so a forced Stop keeps
+    /// them out of the controller log until this session is replaced.
+    pub(super) fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+    }
+
+    /// Terminal compaction metadata is untagged; message-derived usage stays valid.
+    pub(super) fn fences_compaction_update(&self, update: &Value) -> bool {
+        if !self.compaction_metadata_fenced.load(Ordering::SeqCst) {
+            return false;
+        }
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("compaction") => update.get("state").and_then(Value::as_str) != Some("running"),
+            Some("compaction_summary") => true,
+            Some("usage_update") => {
+                update.pointer("/_meta/acpmux/compactionDerived") == Some(&Value::Bool(true))
+            }
+            _ => false,
+        }
+    }
+
     /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
     pub(super) fn end_replay(&self, agent: u64) {
         self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);
@@ -230,14 +432,267 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap_or_else(|e| e.into_inner()))
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
+    }
+    /// Whether a prompt holds the turn lock for its turn (`turn_claimed`).
+    pub(super) fn turn_claimed(&self) -> bool {
+        self.turn_claimed.load(Ordering::SeqCst)
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
     }
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
+    }
+    pub async fn wait_queue_moved(&self) {
+        self.queue_moved.notified().await;
+    }
+
+    /// Call only after backend preparation authorization for this exact scope succeeds.
+    /// `prepared` is also the generation lock; no cloud generation writer may bypass it.
+    pub(crate) async fn prepare_turn(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> anyhow::Result<(String, bool, bool, u64, String)> {
+        anyhow::ensure!(
+            !prompt_id.is_empty() && !attempt_id.is_empty() && !connection_id.is_empty(),
+            "preparation identity is empty"
+        );
+        {
+            let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+            let current = self.cloud_generation.load(Ordering::SeqCst);
+            anyhow::ensure!(generation >= current, "cloud generation is stale");
+            if generation > current {
+                // A prompt can hold turn_lock before `turn` is populated. Refuse that handoff
+                // too; restoring a generation must never silently replace an active harness.
+                let _idle = self.turn_lock.try_lock().map_err(|_| {
+                    anyhow::anyhow!("cannot replace generation during prompt handoff")
+                })?;
+                anyhow::ensure!(
+                    self.turn().is_none() && !self.harness_turn.load(Ordering::SeqCst),
+                    "cannot replace generation during active turn"
+                );
+                self.cloud_generation.store(generation, Ordering::SeqCst);
+                pending.clear();
+                self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.queue_moved.notify_waiters();
+            }
+        }
+        let mut wait = PreparationWait {
+            session: self,
+            prompt: prompt_id,
+            generation,
+            attempt: attempt_id,
+            connection: connection_id,
+            ready: false,
+        };
+        let mut registered = false;
+        loop {
+            let notified = self.queue_moved.notified();
+            tokio::pin!(notified);
+            // Register before checking state so notify_waiters cannot be lost between the
+            // locked check and the await below.
+            notified.as_mut().enable();
+            let mut handoff_busy = false;
+            {
+                let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+                anyhow::ensure!(
+                    self.cloud_generation.load(Ordering::SeqCst) == generation,
+                    "cloud generation changed while preparing turn"
+                );
+                if let Some(done) = self
+                    .prepared_done
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .find(|p| p.prompt_id == prompt_id)
+                    .cloned()
+                {
+                    anyhow::ensure!(
+                        done.generation == generation,
+                        "accepted preparation generation mismatch"
+                    );
+                    wait.ready = true;
+                    // Reauthorization has a fresh attempt; the accepted prompt is immutable.
+                    return Ok((
+                        done.turn_id,
+                        done.queued,
+                        true,
+                        generation,
+                        attempt_id.to_owned(),
+                    ));
+                }
+                if registered {
+                    anyhow::ensure!(
+                        pending.iter().any(|p| p.prompt_id == prompt_id
+                            && !p.abandoned
+                            && p.generation == generation
+                            && p.attempt_id == attempt_id
+                            && p.connection_id == connection_id),
+                        "preparation attempt was abandoned or replaced"
+                    );
+                } else {
+                    // Turn identity is deterministic, so abandoned slots need no allocation.
+                    // A retry rejoins the tail instead of overtaking another live turn.
+                    pending.retain(|p| !p.abandoned);
+                    if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
+                        anyhow::ensure!(
+                            existing.generation == generation
+                                && existing.attempt_id == attempt_id
+                                && existing.connection_id == connection_id,
+                            "preparation is owned by another attempt"
+                        );
+                        registered = true;
+                    }
+                    if !registered {
+                        let queued = self.turn().is_some()
+                            || self.queued() != 0
+                            || self.queue().iter().any(|q| !q.held)
+                            || pending.iter().any(|p| !p.abandoned);
+                        pending.push_back(PreparedTurn {
+                            prompt_id: prompt_id.to_owned(),
+                            turn_id: prompt_id.to_owned(),
+                            queued,
+                            abandoned: false,
+                            attempt_id: attempt_id.to_owned(),
+                            generation,
+                            connection_id: connection_id.to_owned(),
+                        });
+                        registered = true;
+                    }
+                }
+                if let Some(first) = pending.iter().find(|p| !p.abandoned)
+                    && first.prompt_id == prompt_id
+                    && self.turn().is_none()
+                    && self.queue().iter().all(|q| q.held)
+                    && self.queued() == 0
+                {
+                    match self.turn_lock.try_lock() {
+                        Ok(_idle) => {
+                            wait.ready = true;
+                            return Ok((
+                                first.turn_id.clone(),
+                                first.queued,
+                                false,
+                                generation,
+                                attempt_id.to_owned(),
+                            ));
+                        }
+                        Err(_) => handoff_busy = true,
+                    }
+                }
+            }
+            if handoff_busy {
+                // Turn completion may notify just before releasing turn_lock. Also wake on
+                // the release itself, rather than losing the only completion notification.
+                tokio::select! {
+                    _ = &mut notified => {},
+                    _ = self.turn_lock.lock() => {},
+                }
+            } else {
+                notified.await;
+            }
+        }
+    }
+
+    pub(super) fn prepared_turn_id(&self, prompt_id: &str) -> Option<String> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|p| p.prompt_id == prompt_id && !p.abandoned)
+            .map(|p| p.turn_id.clone())
+    }
+
+    /// Validate an execute envelope against a live or just-accepted reservation. The caller
+    /// still claims the external capability immediately before harness dispatch.
+    pub(crate) fn validate_prepared(
+        &self,
+        prompt_id: &str,
+        turn_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            self.cloud_generation.load(Ordering::SeqCst) == generation,
+            "cloud generation is stale"
+        );
+        let done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            pending.iter().chain(done.iter()).any(|p| !p.abandoned
+                && p.prompt_id == prompt_id
+                && p.turn_id == turn_id
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && connection_id.is_none_or(|connection| p.connection_id == connection)),
+            "execution does not match prepared attempt"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn abandon_prepared(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> bool {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        if self.cloud_generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        let Some(item) = pending.iter_mut().find(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && p.connection_id == connection_id
+        }) else {
+            return false;
+        };
+        item.abandoned = true;
+        self.queue_moved.notify_waiters();
+        true
+    }
+
+    pub(crate) fn abandon_prepared_connection(&self, connection_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        for item in pending.iter_mut().filter(|p| p.connection_id == connection_id) {
+            item.abandoned = true;
+        }
+        self.queue_moved.notify_waiters();
+    }
+
+    pub(super) fn accept_prepared(&self, prompt_id: &str, turn_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(pos) = pending.iter().position(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.turn_id == turn_id
+                && p.generation == self.cloud_generation.load(Ordering::SeqCst)
+        }) else {
+            return;
+        };
+        let Some(item) = pending.remove(pos) else {
+            return;
+        };
+        let mut done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        done.push_back(item);
+        while done.len() > 64 {
+            done.pop_front();
+        }
+        self.queue_moved.notify_waiters();
     }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -255,10 +710,16 @@ impl Session {
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
     }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
+    }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
     }
 }
+/// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).
+pub(super) const KEPT_MESSAGES: usize = 256;
+
 /// Tags that have not expired, as a flat map.
 pub fn live_tags(m: &SessionMeta) -> Value {
     let now = now_ms();
@@ -273,7 +734,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }
@@ -364,4 +825,30 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// A session's agent output streams, one per agent generation and pipe (`Inbound::Stderr`). Only a
+/// stream inside a string control is kept (a closed one is the same as a new one), and it is kept
+/// until its own terminator arrives, after its agent exited too: its reader may still be draining,
+/// and a late line read as a fresh stream would show payload. Nothing is evicted: an entry is a
+/// source and one control kind, left only by an agent that stopped inside a control.
+#[derive(Debug, Default)]
+pub(crate) struct SessionStderr {
+    open: std::collections::HashMap<(u64, crate::agent::StderrPipe), crate::stderr::StderrStream>,
+}
+
+impl SessionStderr {
+    /// `line` from `source` (an agent generation and its pipe), cleaned in that source's stream.
+    pub(crate) fn clean_line(
+        &mut self,
+        source: (u64, crate::agent::StderrPipe),
+        line: &str,
+    ) -> String {
+        let mut stream = self.open.remove(&source).unwrap_or_default();
+        let clean = stream.clean_line(line);
+        if stream.is_open() {
+            self.open.insert(source, stream);
+        }
+        clean
+    }
 }

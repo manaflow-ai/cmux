@@ -54,7 +54,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 /// The rail's list clamps its offset as a browser does: rows are 10 px, a spacer for rows it does not
@@ -153,11 +153,9 @@ for (let height = 96; height <= 336; height += 16)
           const from = list.hasAttribute("data-fade-top") ? fade : 0;
           const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
-          const roomy = railHeight <= viewport - 18 - 56 - 8;
+          const roomy = railHeight <= viewport - 18 - 18 - 8;
           const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;
-          const maskTo =
-            viewport -
-            (scroller.hasAttribute("data-fade-bottom") ? (scroller.hasAttribute("data-jump-shown") ? 56 : 18) : 0);
+          const maskTo = viewport - (scroller.hasAttribute("data-fade-bottom") ? 18 : 0);
           for (const index of lit) {
             const y = index * 10 - list.scrollTop;
             if (y < from || y + 10 > to)

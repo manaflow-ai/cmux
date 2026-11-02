@@ -33,6 +33,7 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "contextMenus",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
@@ -80,6 +81,21 @@ function build(): { categories: Category[]; homes: Map<string, { category: strin
 const built = build();
 
 export const categories: readonly Category[] = built.categories;
+
+/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. */
+export type SidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+
+/** The sidebar's sections, as the Swift layout exports them. */
+export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
+
+/** The sections this build shows, each with its shown categories; a section left empty is dropped. */
+export function shownSidebarSections(devBuild: boolean): Array<{ section: SidebarSection; categories: Category[] }> {
+  const shown = new Map(shownCategories(devBuild).map((category) => [category.id, category]));
+  return sidebarSections.flatMap((section) => {
+    const members = section.categories.flatMap((id) => shown.get(id) ?? []);
+    return members.length === 0 ? [] : [{ section, categories: members }];
+  });
+}
 
 /** The categories this build shows: DEV-only ones (Development) only when `devBuild`. */
 export function shownCategories(devBuild: boolean): readonly Category[] {

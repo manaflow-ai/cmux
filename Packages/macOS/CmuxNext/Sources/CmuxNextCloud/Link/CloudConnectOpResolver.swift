@@ -2,8 +2,10 @@ public import Foundation
 
 /// Adapter 1 (contract 2.3, C13b): the Cloud app server's
 /// `cloud.machine.connect` answers `{machine, carrier, generation, state:
-/// "up", socket}`; `socket` is the carrier's local socket in an owner-only
+/// "up", socket, vm_kind?}`; `socket` is the carrier's local socket in an owner-only
 /// directory, and each connection to it is one dial of the machine's daemon.
+/// `vm_kind` is the Cloud API's owner answer for this connect: only the exact
+/// value `owner` says the signed-in caller owns the machine.
 /// The app connects only after ``CloudLinkSocketPolicy`` accepts the path.
 public struct CloudConnectOpResolver: CloudLinkResolver {
     public static let connectOp = "cloud.machine.connect"
@@ -30,6 +32,23 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
         var state: String
         var generation: UInt64?
         var socket: String?
+        /// `vm_kind` when it is a string; any other JSON type reads as absent (not the owner),
+        /// never as a refused connect.
+        var vmKind: String?
+
+        enum CodingKeys: String, CodingKey {
+            case machine, state, generation, socket
+            case vmKind = "vm_kind"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            machine = try c.decode(String.self, forKey: .machine)
+            state = try c.decode(String.self, forKey: .state)
+            generation = try c.decodeIfPresent(UInt64.self, forKey: .generation)
+            socket = try c.decodeIfPresent(String.self, forKey: .socket)
+            vmKind = try? c.decodeIfPresent(String.self, forKey: .vmKind)
+        }
     }
 
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
@@ -50,7 +69,8 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
         guard answer.state == "up" else { throw CloudLinkError.notUp(state: answer.state) }
         guard let socket = answer.socket, !socket.isEmpty else { throw CloudLinkError.invalidAnswer("no socket") }
         try check(socket)
-        return CloudLinkSocket(key: key, path: socket, generation: answer.generation)
+        return CloudLinkSocket(key: key, path: socket, generation: answer.generation, callerOwnsVM: answer.vmKind == "owner",
+                               callerIsTeammate: answer.vmKind == "team")
     }
 
     /// `cloud.machine.disconnect` ends the carrier. A failure leaves nothing

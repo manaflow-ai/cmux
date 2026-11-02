@@ -2,13 +2,13 @@
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { collectGeometry, type GeometrySelection } from "./geometry-collector";
+import { collectGeometry, parseSelectorMap, prepareGeometryCapture, type GeometrySelection } from "./geometry-collector";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -32,6 +32,7 @@ export function settleSummary(samples: readonly unknown[]) {
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 const DEFAULT_DEVICE_SCALE = 2;
+const DEFAULT_CAPTURE_CONTEXT = 32;
 /** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
  * 2026-10-07); the run's own pause by exact id is the primary path. */
 const FREESTYLE_IDLE_SECONDS = 300;
@@ -194,6 +195,32 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
+
+/** Capture the named gallery surface with a small context border. Gallery entries can opt into
+ * a tighter element using `data-gallery-capture`; the root remains the safe default for stages
+ * without a named surface. Coordinates are CSS pixels and Playwright applies the 2x scale. */
+export async function captureClip(page: Page): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
+  const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR;
+  const measured = await page.evaluate(({ selector }) => {
+    const element = selector
+      ? document.querySelector(selector)
+      : document.querySelector("[data-gallery-capture]") ?? document.querySelector("#root");
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+  }, { selector });
+  if (!measured) return undefined;
+  const visibleLeft = Math.max(0, measured.left);
+  const visibleTop = Math.max(0, measured.top);
+  const visibleRight = Math.min(measured.viewportWidth, measured.right);
+  const visibleBottom = Math.min(measured.viewportHeight, measured.bottom);
+  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return undefined;
+  const left = Math.max(0, measured.left - DEFAULT_CAPTURE_CONTEXT);
+  const top = Math.max(0, measured.top - DEFAULT_CAPTURE_CONTEXT);
+  const right = Math.min(measured.viewportWidth, measured.right + DEFAULT_CAPTURE_CONTEXT);
+  const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
+  return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
+}
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
@@ -203,8 +230,29 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
   try {
     const page = await context.newPage();
+    // Workflow receipts reuse the matrix's synthetic captures. Keep only an AX digest/count,
+    // never accessibility text, and leave ordinary matrix timing/capture costs unchanged.
+    const workflow = process.env.CMUX_GALLERY_WORKFLOW_EVIDENCE === "1";
+    const beforeSteps: Record<string, unknown>[] = [];
+    const afterSteps: Record<string, unknown>[] = [];
+    let beforeEvidenceMs = 0;
+    const axDigest = async () => {
+      const snapshot = await page.locator("body").ariaSnapshot();
+      return { sha256: createHash("sha256").update(snapshot).digest("hex"), count: snapshot.split("\n").filter((line) => line.trimStart().startsWith("- ")).length };
+    };
+    if (workflow) {
+      await page.exposeFunction("cmuxGalleryBeforeStep", async () => {
+        const started = Date.now();
+        const index = beforeSteps.length;
+        const screenshot = `${safeFilePart(item.id)}-${engine}--step-${String(index + 1).padStart(2, "0")}-before.png`;
+        const clip = await captureClip(page);
+        await page.screenshot({ path: join(outputDir, screenshot), ...(clip ? { clip } : { fullPage: true }) });
+        beforeSteps.push({ index, screenshot, axDigest: await axDigest() });
+        beforeEvidenceMs += Date.now() - started;
+      });
+    }
     // Play steps (webviews/src/gallery/play.ts) act through Playwright's trusted mouse and keyboard.
-    await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
+    await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string; width?: number }) => {
       const at = () => page.mouse.move(action.x ?? 0, action.y ?? 0);
       if (action.kind === "click") await page.mouse.click(action.x ?? 0, action.y ?? 0);
       else if (action.kind === "contextmenu") await page.mouse.click(action.x ?? 0, action.y ?? 0, { button: "right" });
@@ -213,6 +261,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       else if (action.kind === "up") { await at(); await page.mouse.up(); }
       else if (action.kind === "type") await page.keyboard.type(action.text ?? "");
       else if (action.kind === "press") await page.keyboard.press(action.text ?? "");
+      // A sidebar toggle resizes the pane: the stage's viewport takes the new width, its height stays.
+      else if (action.kind === "resize") await page.setViewportSize({ width: Math.round(action.width ?? width), height });
     });
     // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
     const stills: { index: number; step: string; screenshot: string }[] = [];
@@ -220,8 +270,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
       const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
-      await page.screenshot({ path: join(outputDir, name), fullPage: true });
+      const clip = await captureClip(page);
+      await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+      if (workflow) afterSteps.push({ index: step.index, screenshot: name, axDigest: await axDigest() });
       stillsMs += Date.now() - started;
     });
     // When the stage first says it is ready, from navigation start (mount, play and settle; the play
@@ -245,30 +297,38 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
     const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
-    const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs);
+    const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs - beforeEvidenceMs);
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
         sha: root.dataset.galleryRevision ?? "",
         source: root.dataset.gallerySource ?? "",
         entryVersion: root.dataset.galleryEntryVersion ?? "",
+        entry: root.dataset.galleryEntry ?? "",
+        variant: root.dataset.galleryVariant ?? "",
       };
     });
     // Long frames gate only on Chromium's Long Animation Frames; rAF timing in headless WebKit on a
     // CPU-only VM measures the VM's software rendering, so the stage reports it as a warning.
     const play = await page.evaluate(() => (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null);
+    // Opening the stage, measured for layout shift like a play step (frame/main.ts): gallery health's shift gate.
+    const load = await page.evaluate(() => (window as unknown as { cmuxGalleryLoadReport?: unknown }).cmuxGalleryLoadReport ?? null);
     // An experiment case (`measure=1`) leaves its frame timings per step (frame/experimentRunner.ts).
     const experiment = await page.evaluate(() => (window as unknown as { cmuxGalleryExperimentReport?: unknown }).cmuxGalleryExperimentReport ?? null);
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
-      ? JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8"))[item.id] : undefined;
-    if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
-    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
+      ? parseSelectorMap(JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8")), process.env.CMUX_GEOMETRY_SELECTORS)[item.id] : undefined;
+    if (geometrySelections) await prepareGeometryCapture(page, typeof params.auditScroll === "string" ? params.auditScroll : undefined);
+    const clip = await captureClip(page);
+    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
+    // The design specs' geometry rules, read from the stage as screenshotted (webviews/src/gallery/invariants.ts): gallery health's geometry gate.
+    const invariants = await page.evaluate(() => (window as unknown as { cmuxGalleryInvariants?: () => unknown }).cmuxGalleryInvariants?.() ?? null).catch(() => null);
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
+    if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
@@ -426,7 +486,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
     const failures: string[] = [];
     await Promise.allSettled(vms.map(async ({ vm, shard }) => {
       await vm.fs.writeTextFile(`${remoteRoot}/runner.ts`, source, { mode: 0o644 });
-      for (const module of ["geometry-collector.ts", "geometry.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
+      for (const module of ["geometry-collector.ts", "geometry.ts", "geometry-containers.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/package.json`, packageJson, { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/manifest.json`, manifest, { mode: 0o644 });
       for (const file of galleryFiles) {

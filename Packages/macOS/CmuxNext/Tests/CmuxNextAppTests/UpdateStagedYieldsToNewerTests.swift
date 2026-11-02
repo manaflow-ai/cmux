@@ -91,8 +91,10 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// A NIGHTLY on build 100 following `ring`, with build 300 staged ("Update Ready").
+    /// `replaceable`: found updates download by themselves; `cancellable`: this app's driver holds
+    /// the staged installer; `pulled`: the builds on the feed's pulled.json.
     static func make(ring: String, feed xml: String = feed(), held: Bool = false, replaceable: Bool = true,
-                     checkAutomatically: Bool = true) -> Harness {
+                     cancellable: Bool = true, pulled: [String] = [], checkAutomatically: Bool = true) -> Harness {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
@@ -108,6 +110,9 @@ import CmuxNextWakeupsTestSupport
         updater.stagedBuild = { sparkle.staged }
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
+        updater.stagedRefresh.cancellable = { cancellable }
+        let list = try! JSONSerialization.data(withJSONObject: pulled.map { ["build": $0, "reason": "crashed at launch in the fresh-home smoke"] })
+        updater.pulledWatch.fetch = { _ in list }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()

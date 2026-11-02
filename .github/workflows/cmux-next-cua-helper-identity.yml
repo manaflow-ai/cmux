@@ -53,3 +53,8 @@ jobs:
 
       - name: A dev build carries and launches no ad-hoc Computer Use helper
         run: python3 tests/test_cmux_cua_dev_helper_identity.py
+
+      # build-cmux-cua.sh against a fake toolchain: its cache handling, and that the
+      # cmux-cua it bundles is built with --features cmux-host-consent (#27393).
+      - name: The bundled cmux-cua build keeps its caches and turns on host consent
+        run: python3 tests/test_cmux_cua_build_cache_safety.py

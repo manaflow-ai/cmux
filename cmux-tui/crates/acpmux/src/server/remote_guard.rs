@@ -46,6 +46,8 @@
 //!   (`tools.remote`). Turning an MCP server on, or reconnecting it, makes
 //!   the harness start the stdio command the user's config names on this
 //!   machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `session/cancel` of a chat started on this machine, but from the
+//!   owner's own peer daemon (`cancel_owner.rs`).
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
@@ -53,15 +55,11 @@
 //!   `_acpmux/peer_lease` (they change which machines this daemon reaches
 //!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
 //!   configured peer.
-//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
-//!   of the caller's bytes on this machine (under acpmux's own `uploads`
-//!   folder, never a path of the caller's), for a file the person dropped
-//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
-//!   forwarding for either take it; a peer forwarding for its own Web client
-//!   does not. The app sends it over the unix socket after the person's
-//!   gesture, but a LocalApp page could send it itself with no gesture: that
-//!   is accepted, since the page can already prompt the agent, and it writes
-//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: the legacy `_acpmux/file_put` stays denied. Resumable prompt
+//!   uploads begin with a fresh daemon-issued capability; subsequent operations
+//!   and prompt references must prove ownership of an upload begun under Web
+//!   control. Neither a local upload id nor its token grants Web access. The
+//!   original bytes stay in that chat's owner-only uploads folder.
 //! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
 //!   daemon's chats and their workflows' args.
 //! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
@@ -69,11 +67,13 @@
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
 //! - Web, LocalApp and Peer: no `_acpmux/github_action` (`github_broker.rs`), which an agent
-//!   session asks over the unix socket only.
+//!   session asks over the unix socket only, and no `_acpmux/github_app_lease`
+//!   (`github_app_token.rs`), which only the app's unix-socket call makes.
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
-//!   forwarding for either.
+//!   forwarding for either. Nor `_acpmux/native_history`, which reads a
+//!   chat's older turns from its Claude Code transcript (`hub/native_history.rs`).
 //!
 //! The unix socket keeps today's behavior.
 
@@ -83,10 +83,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod cancel_owner;
 pub(super) mod hint;
 mod peer_folder;
+pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
-use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
@@ -187,6 +189,7 @@ async fn check_inner(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
@@ -195,8 +198,8 @@ async fn check_inner(
     }
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION {
-        return Err(refused("_acpmux/github_action"));
+    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+        return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
     // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
@@ -227,7 +230,7 @@ async fn check_inner(
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
     }
     if m == method::SESSION_CANCEL && web {
-        check_cancel_ownership(hub, params)?;
+        cancel_owner::check(hub, origin, auth, params)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -258,6 +261,10 @@ async fn check_inner(
     // And so is taking an agent message back (`hub/withdraw.rs`).
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
+    }
+    // And so is draining a chat's inbox into a digest (`hub/inbox_digest.rs`).
+    if m == method::MUX_INBOX_DIGEST {
+        return Err(crate::hub::Hub::inbox_digest_origin_refused());
     }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
     if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
@@ -315,7 +322,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer) {
+        match web_only(m, params, peer, policy_proved) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -389,7 +396,9 @@ async fn check_inner(
                 return Err(outside_roots("cwd"));
             }
             if deferred.is_none() {
-                let scratch = peer_scratch(params).await?;
+                let cloud_peer =
+                    crate::hub::vm_boundary::asked(auth, control_of(origin, auth, params), params);
+                let scratch = peer_scratch(params, cloud_peer).await?;
                 params.set("cwd", Value::String(scratch));
             }
         }
@@ -431,7 +440,9 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
-    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    // Web may stage a prompt attachment. This is only the wire shape: the owning
+    // daemon verifies its private Web marker and capability in file_uploads::web.
+    // The legacy one-shot put remains app/unix-only.
     if matches!(
         m,
         method::MUX_FILE_PUT
@@ -441,6 +452,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
+        && !crate::hub::file_uploads::web::request_shape(m, params)
     {
         return Err(RpcError::invalid_params(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
@@ -455,6 +467,15 @@ async fn check_inner(
             "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
+    }
+    // And a chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
+    if m == method::MUX_NATIVE_HISTORY
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "transcriptRead.remote: a chat's transcript is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "transcriptRead.remote"})));
     }
     // And a subagent's transcript (`hub/subagent_transcript.rs`).
     if m == method::MUX_SUBAGENT_TRANSCRIPT
@@ -488,6 +509,9 @@ async fn check_inner(
             | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
             | method::MUX_QUEUE_REMOVE
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
@@ -524,30 +548,6 @@ pub(super) async fn local_trust_folder(
         return Err(outside_roots("cwd"));
     }
     Ok(())
-}
-
-/// A remote connection may stop only a session that was created by a remote
-/// origin. Local-origin sessions belong to the person at this daemon, even
-/// when a Web/Peer caller can resolve their id.
-fn check_cancel_ownership(
-    hub: &std::sync::Arc<crate::hub::Hub>,
-    params: &Value,
-) -> Result<(), RpcError> {
-    let key = super::session_key(params)?;
-    match hub.resolve(key) {
-        Ok(session) if session.meta().remote_origin => Ok(()),
-        Ok(_) => Err(
-            RpcError::invalid_params(
-                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
-            )
-            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
-        ),
-        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
-        Err(e) => Err(RpcError::invalid_params(format!(
-            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
-            e.message
-        ))),
-    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).
@@ -670,8 +670,9 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
-/// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
+/// skips asking. `policy_proved`: a policy raise the person proved for this
+/// one chat (`hub/person/policy_grant.rs`), whoever relays it.
+fn web_only(m: &str, params: &Value, peer: bool, policy_proved: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -723,6 +724,7 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
         {
             Err(policy_refused())
         }
+        method::MUX_SET_POLICY if policy_proved => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {
@@ -824,6 +826,10 @@ async fn web_starts_asking(
         method::SESSION_PROMPT
             | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
+            // Approving runs a prompt, as a Web prompt would (`hub/queue_approve.rs`).
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_QUEUE_GET
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
@@ -965,12 +971,10 @@ fn folder_refused(field: &str) -> RpcError {
     .with_data(serde_json::json!({"reason": CWD_MISSING, "field": field}))
 }
 
-/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
-/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
-/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
-/// Seatbelt rejects hidden children of the home directory as settings or
-/// programs, even though the peer is trusted.
-async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+/// The folder a proven peer's `session/new` with no `cwd` runs in. Cloud peers
+/// get the same durable per-chat location as the daemon start path,
+/// `~/chats/<id>`; other peers retain the owner-only temporary scratch root.
+async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcError> {
     let name = params
         .pointer("/_meta/acpmux/name")
         .or_else(|| params.get("name"))
@@ -978,24 +982,83 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = peer_scratch_root()?.join(name);
-    let made = {
+    let dir = if cloud_peer {
+        // Daemon starts use numeric surface ids. Keep a peer's numeric session
+        // name in its own namespace so the two paths cannot share a chat.
+        let folder_name = name
+            .parse::<u64>()
+            .ok()
+            .map(|_| format!("peer-{name}"))
+            .unwrap_or_else(|| name.clone());
+        cloud_chat_folder(&folder_name).await?
+    } else {
+        peer_scratch_root()?.join(name)
+    };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
+    // `cloud_chat_folder` creates the stable directory itself and retries
+    // must reuse it. The legacy peer scratch path remains fresh per name.
+    if !cloud_peer {
         let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
+        let made = tokio::task::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
             builder.create(&dir)
         })
-        .await
-    };
-    let failed = |why: String| {
-        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
-    };
-    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+        .await;
+        made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    }
     crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| RpcError::invalid_params("the Cloud machine has no home folder"))?;
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || cloud_chat_folder_under(&home, &name)).await.map_err(
+        |error| {
+            RpcError::invalid_params(format!("the Cloud chat folder could not be made: {error}"))
+        },
+    )?
+}
+
+fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+    let chats = home.join("chats");
+    let dir = chats.join(name);
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
+    };
+    let safe_dir = |metadata: &std::fs::Metadata| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            metadata.is_dir()
+                && metadata.uid() == unsafe { libc::geteuid() }
+                && metadata.mode() & 0o022 == 0
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.is_dir()
+        }
+    };
+    for path in [&chats, &dir] {
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) if safe_dir(&metadata) => {}
+            Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let mut builder = std::fs::DirBuilder::new();
+                #[cfg(unix)]
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                builder.create(path).map_err(|e| failed(e.to_string()))?;
+            }
+            Err(error) => return Err(failed(error.to_string())),
+        }
+    }
+    Ok(dir)
 }
 
 fn peer_scratch_root() -> Result<PathBuf, RpcError> {
@@ -1103,4 +1166,31 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .ok()?
         .is_dir()
         .then(|| canonical.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod cloud_chat_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_peer_uses_a_durable_chat_folder() {
+        let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        // A Cloud machine's home folder exists; only `chats` and the chat's
+        // folder are made here.
+        std::fs::create_dir_all(&home).unwrap();
+        let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
+        assert_eq!(dir, home.join("chats/chat-1"));
+        assert!(dir.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let _ = std::fs::remove_dir_all(home);
+    }
 }

@@ -1039,6 +1039,30 @@ export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email
 ]);
 
 /**
+ * A machine credential for one protected publication: API clients send it in
+ * the `__Host-cmux-api-key` cookie, which the edge strips before the VM sees the
+ * request. Only the SHA-256 of the key is stored; revoking sets `revoked_at`.
+ */
+export const cloudVmPublicationApiKeys = pgTable("cloud_vm_publication_api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  /** The key's last four characters, so a person can tell keys apart. */
+  tokenHint: text("token_hint").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_api_keys_token_hash_unique").on(table.tokenHash),
+  index("cloud_vm_publication_api_keys_publication_idx").on(table.publicationId, table.createdAt),
+  check("cloud_vm_publication_api_keys_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("cloud_vm_publication_api_keys_name_check", sql`char_length(${table.name}) between 1 and 64`),
+  check("cloud_vm_publication_api_keys_hint_check", sql`char_length(${table.tokenHint}) = 4`),
+]);
+
+/**
  * Cross-origin browser transaction created on the publication hostname before
  * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
  * OAuth state values are persisted; the host-only cookie holds the verifier.
@@ -1806,14 +1830,44 @@ export const stripeSubscriptions = pgTable(
   ],
 );
 
-export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
-  id: text("id").primaryKey(),
-  type: text("type").notNull(),
-  payloadHash: text("payload_hash"),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * The Stripe webhook inbox and idempotency ledger: one row per verified
+ * event, answered 2xx once stored and processed from here
+ * (services/billing/stripeWebhookInbox.ts).
+ */
+export const stripeWebhookEvents = pgTable(
+  "stripe_webhook_events",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    payloadHash: text("payload_hash"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Stripe object the event changes; one event per object is processed at a time. */
+    objectKey: text("object_key"),
+    /** Stripe's `event.created`. */
+    eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    /**
+     * The holder's lease. Defaults to 15 minutes from the insert: a row the
+     * pre-inbox build writes is held while that build applies it.
+     */
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true })
+      .default(sql`now() + interval '15 minutes'`),
+    /** Why a processed event changed nothing; null when it was applied. */
+    skipReason: text("skip_reason"),
+  },
+  (table) => [
+    index("stripe_webhook_events_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.processedAt} is null`),
+    index("stripe_webhook_events_object_key_idx")
+      .on(table.objectKey, table.eventCreatedAt)
+      .where(sql`${table.objectKey} is not null`),
+  ],
+);
 
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",

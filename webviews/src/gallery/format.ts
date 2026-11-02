@@ -31,6 +31,7 @@ import type { MockOptions } from "../pages/settings/mockProvider";
 import type {
   AccountsState,
   AgentsState,
+  CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
@@ -52,6 +53,8 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -170,10 +173,21 @@ export type AgentPaneVariant = VariantBase & {
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** A recorded chat (fixtures/recording.ts): its rows, as the pane's client makes them, replace the
+   *  snapshot's, and the snapshot's harness and family become the recording's. */
+  recording?: import("./fixtures/recording").Recording;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
   mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** With `ready.transport: "mock"`: how the mock daemon's `session/new` goes: after `delayMs`
+   *  (an agent slow to start), refused with `error` (one that fails to); `startMode` has its
+   *  `_acpmux/start_mode` name the mode the new chat then reports, as acpmux does. */
+  mockStart?: { delayMs?: number; error?: string; startMode?: boolean };
+  /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
+  mockCapabilities?: string[];
+  /** With `ready.transport: "mock"`: `session/new` refuses with `trust.pending` until a folder is trusted. */
+  mockTrustPending?: boolean;
   /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
   mockSessionAuth?: {
     state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
@@ -203,8 +217,8 @@ export type AgentPaneVariant = VariantBase & {
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
-  /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
-   *  sends it: a Claude workflow's transcript card and its Session Info panel. */
+  /** Claude workflows (on by default; false as the app's `workflowLabs` push would send it turns
+   *  them off): a Claude workflow's transcript card and its Session Info panel. */
   workflowLabs?: boolean;
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
@@ -225,6 +239,8 @@ export type MarkdownPageVariant = VariantBase & {
   themeCSS?: string;
   /** Other files links may name (and the empty state's recents). */
   files?: Record<string, string>;
+  /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
+  find?: string;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -239,6 +255,8 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** A machine error while the loaded diff remains visible. */
+  fingerprintError?: { code: string; message: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -259,7 +277,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get";
+  action?: "select-machine" | "create" | "get" | "ports-pending";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -267,6 +285,10 @@ export type CloudPageVariant = VariantBase & {
   hash?: string;
   /** The plan's active machine limit, when the variant needs another than the sample plan's. */
   maxActive?: number;
+  /** Sample forwards shown by Ports variants (gallery-only). */
+  ports?: import("../pages/cloud/ops").PortForward[];
+  /** Hold one port action after its control is activated to show the busy boundary. */
+  pendingAction?: "forward" | "close" | "browser";
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

@@ -204,7 +204,9 @@ public nonisolated final class DaemonHomeSource: HomeSource {
             }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
-        if case .createGroup(let title, let participants) = intent.op {
+        if case .createGroup(let title, let participants, let invites) = intent.op {
+            // The router sends a group with invites to the cloud; a local channel cannot invite.
+            guard invites.isEmpty else { throw HomeRejection.invalid("unsupported_on_local_owner") }
             return try await createChannel(title: title, participants: participants, key: intent.key)
         }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {

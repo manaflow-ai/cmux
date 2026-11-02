@@ -293,6 +293,12 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, in
 // 1: file choosers come to the host as CMUX_SHIM_FILE_DIALOG (it must answer
 // each); 0 (the default): Chromium shows its own panel. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int enabled);
+// 1: browser_id's file choosers come to the host (as above) whatever
+// cmux_shim_set_file_dialogs says; 0 (the default) leaves them to it. Only
+// the cmux pages that record the person's pick ask for it; every other page
+// keeps Chromium's own panel and its accept filters. Forgotten when the
+// browser closes. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_set_file_dialogs(int browser_id, int enabled);
 // Answers a CMUX_SHIM_FILE_DIALOG: `paths` are absolute paths, one per line
 // (NULL or "" cancels); `multiple` 0 keeps only the first (open one, save).
 // Returns 0 when the id is unknown or already answered. UI thread.
@@ -416,6 +422,8 @@ CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);
 CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id);
+// Chrome's Hard Reload: the current entry again, every resource fetched past the cache.
+CMUX_SHIM_EXPORT void cmux_shim_reload_ignore_cache(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).

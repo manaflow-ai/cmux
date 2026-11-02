@@ -1,7 +1,9 @@
 // l10n-allow-file: public gallery sample prose, not shipped UI.
 import { PathChip, ElsewhereChip, UrlChip } from "../../agent-session/acpmux/chips/LinkChips";
 
-export function InlineChipsPreview({ variant }: { variant: string }) {
+type InlineChipVariant = "before" | "minimal" | "accent" | "hairline";
+
+export function InlineChipsPreview({ variant }: { variant: InlineChipVariant }) {
   return (
     <div className={`cv-md inline-chip-preview is-${variant}`}>
       <p>

@@ -42,6 +42,14 @@ struct CloudWorkspaceSetupWizardTests {
         #expect(CloudWorkspaceSetupWizard.CredentialAvailability.resolve(teamID: teamID, supportsFileRoute: supportsFileRoute) == expected)
     }
 
+    /// A build that does not copy the Mac's login points a personal VM at its own sign-in, not at
+    /// the connection; a team VM keeps its own note.
+    @Test func aBuildThatDoesNotPassTheLoginSaysToSignInOnTheMachine() {
+        typealias A = CloudWorkspaceSetupWizard.CredentialAvailability
+        #expect(A.resolve(teamID: nil, supportsFileRoute: true, passesLogin: false) == .signInOnMachine)
+        #expect(A.resolve(teamID: "team-1", supportsFileRoute: true, passesLogin: false) == .teamMachine)
+    }
+
     @MainActor
     @Test(arguments: [true, false])
     func accountOrTeamChangeDuringSetupRefusesTheCreationPlan(changesTeam: Bool) async throws {
@@ -70,6 +78,24 @@ struct CloudWorkspaceSetupWizardTests {
             present: { _ in CmuxDialogAnswer(button: "create", role: .default,
                 values: ["source": .text("repository"), "repository": .text("octo/paint")]) })
         #expect(plan == nil)
+    }
+
+    /// New Cloud Machine from a chat offers the chat's own repository (its pushed branch), and
+    /// nothing on a route that cannot clone.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aChatsRepositoryIsTheSuggestedStartingPoint(supportsRepository: Bool) async throws {
+        var shown: CmuxDialogSpec?
+        _ = try await CloudWorkspaceSetupWizard().choosePlan(availability: .available, scopeIsCurrent: { true },
+            supportsRepository: supportsRepository, suggested: CloudMachineRepo(owner: "octo", name: "paint", ref: "fix/brush"),
+            present: { spec in shown = spec; return CmuxDialogAnswer(button: "cancel", role: .cancel) })
+        let spec = try #require(shown)
+        guard case .choice(_, _, _, let selected) = spec.fields[0], case .text(_, _, let initial, _, _) = spec.fields[1] else {
+            Issue.record("Missing source choice or repository field")
+            return
+        }
+        #expect(selected == (supportsRepository ? "repository" : "empty"))
+        #expect(initial == (supportsRepository ? "octo/paint@fix/brush" : ""))
     }
 
     @Test(arguments: [("original", true, true), ("other", true, false), ("original", false, false)])

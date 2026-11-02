@@ -40,7 +40,7 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
@@ -59,7 +59,9 @@
         "apps.uninstall",
         "apps.grant.set"
       ],
-      "events": []
+      "events": [
+        "apps-changed"
+      ]
     },
     "agent": {
       "description": "The agent pane, and in it the New Tab page (page id from cmux-page://cmux.agent). It asks the folder trust question of a chat on another machine (cx-1bhjj): it reads the folder's trust, and its answer needs the person's gesture. No other page reads folder trust: it tells a page which folders the person works in.",

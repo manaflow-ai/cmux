@@ -1,3 +1,4 @@
+import CmuxNextLayout
 import Observation
 
 /// Observable holder of the app's `WindowRegistry`, so each window's sidebar

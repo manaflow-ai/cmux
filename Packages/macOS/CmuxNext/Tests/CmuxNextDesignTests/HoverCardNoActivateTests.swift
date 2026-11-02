@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// windows (Safari, permission dialogs): the system's topmost window over the tab strip was
 /// another app's, so tab hover cards never opened in captures (op-next-icons, #19748). A
 /// no-activate run hit-tests against its own windows; one of ours on top still blocks the card.
-@MainActor @Suite(.serialized) struct HoverCardNoActivateTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HoverCardNoActivateTests {
     private final class Source: HoverCardSource {
         let window: NSWindow
         init(window: NSWindow) { self.window = window }

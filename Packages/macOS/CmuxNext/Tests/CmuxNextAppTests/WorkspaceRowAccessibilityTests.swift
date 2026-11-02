@@ -6,7 +6,7 @@ import Testing
 /// distinguish the active workspace and rows included in a multi-selection.
 @MainActor
 struct WorkspaceRowAccessibilityTests {
-    /// A row as the list shows it: `configure` makes a workspace row (and a tab row) an
+    /// A row as the list shows it: `configure` makes a workspace row an
     /// accessibility element with the row role; these tests set that directly.
     private func accessibleRow<Row: SidebarRowView>(_ type: Row.Type) -> Row {
         let row = Row(key: .workspace(WorkspaceID("workspace")))

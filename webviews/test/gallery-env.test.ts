@@ -3,7 +3,9 @@
 import { expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { readEnv, withColorScheme, writeEnv, type GalleryEnv } from "../src/gallery/env";
+import { overPicture, readEnv, withColorScheme, writeEnv, type GalleryEnv } from "../src/gallery/env";
+import { wallpaperTintOpacity } from "../src/gallery/theme/tokens";
+import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "../src/gallery/theme/ghostty";
 
 const vectors = JSON.parse(
@@ -38,4 +40,40 @@ test("switching the appearance moves the default pair to the matching side", () 
   expect(withColorScheme(light, "dark").theme).toBe(DEFAULT_DARK_THEME);
   expect(withColorScheme(light, "auto").theme).toBe(DEFAULT_LIGHT_THEME);
   expect(withColorScheme({ ...start, theme: "Dracula" }, "light").theme).toBe("Dracula");
+});
+
+// The background axis (frame/background.ts): web only, so absent from the shared vectors; absent and
+// `none` are the opaque window, and the link stays short.
+test("a background reads and writes as its picture, none as nothing", () => {
+  for (const picture of ["light", "dark", "busy"] as const) {
+    const env = readEnv(new URLSearchParams(`background=${picture}`));
+    expect(env.background).toBe(picture);
+    expect(overPicture(env)).toBe(true);
+    expect(writeEnv(env).toString()).toBe(`background=${picture}`);
+  }
+  for (const query of ["", "background=none", "background=photo"]) {
+    const env = readEnv(new URLSearchParams(query));
+    expect(env.background).toBeUndefined();
+    expect(overPicture(env)).toBe(false);
+    expect(writeEnv(env).toString()).toBe("");
+  }
+  expect(writeEnv({ ...readEnv(new URLSearchParams()), background: "none" }).toString()).toBe("");
+});
+
+test("over a picture the page background is clear and the solid surface stays", () => {
+  const tokens = themeTokens({
+    name: "test",
+    background: "#1e1e1e",
+    foreground: "#e6e6e6",
+    palette: [],
+  } as never);
+  const opaque = webThemePayload(tokens).variables;
+  const clear = webThemePayload(tokens, undefined, true).variables;
+  expect(opaque["--cmux-surface-background"]).toBe("rgba(30, 30, 30, 1.0)");
+  expect(clear["--cmux-surface-background"]).toBe("rgba(30, 30, 30, 0.0)");
+  expect(clear["--cmux-surface-solid"]).toBe("rgba(30, 30, 30, 1.0)");
+  expect(agentPaneTheme(tokens, false, true).pageBackground).toBe("rgba(30, 30, 30, 0.0)");
+  const tint = wallpaperTintOpacity(tokens);
+  expect(tint).toBeGreaterThanOrEqual(0.52);
+  expect(tint).toBeLessThanOrEqual(0.76);
 });

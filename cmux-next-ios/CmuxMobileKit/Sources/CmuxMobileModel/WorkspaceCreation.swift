@@ -102,6 +102,24 @@ public enum TabGroupEdit: Hashable, Sendable {
     case save
     /// Unpin Group (`unsave-tab-group`).
     case unsave
+    /// Set Tab Group Color…: one of the Mac's group colors (`update-tab-group {color}`).
+    case setColor(String)
+    /// Set Tab Group Icon… (an SF Symbol or one emoji) or, with nil, Remove Tab Group Icon
+    /// (`update-tab-group {icon}`, null removes it).
+    case setIcon(String?)
+    /// Collapse Tab Group / Expand Tab Group (`update-tab-group {collapsed}`).
+    case setCollapsed(Bool)
+    /// Move Tab Group Left / Right: past the neighboring tab or group in its pane (`move-tab-group`).
+    case moveLeft
+    case moveRight
+    /// Move Tab Group to New Split: a new pane on that side of the group's pane (`move-tab-group-to-split`).
+    case moveToSplit(TabGroupEdge)
+    /// Move Tab Group to New Column (`move-tab-group-to-column`).
+    case moveToColumn
+    /// Move Tab Group to New Workspace (`move-tab-group-to-new-workspace`).
+    case moveToNewWorkspace
+    /// Move Tab Group to Workspace…: into that workspace's shown pane, at its end (`move-tab-group`).
+    case moveToWorkspace(String)
 
     /// The Mac's menu title.
     public var title: String {
@@ -114,6 +132,58 @@ public enum TabGroupEdit: Hashable, Sendable {
         case .close: "Close Tab Group"
         case .save: "Pin Group"
         case .unsave: "Unpin Group"
+        case .setColor: "Set Tab Group Color…"
+        case .setIcon(let icon): icon == nil ? "Remove Tab Group Icon" : "Set Tab Group Icon…"
+        case .setCollapsed(let collapsed): collapsed ? "Collapse Tab Group" : "Expand Tab Group"
+        case .moveLeft: "Move Tab Group Left"
+        case .moveRight: "Move Tab Group Right"
+        case .moveToSplit: "Move Tab Group to New Split"
+        case .moveToColumn: "Move Tab Group to New Column"
+        case .moveToNewWorkspace: "Move Tab Group to New Workspace"
+        case .moveToWorkspace: "Move Tab Group to Workspace…"
+        }
+    }
+
+    /// Moves the whole group somewhere else (a split, column or workspace); its tabs stay together.
+    public var movesGroup: Bool {
+        switch self {
+        case .moveLeft, .moveRight, .moveToSplit, .moveToColumn, .moveToNewWorkspace, .moveToWorkspace: true
+        default: false
+        }
+    }
+}
+
+/// The side of the group's pane that Move Tab Group to New Split opens a pane on (the Mac's
+/// direction argument), named as the phone's split menus name it.
+public enum TabGroupEdge: String, Hashable, Sendable, CaseIterable, Identifiable {
+    case right, left, up, down
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .right: "To the Right"
+        case .left: "To the Left"
+        case .up: "Above"
+        case .down: "Below"
+        }
+    }
+
+    /// The daemon's `edge` (`PaneEdge`).
+    public var wire: String {
+        switch self {
+        case .right: "right"
+        case .left: "left"
+        case .up: "top"
+        case .down: "bottom"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .right: "rectangle.righthalf.inset.filled"
+        case .left: "rectangle.lefthalf.inset.filled"
+        case .up: "rectangle.tophalf.inset.filled"
+        case .down: "rectangle.bottomhalf.inset.filled"
         }
     }
 }
@@ -216,6 +286,14 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// A page's link that opens a new tab or window (`rb.open_tab`: `target=_blank`,
+    /// `window.open`, the page menu's Open Link in New Tab): a browser tab at `url` in the
+    /// pane of `tab`, the page that asked, returned once the Mac lists it.
+    func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// A web link tapped in a terminal: a cmux browser tab at `url` beside the terminal, in its
+    /// pane, as the Mac's Cmd-click opens it (`new-browser-tab {url, pane}`). Returns the tab
+    /// once the Mac lists it. Only `http` and `https` links reach the Mac.
+    func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// Moves a tab to the place of `target` (its pane and position there).
     func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
@@ -241,6 +319,21 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Delete Saved Tab Group…: the record goes; an open group stays, unpinned (`delete-saved-tab-group {saved}`).
     func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws
+    /// Whether Move Tab Group Left (`forward` false) or Right can move `tab`'s group: not past
+    /// its pane's edge or a pinned tab (the Mac's `TabGroupReorder`).
+    func canMoveTabGroup(of tab: WorkspaceTab, forward: Bool, in workspace: Workspace) -> Bool
+    /// New Tab in Group: a terminal in the group's pane, then into the group (`new-tab`,
+    /// `add-tabs-to-tab-group`). Returns it once the Mac lists it.
+    func newTabInGroup(of tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Makes `screen` the workspace's active screen on the Mac, where the phone's new tabs open.
+    func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws
+    /// New Screen: a screen with a new terminal (`new-screen`). Returns its tab once the Mac lists it.
+    func newScreen(in workspace: Workspace) async throws -> WorkspaceTab
+    /// Rename Screen… (`rename-screen`; the phone never sends an empty name).
+    func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws
+    /// Close Screen: its tabs close and their terminals end, as a tab closed on the phone ends
+    /// its terminal (`close-screen {end_terminals}`).
+    func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws
 }
 
 extension WorkspaceCreationBackend {
@@ -276,6 +369,12 @@ extension WorkspaceCreationBackend {
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
@@ -301,6 +400,22 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func canMoveTabGroup(of tab: WorkspaceTab, forward: Bool, in workspace: Workspace) -> Bool { false }
+    public func newTabInGroup(of tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func newScreen(in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
 }
@@ -357,6 +472,25 @@ public final class WorkspaceCreator {
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
     @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
+    /// A Mac's workspace folders by activity, kept until the workspaces change
+    /// (the New Workspace menu reads them on every list update).
+    @ObservationIgnored private var seenCache: (macID: String, revision: Int, pending: Set<String>, directories: [String])?
+
+    /// The Mac's distinct workspace folders, most recent activity first (at
+    /// most `limit`): one pass over the workspaces, then a sort of the folders.
+    private func seenDirectories(on macID: String, limit: Int) -> [String] {
+        let workspaces = store.workspaces
+        let (revision, pending) = (store.workspacesRevision, store.pendingWorkspaceIDs)
+        if let cache = seenCache, cache.macID == macID, cache.revision == revision, cache.pending == pending { return cache.directories }
+        var newest: [String: Date] = [:]
+        for ws in workspaces where ws.macID == macID && !ws.directory.isEmpty && !pending.contains(ws.id) {
+            if let known = newest[ws.directory], known >= ws.lastActivityAt { continue }
+            newest[ws.directory] = ws.lastActivityAt
+        }
+        let directories = Array(newest.sorted { $0.value > $1.value }.prefix(limit).map(\.key))
+        seenCache = (macID, revision, pending, directories)
+        return directories
+    }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     /// The last group request of each Mac: group requests go to a Mac one
@@ -400,10 +534,7 @@ public final class WorkspaceCreator {
     public func recentDirectories(on macID: String) -> [String] {
         guard options(on: macID).directories else { return [] }
         let used = recents.load(macID: macID)
-        let seen = store.workspaces
-            .filter { $0.macID == macID && !store.pendingWorkspaceIDs.contains($0.id) && !$0.directory.isEmpty }
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
-            .map(\.directory)
+        let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
         var result: [String] = []
         for directory in used + seen where !result.contains(directory) {
             result.append(directory)
@@ -498,6 +629,26 @@ public final class WorkspaceCreator {
     }
 
     public func canDuplicate(_ workspace: Workspace) -> Bool { canManage(workspace) && !workspace.isHome }
+
+    /// What this phone may do with a Mac's workspaces now, worked out once
+    /// per Mac: a list asks it for every row (`canManage` looked the Mac up
+    /// in the team for each one). A pending workspace is never managed.
+    public struct MacRights: Equatable, Sendable {
+        public var manage: Bool
+        public var arrange: Bool
+        public var group: Bool
+
+        /// Nothing: an offline Mac, or one this backend cannot manage.
+        public static let none = MacRights(manage: false, arrange: false, group: false)
+    }
+
+    public func rights(onMac macID: String) -> MacRights {
+        guard let mac = store.activeTeam?.macs.first(where: { $0.id == macID }), mac.isOnline, backend.canManage(on: macID) else {
+            return .none
+        }
+        let arrange = arranger?.canArrange(on: macID) ?? false
+        return MacRights(manage: true, arrange: arrange, group: arrange && grouper != nil)
+    }
 
     @discardableResult
     func track(_ id: String, _ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
@@ -683,6 +834,20 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
     }
 
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? "New Tab", url: url)
+    }
+
+    /// Links a terminal opened in a browser tab, in order (tests).
+    public private(set) var openedLinks: [URL] = []
+
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        openedLinks.append(url)
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? url.absoluteString, url: url)
+    }
+
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
     }
@@ -744,6 +909,39 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
         groupEdits.append(edit)
+    }
+
+    /// Mock mode: every group can move both ways.
+    public func canMoveTabGroup(of tab: WorkspaceTab, forward: Bool, in workspace: Workspace) -> Bool { true }
+
+    public func newTabInGroup(of tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        groupEdits.append(.add(group: tab.group?.id ?? ""))
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .terminal, title: "Terminal", group: tab.group)
+    }
+
+    /// Screen changes the mock received, in order (tests): "select 2", "new", "rename 2 build", "close 2".
+    public private(set) var screenEdits: [String] = []
+
+    public func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        try await settle()
+        screenEdits.append("select \(screen.id)")
+    }
+
+    public func newScreen(in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        screenEdits.append("new")
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .terminal, title: "Terminal")
+    }
+
+    public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
+        try await settle()
+        screenEdits.append("rename \(screen.id) \(name)")
+    }
+
+    public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        try await settle()
+        screenEdits.append("close \(screen.id)")
     }
 
     public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {

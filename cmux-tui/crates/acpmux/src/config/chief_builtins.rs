@@ -73,6 +73,14 @@ fn home_id(text: &str) -> Option<String> {
         .then(|| text.to_owned())
 }
 
+impl Builtin {
+    /// A subagent preset (`optchat-sub-<id>`, `-claude`, `-codex`): its chats start at the
+    /// person's start level, as a plain chat does (`hub/start_mode.rs`, cmux#27847).
+    pub fn is_subagent(&self) -> bool {
+        self.role == Role::Sub
+    }
+}
+
 /// The built-in preset `name` names, if any.
 pub fn parse(name: &str) -> Option<Builtin> {
     if let Some(rest) = name.strip_prefix("optchat-chief-codex-") {

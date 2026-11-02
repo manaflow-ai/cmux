@@ -396,6 +396,8 @@ impl Forum {
 #[cfg(unix)]
 fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    // Never into a lost home (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
     let file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)

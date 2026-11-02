@@ -1,11 +1,106 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 mod host_load;
 
+/// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
+/// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
+pub const SUBAGENTS_RUNNING: &str = "subagents_running";
+
+/// The most running subagents a summary names (`subagentNames`); `subagentsRunning` counts all.
+pub const SUBAGENT_NAMES: usize = 5;
+
+/// What a session runs below its turn now, as its summary says it.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RunningWork {
+    /// Its subagents that run now, at any depth (`SubagentTree::running_now`).
+    pub subagents: usize,
+    /// The first [`SUBAGENT_NAMES`] of their labels, oldest first; an unnamed one has none.
+    pub names: Vec<String>,
+    /// Its background commands that run now (`processes.rs`).
+    pub commands: usize,
+}
+
+/// `session`'s running work: without a running turn (`turn_runs` false) only its background
+/// subagents still run. `commands` is the session's running background commands.
+pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) -> RunningWork {
+    let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+    let running = tree.running_now(turn_runs);
+    let names = running
+        .iter()
+        .filter_map(|(_, label)| label.map(str::to_owned))
+        .take(SUBAGENT_NAMES)
+        .collect();
+    RunningWork { subagents: running.len(), names, commands }
+}
+
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
+/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
+    if let Some(row) = summary.as_object_mut() {
+        row.remove("tools");
+        row.remove("toolsMutable");
+        if let Some(Value::String(title)) = row.get_mut("title") {
+            *title = summary_title(title);
+        }
+    }
+    summary
+}
+
+/// The most of a chat's title a census row shows. A harness may title a chat with its whole first
+/// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
+/// than one message holds (2026-10-30). The list and the `session_changed` rows a watch without
+/// tools hears cut the same (both are `session_list_summary`), so they never show one chat under
+/// two titles; `session info` and attach keep the whole title.
+const TITLE_CHARS: usize = 200;
+
+/// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
+/// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
+/// left as a head a peer's masking no longer knows (`peer_text.rs`).
+fn summary_title(title: &str) -> String {
+    if title.chars().nth(TITLE_CHARS).is_none() {
+        title.to_owned()
+    } else {
+        masked_cut(title, TITLE_CHARS)
+    }
+}
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+const COORDINATOR_PARENT_TAG: &str = "mux.parent";
+
+/// The direct parent has the same precedence as lineage_of(), without walking
+/// ancestors to calculate a root that chat decoration never uses.
+fn activity_parent(m: &SessionMeta) -> Option<&str> {
+    m.lineage
+        .as_ref()
+        .map(|l| l.parent.as_str())
+        .or_else(|| m.subsession.as_ref().map(|s| s.started_by.as_str()))
+        .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
+}
+
+fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
+    let tag = m.tags.get(key)?;
+    tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
+}
+
+/// Whether a session is agent-started and therefore must be explicitly opened before a client
+/// projects it into an automatic sidebar row. The durable `parent` and validated `spawnedBy`
+/// fields cover current and older daemons; the raw tags preserve the classification when a
+/// parent is gone or a coordinator child predates lineage recording.
+fn sidebar_requires_open(summary: &Value) -> bool {
+    let nonempty = |value: Option<&Value>| {
+        value.and_then(Value::as_str).is_some_and(|value| !value.is_empty())
+    };
+    let tags = summary.get("tags");
+    nonempty(summary.get("parent"))
+        || nonempty(summary.get("spawnedBy"))
+        || nonempty(tags.and_then(|tags| tags.get(SPAWNED_BY_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(COORDINATOR_PARENT_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(super::lane_reports::TAG)))
+}
 
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
@@ -98,13 +193,15 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// (`hub/activity.rs`): a tool call's title is often a command with its
+/// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
 /// way to a peer daemon (`server/peer_text.rs`).
 ///
 /// `stalledSince`: a working lane whose turn has stalled (`hub/activity.rs`), since when.
 ///
-/// `{state, since, error, step, title, stalledSince}`; null for a closed session.
+/// `{state, since, error, step, title, stalledSince, requiresOpen}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -139,7 +236,8 @@ pub fn lane(summary: &Value) -> Value {
     let stalled =
         if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
-           "title": lane_title(summary), "stalledSince": stalled})
+           "title": lane_title(summary), "stalledSince": stalled,
+           "requiresOpen": sidebar_requires_open(summary)})
 }
 
 /// The lane's step, one line: the running turn's prompt, else the agent's
@@ -164,12 +262,17 @@ fn lane_title(summary: &Value) -> Value {
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
-/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`.
+fn masked_line(text: &str) -> String {
+    masked_cut(text, LANE_STEP_CHARS)
+}
+
+/// `text` folded to one line, masked and cut to `max` characters. Only the
 /// head of the folded text is scanned (a pasted log can be megabytes), and it
 /// is masked before the cut, so a cut never leaves part of a secret unmasked.
 /// The head is cut after folding: a raw cut inside a token behind a blank run
 /// would leave the token's head unmasked once the run folds away.
-fn masked_line(text: &str) -> String {
+fn masked_cut(text: &str, max: usize) -> String {
     let (mut head, mut chars) = (String::new(), 0);
     for word in text.split_whitespace() {
         if chars > 0 {
@@ -183,7 +286,7 @@ fn masked_line(text: &str) -> String {
             break;
         }
     }
-    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
+    super::session::short_text(&crate::secret_scan::mask(&head), max)
 }
 
 /// A turn's error masked, lines kept. An error can be a whole pasted log, so
@@ -273,40 +376,83 @@ impl Hub {
     /// while that session is here, listed (not archived) and a root itself: one level, so a loop
     /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match self.lineage_of(m) {
-            Some(lineage) => lineage.parent,
-            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
-        };
+        self.listed_parent(&m.id, activity_parent(m)?.to_owned())
+    }
+
+    /// Chat decoration needs only the direct parent, never the full metadata or
+    /// the lineage root walk. Release the child's lock before looking up its parent.
+    pub(crate) fn spawned_by_session(&self, session: &Session) -> Option<String> {
+        let parent = session.read_meta(|m| activity_parent(m).map(str::to_owned))?;
+        self.listed_parent(&session.id, parent)
+    }
+
+    fn listed_parent(&self, id: &str, parent: String) -> Option<String> {
+        if parent == id {
+            return None;
+        }
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let pm = session.meta();
-        let tags = live_tags(&pm);
-        let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && self.lineage_of(&pm).is_none()
-            && tags.get("archived").is_none();
-        (parent != m.id && listed).then_some(parent)
+        let listed = session.read_meta(|m| {
+            let at = crate::store::now_ms();
+            m.lineage.is_none()
+                && m.subsession.is_none()
+                && live_activity_tag(m, SPAWNED_BY_TAG, at).is_none()
+                && live_activity_tag(m, "archived", at).is_none()
+        });
+        listed.then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true)
+    }
+
+    /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
+    /// attach keep both.
+    pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, false)
+    }
+
+    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
+        let notice = turn.as_ref().is_some_and(|t| t.notice);
         let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let stuck =
+            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
+        let stopping = turn.as_ref().is_some_and(|t| {
+            session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                == Some(t.turn_id.as_str())
+        });
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
+            // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
+            state: if stopping {
+                "stopping".to_owned()
+            } else if stuck.is_some() {
+                "stuck".to_owned()
+            } else {
+                m.status.to_string()
+            },
+            stuck_reason: stuck.map(|s| s.0),
+            stuck_since: stuck.map(|s| s.1),
+            stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
+            retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
@@ -324,7 +470,7 @@ impl Hub {
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
-            title: m.title.clone(),
+            title: if with_tools { m.title.clone() } else { m.title.as_deref().map(summary_title) },
             title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -335,7 +481,9 @@ impl Hub {
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
-            moving: session.moving().is_some(),
+            moving: session.moving().is_some() && m.moved_to.is_none(),
+            // Moved away for good (`transfer_out.rs` commit): where it runs now.
+            moved_to: m.moved_to.clone(),
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
             watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
@@ -353,7 +501,8 @@ impl Hub {
                 ),
                 started_at: t.started_at,
                 client: t.client,
-                prompt: t.prompt_preview,
+                // Another agent's message as its sender and words, not its envelope; masked.
+                prompt: t.masked_preview,
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
@@ -370,17 +519,34 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    awaiting_owner: q.awaiting_owner,
+                    revision: q.revision,
+                    // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
+                    // their next completed turn or a resume, not for the turn to end.
+                    held_by_stop: q.held
+                        && q.run.agent.is_some()
+                        && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
+                    // The sending session and its harness, as the daemon bound them.
+                    from_session_id: crate::prompt_provenance::sender_of(q.run.provenance.as_ref())
+                        .0,
+                    from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
+                    class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
+                    subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
-                    images: super::prompt_images::named(&q.run.blocks)
-                        .into_iter()
-                        .map(|image| QueuedImage {
-                            id: image["id"].as_str().unwrap_or_default().to_owned(),
-                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
-                            name: image["name"].as_str().map(str::to_owned),
-                        })
-                        .collect(),
+                    images: super::prompt_images::named_sourced(
+                        &q.run.blocks,
+                        q.run.display_parts.as_ref(),
+                    )
+                    .into_iter()
+                    .map(|image| QueuedImage {
+                        id: image["id"].as_str().unwrap_or_default().to_owned(),
+                        mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                        name: image["name"].as_str().map(str::to_owned),
+                        source: image.get("source").cloned(),
+                    })
+                    .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
@@ -403,8 +569,8 @@ impl Hub {
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
-            tools: m.tools.rows.iter().map(Into::into).collect(),
-            tools_mutable: m.tools.mutable,
+            tools: with_tools.then(|| m.tools.rows.iter().map(Into::into).collect()),
+            tools_mutable: with_tools.then_some(m.tools.mutable),
             // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
             mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
             tags: live_tags(&m),
@@ -422,6 +588,8 @@ impl Hub {
             lane: None,
             lifecycle_receipt: None,
             peer: None,
+            // What its harness spent and holds, as the last read found it (`usage_view.rs`).
+            usage_stats: self.usage_stats_of(session, &m),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -430,13 +598,42 @@ impl Hub {
             self.started_at,
         );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-        summary["sessionReceipt"] = receipt.to_value();
+        summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+        summary.set("sessionReceipt", receipt.to_value());
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary["gitBranch"] = json!(self.git_branch_now(&m));
+        summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
+        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
+        // being able to see the # of associated subagents and whatnot"): its running subagents,
+        // their first names, and its running background commands (`running_work`).
+        let work = running_work(
+            session,
+            summary.get("turn").is_some_and(Value::is_object),
+            self.running_processes_read(session),
+        );
+        summary.set("subagentsRunning", json!(work.subagents));
+        summary.set("subagentNames", json!(work.names));
+        summary.set("commandsRunning", json!(work.commands));
+        if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
+            // A History of the person's prompts leaves it out (`turn.notice`).
+            turn.insert("notice".into(), Value::Bool(true));
+        }
+        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
+        summary.set(
+            "respawnPending",
+            json!(
+                session
+                    .profile_respawn
+                    .load(Ordering::SeqCst)
+                    .then_some(super::profile_respawn::PROFILE_CHANGED)
+            ),
+        );
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
+        summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }
@@ -444,49 +641,66 @@ impl Hub {
     pub fn session_detail(&self, session: &Session) -> Value {
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v["modes"] = m.modes.clone().unwrap_or(Value::Null);
-        v["configOptions"] = m.config_options.clone().unwrap_or(Value::Null);
-        v["models"] = m.models.clone().unwrap_or(Value::Null);
-        v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
-        v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
-        v["usage"] = m.usage.clone().unwrap_or(Value::Null);
-        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("models", m.models.clone().unwrap_or(Value::Null));
+        v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
+        v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
+        v.set("usage", m.usage.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
-        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
-        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
+        v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v["availableCommands"] = commands.clone();
+            v.set("availableCommands", commands.clone());
         }
-        v["forkSeq"] = json!(m.fork_seq);
-        v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
+        v.set("forkSeq", json!(m.fork_seq));
+        v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
-        v["gitHead"] = json!(m.git_head);
+        v.set("gitHead", json!(m.git_head));
         // What the session's turns cost together (`turn_usage.rs`).
-        v["totals"] = json!(m.totals);
+        v.set("totals", json!(m.totals));
         // The sub-session limits in force and where each comes from (`subsessions.rs`).
-        v["subsessionLimits"] = self.subsession_limits_value(&m);
+        v.set("subsessionLimits", self.subsession_limits_value(&m));
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
-        v["pending"] = Value::Array(pending);
+        v.set("pending", Value::Array(pending));
         v
     }
 
     pub async fn status(&self) -> Value {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
-        let host_pressure = self.host_pressure_status().await;
+        let loading = !self.store_loaded() || !self.startup_complete();
+        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
         let cfg = self.config.read().await;
         // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
         // (statvfs and a bounded, cached folder walk), so off the async workers.
         let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-            .await
-            .unwrap_or(Value::Null);
+        let disk = if loading {
+            Value::Null
+        } else {
+            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                .await
+                .unwrap_or(Value::Null)
+        };
         let sessions = self.sessions();
+        let stuck: Vec<Value> = sessions
+            .iter()
+            .filter_map(|s| {
+                let m = s.meta();
+                let (reason, since, error) = (m.status != SessionStatus::Closed)
+                    .then(|| m.harness_failures.stuck())
+                    .flatten()?;
+                Some(json!({"sessionId": m.id, "name": m.name, "harness": m.harness,
+                "lastSeq": m.last_seq, "state": "stuck", "stuckReason": reason,
+                "stuckSince": since, "stuckError": error}))
+            })
+            .collect();
         let mut live = 0;
         for s in &sessions {
             if s.child.lock().await.is_some() {
@@ -496,7 +710,7 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
@@ -521,6 +735,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
             // (`daemon/login_session.rs`); absent elsewhere.
@@ -542,9 +757,13 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
+            // Messages this daemon sent near the per-message cap, or refused over it
+            // (`wire_size.rs`): the next one too large to send is seen coming.
+            "largeMessages": crate::wire_size::global().status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
+            "loading": self.loading_status(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
             // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
             // from this daemon's own environment; the app hands off a Chief-home

@@ -49,6 +49,7 @@ describe("acpmux in the Cloud image", () => {
     expect(command).toContain(`'${ACPMUX_SHA}' "$CMUX_TUI_ACPMUX_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     expect(command).toContain(`'${ACPMUX_SHA}' "$CMUX_TUI_ACPMUX_TMP" | sha256sum -c`);
     expect(command).toContain('ln -sfn "$CMUX_TUI_ACPMUX_BIN" /usr/local/bin/acpmux');
+    expect(command).toContain('ln -sfn "$CMUX_TUI_ACPMUX_BIN" "$CMUX_TUI_HOME/.local/bin/acpmux"');
     expect(command).toContain('"$CMUX_TUI_ACPMUX_BIN" --version');
     expect(command).toContain(source.acpmuxUrl!);
   });

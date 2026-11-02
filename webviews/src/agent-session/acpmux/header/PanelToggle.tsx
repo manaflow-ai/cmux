@@ -1,6 +1,6 @@
 // The header's right-side panel toggle: the first of its icons, as Claude and ChatGPT desktop's is.
-// One glyph whoever owns the panel (the summary, summary/SummaryButton.tsx; the Inspector,
-// inspector/ChatInspector.tsx). The open panel reads as pressed through its ink and selected glyph,
+// One glyph whoever owns the panel (the summary, summary/SummaryButton.tsx; Session Info,
+// session-info/SessionInfo.tsx). The open panel reads as pressed through its ink and selected glyph,
 // keeping the same quiet surface as the other header controls (header.css).
 import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_GLYPH } from "./ChatHeaderTools";

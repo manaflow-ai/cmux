@@ -525,6 +525,153 @@ class CompileTrailerTests(unittest.TestCase):
         self.assertTrue(refused, lines)
         self.assertIn("not the one the compile job compiled", lines[0])
 
+    # A moved base alone (a803, 2026-10-28): its compiled change, replayed 10, 20 and 30 commits later, was refused
+    # every time though it needed no new compile: upstream edited another target in the same Package.swift, added a
+    # declaration in a file the push also edits (the push's file then holds upstream's own line), or named an enum
+    # the push only added a case to.
+    def test_moved_base_another_target_in_the_push_s_package_manifest_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('.target(name: "Other"),',
+                                                                                     '.target(name: "Other", dependencies: ["Base"]),')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_manifest_change_to_a_target_that_uses_the_push_s_module_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("func run() -> Int { 1 }", "func run() -> Int { 2 }")},
+                                           {f"{PKG}/Package.swift": manifest.replace('name: "App", dependencies: ["Kit"]',
+                                                                                     'name: "App", dependencies: ["Kit", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_gaining_dependencies_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_gaining_linker_settings_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace(
+                                               'dependencies: ["Base"]',
+                                               'dependencies: ["Base"],\n            linkerSettings: [.linkedFramework("CoreFoundation")]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_losing_a_dependency_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]', 'dependencies: []')})
+        self.assertTrue(refused, lines)
+        self.assertIn("Package.swift", lines[0])
+
+    def test_moved_base_the_push_s_own_module_gaining_a_dependency_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("func run() -> Int { 1 }", "func run() -> Int { 2 }")},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_manifest_change_to_a_target_the_push_uses_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base"],\n            swiftSettings: [.define("X")]')})
+        self.assertTrue(refused, lines)
+        self.assertIn("Package.swift", lines[0])
+
+    def test_moved_base_a_manifest_change_outside_the_targets_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('    name: "CmuxNext",\n',
+                                                                                     '    name: "CmuxNext",\n    platforms: [.macOS(.v15)],\n')})
+        self.assertTrue(refused, lines)
+
+    def test_moved_base_an_upstream_declaration_in_a_file_the_push_also_edits_passes(self):
+        long_app = "import Kit\nstruct App {\n    let kit = Kit()\n}\n" + "".join(f"let pad{i} = {i}\n" for i in range(12))
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/App.swift", long_app)
+        self.base = self.commit("long app")
+        refused, lines = self.rebased_push(
+            {f"{PKG}/Sources/App/App.swift": long_app.replace("    let kit = Kit()\n", "    let kit = Kit()\n    let n = 1\n")},
+            {f"{PKG}/Sources/App/App.swift": long_app + "func extra() -> Int { 2 }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_the_push_s_new_line_naming_upstream_s_new_declaration_is_refused(self):
+        long_app = "import Kit\nstruct App {\n    let kit = Kit()\n}\n" + "".join(f"let pad{i} = {i}\n" for i in range(12))
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/App.swift", long_app)
+        self.base = self.commit("long app")
+        refused, lines = self.rebased_push(
+            {f"{PKG}/Sources/App/App.swift": long_app.replace("    let kit = Kit()\n", "    let kit = Kit()\n    let n = extra()\n")},
+            {f"{PKG}/Sources/App/App.swift": long_app + "func extra() -> Int { 2 }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("extra", lines[0])
+
+    def test_moved_base_an_enum_case_the_push_adds_passes_upstream_code_that_names_the_enum(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nlet chosen = Mode.a\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_enum_case_the_push_adds_with_an_upstream_switch_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc name(_ m: Mode) -> Int {\n"
+                                            "    switch m {\n    case .a: return 1\n    case .b: return 2\n    }\n}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("Mode", lines[0])
+
+    def test_moved_base_an_enum_case_the_push_adds_passes_an_upstream_switch_over_another_enum(self):
+        self.kit_app(extra="public enum Shade {\n    case light\n    case dark\n}\n")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc tone(_ s: Shade) -> Int {\n"
+                                            "    switch s {\n    case .light: return 1\n    case .dark: return 2\n    }\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_enum_case_the_push_renames_is_refused_where_upstream_names_the_enum(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case a\n", "    case first\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nlet chosen = Mode.a\n"})
+        self.assertTrue(refused, lines)
+
+    def test_moved_base_an_internal_member_removed_in_another_module_passes(self):
+        self.kit_app(extra="struct Hidden {\n    let key = 1\n}\n")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { let key = 2; return key }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    let key = 1\n", "")})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_internal_member_removed_is_refused_for_a_testable_import(self):
+        self.kit_app(extra="struct Hidden {\n    let key = 1\n}\n")
+        refused, lines = self.rebased_push({self.APP: "@testable import Kit\nfunc feature() -> Int { Hidden().key }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    let key = 1\n", "")})
+        self.assertTrue(refused, lines)
+        self.assertIn("key", lines[0])
+
+    def test_moved_base_an_internal_member_removed_in_the_same_module_is_refused(self):
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/Store.swift", "struct Store {\n    let key = 1\n}\n")
+        self.base = self.commit("store")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Store().key }\n"},
+                                           {f"{PKG}/Sources/App/Store.swift": "struct Store {\n}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("key", lines[0])
+
+    def test_moved_base_cases_of_an_internal_enum_in_another_module_pass_an_upstream_switch(self):
+        self.kit_app(extra="enum Keys: String {\n    case one\n    case two\n}\n")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case two\n", "    case two\n    case three\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc n(_ s: String) -> Int {\n"
+                                            "    switch s {\n    case \"one\": return 1\n    default: return 2\n    }\n}\nlet one = 1\n"})
+        self.assertFalse(refused, lines)
+
     def read(self, rel):
         return (self.repo / rel).read_text()
 

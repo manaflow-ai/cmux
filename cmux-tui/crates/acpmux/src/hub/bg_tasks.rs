@@ -18,6 +18,7 @@
 use super::*;
 use crate::bg_run::{self, Record};
 use anyhow::{Context, anyhow};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -87,7 +88,8 @@ impl Hub {
         let env = self.bg_env(session, &meta).await?;
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
-        let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
+        let uuid = uuid::Uuid::now_v7().simple().to_string();
+        let id = format!("bg-{}", uuid.get(20..).unwrap_or(&uuid));
         let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (runner, segment) = match set {
             Some(set) => set,
@@ -158,6 +160,12 @@ impl Hub {
         records
     }
 
+    /// Whether a task of the chat runs (`Hub::in_use`).
+    pub(super) fn bg_running(&self, session: &Session) -> bool {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir).iter().any(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+    }
+
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.
     pub fn bg_list(&self, session: &Session) -> Value {
         let dir = self.bg_dir(session);
@@ -191,11 +199,11 @@ impl Hub {
         let read = bg_run::read_output(&dir, id, from, max).map_err(internal)?;
         let mut view = bg_view(&dir, &record, 0);
         // The bytes exactly (`data`), and as text for an agent to read (`text`).
-        view["data"] = json!(base64::engine::general_purpose::STANDARD.encode(&read.data));
-        view["text"] = json!(String::from_utf8_lossy(&read.data));
-        view["fromByte"] = json!(read.start);
-        view["nextByte"] = json!(read.start + read.data.len() as u64);
-        view["skippedBytes"] = json!(from.map_or(0, |f| read.start.saturating_sub(f)));
+        view.set("data", json!(base64::engine::general_purpose::STANDARD.encode(&read.data)));
+        view.set("text", json!(String::from_utf8_lossy(&read.data)));
+        view.set("fromByte", json!(read.start));
+        view.set("nextByte", json!(read.start + read.data.len() as u64));
+        view.set("skippedBytes", json!(from.map_or(0, |f| read.start.saturating_sub(f))));
         Ok(view)
     }
 
@@ -413,7 +421,9 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
             Ok(())
         });
     }
-    let mut child = cmd.spawn().context("start the task's runner")?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
         crate::agent_host::scope::place(pid).await;
     }

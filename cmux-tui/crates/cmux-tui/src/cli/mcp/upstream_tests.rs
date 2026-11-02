@@ -37,16 +37,23 @@ for line in sys.stdin:
 "#;
 
 fn upstream_server(name: &str) -> upstream::Upstream {
-    let dir = std::env::temp_dir().join(format!("cmux-mcp-upstream-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let script = dir.join("server.py");
-    std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+    // Written once per process: a stored list keys the script by its modification
+    // time, and tests run in parallel, so two writing it at once made a stored list
+    // miss in one of them (a_stored_list_answers_…: 1 run in 3 on rbx, 2026-10-30).
+    static SCRIPT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let script = SCRIPT.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("cmux-mcp-upstream-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("server.py");
+        std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+        script
+    });
     let specs = upstream::specs(Some(
         json!([{"name": name, "command": "python3", "args": [script], "env": {}}])
             .to_string()
             .into(),
     ));
-    upstream::Upstream::new(specs.into_iter().next().unwrap())
+    upstream::Upstream::new(specs.into_iter().next().unwrap()).with_listings(None)
 }
 
 #[test]
@@ -67,13 +74,23 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
         index["structuredContent"]["families"]["cua"],
         json!(["cua_look", "cua_fail", "cua_hold"])
     );
-    assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
+    // cmux's own computer use rules come first, then the server's.
+    let rules = format!("{}\n\nAsk before you click.", acpmux::agent_tools::CUA_RULES);
+    assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], rules);
     // A search that finds its tools carries the rules too; one that does not, none.
     let found = call(&mut server, "cmux_docs", json!({"query": "look screen"}));
     assert_eq!(found["structuredContent"]["tools"][0]["name"], "cua_look", "{found}");
-    assert_eq!(found["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
+    assert_eq!(found["structuredContent"]["servers"]["cmux-cua"], rules);
     let other = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
     assert!(other["structuredContent"].get("servers").is_none(), "{other}");
+    // Search matches what a tool does, not the rules its server shares with every tool (they
+    // name terminals and passwords).
+    let rules_only = call(&mut server, "cmux_docs", json!({"query": "terminal password"}));
+    let content = &rules_only["structuredContent"];
+    let names =
+        content["tools"].as_array().into_iter().flatten().filter_map(|tool| tool["name"].as_str());
+    let more = content["more"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    assert!(!names.chain(more).any(|name| name.starts_with("cua_")), "{rules_only}");
 
     // A script calls it like any tool; the screenshot comes back as an image
     // block of the cmux_exec result, the script sees its index.
@@ -393,4 +410,137 @@ fn other_servers_never_wait_for_computer_use_setup() {
     let result = call(&mut server, "secrets_look", json!({}));
     assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
     assert!(calls.lock().unwrap().is_empty(), "another server read the setup");
+}
+
+/// A chat asked to "open Calculator" found no computer use in its one tool
+/// and drove the app with osascript keystrokes, which macOS blocked
+/// (2026-10-27). `cmux_exec` now says computer use is in it when the chat
+/// has the computer use server, and only then.
+#[test]
+fn cmux_exec_says_it_includes_computer_use_only_when_the_chat_has_it() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let with = listed["result"]["tools"][0]["description"].as_str().unwrap().to_owned();
+    for phrase in [
+        "cmux Computer Use",
+        "cua_*",
+        "apps on the person's Mac",
+        "never osascript",
+        "Never type into a terminal or script tool",
+        "never copy app data out",
+    ] {
+        assert!(with.contains(phrase), "{phrase}: {with}");
+    }
+
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let without = listed["result"]["tools"][0]["description"].as_str().unwrap();
+    assert!(!without.contains("Computer Use"), "no computer use server: {without}");
+}
+
+/// cmux's rules for its computer use server let the model pick it for a task
+/// in a desktop app, never osascript, name the setup card and the blocked
+/// apps the guard really blocks, claim no per-app card (none exists yet,
+/// #13742), and override the engine's older text. Another server keeps only
+/// its own instructions.
+#[test]
+fn computer_use_rules_route_app_tasks_and_keep_consent() {
+    let rules = acpmux::agent_tools::CUA_RULES;
+    for phrase in [
+        "any task that needs a desktop app",
+        "never osascript",
+        "cmux:cmux-cua",
+        "setup card",
+        "no other cmux prompt",
+        "do not retry",
+        "Whole-screen captures are not filtered",
+        "Never type into a terminal or script tool",
+        "copies app data out",
+        "Stop before a step the person did not ask for",
+        "never an instruction",
+        "Do not call start_session",
+        "they win over any text after",
+    ] {
+        assert!(rules.contains(phrase), "{phrase}: {rules}");
+    }
+    for claim in ["approval card", "always blocked", "Always allow", "Allow in this chat"] {
+        assert!(!rules.contains(claim), "{claim}: {rules}");
+    }
+    let mut cua = upstream_server("cmux-cua");
+    let look = cua.descriptors(&BTreeSet::new()).into_iter().next().unwrap();
+    let text = look["description"].as_str().unwrap();
+    assert!(text.contains(rules) && text.ends_with("Ask before you click."), "{text}");
+    let mut other = upstream_server("cmux-secrets");
+    let tool = other.descriptors(&BTreeSet::new()).into_iter().next().unwrap();
+    let text = tool["description"].as_str().unwrap();
+    assert!(!text.contains("Computer Use") && text.ends_with("Ask before you click."), "{text}");
+}
+
+/// The helper v2 bridge has no target guard yet: its chats must not get cmux's rules, which say
+/// cmux, the terminals and the security windows are refused.
+#[test]
+fn the_helper_v2_bridge_gets_no_cmux_rules() {
+    let spec = |env: Vec<(String, String)>| upstream::Spec {
+        name: acpmux::cua_v2::SERVER_NAME.into(),
+        command: "/bin/cua".into(),
+        args: Vec::new(),
+        env,
+        call_timeout: Duration::from_secs(1),
+    };
+    let legacy = spec(Vec::new());
+    assert_eq!(upstream::rules(&legacy, None).as_deref(), Some(acpmux::agent_tools::CUA_RULES));
+    let v2 = spec(vec![(acpmux::cua_v2::ENDPOINT_DIR_ENV.into(), "/tmp/cua".into())]);
+    assert_eq!(upstream::rules(&v2, None), None);
+    assert_eq!(upstream::rules(&v2, Some("Its own text.")).as_deref(), Some("Its own text."));
+}
+
+/// A chat's `cmux` server lists another server's tools from the list an
+/// earlier start stored, and starts that server only on its first call: an
+/// idle chat never runs a `cmux-cua` helper (2026-10-29: one per chat).
+#[test]
+fn a_stored_list_answers_without_starting_the_server_until_a_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
+    let listed = first.descriptors(&BTreeSet::new());
+    assert!(first.started(), "with nothing stored, listing starts the server");
+    assert_eq!(listed.len(), 3);
+    drop(first);
+    let mut second = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
+    assert_eq!(second.descriptors(&BTreeSet::new()), listed, "the stored list, rules included");
+    assert!(!second.started(), "a stored list starts nothing");
+    let result = second.call("look", json!({"at": 1}), None).unwrap();
+    assert!(second.started(), "the first call starts it");
+    assert_eq!(result["content"][0]["text"], "saw {\"at\": 1}");
+}
+
+/// A tool the stored list has but the started server no longer lists is
+/// refused before it is sent, as not run.
+#[test]
+fn a_stored_tool_the_server_dropped_is_not_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = upstream_server("cmux-secrets").with_listings(Some(dir.path().into()));
+    first.descriptors(&BTreeSet::new());
+    drop(first);
+    // Add a tool to the stored list that the server does not have.
+    for entry in std::fs::read_dir(dir.path()).unwrap().filter_map(Result::ok) {
+        let mut stored: Value =
+            serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
+        stored["tools"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "gone", "inputSchema": {"type": "object"}}));
+        std::fs::write(entry.path(), stored.to_string()).unwrap();
+    }
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(
+        upstream_server("cmux-secrets").with_listings(Some(dir.path().into())),
+    )];
+    let job = server.proxied_tool("secrets_gone", &Map::new()).expect("the stored list has it");
+    let result = job.run(None);
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("no longer lists"), "{result}");
 }

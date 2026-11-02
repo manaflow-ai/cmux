@@ -88,6 +88,11 @@ pub struct RunSteps {
     /// arrived) sharpen the line but keep its start, so the elapsed time stays the call's.
     activity_tool: Option<String>,
     activity_dirty: bool,
+    /// The tool calls announced and not ended, in announce order, each with its
+    /// line and when it was announced (ms). Claude Code runs a message's calls in
+    /// order, so a call announced while an earlier one runs waits for it: the line
+    /// keeps naming the earlier one, and moves on when it ends.
+    running: Vec<(String, String, u64)>,
 }
 
 /// One talk or thought step's live stream (`step.delta`): the text sent so
@@ -267,6 +272,16 @@ impl RunSteps {
     /// A tool call started or its input arrived (ACP `tool_call`).
     pub fn tool_call(&mut self, id: &str, name: &str, update: &Value, at: Option<u64>) {
         let doing = activity_line(name, update);
+        match self.running.iter_mut().find(|(call, _, _)| call == id) {
+            Some((_, line, _)) => line.clone_from(&doing),
+            None => self
+                .running
+                .push((id.to_owned(), doing.clone(), epoch_ms())),
+        }
+        let holder_runs = self
+            .activity_tool
+            .as_ref()
+            .is_some_and(|tool| self.running.iter().any(|(call, _, _)| call == tool));
         if self.activity.as_ref().is_none_or(|(old, _)| *old != doing) {
             match (&mut self.activity, self.activity_tool.as_deref()) {
                 // The same call, its input known now: a sharper line, the same start.
@@ -274,6 +289,9 @@ impl RunSteps {
                     *line = doing;
                     self.activity_dirty = true;
                 }
+                // An earlier call still runs: this one waits for it (Leo's
+                // "ToolSearch 3m 19s" was a ToolSearch queued behind a shell loop).
+                _ if holder_runs => {}
                 _ => {
                     self.set_activity(doing);
                     self.activity_tool = Some(id.to_owned());
@@ -329,6 +347,10 @@ impl RunSteps {
                 .or_insert_with(|| json!("running"));
         }
         let ended = matches!(status, Some("done" | "failed"));
+        if ended {
+            self.call_ended(id);
+        }
+        let step = self.upsert(&step_id("tool", id), "tool");
         let tool = tool_of(&mut step.value);
         if !name.is_empty() || !tool.contains_key("name") {
             tool.insert("name".into(), json!(tool_name(name)));
@@ -373,6 +395,24 @@ impl RunSteps {
                 mime_type,
                 data,
             });
+        }
+    }
+
+    /// Call `id` ended. When the line named it, the line moves to the earliest
+    /// call still running, or to the model ("Thinking"), from now: a queued call's
+    /// time waiting behind the one that ended is not its own, and the steps'
+    /// starts never go back.
+    fn call_ended(&mut self, id: &str) {
+        self.running.retain(|(call, _, _)| call != id);
+        if self.activity_tool.as_deref() != Some(id) {
+            return;
+        }
+        match self.running.first().cloned() {
+            Some((call, line, _)) => {
+                self.set_activity(line);
+                self.activity_tool = Some(call);
+            }
+            None => self.set_activity("Thinking".to_owned()),
         }
     }
 
@@ -628,6 +668,7 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "transcript" => "Reading the chat as you see it".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
+            "watch" => "Watching for a change".to_owned(),
             "remember" => "Saving a preference".to_owned(),
             "cloud_workspace" => "Starting a Cloud workspace".to_owned(),
             "control" => control_line(input),
@@ -665,6 +706,8 @@ fn control_line(input: Option<&Value>) -> String {
         ("cancel", Some(id)) => format!("Cancelling {id}"),
         ("restart", Some(id)) => format!("Restarting {id}"),
         ("priority", Some(id)) => format!("Putting {id} first"),
+        ("show", Some(id)) => format!("Showing {id}'s workspace"),
+        ("hide", Some(id)) => format!("Hiding {id}'s workspace"),
         ("cap", _) => "Setting how many agents work at once".to_owned(),
         ("cloud", _) => "Choosing where new agents run".to_owned(),
         (_, Some(id)) => format!("Managing {id}"),
@@ -1021,4 +1064,73 @@ pub fn chunks(steps: Vec<Value>) -> Vec<Vec<Value>> {
         out.push(current);
     }
     out
+}
+
+/// A dedicated completed record for reports from one assignment. It never shares the original
+/// turn's id, so a late report cannot revive a pruned turn or finish an active one.
+pub fn report_run_id(assignment: &str) -> String {
+    step_id("reports", assignment)
+}
+
+/// A report as bounded note steps. The generation keeps follow-up replies distinct;
+/// re-reading the same report upserts the same ids, including after a host restart.
+pub fn report_notes(
+    agent: &str,
+    session: &str,
+    started: u64,
+    floor: u64,
+    text: &str,
+) -> Vec<Value> {
+    let prefix = format!("[{agent}] ");
+    let limit = MAX_TEXT.saturating_sub(prefix.len());
+    let mut remaining = text;
+    let mut notes = Vec::new();
+    loop {
+        let mut end = remaining.len().min(limit);
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        let id = step_id(
+            "report",
+            &format!("{agent}:{session}:{started}:{floor}:{}", notes.len()),
+        );
+        notes.push(
+            json!({"id": id, "kind": "note", "text": format!("{prefix}{}", &remaining[..end])}),
+        );
+        remaining = &remaining[end..];
+        if remaining.is_empty() {
+            break;
+        }
+    }
+    notes
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+
+    #[test]
+    fn report_notes_preserve_multibyte_text_and_redelivery_identity() {
+        let text = "🦀 verified\n".repeat(4000);
+        let notes = report_notes("a1", "session", 100, 42, &text);
+        assert!(notes.len() > 1);
+        assert_eq!(notes, report_notes("a1", "session", 100, 42, &text));
+        let restored: String = notes
+            .iter()
+            .map(|note| {
+                let text = note["text"].as_str().unwrap();
+                assert!(text.len() <= MAX_TEXT);
+                text.strip_prefix("[a1] ").unwrap()
+            })
+            .collect();
+        assert_eq!(restored, text);
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "session", 101, 42, "next")[0]["id"]
+        );
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "new-session", 100, 42, "next")[0]["id"]
+        );
+    }
 }

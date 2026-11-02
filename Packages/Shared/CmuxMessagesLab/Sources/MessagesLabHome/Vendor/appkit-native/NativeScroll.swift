@@ -448,6 +448,9 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// following click (or a scroll) shows first are ready when it comes.
     private func prerenderPage(beyond dir: Int) {
         guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
+        PaletteScope.with(PaletteScope.palette(of: r)) { prerenderPage(r, beyond: dir) } // cmux: in its view's palette
+    }
+    private func prerenderPage(_ r: RowRecycler, beyond dir: Int) {
         let b = r.bounds, h = b.height
         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
         let n = r.layout.model.count
@@ -561,7 +564,10 @@ final class TranscriptDocumentView: NSView {
         window?.firstResponder?.keyDown(with: event)
     }
     private func hostPoint(_ e: NSEvent) -> CGPoint { controller?.host.convert(e.locationInWindow, from: nil) ?? .zero }
-    override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: hostPoint(event), event) }
+    override func mouseDown(with event: NSEvent) {
+        PaletteScope.claimProcess(PaletteScope.palette(of: self)) // cmux: the chat clicked in gives the process palette
+        controller?.mouseDown(at: hostPoint(event), event)
+    }
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }

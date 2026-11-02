@@ -154,21 +154,6 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
-## `tabs.terminalFirst`
-
-What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -409,7 +394,22 @@ Which scroll moves columns and rows, and which scrolls the pane under the pointe
 - `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
 - `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
 
-The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. On a columns screen, Command + Scroll is always the layout's, over a terminal, a chat or a browser alike, and also in browser focus mode (focus mode gives the page your keys, not Command + Scroll). This holds even when the columns fit: the columns follow your fingers and spring back, and the pane never scrolls or goes Back or Forward. A web page that uses Command + Scroll itself, such as Figma or Excalidraw, keeps it (`layout.pagesHandleCommandScroll`). Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+
+## `layout.pagesHandleCommandScroll`
+
+Whether a web page that uses Command + Scroll itself keeps it, such as Figma or Excalidraw zooming their canvas.
+
+```json
+{
+  "layout": { "pagesHandleCommandScroll": true }
+}
+```
+
+- `true` (default): when a Command + Scroll begins over a Chromium page, cmux asks the page first. A page that cancels the Command + wheel event (`preventDefault`) gets the whole gesture, momentum included. Over any other page, Command + Scroll moves the columns. If the page does not answer within about two frames, the columns move.
+- `false`: Command + Scroll over a page always moves the columns, as over a terminal.
+
+It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. A page that cancels every wheel event (some code editors, maps and spreadsheets) also keeps Command + Scroll; turn this setting off to pan the columns over them. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
 
 ## `workspaces.newPlacement`
 
@@ -1057,7 +1057,9 @@ shows the same keys.
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
       "shadow": false,
-      "backgroundOpacity": 0
+      "backgroundOpacity": 0,
+      "height": "density",
+      "fontSize": "density"
     }
   }
 }
@@ -1104,9 +1106,20 @@ shows the same keys.
   only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
+- `omnibar.height`: the address bar's height, `density` (default) or points from `20` to `56`.
+  `density` follows `appearance.density`: 28 pt at Compact (the default), Chrome's roomier 34 pt
+  at Comfortable, tighter at Ultra-compact and taller at Spacious; the toolbar buttons, their
+  icons and the suggestion rows follow the same density. The bar always grows to fit its text, so
+  a small height with a large `fontSize` never cuts the address off. A number outside the range
+  applies at the nearest end, with a warning.
+- `omnibar.fontSize`: the size of the address, the page-info chip's text and the suggestion rows,
+  `density` (default) or points from `10` to `24`. `density` is 14 pt at Compact and 15 pt at
+  Comfortable, and follows a custom density's `fontSize`. Out-of-range numbers are clamped like
+  `height`. Both keys apply live, like the density.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`, `height`,
+`fontSize`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

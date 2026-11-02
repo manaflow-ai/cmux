@@ -125,6 +125,64 @@ class Notify(unittest.TestCase):
         self.assertEqual(run(moved), 0)
         self.assertEqual(moved.dispatched, [])
 
+    def test_a_tip_daemon_suite_runs_its_exact_commit_after_the_tip_moves(self):
+        """2026-10-30 (#27692): in a landing burst the tip moves before its tree publishes, so a
+        dispatch marker was always superseded and the base never got a daemon-test verdict. The tip
+        daemon suite's marker names its commit, like the DEV daily, and its run keeps the suite's name."""
+        marker = push_marker(origin="dispatch", tiers=["daemon"], tip_suite="daemon")
+        api = FakeApi([marker], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "feat-cmux-next")
+        self.assertEqual(body["inputs"]["same_tree_sha"], SHA)
+        self.assertEqual(body["inputs"]["same_tree_origin"], "dispatch")
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon")
+        self.assertEqual(body["inputs"]["tip_daemon_suite"], "true")
+        self.assertEqual(api.deleted, [100])
+        plain = FakeApi([push_marker(origin="dispatch", tiers=["daemon"])])
+        run(plain)
+        self.assertNotIn("tip_daemon_suite", plain.dispatched[0]["inputs"])
+
+    def test_only_a_daemon_dispatch_on_feat_cmux_next_is_a_tip_suite(self):
+        for bad in (push_marker(origin="dispatch", tiers=["daemon"], tip_suite="swift"),
+                    push_marker(origin="push", tiers=["daemon"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", branch="lane/x", tiers=["daemon"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", tiers=["daemon", "scheme"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", branch="feat-cmux-next", ref_kind="tags", tiers=["daemon"],
+                                tip_suite="daemon")):
+            with self.subTest(marker=bad):
+                api = FakeApi([bad], branch_head=NEWER)
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+
+    def test_a_base_tier_runs_its_exact_commit_after_the_tip_moves(self):
+        """cmuxterm-hq#5424: a feat-cmux-next push leaves its base Mac tier to one `cmux-next base tier`
+        run every 15 minutes. Its same-tree run tests the commit that run named (the tip moves on
+        within minutes) and keeps the name push attribution and base_red_excuse.py look up."""
+        marker = push_marker(origin="dispatch", tiers=["daemon", "scheme"], tip_suite="base")
+        api = FakeApi([marker], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "feat-cmux-next")
+        self.assertEqual(body["inputs"]["same_tree_sha"], SHA)
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertEqual(body["inputs"]["base_tier"], "true")
+        self.assertNotIn("tip_daemon_suite", body["inputs"])
+        scheme_only = FakeApi([push_marker(origin="dispatch", tiers=["scheme"], tip_suite="base")], branch_head=NEWER)
+        self.assertEqual(run(scheme_only), 1)
+        self.assertEqual(scheme_only.dispatched[0]["inputs"]["base_tier"], "true")
+
+    def test_only_a_dispatch_on_feat_cmux_next_is_a_base_tier(self):
+        for bad in (push_marker(origin="push", tip_suite="base"),
+                    push_marker(origin="dispatch", branch="lane/x", tip_suite="base"),
+                    push_marker(origin="dispatch", ref_kind="tags", tip_suite="base"),
+                    push_marker(origin="dispatch", tip_suite=["base"]),
+                    push_marker(origin="dispatch", dev_daily=True, dev_daily_sha=SHA, tip_suite="base")):
+            with self.subTest(marker=bad):
+                api = FakeApi([bad], branch_head=NEWER)
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+
     def test_a_tag_dispatch_runs_again_on_its_tag(self):
         """A tag has no branch head to move: its marker is current, like the DEV daily's SHA.
         Looking it up under refs/heads/ would fail and its tree jobs would never start."""

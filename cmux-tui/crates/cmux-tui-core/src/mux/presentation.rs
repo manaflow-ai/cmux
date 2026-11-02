@@ -13,6 +13,7 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
 mod frontend_browser_history;
@@ -244,6 +245,7 @@ impl Mux {
 
     /// Notifications, presentation, and tab directories for serializing the
     /// whole tree. Git HEAD lookups run after the state lock is released.
+    #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
@@ -710,10 +712,10 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint["pinned"] = pinned.into();
+            fingerprint.set("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint["marked_unread"] = marked_unread.into();
+            fingerprint.set("marked_unread", marked_unread.into());
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {

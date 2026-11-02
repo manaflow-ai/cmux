@@ -70,17 +70,75 @@ impl CloudError {
 impl fmt::Display for CloudError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rejected { code, message, .. } if message.is_empty() || message == code => {
-                formatter.write_str(code)
+            Self::Rejected { code, message, retryable } => {
+                write!(formatter, "cmux Cloud conversation request failed ({code})")?;
+                if !message.is_empty() && message != code {
+                    write!(formatter, ": {message}")?;
+                }
+                if *retryable {
+                    formatter.write_str(
+                        "; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
+                    )
+                } else {
+                    formatter.write_str("; run `cmux cloud diagnostics`")
+                }
             }
-            Self::Rejected { code, message, .. } => write!(formatter, "{code}: {message}"),
-            Self::SignedOut => formatter.write_str("not signed in to cmux Cloud"),
-            Self::SessionExpired => formatter.write_str("the cmux Cloud session expired"),
-            Self::Unauthenticated => formatter.write_str("cmux Cloud refused the session"),
-            Self::Unavailable(detail) => write!(formatter, "cmux Cloud is unavailable: {detail}"),
-            Self::BadRequest(detail) => write!(formatter, "bad request: {detail}"),
+            Self::SignedOut => formatter.write_str(
+                "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
+            ),
+            Self::SessionExpired => formatter.write_str(
+                "cmux Cloud conversation request failed: the session expired; run `cmux cloud sign-in`",
+            ),
+            Self::Unauthenticated => formatter.write_str(
+                "cmux Cloud conversation request failed: the session was refused; run `cmux cloud sign-in`",
+            ),
+            Self::Unavailable(detail) => write!(
+                formatter,
+                "cmux Cloud conversation request failed: {detail}; a change may have gone through, so check the conversation before resending; if it keeps failing, run `cmux cloud diagnostics`",
+            ),
+            Self::BadRequest(detail) => write!(
+                formatter,
+                "bad request: {detail}; check the arguments with `cmux --help`",
+            ),
         }
     }
 }
 
 impl std::error::Error for CloudError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_names_the_next_step_and_retries_only_retryable_failures() {
+        for error in
+            [CloudError::SignedOut, CloudError::SessionExpired, CloudError::Unauthenticated]
+        {
+            assert!(error.to_string().contains("cmux cloud sign-in"));
+        }
+        for retryable in [false, true] {
+            let error = CloudError::Rejected {
+                code: "denied".into(),
+                message: "scope is missing".into(),
+                retryable,
+            };
+            let message = error.to_string();
+            assert!(message.contains("scope is missing"));
+            assert!(message.contains("cmux cloud diagnostics"));
+            assert_eq!(message.contains("retry"), retryable, "{message}");
+        }
+        let rate_limited = CloudError::Rejected {
+            code: "rate_limited".into(),
+            message: "HTTP 429".into(),
+            retryable: true,
+        };
+        assert!(rate_limited.to_string().contains("retry the request"));
+        // The outcome of a mutation is unknown: never advise a blind resend.
+        let unavailable = CloudError::Unavailable("timeout".into()).to_string();
+        assert!(!unavailable.contains("retry"), "{unavailable}");
+        assert!(unavailable.contains("check the conversation before resending"));
+        assert!(unavailable.contains("cmux cloud diagnostics"));
+        assert!(CloudError::BadRequest("missing id".into()).to_string().contains("cmux --help"));
+    }
+}

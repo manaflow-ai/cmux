@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 
 /// The launch window drawn from the daemon's launch snapshot

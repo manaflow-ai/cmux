@@ -187,6 +187,13 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => Option.fromNullable(members.find((row) => row.tenantId === tenantId && row.vmId === vmId && row.detachedAt === null))),
     listMembers: (tenantId, meshId) =>
       Effect.sync(() => members.filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.detachedAt === null)),
+    updateMemberAddress: (tenantId, member, ipv4) => Effect.sync(() => {
+      const index = members.findIndex((row) => row.tenantId === tenantId && row.meshId === member.meshId && row.vmId === member.vmId
+        && row.detachedAt === null && row.attachedAt.getTime() === member.attachedAt.getTime() && row.ipv4 === member.ipv4);
+      if (index < 0) return false;
+      members[index] = { ...members[index]!, ipv4 };
+      return true;
+    }),
     detachMember: (tenantId, meshId, vmId, at) =>
       Effect.sync(() => {
         for (const row of members) {

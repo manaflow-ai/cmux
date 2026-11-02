@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar footer's space dots reorder by drag (unimplemented audit row 14): a dot dragged
 /// along the footer band and dropped there moves its space with the same `move-profile` reorder
 /// as the space menu's Move Left / Move Right (`SidebarIntent.reorderProfile`); a drop off the
 /// band moves nothing, and a click still switches the space. Real mouse events on the bar.
-@MainActor @Suite(.serialized) struct ProfileBarDotReorderTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarDotReorderTests {
     static let keys = (0..<3).map { ProfileKey("space\($0)") }
 
     /// A bar with three spaces (the first current) in a window, and the intents it sends.
@@ -57,7 +58,7 @@ import Testing
 
     @Test func aDotDraggedPastTheLastDotMovesItsSpaceToTheEnd() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let last = bar.center(2)
         bar.drag(0, through: [NSPoint(x: bar.center(0).x + 6, y: last.y), NSPoint(x: bar.center(1).x + 2, y: last.y), NSPoint(x: last.x + 4, y: last.y)])
         #expect(bar.reorders == [.reorderProfile(Self.keys[0], index: 3)], "\(bar.intents)")
@@ -71,7 +72,7 @@ import Testing
     @Test(arguments: [1, 2])
     func aDotDraggedPastTheFirstDotMovesItsSpaceToTheStart(_ index: Int) {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let first = bar.center(0)
         bar.drag(index, through: [NSPoint(x: bar.center(index).x - 6, y: first.y), NSPoint(x: first.x - 40, y: first.y)])
         #expect(bar.reorders == [.reorderProfile(Self.keys[index], index: 0)], "\(bar.intents)")
@@ -94,7 +95,7 @@ import Testing
     /// While the dot sits on the first slot, the strip already shows it first.
     @Test func theStripPreviewsTheFirstSlotWhileTheDotIsThere() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let first = bar.center(0)
         bar.view.mouseDown(with: bar.event(.leftMouseDown, bar.center(2)))
         bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: first.x - 40, y: first.y)))
@@ -104,7 +105,7 @@ import Testing
 
     @Test func aDotDraggedLeftOneSlotMovesItsSpaceLeftLikeMoveLeft() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let y = bar.center(2).y
         bar.drag(2, through: [NSPoint(x: bar.center(2).x - 6, y: y), NSPoint(x: bar.center(1).x - 2, y: y)])
         // Move Left's insertion index for the third space (RoomHandlers.move: from - 1).
@@ -116,7 +117,7 @@ import Testing
     /// until the drop; off the band the strip shows the order unchanged.
     @Test func theOtherDotsMakeWayWhileTheDotMoves() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let y = bar.center(0).y
         bar.view.mouseDown(with: bar.event(.leftMouseDown, bar.center(0)))
         bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: bar.center(1).x + 2, y: y)))
@@ -131,7 +132,7 @@ import Testing
     /// The drop target is the footer band: released far above it, nothing moves.
     @Test func aDotDroppedOffTheFooterBandMovesNothing() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let last = bar.center(2)
         bar.drag(0, through: [NSPoint(x: last.x + 4, y: last.y), NSPoint(x: last.x + 4, y: last.y - 200)])
         #expect(bar.reorders.isEmpty, "\(bar.intents)")
@@ -140,7 +141,7 @@ import Testing
 
     @Test func aClickOnADotStillSwitchesTheSpace() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         bar.drag(1, through: [])
         #expect(bar.intents == [.switchProfile(Self.keys[1])], "\(bar.intents)")
         #expect(bar.order == Self.keys)

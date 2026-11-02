@@ -14,7 +14,13 @@ public final class SidebarModel {
     public var isVisible: Bool { didSet { defaults.set(isVisible, forKey: Self.visibleKey) } }
 
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let volumes: @MainActor () -> [SidebarVolume]
+    @ObservationIgnored private let volumes: @Sendable @concurrent () async -> [SidebarVolume]
+    /// Numbers each read of the volumes in the order they start.
+    @ObservationIgnored private var volumeRead: UInt64 = 0
+    /// The newest read shown; a read that lands after a newer one was shown is dropped.
+    @ObservationIgnored private var shownRead: UInt64 = 0
+    /// The launch's first read (task-owner: the model; it ends once the volumes are read).
+    @ObservationIgnored private var firstRead: Task<Void, Never>?
     private static let favoritesKey = "files.sidebar.favorites"
     private static let visibleKey = "files.sidebar.visible"
 
@@ -22,9 +28,11 @@ public final class SidebarModel {
     /// - Parameters:
     ///   - home: The person's home folder (for the default Favorites).
     ///   - defaults: Where the Favorites order is kept. Tests pass a suite of their own.
-    ///   - volumes: Reads the mounted volumes. Defaults to ``SidebarVolume/mounted()``.
-    public init(home: URL, defaults: UserDefaults,
-                volumes: @escaping @MainActor () -> [SidebarVolume] = { SidebarVolume.mounted() }) {
+    ///   - volumes: Reads the mounted volumes, off the main thread (a slow network or disk image volume can
+    ///     hold `mountedVolumeURLs` for seconds).
+    ///
+    /// Locations start empty and fill in once the first read lands; `await` ``refreshLocations()`` to wait for it.
+    public init(home: URL, defaults: UserDefaults, volumes: @escaping @Sendable @concurrent () async -> [SidebarVolume]) {
         self.defaults = defaults
         self.volumes = volumes
         if let paths = defaults.stringArray(forKey: Self.favoritesKey) {
@@ -33,7 +41,15 @@ public final class SidebarModel {
             favorites = [GoPlace.applications, .desktop, .documents, .downloads, .home].map { Self.normalized($0.url(home: home)) }
         }
         isVisible = defaults.object(forKey: Self.visibleKey) as? Bool ?? true
-        locations = volumes()
+        locations = []
+        firstRead = Task { [weak self] in await self?.refreshLocations() }
+    }
+
+    /// Makes a sidebar whose Locations are this Mac's mounted volumes (``SidebarVolume/read()``).
+    /// An overload, not a closure default: an async closure literal as a default argument is banned
+    /// (plans/cmux-next/crash-elimination.md, `async_closure_default_arg`).
+    public convenience init(home: URL, defaults: UserDefaults) {
+        self.init(home: home, defaults: defaults, volumes: SidebarVolume.read)
     }
 
     /// Adds `url` at `index` (dragging a folder in), or moves it there when it is already a Favorite.
@@ -57,9 +73,14 @@ public final class SidebarModel {
         save(list)
     }
 
-    /// Reads the mounted volumes again (after a mount, unmount or rename).
-    public func refreshLocations() {
-        let now = volumes()
+    /// Reads the mounted volumes again (after a mount, unmount or rename), off the main thread, and
+    /// shows them unless a read that started later was shown already.
+    public func refreshLocations() async {
+        volumeRead &+= 1
+        let read = volumeRead
+        let now = await volumes()
+        guard read > shownRead else { return }
+        shownRead = read
         if now != locations { locations = now }
     }
 

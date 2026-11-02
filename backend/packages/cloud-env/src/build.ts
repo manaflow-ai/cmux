@@ -115,6 +115,8 @@ export const buildEnvironmentSnapshot = async (sandbox: CloudSandbox, spec: Envi
       timings: { bootMs: booted - started, readyMs: ready - booted, setupMs: setupDone - ready, snapshotMs: snapped - setupDone, warmMs: end - snapped, totalMs: end - started }
     }
   } finally {
+    // Best effort here: CloudDO atomically hands both recorded names to its durable cleanup ledger
+    // when the build settles (success or failure), and retries deletion until absence is confirmed.
     await sandbox.destroy(builder.id).catch(() => undefined)
   }
 }
@@ -143,7 +145,7 @@ const runDetachedSetup = async (sandbox: CloudSandbox, id: string, spec: Environ
   }
 }
 
-/** Boots one machine from the snapshot and deletes it, so the provider's first-boot cost is paid here. */
+/** Boots from the snapshot and attempts deletion; CloudDO's durable cleanup also covers this name. */
 const warmSnapshot = async (sandbox: CloudSandbox, snapshotId: string, name: string): Promise<void> => {
   let vm: { id: string }
   try {

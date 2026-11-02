@@ -122,3 +122,28 @@ test("the chat a send starts in the picked folder runs the held model and effort
   expect(started?.model).toBe("claude-haiku-5-5");
   expect(started?.configOptions?.find((option) => option.id === "effort")?.currentValue).toBe("low");
 });
+
+test("a held model reaches the session creator", async () => {
+  let received: string | undefined;
+  const store = new HarnessSwitch();
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: async (_harness: string, _cwd: string | undefined, model?: string) => {
+      received = model;
+      return "model-session";
+    },
+    leave: () => undefined,
+    open: async (sessionId: string) => sessionId,
+    send: async () => undefined,
+    setModel: async () => undefined,
+    setMode: async () => undefined,
+    setConfig: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  });
+
+  expect(await store.switchTo("claude", "/Users/dev/app", { model: "claude-haiku-5-5" })).toBe("model-session");
+  expect(received).toBe("claude-haiku-5-5");
+});

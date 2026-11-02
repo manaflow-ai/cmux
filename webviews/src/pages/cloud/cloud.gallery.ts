@@ -1,10 +1,21 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine } from "./ops";
+import type { CloudMachine, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
+const samplePorts: PortForward[] = [
+  {
+    machine: machines[0]!.id,
+    port: 3000,
+    host: "127.0.0.1",
+    localPort: 49152,
+    generation: 1,
+    state: "up",
+    reason: null,
+  },
+];
 const manyMachines: CloudMachine[] = Array.from({ length: 24 }, (_, index) => ({
   ...structuredClone(machines[index % machines.length]!),
   id: `vm_gallery_${String(index + 1).padStart(2, "0")}`,
@@ -39,12 +50,21 @@ export default cloudPageEntry({
       action: "select-machine",
       machines,
       snapshots,
+      ports: samplePorts,
     },
     creating: {
       note: "The create machine sheet with plan sizes and snapshot choices.",
       action: "create",
       machines,
       snapshots,
+    },
+    "ports-pending": {
+      note: "Cloud Ports actions while the host is still resolving.",
+      action: "ports-pending",
+      pendingAction: "browser",
+      machines,
+      snapshots,
+      ports: samplePorts,
     },
     "many-machines": {
       note: "Twenty-four machines with long names for scrolling.",

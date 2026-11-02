@@ -174,9 +174,11 @@ jobs:
 
       # The old cmux NIGHTLY-identity feed carries the same builds on the same
       # rings (nightly.yml publish-nightly-identity-legacy): the same promotion,
-      # from the same verdicts. A failure here never fails the verdict.
+      # from the same verdicts. It runs after the NEXT feed's write, which a
+      # failure here keeps; the run goes red so the two feeds are not left on
+      # different rings quietly. The retag is derived from the verdicts, so a
+      # re-run of this job (or the next verdict) repairs the old feed.
       - name: Move the old feed's builds whose canary passed to Nightly
-        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}

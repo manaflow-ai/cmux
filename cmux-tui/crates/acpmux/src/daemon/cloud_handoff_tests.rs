@@ -24,6 +24,7 @@ impl Io for Fake {
         st.sent.push(v["handoff_report"].clone());
         st.replies.pop_front().unwrap_or_else(|| panic!("no reply scripted for {line}"))
     }
+    async fn notify(&self, _line: String) {}
 }
 
 impl Fake {
@@ -99,6 +100,10 @@ fn records_map_to_steps() {
         step_of("turn_started", &json!({"prompt": "hi", "promptId": "p1"})),
         Some(Step::Began(None))
     );
+    assert_eq!(
+        step_of("auto_resume_restored", &json!({"promptId": "handoff-9-a", "reason": "transport"})),
+        Some(Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() })
+    );
     assert_eq!(step_of("reopened", &json!({})), Some(Step::Reopened));
     let bash = json!({"request": {"toolCall": {"title": "Run npm install", "kind": "execute"}}});
     assert_eq!(
@@ -136,9 +141,37 @@ fn records_map_to_steps() {
             Some(4)
         ))
     );
-    for kind in ["auto_resume_settled", "auto_resume_exhausted", "auto_resume_skipped"] {
+    for kind in [
+        "auto_resume_settled",
+        "auto_resume_exhausted",
+        "auto_resume_skipped",
+        "auto_resume_stopped",
+    ] {
         assert_eq!(step_of(kind, &json!({"turnId": "t1"})), Some(Step::NoRetry), "{kind}");
     }
+    assert_eq!(
+        step_of(
+            "auto_resume_skipped",
+            &json!({"promptId": "handoff-9-a", "skipped": "remote_control_ended"})
+        ),
+        Some(Step::NoRetryFor {
+            turn: 9,
+            why: "Automatic retry skipped (remote_control_ended).".into()
+        })
+    );
+    assert_eq!(
+        step_of("auto_resume_settled", &json!({"promptId": "handoff-9-a", "why": "off"})),
+        Some(Step::NoRetryFor { turn: 9, why: "Automatic retry settled (off).".into() })
+    );
+    // A Stop's record names the prompt and turn only (`hub/auto_resume.rs`): it says the
+    // retry was stopped, not that a policy settled it (cmuxterm-hq#5311).
+    assert_eq!(
+        step_of(
+            "auto_resume_stopped",
+            &json!({"turnId": "t1", "promptId": "handoff-9-a~resume-1"})
+        ),
+        Some(Step::NoRetryFor { turn: 9, why: "Automatic retry stopped.".into() })
+    );
     assert_eq!(step_of("agent_message_chunk", &json!({})), None);
 }
 
@@ -189,6 +222,149 @@ async fn a_turn_reports_running_needs_you_running_and_done() {
             s(1, "done", Some("Fixed the flaky test. It was a race.")),
         ]
     );
+}
+
+/// A reporter can restart after the failed turn and observe only the durable restored
+/// marker. It must still retain the hand-off turn so a subsequent skip/stop closes it.
+#[tokio::test(start_paused = true)]
+async fn a_restored_retry_rehydrates_quiet_tracking_for_terminal_skip() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "failed")]);
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
+    assert!(r.holds(S, Some(9)));
+    r.step(S, Step::NoRetry).await;
+    assert_eq!(fake.take(), [s(9, "failed", Some("The connection was interrupted."))]);
+    assert!(!r.holds(S, Some(9)));
+}
+
+#[tokio::test]
+async fn a_retry_skip_after_reporter_restart_closes_a_quiet_handoff() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "failed")]);
+    r.step(
+        S,
+        Step::NoRetryFor { turn: 9, why: "Automatic retry skipped (remote_control_ended).".into() },
+    )
+    .await;
+    assert_eq!(
+        fake.take(),
+        [s(9, "failed", Some("Automatic retry skipped (remote_control_ended)."))]
+    );
+}
+
+#[tokio::test]
+async fn a_terminal_retry_event_for_another_turn_does_not_close_current_tracking() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running")]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, Step::NoRetryFor { turn: 10, why: "Automatic retry settled (off).".into() }).await;
+    assert!(r.holds(S, Some(9)));
+    assert_eq!(fake.take(), [s(9, "running", None)]);
+}
+
+/// A manual retry that finished overtakes the automatic one: the automatic retry's late skip
+/// or stop never replaces the turn's end, sent or still waiting to be sent.
+#[tokio::test(start_paused = true)]
+async fn a_late_retry_decision_keeps_a_finished_turns_end() {
+    let skipped = || Step::NoRetryFor { turn: 9, why: "Automatic retry skipped (busy).".into() };
+    // The store got the end.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "running"), ok(9, "done")]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    r.step(S, skipped()).await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
+    assert!(!r.holds(S, Some(9)));
+    assert_eq!(
+        fake.take(),
+        [s(9, "running", None), s(9, "running", None), s(9, "done", Some("Done."))]
+    );
+    // The store was away: the end waits to be sent again, and is sent done.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "running"), busy(), busy(), busy()]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    assert!(fake.take().is_empty(), "no failure replaces the waiting end");
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(9, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(9, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+    // A late decision for an older turn keeps a newer turn's end waiting to be sent again.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "done"), ok(10, "running"), busy(), busy(), busy()]);
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Nine.")).await;
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
+    assert!(fake.take().is_empty(), "turn 9's late decision reports nothing");
+    assert!(!r.holds(S, Some(9)));
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(10, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(10, "done", Some("Ten."))]);
+    // A stale begin of an older turn the store refuses reopens nothing.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(10, "running"), ok(10, "done"), refused("handoff.stale", 10, "done")]);
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    r.step(S, began(9)).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    assert!(fake.take().is_empty(), "a stale begin of turn 9 lets no late decision through");
+    // A new attempt of the turn that fails is reported again.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "done"), ok(9, "running"), ok(9, "failed")]);
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    r.step(S, began(9)).await;
+    r.step(S, Step::Ended(failed("It broke."), Some(9))).await;
+    assert_eq!(fake.take().last(), Some(&s(9, "failed", Some("It broke."))));
+}
+
+/// A restored-retry marker for another turn neither moves nor renews the held turn's deadline.
+#[tokio::test(start_paused = true)]
+async fn a_restored_retry_of_another_turn_keeps_the_held_turns_deadline() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(2, "running")]);
+    r.step(S, began(2)).await;
+    r.step(S, cut_off(2)).await;
+    r.step(S, Step::RetryScheduled).await;
+    let due = r.next_deadline().unwrap();
+    tokio::time::advance(RETRY_WAIT_MAX / 2).await;
+    r.step(S, Step::RetryRestored { turn: 1, why: "The connection was interrupted.".into() }).await;
+    assert!(r.holds(S, Some(2)));
+    assert_eq!(r.next_deadline(), Some(due));
+}
+
+/// An older turn's begin the store did not answer, then its end, never drops a newer turn's
+/// end waiting to be sent again.
+#[tokio::test(start_paused = true)]
+async fn an_older_turns_end_never_drops_a_newer_waiting_end() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(10, "running"), busy(), busy(), busy(), busy(), busy(), busy()]);
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    r.step(S, began(9)).await;
+    r.step(S, Step::Ended(failed("Old."), Some(9))).await;
+    assert!(
+        !fake.take().iter().any(|(turn, status, _)| *turn == 9 && status == "failed"),
+        "no end is sent for the older turn"
+    );
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(10, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(10, "done", Some("Ten."))]);
 }
 
 /// Each turn reports on the turn its prompt names, never one learned from an earlier answer.
@@ -438,7 +614,7 @@ async fn the_followed_sessions_are_bounded() {
     for i in 0..MAX_TRACKS {
         r.tracks.insert(
             format!("acp_{i}"),
-            Track { now: Now::Reporting { turn: 1, last: None }, refused: None },
+            Track { now: Now::Reporting { turn: 1, last: None }, ..Track::default() },
         );
     }
     r.step(S, began(1)).await;
@@ -496,6 +672,21 @@ async fn a_cut_turn_goes_on_with_its_continuation() {
         fake.take(),
         [s(1, "running", None), s(1, "done", Some("Picked up where it stopped."))]
     );
+}
+
+/// A continuation that arrives just after the provider reset deadline still owns the hand-off;
+/// the reset wake needs a short dispatch window before the old turn may be reported failed.
+#[tokio::test(start_paused = true)]
+async fn a_continuation_after_reset_deadline_is_not_reported_failed() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.step(S, Step::RetryScheduled).await;
+    r.step(S, began(1)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "running", None)]);
+    r.step(S, done(1, "Picked up after reset.")).await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Picked up after reset."))]);
 }
 
 /// A cut turn with no continuation coming is reported failed: no retry, another prompt, a close,
@@ -568,6 +759,19 @@ fn a_cause_in_the_raw_error_holds_the_turn() {
     };
     assert!(retried);
     assert_eq!(why, "The turn failed.");
+}
+
+/// A revoked token holds the turn too: a chat's first send goes again on it
+/// (`hub/auto_resume/first_send.rs`), and a later turn's is settled at once.
+#[test]
+fn a_revoked_token_holds_the_turn_for_its_first_send_retry() {
+    let msg = json!({"status": "failed", "error": "Failed to authenticate: OAuth token revoked",
+        "errorText": "Failed to authenticate: OAuth token revoked", "promptId": "handoff-1-a"});
+    let Some(Step::Ended(End::Failed { retried, .. }, Some(1))) = step_of("turn_result", &msg)
+    else {
+        panic!()
+    };
+    assert!(retried);
 }
 
 #[tokio::test]
@@ -791,4 +995,19 @@ async fn a_begin_from_before_a_loss_ends_the_hold_and_follows_nothing() {
     fake.answer([ok(1, "done")]);
     r.step(S, done(1, "Back.")).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Back."))]);
+}
+
+/// The unused exit's Cloud check (`reports_here`): a socket made after the start is seen, and once
+/// seen it stays so while the agent restarts.
+#[test]
+fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let seen = AtomicBool::new(false);
+    assert!(!reports_to(&socket, &seen), "no socket yet");
+    std::fs::write(&socket, "").unwrap();
+    let linux = cfg!(target_os = "linux");
+    assert_eq!(reports_to(&socket, &seen), linux, "the socket made later");
+    std::fs::remove_file(&socket).unwrap();
+    assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
 }

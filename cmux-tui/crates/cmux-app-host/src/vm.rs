@@ -182,11 +182,12 @@ impl CpuWindow {
         while at < end {
             let slot = at / self.slot;
             let until = end.min(slot.saturating_add(1).saturating_mul(self.slot));
-            let entry = &mut self.ring[(slot % (CPU_SLOTS + 1)) as usize];
-            if entry.0 != slot {
-                *entry = (slot, 0);
+            if let Some(entry) = self.ring.get_mut((slot % (CPU_SLOTS + 1)) as usize) {
+                if entry.0 != slot {
+                    *entry = (slot, 0);
+                }
+                entry.1 = entry.1.saturating_add(until - at);
             }
-            entry.1 = entry.1.saturating_add(until - at);
             at = until;
         }
     }

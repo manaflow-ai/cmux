@@ -42,6 +42,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     /// `cmux_shim_set_file_dialogs`: 1 sends page file choosers to the host (`CMUX_SHIM_FILE_DIALOG`).
     let setFileDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_browser_set_file_dialogs(browser, on)`: 1 sends that browser's choosers to the host.
+    let browserSetFileDialogs: @convention(c) (Int32, Int32) -> Void
     /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
     let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
@@ -68,6 +70,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let goBack: @convention(c) (Int32) -> Void
     let goForward: @convention(c) (Int32) -> Void
     let reload: @convention(c) (Int32) -> Void
+    let reloadIgnoreCache: @convention(c) (Int32) -> Void
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
@@ -282,6 +285,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Opens the shim at `url`, resolves every symbol and checks that its ABI
     /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
     static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
+        // concurrency-allow: the library-load thread (CEFRuntime.loadLibrary, Task.detached; the debug-window startBlocking path has no caller); the shim is a few MB, so the loader lock is held briefly
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
@@ -322,6 +326,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         setFileDialogs = try r("cmux_shim_set_file_dialogs")
+        browserSetFileDialogs = try r("cmux_shim_browser_set_file_dialogs")
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
@@ -338,6 +343,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         goBack = try r("cmux_shim_go_back")
         goForward = try r("cmux_shim_go_forward")
         reload = try r("cmux_shim_reload")
+        reloadIgnoreCache = try r("cmux_shim_reload_ignore_cache")
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")

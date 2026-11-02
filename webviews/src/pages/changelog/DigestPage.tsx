@@ -4,6 +4,7 @@
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate, releaseView, type ReleaseItem } from "./model";
 import { categoryLabel, ChangesFold, Media, RowActions, type PartsContext } from "./ReleaseParts";
+import { ChangePullRequest } from "./ChangePullRequest";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry } from "./types";
 
@@ -69,11 +70,15 @@ function DigestRelease({
         <div key={item.id} className="cld-item">
           <span className="cld-cat">{categoryLabel(ctx.strings, item.category)}</span>
           <div>
-            <span className="cl-row-title">{item.title}</span>
+            {item.pr ? (
+              <ChangePullRequest pr={item.pr} title={item.title} />
+            ) : (
+              <span className="cl-row-title">{item.title}</span>
+            )}
             {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
             <RowActions item={item} ctx={ctx} />
           </div>
-          {item.media ? <Media media={item.media} className="cld-thumb" /> : <span />}
+          {item.media ? <Media media={item.media} className="cld-thumb" strings={ctx.strings} /> : <span />}
         </div>
       ))}
       {view && <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} />}

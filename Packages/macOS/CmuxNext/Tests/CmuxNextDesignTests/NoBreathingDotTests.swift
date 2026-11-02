@@ -63,7 +63,7 @@ import Testing
                 indicator.apply(plan, config: config)
                 #expect(Self.loops(under: indicator.layer) { $0 == "opacity" || $0?.contains("scale") == true } == [], "\(label)")
                 if host.description != "TabCell+StatusBadge" {
-                    #expect(plan.glyph == .arc && plan.animation == .spin, "\(label)")
+                    #expect(plan.glyph == .sweep && plan.animation == .spin, "\(label)")
                     #expect(!Self.loops(under: indicator.layer) { $0 == "transform.rotation.z" }.isEmpty,
                             "\(label): the spinner must actually turn")
                 }

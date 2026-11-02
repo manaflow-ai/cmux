@@ -1,0 +1,71 @@
+.message-entrance-gallery {
+  --me-space-12: 12px;
+  --me-space-18: 18px;
+  --me-space-24: 24px;
+  --me-space-440: 440px;
+  min-height: 100%;
+  padding: var(--me-space-18) var(--me-space-24);
+  box-sizing: border-box;
+  color: var(--cv-text);
+  background: var(--agent-page-bg, transparent);
+}
+
+.message-entrance-gallery__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.message-entrance-gallery__header h1 {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.message-entrance-gallery__header p {
+  margin: 4px 0 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+
+.message-entrance-gallery__transcript {
+  height: var(--me-space-440);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
+  border-radius: 12px;
+}
+
+@keyframes cv-gallery-message-translate {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes cv-gallery-message-scale-y {
+  from {
+    opacity: 0;
+    scale: 1 0.98;
+  }
+  to {
+    opacity: 1;
+    scale: 1 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .message-entrance-gallery[data-variant="translate"] .acpmux-row--message-enter .acpmux-row__message-presentation {
+    animation-name: cv-gallery-message-translate;
+  }
+
+  .message-entrance-gallery[data-variant="scale-y"] .acpmux-row--message-enter .acpmux-row__message-presentation {
+    transform-origin: center bottom;
+    animation-name: cv-gallery-message-scale-y;
+  }
+}

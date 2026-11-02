@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { restRoom } from "../src/agent-session/acpmux/model";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -285,9 +286,10 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
       });
     await atRest(page);
     // Font metrics differ between hosts: the pane is sized from the chat as drawn, with 4px of
-    // spare room under its last row.
+    // spare room under its last row beyond the rest room the transcript keeps under it over the
+    // floating stack (model.ts restRoom, #30297), which is part of the chat's height.
     const { spare } = await view();
-    await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
+    await page.setViewportSize({ width: 900, height: 760 - spare + restRoom() + 4 });
     await atRest(page);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setSessionStatus(page);

@@ -176,6 +176,7 @@ jobs:
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -578,6 +579,19 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # An owned Mac reuses its workspace, but checkout cleans it, so every job
+      # rebuilt the five packages and their dependencies from nothing (11-23 s
+      # per package, 70-100 s a job). Keep each package's .build outside the
+      # workspace on the mini, as swift-package-tests and the cmux-next fast
+      # tier do; a kept build recompiles only what the change touched.
+      # scripts/ci/owned_spm_scratch.py has the rules (fingerprint per Xcode,
+      # Swift, workspace path and bonsplit commit; least recently used pruning).
+      # Any failure leaves the packages to build cold as before.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
       - name: Run CMUXMobileCore package tests
         if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
@@ -1096,7 +1110,7 @@ jobs:
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

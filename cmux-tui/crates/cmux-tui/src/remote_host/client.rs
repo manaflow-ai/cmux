@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::config::DEFAULT_PORT;
 use super::preface::{self, Op};
 use super::tailnet::{Node, Status, Tailnet};
+use cmux_json::JsonSet as _;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(5);
 /// Discovery probes give up sooner: an ACL that drops the packets shows as
@@ -231,7 +232,7 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
         let mut out =
             json!({"hosts": hosts, "probed": found.len(), "self": status.this.short_name()});
         if all {
-            out["not_hosts"] = Value::Array(others);
+            out.set("not_hosts", Value::Array(others));
         }
         println!("{out}");
         return Ok(());
