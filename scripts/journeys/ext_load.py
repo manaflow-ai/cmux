@@ -156,7 +156,7 @@ def step_load_stop(j, step):
     # own timer (review must-fix 1 and 2 at e19d42d215a); the tool runs with --duration 0, so only SIGTERM ends it.
     top = load["out"] / load["profile"]
     names = [load["profile"]] if load["profile"] != "L6" else ["L1", "L2", "L3", "L4", "L5"]
-    parts, focus_changed, stopped_ok = {}, False, True
+    parts, stopped_ok = {}, True
     for name in names:
         path = top / "manifest.json" if name == load["profile"] else top / name / "manifest.json"
         try:
@@ -164,10 +164,11 @@ def step_load_stop(j, step):
         except (OSError, ValueError) as error:
             m = {"missing": str(error)[:120]}
         parts[name] = {k: m.get(k) for k in ("focus_changed", "stopped_by", "missing")}
-        if m.get("focus_changed") is not False:
-            focus_changed = None if m.get("focus_changed") is None and focus_changed is False else True
         if m.get("stopped_by") in (None, "duration"):
             stopped_ok = False
+    values = [p.get("focus_changed") for p in parts.values()]
+    # False only when every profile says False; True when one says True; else None (unknown: the load does not count)
+    focus_changed = True if any(v is True for v in values) else (False if all(v is False for v in values) else None)
     all_ready = True
     if load["profile"] == "L6":
         try:

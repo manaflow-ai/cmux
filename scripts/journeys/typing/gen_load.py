@@ -72,7 +72,7 @@ def journey(profile, film):
             "why": "Lawrence 2026-11-02: 'video + metric evidence that typing into terminals is never laggy, even when "
                    "there's a lot of CLI/mcp commands and browser use and browser tabs etc going on in the background'. "
                    "Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
-            "source": "TYPING UNDER LOAD (lead 02:3xZ)", "budget_seconds": 260 if profile in ("L0", "L1", "L2", "L4") else 260, "options": {"key_path": "real"},
+            "source": "TYPING UNDER LOAD (lead 02:3xZ)", "budget_seconds": 260, "options": {"key_path": "real"},
             "continue_not_judged": True,
             "finally": [{"do": "video_close_open"}, {"do": "load_stop"}, {"do": "env_windows", "at": "end"},
                         {"do": "smoke_close_all"}],
