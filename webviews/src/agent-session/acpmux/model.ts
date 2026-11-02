@@ -63,11 +63,7 @@ import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
-import {
-  applyHeightChanges,
-  type HeightChange,
-  type IndexedLayoutGeometry,
-} from "./conversationGeometry";
+import { applyHeightChanges, type HeightChange, type IndexedLayoutGeometry } from "./conversationGeometry";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
 export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
