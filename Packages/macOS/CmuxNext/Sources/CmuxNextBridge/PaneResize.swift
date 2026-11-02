@@ -13,8 +13,9 @@ public nonisolated enum PaneResize {
     /// Default keyboard step: 5% of the split or of the viewport width.
     public static let step = 0.05
 
+    /// The change one press makes. `shown`: the sizes the screen can show (``ShownResizeRange``).
     public static func change(for pane: LayoutPaneID, direction: LayoutDirection, in layout: ScreenLayout,
-                              step: Double = PaneResize.step) -> Change? {
+                              shown: ShownResizeRange? = nil, step: Double = PaneResize.step) -> Change? {
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let delta = direction == .left || direction == .up ? -step : step
         let tree: SplitNode?
