@@ -688,6 +688,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
   overflow-y: scroll;
+  /* Its own ink, so a fading transcript around it never lends it its 0% at rest. */
+  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
