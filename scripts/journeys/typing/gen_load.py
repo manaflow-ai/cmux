@@ -42,8 +42,10 @@ def steps(profile, film):
             args += ["--rate", "120"]  # CLI storm: 120 calls/s in total (the order's 50-200)
         if profile in ("L3", "L6"):
             args += ["--devtools"]  # DevTools open (the load tool refuses it when it would take focus)
-        # --duration 0: the load runs until load_stop's SIGTERM, never ends by its own timer during the typing
-        s.append({"do": "load_start", "profile": profile, "seed": SEED, "duration": 0, "keep": "typing",
+        # --duration 400: longer than everything after LOAD-READY (two 60 s parts, at most ~200 s), so the load runs
+        # until load_stop's SIGTERM (stopped_by 15 is checked). Not 0: with 0 the tool gives HEAVY's TUI programs only
+        # 60 s (heavy --duration = duration + 60), so L5's panes went still during part 2 (round 04:02Z cmux20).
+        s.append({"do": "load_start", "profile": profile, "seed": SEED, "duration": 400, "keep": "typing",
                   "ready_timeout": 120 if profile in ("L5", "L6") else 60, "args": args})
     s.append({"do": "typing_rect", "target": "terminal"})
     s.append({"do": "probe_mark", "as": "before"})
