@@ -572,10 +572,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // one is an error, so callers such as `host setup` see it.
                 Err(e) if start => return Err(e),
                 Err(e) => {
+                    // Why a start would fail, when config.json already says (a network listen
+                    // without its opt-in): the person sees it here, not only in daemon.log.
+                    let refused = crate::daemon::saved_listen_refusal().await;
                     if json_out {
-                        print_json(&json!({"running": false, "error": e.to_string()}))
+                        let out = match &refused {
+                            Some(why) => {
+                                json!({"running": false, "error": e.to_string(), "refused": why})
+                            }
+                            None => json!({"running": false, "error": e.to_string()}),
+                        };
+                        print_json(&out)
                     } else {
-                        println!("daemon not running ({e})")
+                        println!("daemon not running ({e})");
+                        if let Some(why) = &refused {
+                            println!("refused:  {why}");
+                        }
                     }
                 }
             }
@@ -1060,7 +1072,8 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
     if show_token {
         return url.to_owned();
     }
-    match url.split_once("?token=") {
+    // `#token=` from this build; `?token=` from an older daemon still running.
+    match url.split_once("#token=").or_else(|| url.split_once("?token=")) {
         Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
         None => url.to_owned(),
     }
