@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 use super::super::*;
-use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, check_frame};
+use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, REMOTE_CAPABILITIES, check_frame};
 use super::{NO_PRINCIPAL, Principal};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, PairingRecords, RelayLock, RelayStateError, RevocationClock,
@@ -268,6 +268,9 @@ fn only_the_section_4_commands_pass_the_gate() {
         "conversation-snapshot",
         "conversation-typing",
         "identify",
+        // Passes the frame gate only; `intercept` admits it for a verified
+        // Cloud mobile owner alone (`cloud_mobile_frame_path_is_exact_and_owner_scoped`).
+        "list-workspaces",
         "set-client-info",
         "subscribe",
     ];
@@ -310,8 +313,11 @@ fn set_client_info_takes_only_conversation_capabilities_and_ignores_identity() {
     let client = remote(&fixture, "inst_1", OWNER);
     let loopback = json!({"id":1,"cmd":"set-client-info","capabilities":["loopback-forward"]});
     assert_code(&send(&fixture.mux, client, loopback), "remote_denied");
+    // `kind` passes the gate (the Cloud mobile carrier sends one) but is
+    // dropped: a remote never takes a frontend kind such as native-browser.
     let kind = json!({"id":1,"cmd":"set-client-info","kind":"native-browser"});
-    assert_code(&send(&fixture.mux, client, kind), "remote_denied");
+    assert_eq!(send(&fixture.mux, client, kind)["ok"], json!(true));
+    assert_eq!(fixture.mux.control_clients.state.lock().unwrap().clients[&client].kind, None);
     let reply = send(
         &fixture.mux,
         client,
@@ -346,7 +352,7 @@ fn a_remote_identify_reveals_no_local_state() {
     let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
     keys.sort();
     assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
-    assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+    assert_eq!(data["capabilities"], json!(REMOTE_CAPABILITIES));
     assert_eq!(data["protocol"], json!(PROTOCOL_VERSION), "{reply}");
 }
 
@@ -362,7 +368,7 @@ fn cmux_next_machine_identity_reader_remote_opt_in_still_reveals_no_local_state(
         let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
         keys.sort();
         assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
-        assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+        assert_eq!(data["capabilities"], json!(REMOTE_CAPABILITIES));
     }
 }
 
