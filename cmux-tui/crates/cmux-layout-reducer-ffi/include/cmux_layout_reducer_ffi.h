@@ -304,4 +304,117 @@ char *cmux_focus_export_json(CmuxFocus *focus);
 int32_t cmux_focus_import_json(CmuxFocus *focus, const uint8_t *json, size_t json_len);
 void cmux_focus_string_free(char *text);
 
+/* Column scroll reducer (cmux-layout-reducer scroll, src/scroll.rs): one
+ * handle per scrolling strip (kind 0 a columns screen, 1 a column's rows,
+ * 2 a scroll area). The spring stays in the caller's memory: every event
+ * call reads it and writes it back. Request strings are CmuxScrollStr
+ * ranges into the strip's bytes (offset CMUX_SCROLL_NONE: absent); reply
+ * strings point into the handle and stay valid until its next call.
+ * source: 0 keyboard 1 pointer 2 programmatic 3 scroll
+ * mode: 0 never 1 always 2 on-overflow
+ * axis: 0 horizontal 1 vertical
+ * A rows strip lists one column per row (the row id) in window space, with
+ * the stack's height as viewport_width and origin its min y; an area strip
+ * lists one column per cell (its id is unused), origin the window's min x. */
+#define CMUX_SCROLL_NONE 0xFFFFFFFFu
+
+typedef struct CmuxScroll CmuxScroll;
+
+typedef struct CmuxScrollStr {
+    uint32_t offset;
+    uint32_t len;
+} CmuxScrollStr;
+
+typedef struct CmuxScrollRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxScrollRect;
+
+typedef struct CmuxScrollSpring {
+    double value;
+    double velocity;
+    double target;
+} CmuxScrollSpring;
+
+typedef struct CmuxScrollPane {
+    CmuxScrollStr id;
+    CmuxScrollRect frame;
+    uint8_t has_frame;
+    uint8_t listed; /* in the column's pane list (layout order) */
+    uint8_t reserved[6];
+} CmuxScrollPane;
+
+typedef struct CmuxScrollColumn {
+    CmuxScrollStr id;
+    CmuxScrollRect frame;
+    uint32_t pane_start; /* index into panes */
+    uint32_t pane_count;
+} CmuxScrollColumn;
+
+typedef struct CmuxScrollStrip {
+    const uint8_t *bytes;
+    const CmuxScrollColumn *columns;
+    const CmuxScrollPane *panes;
+    uint32_t bytes_len;
+    uint32_t column_count;
+    uint32_t pane_count;
+    uint8_t axis;
+    uint8_t reserved[3];
+    double viewport_width;
+    double content_width;
+    double gap;
+    double leading_cover;
+    double trailing_cover;
+    double origin;
+} CmuxScrollStrip;
+
+typedef struct CmuxScrollSync {
+    CmuxScrollStr focused; /* ranges into the strip's bytes */
+    CmuxScrollStr anchor;
+    uint8_t source;
+    uint8_t animated;
+    uint8_t reveals;
+    uint8_t reserved[5];
+} CmuxScrollSync;
+
+typedef struct CmuxScrollEffects {
+    uint8_t ok;
+    uint8_t needs_frames;
+    uint8_t report_on_settle;
+    uint8_t snapped;
+    uint8_t has_focus;
+    uint8_t reserved[3];
+    const uint8_t *focus;
+    size_t focus_len;
+} CmuxScrollEffects;
+
+typedef struct CmuxScrollStatus {
+    uint8_t ok;
+    uint8_t gesture_active;
+    uint8_t reveal_deferred;
+    uint8_t has_restore;
+    uint8_t has_strip;
+    uint8_t has_focused_pane;
+    uint8_t mode;
+    uint8_t reserved;
+    double gesture_raw;
+    const uint8_t *focused_pane;
+    size_t focused_pane_len;
+} CmuxScrollStatus;
+
+CmuxScroll *cmux_scroll_new(uint8_t kind);
+void cmux_scroll_free(CmuxScroll *scroll);
+void cmux_scroll_set_mode(CmuxScroll *scroll, uint8_t mode);
+CmuxScrollEffects cmux_scroll_sync(CmuxScroll *scroll, CmuxScrollSpring *spring, const CmuxScrollStrip *strip, const CmuxScrollSync *sync);
+CmuxScrollEffects cmux_scroll_center(CmuxScroll *scroll, CmuxScrollSpring *spring, const uint8_t *pane, size_t pane_len, uint8_t animated);
+CmuxScrollEffects cmux_scroll_reveal(CmuxScroll *scroll, CmuxScrollSpring *spring, const uint8_t *pane, size_t pane_len, uint8_t animated);
+CmuxScrollEffects cmux_scroll_gesture_began(CmuxScroll *scroll, CmuxScrollSpring *spring);
+CmuxScrollEffects cmux_scroll_gesture_changed(CmuxScroll *scroll, CmuxScrollSpring *spring, double delta_x, double time);
+CmuxScrollEffects cmux_scroll_gesture_ended(CmuxScroll *scroll, CmuxScrollSpring *spring, double time, uint8_t animated);
+CmuxScrollEffects cmux_scroll_wheel(CmuxScroll *scroll, CmuxScrollSpring *spring, int32_t direction, uint8_t animated);
+CmuxScrollEffects cmux_scroll_page(CmuxScroll *scroll, CmuxScrollSpring *spring, double to, uint8_t animated);
+CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
+
 #endif
