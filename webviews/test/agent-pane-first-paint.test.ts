@@ -87,6 +87,8 @@ class Daemon {
   readonly pages = new Map<string, { steps: Step[]; from?: number; hasMore?: boolean }>();
   /// Older acpmux: the attach names no turn opener (`turnOpener` absent from the reply).
   servesOpener = true;
+  origin = "local";
+  status = { peers: [{ name: "remote-box", connected: true }] };
   /// The turn opener's own read answers these records of the chat.
   readonly prompts = new Map<string, Step[]>();
   holding?: (message: Message) => boolean;
@@ -156,12 +158,13 @@ class Daemon {
         protocolVersion: 1,
         _meta: {
           acpmux: {
-            origin: "local",
+            origin: this.origin,
             extensions: [],
             operations: [...Object.values(PERMISSION_GROUP_OPS), ...Object.values(HANDOFF_OPS)],
           },
         },
       };
+    else if (message.method === "_acpmux/status") result = this.status;
     else if (message.method === "_acpmux/watch")
       result = { sessions: [this.summary(this.sessionA), this.summary(this.sessionB)] };
     else if (message.method === "_acpmux/attach") {
@@ -328,5 +331,63 @@ test("a frame drawn before a slow attach shows the chat's listed title, harness 
     expect(last().summary?.title).toBe(`Chat ${B}`);
   } finally {
     client.close();
+  }
+});
+
+// Leo ask-5470c36d23: "EVERYTHING IS JUST SO DELAYED". A local chat's attach and
+// rows do not depend on another machine's status. The release timer simulates one slow
+// status reply in the same harness on base and head; the assertion is ordering, not a
+// machine-dependent timing budget. This measures client snapshot readiness, not pixels.
+test("a local chat draws before a slow peer-status reply and learns peers when it arrives", async () => {
+  const daemon = new Daemon("slow-peer-status");
+  daemon.pages.set(daemon.sessionA, {
+    steps: [prompt("Local work"), reply(daemon.sessionA, "Ready without peer status.")],
+  });
+  daemon.holding = (message) => message.method === "_acpmux/status";
+  const started = performance.now();
+  let released = false;
+  // fixed-wait: simulated daemon latency; cleared as soon as the run ends.
+  const timer = setTimeout(() => {
+    released = true;
+    daemon.release();
+  }, 250);
+  const opening = paneOn(daemon);
+  try {
+    const { client, last } = await opening;
+    try {
+      console.log(`CHAT_STATUS_OPEN_MS=${(performance.now() - started).toFixed(1)}`);
+      const beforeStatus = !released;
+      const shown = text(last());
+      daemon.release();
+      await turns();
+      expect(last().peers).toContain("remote-box");
+      expect(shown).toContain("Ready without peer status.");
+      expect(beforeStatus).toBe(true);
+    } finally {
+      client.close();
+    }
+  } finally {
+    clearTimeout(timer);
+    daemon.release();
+    (await opening).client.close();
+  }
+});
+
+test("a remote connection still settles peer status before completing its open", async () => {
+  const daemon = new Daemon("remote-peer-status");
+  daemon.origin = "remote";
+  daemon.pages.set(daemon.sessionA, { steps: [prompt("Remote work"), reply(daemon.sessionA, "Ready.")] });
+  daemon.holding = (message) => message.method === "_acpmux/status";
+  const opening = paneOn(daemon);
+  try {
+    expect(await settlesWithin(opening, 100)).toBe(false);
+    expect(daemon.heldMethods()).toContain("_acpmux/status");
+    daemon.release();
+    const { last } = await opening;
+    expect(last().peers).toContain("remote-box");
+    expect(text(last())).toContain("Ready.");
+  } finally {
+    daemon.release();
+    (await opening).client.close();
   }
 });
