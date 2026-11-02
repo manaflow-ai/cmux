@@ -753,8 +753,7 @@ export function NewTabScreen(props: Props) {
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
   // Match screenActions: an inherited tab folder is not the host's chat start folder.
   const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
-  const environmentCwd =
-    environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
+  const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
   const createsWorktree =
     environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
   // Its final directory (and project-local credentials) exists only after creation.
