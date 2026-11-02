@@ -137,7 +137,7 @@
       "label": "typing-address-bar-idle",
       "target": "address_bar",
       "prime": "",
-      "count": 60,
+      "count": 40,
       "seed": 1,
       "gap_ms": [
         90,

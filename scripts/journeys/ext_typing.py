@@ -20,8 +20,9 @@ Steps (`do`):
                 a debug.key path never reaches the window server, so it would not measure what a person sees.
   typing_rect   {target: terminal | composer | address_bar | pane:NAME}
                 the target's rect in the window's points from its top-left (terminal: the focused pane's grid
-                frame from debug.surfaces; address_bar: debug.omnibar field_frame flipped by debug.layers; composer
-                and pane:NAME: that pane's frame), plus the window frame and the backing scale; kept in the result.
+                frame from debug.surfaces; address_bar: debug.omnibar field_frame flipped by debug.layers; composer:
+                the whole window (the judge finds the band the keys changed); pane:NAME: that pane's frame), plus the
+                window frame; kept in the result.
 """
 import random
 import time
@@ -58,8 +59,13 @@ def step_typing_rect(j, step):
     rk = _realkey()
     win = rk._layers_window(j) or {}
     rect, pane = None, None
-    if target in ("terminal", "composer"):
+    if target == "terminal":
         rect, pane = _pane_rect(j, lambda p: p.get("focused"))
+    elif target == "composer":
+        # A composer is no terminal (no grid frame): the whole window; the judge finds the band the keys changed.
+        frame = (win or {}).get("frame")
+        if frame:
+            rect, pane = [0.0, 0.0, float(frame[2]), float(frame[3])], None
     elif target.startswith("pane:"):
         named = (getattr(j, "smoke_named", {}) or {}).get(target[5:]) or {}
         rect, pane = _pane_rect(j, lambda p: p.get("pane") == named.get("pane"))

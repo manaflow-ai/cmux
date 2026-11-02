@@ -53,12 +53,12 @@ def composer_setup():
             {"do": "wait", "seconds": 1.5}]
 
 
-def journey(ident, title, setup, target, prime=""):
+def journey(ident, title, setup, target, prime="", count=60):
     name = ident
     steps = HEAD + setup + [
         {"do": "typing_rect", "target": target},
         {"do": "video_start", "name": name, "seconds": 40},
-        {"do": "typing_keys", "label": name, "target": target, "prime": prime, **KEYS},
+        {"do": "typing_keys", "label": name, "target": target, "prime": prime, **dict(KEYS, count=count)},
         {"do": "video_stop", "name": name, "tail": 0.8},
         {"do": "rpc", "method": "debug.focus", "title": "after the keys: what has the keyboard (records only)"},
     ]
@@ -74,7 +74,7 @@ def cases():
         journey("typing-terminal-idle", "Typing: 60 real keys into a terminal at its prompt (idle app), filmed",
                 terminal_setup(), "terminal", prime="x"),
         journey("typing-address-bar-idle", "Typing: 60 real keys into the browser address bar (idle app), filmed",
-                address_bar_setup(), "address_bar"),
+                address_bar_setup(), "address_bar", count=40),
         journey("typing-composer-idle", "Typing: 60 real keys into a New Agent Chat composer (idle app), filmed",
                 composer_setup(), "composer", prime="x"),
     ]

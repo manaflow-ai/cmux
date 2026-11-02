@@ -12,13 +12,14 @@ Inputs:
   --keys      the journey's result.json; the `typing_keys` step's result (keys [{i, ch, t_post}], rect). STEP picks
               the step index when there are several
   --rect      the text's rect in window points from the top-left (default: the step's rect); --scale the backing
-              scale (device pixels per point)
+              scale (device pixels per point; default the recording's meta.json start.scale)
 
 Method (robust when a glyph is late past the next key, which a per-key "first changed frame" is not): the keys type
-one repeated character (or any characters into a left-aligned single line), so the line's ink grows to the right,
-one glyph per key. Per frame: the ink extent = the rightmost column of the text band whose pixels differ from the
-band's background. Its total growth over the run divided by the keys is the glyph advance A. Key i (0-based) is shown
-in the first frame whose extent >= extent0 + (i + 0.5) * A. Refreshes = vsync instants in (t_post, frame t]: 1 = the
+into one left-aligned line, so the text grows to the right, one glyph per key. Reference = the still frame shown at
+the first key. Band = the rows (and the columns from the leftmost one) that differ from the reference at the end of
+the keys. Per frame: the reach = the rightmost band column that differs from the reference (any background works:
+a terminal, a glass composer, a page's field). The final reach divided by the keys is the glyph advance A. Key i
+(0-based) is shown in the first frame whose reach >= (i + 0.5) * A. Refreshes = vsync instants in (t_post, frame t]: 1 = the
 next refresh. A cursor block moves with the text in a terminal (it stays solid while keys come; the start extent
 is the most over the 0.5 s before the first key, so a blink-off then does not shift the count); defects are read only
 from the first key to 0.5 s after the last.
@@ -68,61 +69,60 @@ def movie_times(frames_json):
     return [float(r[0]) for r in rows if len(r) > 2 and r[2]]
 
 
-def ink_extent(frame, bg, thresh=24):
-    """Rightmost column (+1) whose pixels differ from the background level by THRESH, or 0 when the band is flat."""
-    diff = np().abs(frame.astype(np().int16) - int(bg)) > thresh
-    cols = np().nonzero(diff.any(axis=0))[0]
-    return int(cols[-1]) + 1 if cols.size else 0
-
-
-def judge(frames, times, keys, refresh_hz=120.0):
+def judge(frames, times, keys, refresh_hz=120.0, thresh=24):
+    """Per frame, how far right the typed text reaches: the rightmost column that differs from the still frame
+    before the first key (any background: a terminal, a glass field, a page), inside the band of rows that the keys
+    changed. Key i shows in the first frame whose reach passed i + 1/2 glyphs."""
+    n = np()
     period = 1.0 / refresh_hz
-    # The text band: the rows that differ between the first and the last frame (the typed line; other lines of a
-    # pane, the prompt history, stay out, so their ink never counts as the line's extent).
-    changed = np().nonzero((np().abs(frames[-1].astype(np().int16) - frames[0].astype(np().int16)) > 24).any(axis=1))[0]
-    if changed.size:
-        frames = frames[:, int(changed[0]): int(changed[-1]) + 1, :]
-    bg = int(np().median(frames[0]))
-    ext = [ink_extent(f, bg) for f in frames]
-    defects = []
     if not keys:
         return {"error": "no keys"}
-    # The extent just before the first key: the most over the last 0.5 s before it (a blinking cursor that is off in
-    # the last frame would start the count one glyph short; review note 2 at 4adadd2e28e), and its growth over the
-    # keys' span (to the last key plus 0.5 s; after that a blinking cursor comes back).
     t0 = keys[0]["t_post"]
     before = max([i for i, t in enumerate(times) if t <= t0] or [0])
-    pre = [i for i, t in enumerate(times) if t0 - 0.5 <= t <= t0] or [before]
-    e0 = max(ext[i] for i in pre)
     t_end = keys[-1]["t_post"] + 0.5
     end = max([i for i, t in enumerate(times) if t <= t_end] or [len(times) - 1])
-    grown = max(ext[before:end + 1]) - e0
+    ref = frames[before].astype(n.int16)
+    # The band: rows (and the columns' span) that changed from the reference to the end of the keys.
+    last = n.abs(frames[end].astype(n.int16) - ref) > thresh
+    rows = n.nonzero(last.any(axis=1))[0]
+    cols = n.nonzero(last.any(axis=0))[0]
+    if not rows.size:
+        return {"error": "no pixel changed between the first key and the end (wrong rect, or no key showed)"}
+    r0, r1, c0 = int(rows[0]), int(rows[-1]) + 1, int(cols[0])
+
+    def reach(j):
+        diff = n.abs(frames[j, r0:r1, c0:].astype(n.int16) - ref[r0:r1, c0:]) > thresh
+        hit = n.nonzero(diff.any(axis=0))[0]
+        return int(hit[-1]) + 1 if hit.size else 0
+    ext = [reach(j) if before <= j <= end else 0 for j in range(len(frames))]
+    grown = max(ext[before:end + 1])
     if grown <= 0:
-        return {"error": "the text band shows no growth (wrong rect, or no key showed)", "extent0": e0}
+        return {"error": "the text band shows no growth", "band": [r0, r1, c0]}
     advance = grown / len(keys)
-    # Vsync phase from the frame times: frames land on the grid t = phase + k * period.
-    phase = float(np().median([t % period for t in times])) if times else 0.0
-    rows, seen = [], before
+    defects = []
+    phase = float(n.median([t % period for t in times])) if times else 0.0
+    rows_out, seen = [], before
     for k in keys:
-        need = e0 + (k["i"] + 0.5) * advance
+        need = (k["i"] + 0.5) * advance
         idx = next((j for j in range(max(seen, before), end + 1) if times[j] > k["t_post"] and ext[j] >= need), None)
         if idx is None:
-            rows.append(dict(k, frame=None, refreshes=None))
+            rows_out.append(dict(k, frame=None, refreshes=None))
             continue
         seen = idx
         t = times[idx]
         first_vsync = math.floor((k["t_post"] - phase) / period) * period + phase + period
         refreshes = int(round((t - first_vsync) / period)) + 1
-        rows.append(dict(k, frame=idx, t_frame=round(t, 6), video_s=round(t - times[0], 4), refreshes=refreshes))
+        rows_out.append(dict(k, frame=idx, t_frame=round(t, 6), video_s=round(t - times[0], 4), refreshes=refreshes))
         if refreshes > 1:
             defects.append({"kind": "late", "key": k["i"], "frame": idx, "video_s": round(t - times[0], 4),
                             "refreshes": refreshes})
+    rows = rows_out
     first_shown = next((r["frame"] for r in rows if r.get("frame") is not None), None)
-    for j in range(max(before, 1), end + 1):
+    for j in range(max(before + 1, 1), end + 1):
         if ext[j] < ext[j - 1] - advance / 2:
             defects.append({"kind": "shrink", "frame": j, "video_s": round(times[j] - times[0], 4),
                             "from": ext[j - 1], "to": ext[j]})
-        if first_shown is not None and j > first_shown and ext[j] == 0:
+        if first_shown is not None and j > first_shown and ext[j] == 0 and ext[j - 1] > 0:
             defects.append({"kind": "blank", "frame": j, "video_s": round(times[j] - times[0], 4)})
     got = sorted(r["refreshes"] for r in rows if r.get("refreshes") is not None)
 
@@ -163,7 +163,8 @@ def self_test():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--video"); ap.add_argument("--frames"); ap.add_argument("--keys")
-    ap.add_argument("--rect"); ap.add_argument("--scale", type=float, default=2.0)
+    ap.add_argument("--rect"); ap.add_argument("--scale", type=float, help="device pixels per point (default: the "
+                    "recording's meta.json start.scale beside the video, else 2)")
     ap.add_argument("--refresh-hz", type=float, default=120.0); ap.add_argument("--out")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
@@ -175,7 +176,14 @@ def main():
     step = steps[int(pick)] if pick else steps[0]
     res = step["result"]
     rect = [float(v) for v in a.rect.split(",")] if a.rect else res["rect"]["rect_points_top_left"]
-    crop = [int(round(v * a.scale)) for v in rect]
+    scale = a.scale
+    if scale is None:
+        meta = Path(str(a.video)[:-4] + ".meta.json") if str(a.video).endswith(".mov") else None
+        try:
+            scale = float(json.loads(meta.read_text())["start"]["scale"])
+        except (AttributeError, OSError, ValueError, KeyError, TypeError):
+            scale = 2.0
+    crop = [int(round(v * scale)) for v in rect]
     crop[2] -= crop[2] % 2
     crop[3] -= crop[3] % 2
     frames = decode_band(a.video, crop)
@@ -184,7 +192,7 @@ def main():
         n = min(len(times), len(frames))
         frames, times = frames[:n], times[:n]
     out = judge(frames, times, res["keys"], a.refresh_hz)
-    out["input"] = {"video": a.video, "crop_px": crop, "label": res.get("label")}
+    out["input"] = {"video": a.video, "crop_px": crop, "scale": scale, "label": res.get("label")}
     text = json.dumps(out, indent=1)
     if a.out:
         Path(a.out).write_text(text + "\n")
