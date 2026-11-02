@@ -94,8 +94,11 @@ pub enum MuxEvent {
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
-    /// Delta subscribers need a coarse snapshot resync for a selection-only change.
-    TreeSelectionChanged,
+    /// The selection changed (focused workspace, active screens, panes or tabs). Delta subscribers resync
+    /// with a coarse snapshot, unless it names the one workspace whose selection a delta moved and they
+    /// read `selection-changed` (`tree-selection-deltas-v1`, #32408): its writer then sends that
+    /// workspace's selection as it is when written (`selection_changed_json`).
+    TreeSelectionChanged(Option<WorkspaceId>),
     /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
     /// back to the legacy `tree-changed` event.
     TreeDelta(TreeDelta),

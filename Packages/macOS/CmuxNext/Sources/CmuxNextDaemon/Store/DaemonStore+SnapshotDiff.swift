@@ -161,6 +161,8 @@ extension DaemonStore {
             markSnapshotTouch(workspace: delta.workspace)
         case .paneAdded(let delta), .paneClosed(let delta):
             markSnapshotTouch(workspace: delta.workspace)
+        case .selectionChanged(let delta):
+            markSnapshotTouch(workspace: delta.workspace)
         case .tabAdded(let delta), .tabClosed(let delta), .tabRenamed(let delta), .tabChanged(let delta):
             markSnapshotTouch(workspace: delta.workspace)
             markSnapshotTouch(surface: delta.surface)

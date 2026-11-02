@@ -648,7 +648,7 @@ impl EventFilter {
             event,
             crate::MuxEvent::TreeDelta(_)
                 | crate::MuxEvent::TreeChanged
-                | crate::MuxEvent::TreeSelectionChanged
+                | crate::MuxEvent::TreeSelectionChanged(_)
                 | crate::MuxEvent::LayoutChanged(..)
         );
         if tree {

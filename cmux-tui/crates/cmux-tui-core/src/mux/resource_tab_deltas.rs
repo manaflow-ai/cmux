@@ -276,7 +276,7 @@ impl Mux {
                     self.emit(MuxEvent::TreeDelta(delta));
                 }
                 if selection_changed {
-                    self.emit(MuxEvent::TreeSelectionChanged);
+                    self.emit(MuxEvent::TreeSelectionChanged(None));
                 }
             }
             TabDeltas::Resync => self.emit(MuxEvent::TreeChanged),
