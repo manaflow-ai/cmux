@@ -66,12 +66,12 @@ const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
 /// its new host; after a kill of everything all of them used to start at
 /// once and the visible terminals waited behind the hidden ones for the
 /// CPU (STATUS 5931).
-pub(in crate::mux) fn respawn_gate() -> super::startup_adoption_gate::StartupAdoptionGate {
+pub(in crate::mux) fn respawn_gate() -> startup_adoption_gate::StartupAdoptionGate {
     let slots = std::env::var(SLOTS_ENV)
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, usize::from));
-    super::startup_adoption_gate::StartupAdoptionGate::with_slots(slots)
+    startup_adoption_gate::StartupAdoptionGate::with_slots(slots)
 }
 
 /// Host-loss reasons (`TerminalEnd::wire_json` `reason`) that respawn.

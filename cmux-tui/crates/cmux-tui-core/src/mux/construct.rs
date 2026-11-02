@@ -374,7 +374,7 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             startup_adoption_gate: Default::default(),
-            respawn_gate: Arc::new(crate::mux::terminal_respawn::respawn_gate()),
+            respawn_gate: Arc::new(terminal_respawn::respawn_gate()),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
