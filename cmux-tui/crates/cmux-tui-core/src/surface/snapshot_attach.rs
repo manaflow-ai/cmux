@@ -7,7 +7,7 @@
 //! reach the viewer as a new READY snapshot taken under the terminal lock, so
 //! the snapshot and the live bytes after it never overlap or leave a gap.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
@@ -151,10 +151,19 @@ struct GateState {
 /// Collapses duplicate snapshot requests and rate-limits them per viewer.
 /// The attach worker records every snapshot it sends ([`Self::sent`]), so a
 /// backlog or grid-change snapshot also counts toward the interval.
+/// Runs when a viewer is shown or hidden (``SnapshotRequestGate::on_visibility_change``).
+type VisibilityWaker = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
     state: Arc<Mutex<GateState>>,
+    /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
+    /// output once per wall-clock second instead of per frame.
+    hidden: Arc<AtomicBool>,
+    /// Woken with the worker on every visibility change (the attach's notification thread holds `scroll-changed`
+    /// while hidden).
+    visibility_wakers: Arc<Mutex<Vec<VisibilityWaker>>>,
 }
 
 impl SnapshotRequestGate {
@@ -163,7 +172,29 @@ impl SnapshotRequestGate {
         Self {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
+            hidden: Arc::new(AtomicBool::new(false)),
+            visibility_wakers: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Runs `wake` on every later visibility change of this viewer.
+    pub(crate) fn on_visibility_change(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.visibility_wakers.lock().unwrap().push(Box::new(wake));
+    }
+
+    /// Whether the viewer said it does not show the terminal.
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden.load(Ordering::Acquire)
+    }
+
+    /// The viewer shows (`visible`) or no longer shows the terminal; its worker rereads it at once. Returns false
+    /// when the viewer is gone.
+    pub(crate) fn set_visible(&self, visible: bool) -> bool {
+        self.hidden.store(!visible, Ordering::Release);
+        for wake in self.visibility_wakers.lock().unwrap().iter() {
+            wake();
+        }
+        self.handle.poke()
     }
 
     pub(crate) fn request(&self, now: Instant) -> SnapshotAdmission {

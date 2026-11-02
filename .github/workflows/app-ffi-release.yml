@@ -74,7 +74,7 @@ jobs:
     # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
     # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
     # variable takes the Blacksmith label as before.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -231,7 +231,7 @@ jobs:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     continue-on-error: true
     permissions:
@@ -343,7 +343,7 @@ jobs:
     name: publish release
     needs: build
     if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Holds the FFI release App credentials; its deployment policy admits only
     # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
@@ -488,7 +488,7 @@ jobs:
     needs: [build, publish]
     if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -531,26 +531,60 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
 
+      # The re-pin is checked before it is pushed: the FFI sources here must
+      # match the release's SOURCE_SHA tree and the pinned checksum must be the
+      # published one (--verify-release). A base that gained newer FFI sources
+      # fails here and waits for the newer publish. The commit goes through
+      # GitHub's contents API, so it is written by the release App and signed
+      # by GitHub: the review reconciler reviews the app-ffi-repin pull request
+      # on first sight only when it changes Package.swift alone in such
+      # commits, and the lander lands it on that receipt. Base is then red on
+      # "Check the app FFI pin" for about the build time, not until someone
+      # notices (#32305, #31927 and #32436 each
+      # left it red for about an hour on 2026-11-02 while #32121 waited).
       - name: Pin the new release and open or update the pull request
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
         run: |
           set -euo pipefail
           branch=app-ffi-repin
+          manifest=Packages/macOS/CmuxNext/Package.swift
           scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
-          if git diff --quiet -- Packages/macOS/CmuxNext/Package.swift; then
+          if git diff --quiet -- "$manifest"; then
             echo "feat-cmux-next already pins $TAG"
             exit 0
           fi
-          git config user.name "cmux-release[bot]"
-          git config user.email "cmux-release[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git commit -q -m "cmux-next: pin CCmuxAppFFI to $TAG" -- Packages/macOS/CmuxNext/Package.swift
-          git push --force origin "HEAD:refs/heads/$branch"
-          body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A newer publish updates this branch.
+          scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+          tip="$(git rev-parse HEAD)"
+          git push --force origin "$tip:refs/heads/$branch"
+          blob="$(git rev-parse "$tip:$manifest")"
+          # A file, not an argument: Package.swift's base64 is past Linux's 128 KiB argument limit.
+          base64 -w0 "$manifest" > "$RUNNER_TEMP/manifest.b64"
+          jq -n --arg branch "$branch" --arg sha "$blob" --arg message "cmux-next: pin CCmuxAppFFI to $TAG" \
+            --rawfile content "$RUNNER_TEMP/manifest.b64" '{$branch, $sha, $message, $content}' > "$RUNNER_TEMP/repin.json"
+          # The branch now holds the unpinned tip, so the pin commit is retried: a
+          # failed write left the release unpinned until the next FFI push (review
+          # of #32477). A write whose answer was lost is seen on the branch and not
+          # repeated (a second PUT with the old blob sha would answer 409).
+          pinned="$(git hash-object "$manifest")"
+          for attempt in 1 2 3 4 5; do
+            if GH_TOKEN="$APP_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest" \
+                --input "$RUNNER_TEMP/repin.json" --jq '.commit.sha'; then
+              break
+            fi
+            on_branch="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/$manifest?ref=$branch" --jq '.sha' || true)"
+            [[ "$on_branch" == "$pinned" ]] && { echo "the pin commit is on $branch"; break; }
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "::error title=Pin the new release::the contents API refused the pin commit 5 times; $branch holds the unpinned tip" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked it with check-app-ffi-pin.sh --verify-release. A newer publish updates this branch.
 
           ## Changelog
 

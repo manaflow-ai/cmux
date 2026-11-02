@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8'
+IR_SHA256 = 'cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c'
 
 
 @dataclass(frozen=True)
@@ -3021,6 +3021,18 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-attach-visibility': CommandMetadata(
+        'set-attach-visibility',
+        'frontend',
+        12,
+        'attach-visibility-v1',
+        ('frontend',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(
