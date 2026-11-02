@@ -436,8 +436,8 @@ fn bad_urls_shas_and_refs_are_bad_requests() {
 }
 
 #[test]
-fn a_full_seed_refuses_an_existing_unowned_clone_even_when_clean() {
-    let world = World::new("reseed-unowned-clone");
+fn a_full_seed_adopts_a_pristine_same_origin_clone() {
+    let world = World::new("reseed-pristine-clone");
     let folder = world.home.join("work/project");
     std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
     git(
@@ -445,12 +445,38 @@ fn a_full_seed_refuses_an_existing_unowned_clone_even_when_clean() {
         &["clone", "-q", world.remote.to_str().unwrap(), folder.to_str().unwrap()],
     );
     git(&folder, &["remote", "set-url", "origin", URL]);
+    let planned = world.snapshot("seed", &[&world.base]);
+    let status = seed(&world, &world.start_params(&folder, &planned));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(state(&folder), state(&world.mac));
+    assert_eq!(git(&folder, &["rev-parse", "refs/cmux-seed/work"]), planned.work);
+}
+
+#[test]
+fn a_full_seed_refuses_unpublished_commits_in_an_existing_clean_clone() {
+    let world = World::new("reseed-unpushed-clone");
+    let folder = world.home.join("work/project");
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    git(
+        &world.home.path,
+        &["clone", "-q", world.remote.to_str().unwrap(), folder.to_str().unwrap()],
+    );
+    git(&folder, &["remote", "set-url", "origin", URL]);
+    write(&folder.join("cloud-commit.txt"), "unpushed Cloud commit\n");
+    git(&folder, &["add", "cloud-commit.txt"]);
+    git(&folder, &["commit", "-q", "-m", "created on Cloud"]);
+    let head = git(&folder, &["rev-parse", "HEAD"]);
     let before = state(&folder);
     let planned = world.snapshot("seed", &[&world.base]);
     let status = seed(&world, &world.start_params(&folder, &planned));
     assert_eq!(status["state"], "failed", "{status}");
-    assert_eq!(status["error_code"], "seed.folder_not_empty", "{status}");
-    assert_eq!(state(&folder), before, "a foreign checkout was modified");
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(state(&folder), before);
+    assert_eq!(git(&folder, &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        std::fs::read_to_string(folder.join("cloud-commit.txt")).unwrap(),
+        "unpushed Cloud commit\n",
+    );
 }
 
 #[test]
