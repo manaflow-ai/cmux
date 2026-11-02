@@ -309,7 +309,8 @@ def judge_cycle(record, movie, frames_out=None):
             panes[pane]["echo_invalid"] = "the marker cell already held a character before the end"
         else:
             for i, p, f in after_launch:
-                if p < k0 or p >= k1 or changed_share(f[sl], ref[sl], mask) >= MATCH_SHARE:
+                # The pane shows its content (a click on it changes its focus look, so not an exact match).
+                if p < k0 or p >= k1 or changed_share(f[sl], ref[sl], mask) >= 0.25:
                     continue
                 if (is_glyph(f, cell, scale, bgs[pane])
                         and float(np.abs(f[c].astype(np.int16) - ref[c].astype(np.int16)).mean()) > ECHO_LEVEL):
@@ -396,15 +397,21 @@ def verdict(row):
         fails.append(f"every visible terminal's last content at {worst} ms after main() > {CONTENT_TARGET_MS:.0f} ms")
     # A key whose call returned within 50 ms has a known time (CGEventPost, or CuaDriver's desktop-scope key in a
     # session that does not record); a slower call's key time is unknown, so its echo is not judged.
-    precise = all(p.get("key_precise") for p in panes.values() if p.get("key_sent_ms") is not None)
-    echo = row.get("all_echo_ms")
     for pane, p in sorted(panes.items()):
         if p.get("received") is not None and p["received"] != 1:
             fails.append(f"pane {pane[-8:]}: received {p['received']} marker keys, not 1 (a key went to another pane)")
-    if precise and echo is None and any(p.get("key_sent_ms") is not None for p in panes.values()):
-        fails.append("a marker key typed into a visible terminal never echoed on film (a lost key)")
-    elif precise and echo is not None and echo > INTERACTIVE_TARGET_MS:
-        fails.append(f"every visible terminal echoed its key at {echo} ms after main() > {INTERACTIVE_TARGET_MS:.0f} ms")
+    # Interactive: a pane's echo on film is an UPPER bound of when it accepted keys (the key went out at or after
+    # key_sent). An echo within the target passes; a late or missing echo fails only when the key's time is known
+    # (its call returned within 50 ms) and it went out before the target; else that pane's (3) is not judged.
+    for pane, p in sorted(panes.items()):
+        if p.get("key_sent_ms") is None:
+            continue
+        e = p.get("echo_ms")
+        if e is not None and e <= INTERACTIVE_TARGET_MS:
+            continue
+        if p.get("key_precise") and p["key_sent_ms"] <= INTERACTIVE_TARGET_MS:
+            fails.append(f"pane {pane[-8:]}: " + ("its marker key never echoed (a lost key)" if e is None else
+                         f"its marker key (sent {p['key_sent_ms']} ms) echoed at {e} ms > {INTERACTIVE_TARGET_MS:.0f} ms"))
     for key, why in (("pid_matches", "the measured process is not the app that answered after the reopen"),
                      ("settled", "the visible terminals never all went live after the reopen")):
         if row.get(key) is False:

@@ -97,6 +97,8 @@ class VerdictTest(unittest.TestCase):
     def test_lost_key_fails_only_with_a_precise_key(self):
         precise = {"content_ms": 200.0, "key_sent_ms": 210.0, "key_path": "CGEventPost HID", "key_precise": True}
         self.assertTrue(any("never echoed" in f for f in J.verdict(self.row(a=precise))))
+        self.assertEqual(J.verdict(self.row(a=dict(precise, echo_ms=450.0))), [])
+        self.assertTrue(any("echoed at 650.0" in f for f in J.verdict(self.row(a=dict(precise, echo_ms=650.0)))))
         cua = dict(precise, key_path="cua press_key (foreground HID)", key_precise=False)
         self.assertEqual(J.verdict(self.row(a=cua)), [])
 
