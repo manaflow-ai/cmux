@@ -219,6 +219,7 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        defer { context.releaseRetired(of: screenID) }
         finishPanFling()
         guard hasMotion else { return }
         reconcileAndScroll()
@@ -332,14 +333,19 @@ final class ScreenContentView: NSView {
             panePlacement.place(pane, at: target, pass: pass)
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
+        // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
+        if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
             if covering, let host = context.hosts[pane], holds(host), frame != nil {
                 zoomMotion.leave(pane)
                 continue
             }
-            // A pane that moved to another screen belongs to that screen now.
-            if !context.livePanes.contains(pane) { context.release(pane) }
+            // A pane that moved to another screen belongs to that screen now. A close that springs hides the closed
+            // pane now and tears it down when the motion lands (`LayoutViewContext.retire`): its neighbours' first
+            // frames carry no teardown.
+            guard !context.livePanes.contains(pane) else { continue }
+            if departing, animateFrames { context.retire(pane, from: screenID) } else { context.release(pane) }
         }
 
         // Dividers and column edges.
@@ -404,13 +410,17 @@ final class ScreenContentView: NSView {
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
+        // Nothing moves: no frame will land the motion, so what it retired goes now.
+        if !moving { context.releaseRetired(of: screenID) }
         return moving
     }
 
-    /// Lets go of the panes a zoom covered once it landed (every one with `all`).
+    /// Lets go of the panes a zoom covered once it landed: hidden and kept until the screen unzooms
+    /// (`LayoutViewContext.retire(until: .zoom)`), so the unzoom shows them again as they were instead of making
+    /// every one again. `all` (the screen goes away): torn down.
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
-            context.release(pane)
+            if all { context.release(pane) } else { context.retire(pane, from: screenID, until: .zoom) }
             coverVersion &+= 1
         }
     }
@@ -440,5 +450,6 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         releaseCovered(all: true)
+        context.releaseRetired(of: screenID, until: nil)
     }
 }
