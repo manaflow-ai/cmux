@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture chat titles, not shipped UI.
-// Session Info (Debug Settings `agent.inspector`, on by default; Claude Code desktop's session
+// Session Info (Debug Settings `agent.sessionInfo`, on by default; Claude Code desktop's session
 // panel): with the flag on, the header's top-right toggle opens a
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
@@ -66,7 +66,7 @@ function installDom(sessionInfo: boolean): HTMLElement {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  // The App pushes Debug Settings `agent.inspector` with the header state.
+  // The App pushes Debug Settings `agent.sessionInfo` with the header state.
   setHeaderState({ inspector: sessionInfo });
   observers = [];
   class FakeResizeObserver {
