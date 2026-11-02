@@ -377,7 +377,7 @@ final class DiffPageService: InternalPageProvider {
                 }
             }
         case .editor:
-            return services.registry.openAgentFile(path: file.path, target: .editor, pane: pane.paneKey)
+            return services.registry.openAgentFile(path: file.path, target: .editor, pane: pane.paneKey, machineID: pane.daemon.machineID)
         case .finder:
             NSWorkspace.shared.revealInBackground([file])
             return true
