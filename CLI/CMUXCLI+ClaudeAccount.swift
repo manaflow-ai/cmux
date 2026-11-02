@@ -44,7 +44,7 @@ extension CMUXCLI {
         )
         let exhaustedUntil = ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home)
-        ).exhaustedUntil(now: Date())
+        ).snapshotExhaustedUntil(now: Date())
         let timestampFormatter = ISO8601DateFormatter()
         timestampFormatter.timeZone = .current
         let exhaustedTimestamps: [String?] = registry.accounts.map { account in

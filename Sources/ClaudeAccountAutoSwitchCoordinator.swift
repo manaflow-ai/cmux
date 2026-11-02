@@ -135,12 +135,13 @@ final class ClaudeAccountAutoSwitchCoordinator {
         let pane = workspace.claudeAccountAutoSwitchPane(panelId: panelId)
         let candidates = await Self.candidateFacts(pane: pane, homeDirectory: home)
         let now = Date()
+        let storedExhaustion = await exhaustionStore.exhaustedUntil(now: now)
         var action = request.action(
             policy: policy,
             usageLimitReset: usageLimitReset,
             pane: pane,
             isEnabled: isEnabled,
-            storedExhaustion: exhaustionStore.exhaustedUntil(now: now),
+            storedExhaustion: storedExhaustion,
             ledger: ledger,
             sourceScreen: Self.screenState(of: workspace, panelId: panelId),
             sourceTextBoxHasDraft: Self.textBoxHasDraft(of: workspace, panelId: panelId),
@@ -156,7 +157,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         // file write fails; a switch whose source could not be written is held back.
         if let exhaustion = action.exhaustion {
             ledger.recordExhaustion(accountKey: exhaustion.accountKey, until: exhaustion.until)
-            action = action.recording(succeeded: writeExhaustion(exhaustion))
+            action = action.recording(succeeded: await writeExhaustion(exhaustion))
         }
         log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action)")
         switch action {
@@ -299,9 +300,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
     }
 
     /// Writes the exhaustion to the file the CLI reads. Returns whether it was written.
-    private func writeExhaustion(_ exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion) -> Bool {
+    private func writeExhaustion(_ exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion) async -> Bool {
         do {
-            try exhaustionStore.markExhausted(accountKey: exhaustion.accountKey, until: exhaustion.until)
+            try await exhaustionStore.markExhausted(accountKey: exhaustion.accountKey, until: exhaustion.until)
             return true
         } catch {
             log("claudeAccount.autoSwitch markExhausted.failed account=\(exhaustion.account.name) error=\(error)")

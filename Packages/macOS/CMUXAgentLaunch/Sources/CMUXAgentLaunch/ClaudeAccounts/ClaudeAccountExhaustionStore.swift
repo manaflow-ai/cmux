@@ -6,17 +6,20 @@ import Foundation
 /// the only writer; the CLI only reads. Corrupt or wrong-version files read as empty and the
 /// next write replaces them. Reads never rewrite the file; pruning happens on writes.
 ///
-/// A class guarded by `NSLock` rather than an actor: the `cmux claude-account list` CLI reads it
-/// synchronously, outside any concurrency context, and each locked section is one small file
-/// read or an atomic rename. `@unchecked Sendable` is sound because every access to the file
-/// goes through `lock`, and the stored properties are immutable `let`s (the clock is
-/// `@Sendable`).
-public final class ClaudeAccountExhaustionStore: @unchecked Sendable {
+/// Writes are serialized through the actor: each reads the file, changes one entry and swaps a
+/// new file in with an atomic rename, so overlapping writes never drop each other's entries.
+/// ``exhaustedUntil(now:)`` reads on the actor, after any write already started.
+///
+/// For a caller that has no `await`, such as `cmux claude-account list`,
+/// ``snapshotExhaustedUntil(now:)`` is a `nonisolated` synchronous read of the file. Because
+/// every write replaces the whole file with one rename, it sees either the old or the new file,
+/// never a partial one, and needs no lock.
+public actor ClaudeAccountExhaustionStore {
     private static let version = 1
 
-    private let fileURL: URL
+    /// The file this store reads and writes.
+    public nonisolated let fileURL: URL
     private let clock: @Sendable () -> Date
-    private let lock = NSLock()
 
     /// `clock` decides which stored entries a write prunes as expired.
     public init(fileURL: URL, clock: @escaping @Sendable () -> Date = { Date() }) {
@@ -39,30 +42,37 @@ public final class ClaudeAccountExhaustionStore: @unchecked Sendable {
         try mutate(now: clock()) { $0.removeValue(forKey: accountKey) }
     }
 
-    /// Entries whose reset time is still in the future at `now`.
+    /// Entries whose reset time is still in the future at `now`, read after any write already
+    /// started on this store.
     public func exhaustedUntil(now: Date) -> [String: Date] {
-        lock.lock()
-        defer { lock.unlock() }
-        let cutoff = now.timeIntervalSince1970
-        return readEntries().reduce(into: [:]) { result, entry in
-            if entry.value > cutoff { result[entry.key] = Date(timeIntervalSince1970: entry.value) }
-        }
+        Self.unexpired(Self.readEntries(fileURL: fileURL), now: now)
+    }
+
+    /// Entries whose reset time is still in the future at `now`, read from the file directly
+    /// without hopping onto the actor. For callers that cannot `await`; see the type's notes.
+    public nonisolated func snapshotExhaustedUntil(now: Date) -> [String: Date] {
+        Self.unexpired(Self.readEntries(fileURL: fileURL), now: now)
     }
 
     private func mutate(now: Date, _ change: (inout [String: Double]) -> Void) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        var entries = readEntries()
+        var entries = Self.readEntries(fileURL: fileURL)
         change(&entries)
         let cutoff = now.timeIntervalSince1970
         entries = entries.filter { $0.value > cutoff }
         try write(entries)
     }
 
-    private func readEntries() -> [String: Double] {
+    private static func unexpired(_ entries: [String: Double], now: Date) -> [String: Date] {
+        let cutoff = now.timeIntervalSince1970
+        return entries.reduce(into: [:]) { result, entry in
+            if entry.value > cutoff { result[entry.key] = Date(timeIntervalSince1970: entry.value) }
+        }
+    }
+
+    private static func readEntries(fileURL: URL) -> [String: Double] {
         guard let data = try? Data(contentsOf: fileURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (object["version"] as? Int) == Self.version,
+              (object["version"] as? Int) == version,
               let raw = object["exhaustedUntil"] as? [String: Any]
         else { return [:] }
         var entries: [String: Double] = [:]

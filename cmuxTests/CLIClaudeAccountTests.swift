@@ -182,7 +182,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     /// An account that hit its usage limit shows until when the automatic switch skips it; an
     /// entry whose reset has passed shows nothing.
-    func testClaudeAccountListShowsWhenAnExhaustedAccountResets() throws {
+    func testClaudeAccountListShowsWhenAnExhaustedAccountResets() async throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-account-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: home) }
@@ -213,7 +213,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let store = ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         )
-        try store.markExhausted(accountKey: keys[1], until: resetsAt)
+        try await store.markExhausted(accountKey: keys[1], until: resetsAt)
         let storeFile = ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeFile)) as? [String: Any])
         var entries = try XCTUnwrap(stored["exhaustedUntil"] as? [String: Any])
