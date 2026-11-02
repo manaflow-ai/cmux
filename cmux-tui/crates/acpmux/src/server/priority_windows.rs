@@ -6,7 +6,8 @@
 //! - `_acpmux/priority_window {window, gen?, kind?, ...}` opens the window or replaces its spec
 //!   and answers `{window, ready: true}`. Its rows travel as `_acpmux/priority_window_changed
 //!   {window, gen, revision, full: true, keys, rows, ...}`, queued before the answer. A spec's
-//!   `importMarks` (the app's saved marks) is taken only while acpmux has no marks of its own.
+//!   `importMarks` (the app's saved marks) is taken only while acpmux has no marks of its own, so
+//!   a client sends it with its first open.
 //! - Each lane change (a `session_changed` record of this daemon's or a peer's session) then
 //!   updates the connection's lanes in place, one session's summary read per changed session, and
 //!   each window that shows something new gets `_acpmux/priority_window_changed {..., full:
@@ -133,7 +134,7 @@ async fn open(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value,
         hub.priority_marks.import(import).await;
     }
     start(hub, conn);
-    refresh(hub, conn, false, Vec::new()).await?;
+    refresh(hub, conn, Refresh { rebuild: false, woke: true }, Vec::new()).await?;
     // The task reads the window's next wake time from its first message.
     conn.priority_windows.wake.notify_one();
     Ok(json!({"window": window, "ready": true}))
@@ -191,7 +192,7 @@ async fn mark(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value,
         })
         .await
         .map_err(RpcError::internal)?;
-    refresh(hub, conn, false, Vec::new()).await?;
+    refresh(hub, conn, Refresh { rebuild: false, woke: true }, Vec::new()).await?;
     conn.priority_windows.wake.notify_one();
     let marks = serde_json::to_value(&marks).map_err(|e| RpcError::internal(e.to_string()))?;
     Ok(json!({"window": window, "marks": marks}))
@@ -347,22 +348,33 @@ async fn run(
         if !woke && !rebuild && changed.is_empty() {
             continue;
         }
-        if refresh(hub, conn, rebuild, changed).await.is_err() {
+        if refresh(hub, conn, Refresh { rebuild, woke }, changed).await.is_err() {
             conn.send(&Message::notification(LAGGED, json!({"dropped": 0})));
             return End::Stopped;
         }
     }
 }
 
+/// Why a refresh runs besides its lane records.
+#[derive(Clone, Copy, Default)]
+struct Refresh {
+    /// Read every lane again.
+    rebuild: bool,
+    /// Something other than a lane changed (the marks, a spec, the clock): every window is
+    /// recomputed even when no lane changed.
+    woke: bool,
+}
+
 /// Applies `changed` (lane records, `heard` says), or reads every lane again (with `rebuild`, or
-/// before the first view), and sends each window's message, if any. With no lane changed and
-/// nothing else to show, no window is recomputed.
+/// before the first view), and sends each window's message, if any. Only when nothing but lane
+/// records came and none changed a lane is no window recomputed.
 async fn refresh(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
-    rebuild: bool,
+    why: Refresh,
     changed: Vec<HubEvent>,
 ) -> Result<(), RpcError> {
+    let Refresh { rebuild, woke } = why;
     let _one = conn.priority_windows.refreshing.lock().await;
     let events = !changed.is_empty();
     if rebuild || lock(&conn.priority_windows.state).lanes.is_none() {
@@ -384,7 +396,7 @@ async fn refresh(
         for change in lanes {
             any |= set.apply(change);
         }
-        if !any {
+        if !any && !woke {
             return Ok(());
         }
     }

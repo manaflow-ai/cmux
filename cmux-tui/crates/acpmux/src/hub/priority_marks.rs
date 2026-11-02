@@ -1,9 +1,12 @@
 //! Part of `Hub`; see `hub/mod.rs`. The person's marks on the Priority view's chats (pinned,
 //! read, snoozed, archived, dragged to a place, the view folded), owned by the daemon: one copy
 //! for every window of every connection, kept in `<home>/priority-marks.json` (written whole, off
-//! the executor). The Mac app kept them in its UserDefaults (`AgentPriorityMarks.swift`); a client
-//! hands that copy over once (`importMarks` in `_acpmux/priority_window`), and acpmux takes it
-//! only while it has none of its own. A memory store keeps the marks in memory only.
+//! the executor; read once, at the first use: a small file). The Mac app kept them in its
+//! UserDefaults (`AgentPriorityMarks.swift`); a client hands that copy over once (`importMarks`
+//! in `_acpmux/priority_window`), and acpmux takes it only while it has none of its own: any
+//! mark made first (another client, a window opened without `importMarks`) makes them the
+//! daemon's, so a client sends `importMarks` with its first open. A memory store keeps the
+//! marks in memory only.
 //!
 //! Every change bumps a generation that every connection's window task watches, so a mark made
 //! through one window shows in every window at once.
