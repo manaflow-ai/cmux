@@ -673030,7 +673030,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានទែមីណាល់សម្រាប់ប្ដូរទេ៖ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់ cmux ឬបញ្ជូន --surface។"
+            "value": "គ្មានទែមីណាល់សម្រាប់ប្ដូរទេ៖ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់ cmux ឬបញ្ជាក់ --surface។"
           }
         },
         "nb": {
@@ -673125,7 +673125,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia il terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
+            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia l'account del terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
           }
         },
         "ja": {
@@ -673161,7 +673161,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca o terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
+            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca a conta do terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
           }
         },
         "ru": {
@@ -673917,13 +673917,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude odpowiada w tym terminalu. Spróbuj ponownie z force, aby zatrzymać odpowiedź i przełączyć."
+            "value": "Claude odpowiada w tym terminalu. Spróbuj ponownie z force, aby zatrzymać odpowiedź i przełączyć konto."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Claude está respondendo neste terminal. Tente novamente com force para interromper a resposta e trocar."
+            "value": "O Claude está respondendo neste terminal. Tente novamente com force para interromper a resposta e trocar de conta."
           }
         },
         "ru": {
@@ -674958,121 +674958,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
+            "value": "The Claude that runs this conversation is inside tmux or screen, in another terminal, or detached from any terminal, so restarting this terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعمل Claude في هذه الطرفية داخل tmux أو screen، أو منفصلًا عن الطرفية، لذا لن توقفه إعادة تشغيل الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
+            "value": "يعمل Claude الذي يشغّل هذه المحادثة داخل tmux أو screen، أو في طرفية أخرى، أو منفصلًا عن أي طرفية، لذا لن توقفه إعادة تشغيل هذه الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude läuft in diesem Terminal innerhalb von tmux oder screen oder vom Terminal getrennt. Ein Neustart des Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
+            "value": "Das Claude, das diese Unterhaltung ausführt, läuft innerhalb von tmux oder screen, in einem anderen Terminal oder von jedem Terminal getrennt. Ein Neustart dieses Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En esta terminal, Claude se ejecuta dentro de tmux o screen, o separado de la terminal, así que reiniciar la terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
+            "value": "El Claude que ejecuta esta conversación está dentro de tmux o screen, en otra terminal o separado de cualquier terminal, así que reiniciar esta terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dans ce terminal, Claude s'exécute dans tmux ou screen, ou détaché du terminal ; redémarrer le terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
+            "value": "Le Claude qui exécute cette conversation tourne dans tmux ou screen, dans un autre terminal, ou détaché de tout terminal ; redémarrer ce terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このターミナルの Claude は tmux や screen の中、またはターミナルから切り離された状態で実行されているため、ターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
+            "value": "この会話を実行している Claude は tmux や screen の中、別のターミナル、またはどのターミナルからも切り離された状態で実行されているため、このターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 터미널의 Claude는 tmux나 screen 안에서, 또는 터미널과 분리되어 실행 중이라 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
+            "value": "이 대화를 실행하는 Claude가 tmux나 screen 안에서, 다른 터미널에서, 또는 어떤 터미널과도 분리되어 실행 중이라 이 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此终端中的 Claude 在 tmux 或 screen 内运行，或已与终端分离，因此重启终端无法将它停止，对话会同时在两处运行。终端保持不变。"
+            "value": "运行此对话的 Claude 在 tmux 或 screen 内、在另一个终端中，或已与所有终端分离，因此重启此终端无法将它停止，对话会同时在两处运行。终端保持不变。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此終端機中的 Claude 在 tmux 或 screen 內執行，或已與終端機分離，因此重新啟動終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
+            "value": "執行此對話的 Claude 在 tmux 或 screen 內、在另一個終端機中，或已與所有終端機分離，因此重新啟動此終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude u ovom terminalu radi unutar tmux ili screen, ili odvojeno od terminala, pa ga ponovno pokretanje terminala ne bi zaustavilo i razgovor bi se odvijao na dva mjesta. Terminal je ostao nepromijenjen."
+            "value": "Claude koji vodi ovaj razgovor radi unutar tmux ili screen, u drugom terminalu ili odvojeno od bilo kojeg terminala, pa ga ponovno pokretanje ovog terminala ne bi zaustavilo i razgovor bi se odvijao na dva mjesta. Terminal je ostao nepromijenjen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude i denne terminal kører i tmux eller screen eller frakoblet terminalen, så en genstart af terminalen ville ikke stoppe den, og samtalen ville køre to steder. Terminalen blev ikke ændret."
+            "value": "Den Claude, der kører denne samtale, kører i tmux eller screen, i en anden terminal eller frakoblet enhver terminal, så en genstart af denne terminal ville ikke stoppe den, og samtalen ville køre to steder. Terminalen blev ikke ændret."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In questo terminale Claude è in esecuzione dentro tmux o screen, oppure scollegato dal terminale, quindi riavviare il terminale non lo fermerebbe e la conversazione verrebbe eseguita in due posti. Il terminale non è stato modificato."
+            "value": "Il Claude che esegue questa conversazione è dentro tmux o screen, in un altro terminale oppure scollegato da qualsiasi terminale, quindi riavviare questo terminale non lo fermerebbe e la conversazione verrebbe eseguita in due posti. Il terminale non è stato modificato."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude ក្នុងទែមីណាល់នេះដំណើរការនៅក្នុង tmux ឬ screen ឬដាច់ចេញពីទែមីណាល់ ដូច្នេះការចាប់ផ្ដើមទែមីណាល់ឡើងវិញនឹងមិនបញ្ឈប់វាទេ ហើយការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ ទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+            "value": "Claude ដែលដំណើរការការសន្ទនានេះ ស្ថិតនៅក្នុង tmux ឬ screen នៅក្នុងទែមីណាល់ផ្សេងទៀត ឬដាច់ចេញពីទែមីណាល់ទាំងអស់ ដូច្នេះការចាប់ផ្ដើមទែមីណាល់នេះឡើងវិញនឹងមិនបញ្ឈប់វាទេ ហើយការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ ទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude i denne terminalen kjører i tmux eller screen, eller frakoblet terminalen, så en omstart av terminalen ville ikke stoppe den, og samtalen ville kjørt to steder. Terminalen ble ikke endret."
+            "value": "Claude-en som kjører denne samtalen, kjører i tmux eller screen, i en annen terminal eller frakoblet alle terminaler, så en omstart av denne terminalen ville ikke stoppe den, og samtalen ville kjørt to steder. Terminalen ble ikke endret."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude w tym terminalu działa wewnątrz tmux lub screen albo jest odłączony od terminala, więc ponowne uruchomienie terminala by go nie zatrzymało, a rozmowa działałaby w dwóch miejscach. Terminal pozostał bez zmian."
+            "value": "Claude prowadzący tę rozmowę działa wewnątrz tmux lub screen, w innym terminalu albo jest odłączony od wszystkich terminali, więc ponowne uruchomienie tego terminala by go nie zatrzymało, a rozmowa działałaby w dwóch miejscach. Terminal pozostał bez zmian."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Claude neste terminal está em execução dentro do tmux ou do screen, ou desanexado do terminal, então reiniciar o terminal não o interromperia e a conversa ficaria em execução em dois lugares. O terminal não foi alterado."
+            "value": "O Claude que executa esta conversa está dentro do tmux ou do screen, em outro terminal ou desanexado de qualquer terminal, então reiniciar este terminal não o interromperia e a conversa ficaria em execução em dois lugares. O terminal não foi alterado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude в этом терминале работает внутри tmux или screen либо отсоединён от терминала, поэтому перезапуск терминала не остановил бы его, и разговор шёл бы в двух местах. Терминал оставлен без изменений."
+            "value": "Claude, который ведёт этот разговор, работает внутри tmux или screen, в другом терминале либо отсоединён от всех терминалов, поэтому перезапуск этого терминала не остановил бы его, и разговор шёл бы в двух местах. Терминал оставлен без изменений."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude ในเทอร์มินัลนี้ทำงานอยู่ภายใน tmux หรือ screen หรือแยกออกจากเทอร์มินัล การเริ่มเทอร์มินัลใหม่จึงจะไม่หยุด Claude และการสนทนาจะทำงานอยู่สองที่ เทอร์มินัลไม่ถูกเปลี่ยนแปลง"
+            "value": "Claude ที่รันการสนทนานี้ทำงานอยู่ภายใน tmux หรือ screen ในเทอร์มินัลอื่น หรือแยกออกจากเทอร์มินัลทั้งหมด การเริ่มเทอร์มินัลนี้ใหม่จึงจะไม่หยุด Claude และการสนทนาจะทำงานอยู่สองที่ เทอร์มินัลไม่ถูกเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu terminaldeki Claude, tmux veya screen içinde ya da terminalden ayrılmış olarak çalışıyor; bu yüzden terminali yeniden başlatmak onu durdurmaz ve konuşma iki yerde çalışırdı. Terminal değiştirilmedi."
+            "value": "Bu konuşmayı yürüten Claude, tmux veya screen içinde, başka bir terminalde ya da tüm terminallerden ayrılmış olarak çalışıyor; bu yüzden bu terminali yeniden başlatmak onu durdurmaz ve konuşma iki yerde çalışırdı. Terminal değiştirilmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude у цьому терміналі працює всередині tmux або screen чи від’єднано від термінала, тому перезапуск термінала не зупинив би його, і розмова виконувалася б у двох місцях. Термінал залишився без змін."
+            "value": "Claude, що веде цю розмову, працює всередині tmux або screen, в іншому терміналі чи від’єднаний від будь-якого термінала, тому перезапуск цього термінала не зупинив би його, і розмова виконувалася б у двох місцях. Термінал залишився без змін."
           }
         }
       }
@@ -679708,131 +679708,6 @@
         }
       }
     },
-    "notification.claudeAccountSwitch.transcriptResyncFailed.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، شغّل هذا الأمر في الطرفية:\n\n%@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, pokrenite ovu naredbu u terminalu:\n\n%@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Kør denne kommando i terminalen for at fortsætte fra denne kopi alligevel:\n\n%@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl im Terminal aus:\n\n%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, ejecuta este comando en la terminal:\n\n%@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans le terminal :\n\n%@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, esegui questo comando nel terminale:\n\n%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, kjør denne kommandoen i terminalen:\n\n%@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, uruchom to polecenie w terminalu:\n\n%@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, execute este comando no terminal:\n\n%@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выполните эту команду в терминале:\n\n%@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виконайте цю команду в терміналі:\n\n%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请在终端中运行此命令：\n\n%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請在終端機中執行此指令：\n\n%@"
-          }
-        }
-      }
-    },
     "cli.claudeAccount.transcriptResyncFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -679964,121 +679839,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, choose Type Resume Command, or run:\n\n%@"
+            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، اختر «كتابة أمر الاستئناف» أو شغّل:\n\n%@"
+            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، شغّل هذا الأمر في الطرفية:\n\n%@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, odaberite „Upiši naredbu za nastavak“ ili pokrenite:\n\n%@"
+            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, pokrenite ovu naredbu u terminalu:\n\n%@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Vælg »Indtast genoptagelseskommando« eller kør følgende for at fortsætte fra denne kopi alligevel:\n\n%@"
+            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Kør denne kommando i terminalen for at fortsætte fra denne kopi alligevel:\n\n%@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, wählen Sie „Fortsetzungsbefehl eingeben“ oder führen Sie Folgendes aus:\n\n%@"
+            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl im Terminal aus:\n\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, elige «Escribir comando de reanudación» o ejecuta:\n\n%@"
+            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, ejecuta este comando en la terminal:\n\n%@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, choisissez « Saisir la commande de reprise » ou exécutez :\n\n%@"
+            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans le terminal :\n\n%@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, scegli «Digita il comando di ripresa» oppure esegui:\n\n%@"
+            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, esegui questo comando nel terminale:\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、「再開コマンドを入力」を選択するか、次を実行してください:\n\n%@"
+            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមជ្រើសរើស «វាយពាក្យបញ្ជាបន្ត» ឬដំណើរការ៖\n\n%@"
+            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 '재개 명령 입력'을 선택하거나 다음을 실행하세요:\n\n%@"
+            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, velg «Skriv inn gjenopptakskommandoen» eller kjør:\n\n%@"
+            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, kjør denne kommandoen i terminalen:\n\n%@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, wybierz „Wpisz polecenie wznowienia” lub uruchom:\n\n%@"
+            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, uruchom to polecenie w terminalu:\n\n%@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, escolha “Digitar comando de retomada” ou execute:\n\n%@"
+            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, execute este comando no terminal:\n\n%@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выберите «Ввести команду возобновления» или выполните:\n\n%@"
+            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выполните эту команду в терминале:\n\n%@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เลือก \"พิมพ์คำสั่งดำเนินการต่อ\" หรือเรียกใช้:\n\n%@"
+            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için \"Devam Komutunu Yaz\" seçeneğini seçin veya şunu çalıştırın:\n\n%@"
+            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виберіть «Ввести команду відновлення» або виконайте:\n\n%@"
+            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виконайте цю команду в терміналі:\n\n%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请选择“输入继续命令”，或运行：\n\n%@"
+            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请在终端中运行此命令：\n\n%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
+            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請在終端機中執行此指令：\n\n%@"
           }
         }
       }

@@ -80,4 +80,30 @@ extension SessionSnapshotImportTrustTests {
         #expect(unswitchedTerminal.wasAgentRunning == true)
         #expect(unswitchedReport.heldBackResumeCount == 0)
     }
+
+    /// A switched pane whose Claude has since gone (no agent, no recorded run state) has no resume
+    /// to hold back: dropping its account keys must not count one.
+    @Test("a file import counts no held-back resume for a switched pane without an agent")
+    func fileImportCountsNoHeldBackResumeForASwitchedPaneWithoutAnAgent() throws {
+        let terminal = SessionTerminalPanelSnapshot(
+            workingDirectory: NSTemporaryDirectory(),
+            claudeAccountEnvironment: ClaudeAccountPaneEnvironment(
+                overrides: ["CLAUDE_CONFIG_DIR": "/Users/cmux-test/.claude-work"],
+                removedKeys: ["CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+            )
+        )
+        #expect(terminal.agent == nil)
+        #expect(terminal.wasAgentRunning == nil)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        let restoredTerminal = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal
+        )
+        #expect(restoredTerminal.claudeAccountEnvironment == nil)
+        #expect(report.heldBackResumeCount == 0)
+    }
 }

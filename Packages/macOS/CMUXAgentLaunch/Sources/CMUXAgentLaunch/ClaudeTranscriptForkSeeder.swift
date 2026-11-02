@@ -108,19 +108,26 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
     static func transcriptLocation(
         projectPath: String, sessionID: String, fileManager: FileManager
     ) -> TranscriptLocation? {
+        transcriptLocations(projectPath: projectPath, sessionID: sessionID, fileManager: fileManager).first
+    }
+
+    /// Every layout in which `projectPath` holds the session's transcript as a regular file, the
+    /// flat one first.
+    static func transcriptLocations(
+        projectPath: String, sessionID: String, fileManager: FileManager
+    ) -> [TranscriptLocation] {
         let candidates = [
             "\(sessionID).jsonl",
             "\(sessionID)/messages/\(sessionID).jsonl"
         ]
-        for relativePath in candidates {
+        return candidates.compactMap { relativePath in
             let path = (projectPath as NSString).appendingPathComponent(relativePath)
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue,
                   (try? fileManager.attributesOfItem(atPath: path)[.type] as? FileAttributeType) == .typeRegular
-            else { continue }
+            else { return nil }
             return TranscriptLocation(path: path, projectPath: projectPath, relativePath: relativePath)
         }
-        return nil
     }
 
     struct TranscriptLocation {

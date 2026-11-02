@@ -115,10 +115,10 @@ extension Workspace {
     /// alone, so a switch never starts a fresh conversation. A session with no conversation yet
     /// is refused there with ``ClaudeAccountSwitchRefusal/noConversationYet``, and copies that went
     /// on under both accounts with ``ClaudeAccountSwitchRefusal/transcriptDiverged(newerAccount:)``.
-    /// A Claude the pane's restart would not stop (inside tmux or screen, or detached) is refused
-    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude that started in the
-    /// pane while the transcript was copied with ``ClaudeAccountSwitchRefusal/noClaudeSession``.
-    /// The surface then respawns with the
+    /// A Claude the pane's restart would not stop (inside tmux or screen, in another terminal, or
+    /// detached) is refused with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude
+    /// that started in the pane while the transcript was copied with
+    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
@@ -179,7 +179,14 @@ extension Workspace {
         }
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
-        // Checked before the transcript is copied, so a refused switch changes nothing.
+        // Checked before the transcript is copied, so a refused switch changes nothing. The
+        // live-owner fallback reads the agent index, which a session found through the pane's
+        // lifecycle record has not loaded; an index never loaded would read as "no other owner",
+        // and one that cannot load refuses like the index path above.
+        if SharedLiveAgentIndex.shared.index == nil,
+           await SharedLiveAgentIndex.shared.indexRefreshingNow() == nil {
+            return .refused(.noClaudeSession)
+        }
         guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
             return .agentNotOwnedByPane
         }
