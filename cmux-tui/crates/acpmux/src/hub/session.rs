@@ -63,6 +63,7 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode

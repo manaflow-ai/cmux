@@ -1566,14 +1566,23 @@ async fn dispatch_request(
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
             let who = who(conn);
-            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = admitted
-                .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
-                .await?;
+            let (new, warning) = if let Some(prompt) =
+                params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
+            {
+                let request = params
+                    .pointer("/_meta/acpmux/requestId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
+            } else {
+                let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+                let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later)).await?;
+                (new, admitted.warning.clone())
+            };
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
-            if let Some(w) = admitted.warning.clone() {
+            if let Some(w) = warning {
                 summary.set("admission", w);
             }
             Ok(
