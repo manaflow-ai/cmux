@@ -717,9 +717,9 @@ test("sent messages are never summed up: each, of any kind, is its own entry in 
 
 test("a later Bash send renders the message file a Write tool made (Leo's raw-only row)", () => {
   const writer = item({
-    title: "Write /tmp/claude-sr2/m1276.txt",
+    title: "Write /tmp/coord/m1276.txt",
     kind: "edit",
-    diffs: [{ path: "/tmp/claude-sr2/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
+    diffs: [{ path: "/tmp/coord/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
     startedAt: 1,
     endedAt: 2,
   });
@@ -727,7 +727,7 @@ test("a later Bash send renders the message file a Write tool made (Leo's raw-on
     title: "Bash",
     kind: "execute",
     command:
-      "bash -c '\"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux\" send --no-wait --from claude-sr2 big-red/nx-composer - < /tmp/claude-sr2/m1276.txt 2>&1 | tail -1'",
+      "bash -c '\"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux\" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'",
     output: "queued for delivery 01a17aa5",
     startedAt: 3,
     endedAt: 4,
@@ -738,9 +738,9 @@ test("a later Bash send renders the message file a Write tool made (Leo's raw-on
     return group?.type === "send" ? group.send : undefined;
   };
   expect(sent([writer, send])?.text).toBe("## Composer\n\n- **ship** it\n");
-  expect(sent([writer, send])?.target).toBe("big-red/nx-composer");
+  expect(sent([writer, send])?.target).toBe("build-box/composer");
   // An edit's hunk is not the file; a write to another path, or one after the send, says nothing.
-  const edit = item({ ...writer.tool!, diffs: [{ path: "/tmp/claude-sr2/m1276.txt", oldText: "a", newText: "b" }] });
+  const edit = item({ ...writer.tool!, diffs: [{ path: "/tmp/coord/m1276.txt", oldText: "a", newText: "b" }] });
   expect(sent([edit, send])?.text).toBeUndefined();
   const other = item({ ...writer.tool!, diffs: [{ path: "/tmp/other.txt", newText: "other" }] });
   expect(sent([other, send])?.text).toBeUndefined();

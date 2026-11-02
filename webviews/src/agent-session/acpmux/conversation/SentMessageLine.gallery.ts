@@ -82,10 +82,10 @@ const recordedFileSend = bash(
 );
 // Leo's row (2026-10-26): Claude Code's Write makes the message file, then a send reads it
 // through `bash -c` with `2>&1 | tail -1`. Opening the row renders that file, not the shell.
-const writeTool = tool("Write /tmp/claude-sr2/m1276.txt", "edit", "completed", {
+const writeTool = tool("Write /tmp/coord/m1276.txt", "edit", "completed", {
   diffs: [
     {
-      path: "/tmp/claude-sr2/m1276.txt",
+      path: "/tmp/coord/m1276.txt",
       newText:
         "## Composer follow-up\n\n- **Paste** keeps the caret where it was.\n- Ship it once the review passes.\n",
     },
@@ -94,8 +94,8 @@ const writeTool = tool("Write /tmp/claude-sr2/m1276.txt", "edit", "completed", {
   endedAt: 1.5,
 });
 const writtenFileSend = bash(
-  `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from claude-sr2 big-red/nx-composer - < /tmp/claude-sr2/m1276.txt 2>&1 | tail -1'`,
-  "Send the follow-up to nx-composer",
+  `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'`,
+  "Send the follow-up to composer",
   "completed",
   { output: "queued for delivery 01a17aa5-7ef3-7e30-9dd5-151c07b5b6ce", startedAt: 2 },
 );
@@ -163,12 +163,12 @@ const recordedFile = () => {
 const writtenFile = () =>
   chat(
     [
-      user("Write the follow-up and send it to nx-composer.", 2),
+      user("Write the follow-up and send it to composer.", 2),
       activity([writeTool, writtenFileSend], 1.8),
-      assistant("Queued for nx-composer.", 1.5),
+      assistant("Queued for composer.", 1.5),
       summary(1.5, { status: "completed" }),
     ],
-    { title: "claude-sr2" },
+    { title: "coord" },
   );
 
 /// Opens the finished turn's "Worked for" line, where its calls are.

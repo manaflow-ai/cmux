@@ -288,13 +288,13 @@ test("a send of a file the agent wrote with Write opens to that message rendered
     id: "write",
     kind: "edit",
     status: "completed",
-    title: "Write /tmp/claude-sr2/m1276.txt",
-    diffs: [{ path: "/tmp/claude-sr2/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
+    title: "Write /tmp/coord/m1276.txt",
+    diffs: [{ path: "/tmp/coord/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
     startedAt: 1,
     endedAt: 2,
   };
   const tool = bash(
-    `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from claude-sr2 big-red/nx-composer - < /tmp/claude-sr2/m1276.txt 2>&1 | tail -1'`,
+    `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'`,
     { output: "queued for delivery 01a17aa5", startedAt: 3, endedAt: 4 },
   );
   const groups = toolGroups([write, tool].map((call) => ({ kind: "tool" as const, text: call.title, tool: call })));
