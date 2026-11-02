@@ -27,9 +27,9 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
     await browser?.close();
     await vite?.close();
   });
-  async function open(variant = "subtle") {
+  async function open(variant = "subtle", theme = "dark") {
     const page = await browser.newPage({ viewport: { width: 420, height: 440 }, deviceScaleFactor: 2 });
-    await page.goto(base + galleryFrame(entry, { variant, width: 420, height: 440 }));
+    await page.goto(base + galleryFrame(entry, { variant, theme, width: 420, height: 440 }));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     return page;
   }
@@ -83,7 +83,7 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       expect((await edges(page)).top).toBe("0");
       expect((await edges(page)).bottom).toBe("0");
       await page.getByRole("button", { name: "Outputs", exact: true }).click();
-      expect(await page.locator('ul[data-section="outputs"]').isVisible()).toBe(false);
+      await page.locator('ul[data-section="outputs"]').waitFor({ state: "hidden" });
     } finally {
       await page.close();
     }
@@ -134,6 +134,23 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       const page = await open(variant);
       try {
         expect((await edges(page)).height).toBe(height);
+        if (process.env.FAST_CHECKS_OUT) {
+          await page.getByRole("button", { name: "Show more", exact: true }).click();
+          await scroll(page, "middle");
+          await page.locator(".acpmux-session-info-section").screenshot({
+            path: path.join(process.env.FAST_CHECKS_OUT, `outputs-${variant}-dark.png`),
+          });
+          const light = await open(variant, "light");
+          try {
+            await light.getByRole("button", { name: "Show more", exact: true }).click();
+            await scroll(light, "middle");
+            await light.locator(".acpmux-session-info-section").screenshot({
+              path: path.join(process.env.FAST_CHECKS_OUT, `outputs-${variant}-light.png`),
+            });
+          } finally {
+            await light.close();
+          }
+        }
       } finally {
         await page.close();
       }
