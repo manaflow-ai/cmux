@@ -8,8 +8,9 @@ publish.workspace = true
 description = "Normalization of typed browser addresses (scheme inference, loopback and intranet hosts, search fallback), with no daemon dependencies so the app can link it"
 
 [features]
-# The C ABI (src/ffi.rs, include/cmux_url_input.h); only cmux-app-ffi enables it,
-# so the daemon binaries export no C symbols of this crate.
+# The C ABI (src/ffi.rs, include/cmux_url_input.h). Only cmux-app-ffi is to enable it
+# (it links the crate in the move PR, with the app FFI repin), so the daemon binaries
+# export no C symbols of this crate.
 ffi = []
 
 [dependencies]

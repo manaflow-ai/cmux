@@ -2,7 +2,7 @@
 //! detection, query encoding).
 //!
 //! A crate of its own, with no daemon dependency, so the app can link the
-//! same rules (cmux-app-ffi); cmux-tui-core re-exports [`normalize_url`].
+//! same rules through cmux-app-ffi; cmux-tui-core re-exports [`normalize_url`].
 //!
 //! Two policies, on purpose:
 //! - the daemon policy, [`normalize_url`]: every daemon entrypoint (TUI
