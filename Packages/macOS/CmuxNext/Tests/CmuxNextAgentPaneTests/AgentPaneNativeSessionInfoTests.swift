@@ -395,6 +395,62 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// A reorderable line shows no drag grip at rest; on hover the grip takes the icon column and
+    /// nothing moves. Every header and row puts its icon and title on one grid: one icon column, one
+    /// title column, with or without a grip or an icon (Leo, 2026-11-02, on grips pushing Usage and
+    /// Connectors out of line).
+    @Test func dragGripShowsOnlyOnHoverAndEveryLineSharesOneGrid() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        func view(_ line: SessionInfoLine) -> SessionInfoLineView {
+            let view = SessionInfoLineView(line: line, ink: ink)
+            view.frame = CGRect(x: 0, y: 0, width: 320, height: 26)
+            view.layoutSubtreeIfNeeded()
+            return view
+        }
+        func title(_ view: SessionInfoLineView) throws -> NSRect {
+            try #require(view.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == view.line.title }).frame
+        }
+        func images(_ view: SessionInfoLineView, hidden: Bool) -> [NSRect] {
+            view.subviews.compactMap { $0 as? NSImageView }.filter { $0.isHidden == hidden }.map(\.frame)
+        }
+        let usage = view(SessionInfoLine(id: "usage", kind: .header, symbol: "waveform", title: "Usage", reorderable: true))
+        let changes = view(SessionInfoLine(id: "changes", kind: .header, title: "Changes", trailing: "3", reorderable: true))
+        let plain = view(SessionInfoLine(id: "plain", kind: .header, symbol: "folder", title: "Projects"))
+        let machine = view(SessionInfoLine(id: "machine", kind: .row, symbol: "desktopcomputer", title: "cosmic-gray", reorderable: true))
+        let row = view(SessionInfoLine(id: "row:context:mcp", kind: .row, symbol: "chevron.right", title: "MCP tools"))
+
+        for line in [usage, changes, machine] {
+            #expect(!line.showsGrip)
+            #expect(images(line, hidden: true).count == 1)
+        }
+        #expect(images(usage, hidden: false).count == 1)
+        #expect(images(changes, hidden: false).isEmpty)
+
+        let column = try title(row).minX
+        for line in [usage, changes, plain, machine] { #expect(try title(line).minX == column) }
+        let icon = try #require(images(row, hidden: false).first)
+        #expect(try #require(images(usage, hidden: false).first).minX == icon.minX)
+        #expect(try #require(images(machine, hidden: false).first).minX == icon.minX)
+        #expect(usage.line.font == changes.line.font)
+        #expect(usage.line.font == plain.line.font)
+
+        let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for line in [usage, changes, machine] {
+            let before = try title(line)
+            line.mouseEntered(with: enter)
+            line.layoutSubtreeIfNeeded()
+            #expect(line.showsGrip)
+            #expect(try title(line) == before)
+            let grip = try #require(images(line, hidden: false).first)
+            #expect(images(line, hidden: false).count == 1)
+            #expect(grip.maxX <= before.minX)
+            #expect(grip.minX >= icon.minX - 1)
+            line.mouseExited(with: enter)
+            #expect(!line.showsGrip)
+        }
+    }
+
     @Test func liveLabelsKeepUnchangedHeaderViews() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)

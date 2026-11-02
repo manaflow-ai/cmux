@@ -480,6 +480,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         wantsLayer = true
         layer?.cornerRadius = SessionInfoMetrics.rowRadius
         rebuild()
+        paint()
     }
 
     /// Rebuild every value-bearing child from the page model. Rows are keyed by id so this view
@@ -619,7 +620,14 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
-    private var textX: CGFloat { lead + (grip != nil ? 14 : 0) + (glyph != nil ? SessionInfoMetrics.glyph + 6 : 0) }
+    /// One grid for every line: the icon column at `lead`, the title column after it. A section
+    /// header keeps the title column even with no icon, and the drag grip never adds room of its own,
+    /// so a reorderable line's icon and title sit where every other line's do.
+    private var textX: CGFloat {
+        lead + (glyph != nil || grip != nil || line.kind == .header ? SessionInfoMetrics.glyph + 6 : 0)
+    }
+    /// The grip shows only while the line is hovered or dragged; at rest the line shows its icon.
+    var showsGrip: Bool { grip != nil && (hovered || isDragging) }
 
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
@@ -712,8 +720,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             glyph.frame = CGRect(x: lead + (SessionInfoMetrics.glyph - side) / 2, y: y + (titleSize.height - side) / 2, width: side, height: side)
         }
         if let grip {
+            // The grip takes the icon column while it shows (the icon steps aside), never the title's room.
             let side: CGFloat = 12
-            grip.frame = CGRect(x: max(0, lead - 6), y: y + (titleSize.height - side) / 2, width: side, height: side)
+            grip.frame = CGRect(x: lead + (SessionInfoMetrics.glyph - side) / 2, y: y + (titleSize.height - side) / 2, width: side, height: side)
         }
         y += titleSize.height
         if let subtitle {
@@ -742,11 +751,11 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func mouseDragged(with event: NSEvent) {
         guard let start = dragStart, line.reorderable, line.id != nil else { return }
         let point = convert(event.locationInWindow, from: nil)
-        if hypot(point.x - start.x, point.y - start.y) >= 4 { isDragging = true }
+        if hypot(point.x - start.x, point.y - start.y) >= 4, !isDragging { isDragging = true; paint() }
     }
     override func mouseUp(with event: NSEvent) {
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        defer { dragStart = nil; isDragging = false }
+        defer { dragStart = nil; isDragging = false; paint() }
         if isDragging, let id = line.id {
             ink.move(id, self, convert(event.locationInWindow, from: nil))
         } else if inside {
@@ -809,6 +818,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     private func paint() {
         layer?.backgroundColor = hovered && line.action != nil ? ink.colors.hover.cgColor : nil
+        grip?.isHidden = !showsGrip
+        glyph?.isHidden = showsGrip
     }
 }
 
