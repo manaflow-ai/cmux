@@ -167,6 +167,17 @@ describe("cmux-tui install and daemon commands", () => {
         env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
       });
       expect(noDaemon.status).toBe(0);
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"server.unavailable\",\"details\":{},\"message\":\"cannot connect to the local server; check that the named session is running and retry\",\"retryable\":false}' >&2\nexit 3\n");
+      const pinnedNoDaemon = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(pinnedNoDaemon.status).toBe(0);
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"permission.denied\"}' >&2\nexit 3\n");
+      const unexpected = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(unexpected.status).toBe(3);
+      expect(unexpected.stderr).toContain("acpmux daemon status failed (exit 3)");
       mkdirSync(join(home, ".acpmux"));
       writeFileSync(join(home, ".acpmux", "daemon.lock"), "999999\n");
       writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
