@@ -47,6 +47,11 @@ import Testing
     /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
     nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
     nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
+    /// Trailing column `index`'s center in a 304 pt row: 24 pt (plus 20 a column) in from the sidebar's edge,
+    /// which lies `rowEdgeGap` past the row's end.
+    static func column304(_ index: Int) -> CGFloat {
+        304 + SidebarStyle.rowEdgeGap - 24 - CGFloat(index) * 20
+    }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
     /// icon boxes and trailing column rather than on a missing symbol; density and rails stay at base.
@@ -238,11 +243,11 @@ extension SidebarGridAlignmentTests {
             let workspace = try #require(Self.view(c, width: 304, height: height) as? WorkspaceRowView)
             workspace.layout()
             let unread = try #require(workspace.subviews.compactMap { $0 as? UnreadBadgeView }.first { $0.state.isUnread })
-            #expect(abs(unread.frame.midX - CGFloat(marks == 1 ? 281.5 : 261.5)) <= 0.5)
+            #expect(abs(unread.frame.midX - Self.column304(marks == 1 ? 0 : 1)) <= 0.5)
             #expect(abs(unread.frame.midY - height / 2) <= 0.5)
             if marks == 2 {
                 let status = try #require(workspace.subviews.compactMap { $0 as? StatusIndicatorView }.first { $0.showsGlyph })
-                #expect(abs(status.frame.midX - 281.5) <= 0.5)
+                #expect(abs(status.frame.midX - Self.column304(0)) <= 0.5)
                 #expect(abs(status.frame.midY - height / 2) <= 0.5)
                 #expect(unread.frame.maxX <= status.frame.minX)
             }
@@ -259,11 +264,11 @@ extension SidebarGridAlignmentTests {
             // Without the add button the fold takes the column; with it, the add button takes the column and the
             // fold steps one pitch left (base #27954, as a group header's + ⋮ ⌄ do).
             let fold = try #require(section.subviews.compactMap { $0 as? DecorativeImageView }.first { !$0.isHidden })
-            #expect(abs(fold.frame.midX - (marks == 1 ? 281.5 : 261.5)) <= 0.5)
+            #expect(abs(fold.frame.midX - Self.column304(marks == 1 ? 0 : 1)) <= 0.5)
             #expect(abs(fold.frame.midY - height / 2) <= 0.5)
             #expect(section.addButton.isHidden == (marks == 1))
             if marks == 2 {
-                #expect(abs(section.addButton.frame.midX - 281.5) <= 0.5)
+                #expect(abs(section.addButton.frame.midX - Self.column304(0)) <= 0.5)
                 #expect(abs(section.addButton.frame.midY - height / 2) <= 0.5)
                 #expect(fold.frame.maxX <= section.addButton.frame.minX)
             }
@@ -292,7 +297,7 @@ extension SidebarGridAlignmentTests {
                 let frame = list.frame(for: row)
                 let reach = list.railReach(for: row)
                 #expect(abs(frame.minX + reach - CGFloat((comfortable ? 8 : 6) + depth * 7)) <= 0.5)
-                #expect(abs(frame.maxX - 318.5) <= 0.5)
+                #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
                 #expect(abs(frame.minX + columns.trailingCenter() - 296) <= 0.5)
@@ -368,7 +373,7 @@ extension SidebarGridAlignmentTests {
             #expect(abs(list.frame(for: row).minX - barX) <= 0.5)
             #expect(abs(list.frame(for: row).minX + list.railReach(for: row) - membersX) <= 0.5)
             #expect(abs(SidebarStyle.groupLineX(membersMinX: membersX) - railX) <= 0.5)
-            #expect(abs(list.frame(for: row).maxX - 318.5) <= 0.5)
+            #expect(abs(list.frame(for: row).maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
         }
     }
 

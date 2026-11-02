@@ -8,6 +8,8 @@
   item corner plus `space1` (8 compact, 9 comfortable, continuous). ChatGPT keeps 8 pt beside its 30 pt row, corner
   about 9 to 10 pt. Trailing marks stay on the grid's 24 pt column; row height, icons, text and colours are unchanged.
   Regression: `SidebarRowGutterTests`, `SidebarGridAlignmentTests`; surface spec: leo-workspace `design/sidebar.md`.
+  The trailing clearance is measured from where the fill used to end (`trailingClearanceEdge`, 1.5 pt in), so the
+  gap moves the fill and never the trailing column, at every density and text size.
 
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
   Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
