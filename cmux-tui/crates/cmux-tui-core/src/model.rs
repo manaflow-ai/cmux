@@ -639,7 +639,8 @@ pub struct State {
     /// Stable terminal content kept alive independently of view placement.
     pub(crate) terminal_catalog: crate::route_table::RouteTable<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
-    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    pub(crate) terminal_catalog_by_runtime:
+        crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
     /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
     pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,

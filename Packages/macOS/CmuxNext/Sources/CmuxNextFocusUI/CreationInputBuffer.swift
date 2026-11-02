@@ -29,6 +29,8 @@ public final class CreationInputBuffer {
     private var workspaceTickets: Set<Int> = []
     /// The workspace each of them made, once its reply came.
     private var madeWorkspaces: [Int: String] = [:]
+    /// The new workspaces the person moved on from (``personMovedOn()``): their keys typed before it still wait for them.
+    private var movedOnFrom: Set<Int> = []
     /// The focus generation (the person's newest intent) the newest creation of this hold was asked under.
     public private(set) var newestGeneration: UInt64?
     private var nextID = 0
@@ -195,6 +197,28 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
 
+    /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
+    /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'
+    /// (review of #32098: they took the new workspace's lane and were dropped when it never showed). Keys held for them
+    /// before it still wait for them.
+    public func personMovedOn() {
+        guard !workspaceTickets.isEmpty else { return }
+        movedOnFrom.formUnion(workspaceTickets)
+        newestGeneration = nil
+    }
+
+    /// Every creation of this hold is a new workspace the person moved on from (``personMovedOn()``): a focused terminal
+    /// still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review of #32148).
+    public var personLeftEveryCreation: Bool { nextID > 0 && movedOnFrom.count == nextID }
+
+    /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
+    /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
+    /// runs as typed waits before it (their order).
+    public func passesOn(focusedTab: String?) -> Bool {
+        guard personLeftEveryCreation, !awaitsPage, lane(focusedTab: focusedTab) == nil else { return false } // a page to show keeps it
+        return !events.contains { $0.creation == nil }
+    }
+
     /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine`: once the window
     /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
     /// the pinned dock). With no terminal found (nil) they are dropped, as for a workspace that never showed.
@@ -235,7 +259,7 @@ public final class CreationInputBuffer {
     /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
     /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
     public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
-        let workspace = forNewWorkspace ? workspaceTickets.max() : nil
+        let workspace = forNewWorkspace ? workspaceTickets.subtracting(movedOnFrom).max() : nil // never one the person left
         let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
         events.append((event, own ?? workspace))
     }

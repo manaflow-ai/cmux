@@ -186,6 +186,7 @@ async function mount({
         }}
       >
         <NewTabScreen
+          template="default"
           snapshot={noChat([], {
             peers: ["devbox", "cloud-1"],
             peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
