@@ -56,7 +56,10 @@ struct KeyboardResizeRowsEdgeCasesTests {
 
     @Test func anUpperRowStoredBelowItsMinimumStepsFromWhereItShows() {
         let style = Self.style()
-        let start = Self.layout([100, 900], rows: [Self.stack(["p1", "q1", "q2"]), .leaf("p2")])
+        // p1 beside a stack of three: the row needs three panes' height, and p1 has no vertical split of its own (a split
+        // in the pane's row wins over the row edge).
+        let upperRow = SplitNode.split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: Self.stack(["q1", "q2", "q3"]))
+        let start = Self.layout([100, 900], rows: [upperRow, .leaf("p2")])
         let (up, _) = Self.press(.up, on: "p1", start, style: style)
         #expect(up.change == nil, "Up on a row at its minimum changed the model: \(String(describing: up.change))")
         let (down, _) = Self.press(.down, on: "p1", start, style: style)
@@ -102,7 +105,10 @@ struct KeyboardResizeRowsEdgeCasesTests {
     @Test func aBandDockWithRowsStillResizesTheDock() {
         let style = Self.style()
         let dock = DockColumn(edge: .top, mode: .docked, role: nil, isPinned: false)
-        let start = Self.layout([500, 500], rows: [.leaf("p1"), .leaf("p2")], dock: dock)
+        // Below its widest extent (1.0), so Down can grow it.
+        let start = ScreenLayout.columns([LayoutColumn(id: "c0", width: 0.4, root: .split("compat", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")),
+                                                       dock: dock, rows: [LayoutRow(id: "r0", height: 500, root: .leaf("p1")),
+                                                                          LayoutRow(id: "r1", height: 500, root: .leaf("p2"))])])
         let geometry = ScreenGeometry.compute(start, viewport: Self.viewport, style: style)
         let change = PaneResize.change(for: "p1", direction: .down, in: start, shown: ShownResizeRange(geometry: geometry, style: style))
         if case .columnWidth? = change {} else { Issue.record("Down on a top dock with rows made \(String(describing: change)), want the dock's extent") }
