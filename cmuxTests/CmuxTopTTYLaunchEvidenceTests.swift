@@ -32,7 +32,7 @@ struct CmuxTopTTYLaunchEvidenceTests {
         #expect(intArray(surface["unattributed_tty_process_pids"]) == [])
         let resources = try #require(surface["resources"] as? [String: Any])
         #expect(intArray(resources["pids"]) == [tree.processOnTTY])
-        #expect((surface["processes"] as? [[String: Any]])?.isEmpty == false)
+        #expect(processRowPIDs(surface["processes"]) == [tree.processOnTTY])
 
         // The app process stays out of a one-workspace total.
         #expect(intArray(windows[0]["app_process_pids"]) == [])
@@ -52,6 +52,9 @@ struct CmuxTopTTYLaunchEvidenceTests {
 
         #expect(intArray(surface["tty_process_pids"]) == [tree.processOnTTY])
         #expect(intArray(surface["unattributed_tty_process_pids"]) == [])
+        let resources = try #require(surface["resources"] as? [String: Any])
+        #expect(intArray(resources["pids"]) == [tree.processOnTTY])
+        #expect(processRowPIDs(surface["processes"]) == [tree.processOnTTY])
         #expect(intArray(windows[1]["app_process_pids"]) == [])
     }
 
@@ -144,6 +147,14 @@ struct CmuxTopTTYLaunchEvidenceTests {
 
     private func intArray(_ raw: Any?) -> [Int] {
         (raw as? [Int])?.sorted() ?? []
+    }
+
+    /// Every `pid` in a process tree payload, nested rows included.
+    private func processRowPIDs(_ raw: Any?) -> [Int] {
+        guard let rows = raw as? [[String: Any]] else { return [] }
+        return rows.flatMap { row in
+            [row["pid"] as? Int].compactMap { $0 } + processRowPIDs(row["children"])
+        }.sorted()
     }
 }
 
