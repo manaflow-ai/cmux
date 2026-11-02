@@ -812,6 +812,7 @@ fn link_io() -> Res<ViewerIo> {
         expected_remote: peer,
         stun,
         bind: "0.0.0.0:0".parse()?,
+        turn: Vec::new(),
     })?;
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);

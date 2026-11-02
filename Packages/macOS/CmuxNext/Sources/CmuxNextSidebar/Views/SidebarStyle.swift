@@ -10,6 +10,10 @@ enum SidebarStyle {
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
     /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
     static let rowEdgeGap: CGFloat = 1.5
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card.
+    /// ChatGPT's sidebar keeps five device pixels (2.5 pt at 2x) here, with no resize line or
+    /// chrome shade in the band. This is scaled with the rest of the sidebar geometry.
+    static var rowToPaneGap: CGFloat { Metrics.scale(2.5) }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }

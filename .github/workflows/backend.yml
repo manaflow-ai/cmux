@@ -29,6 +29,8 @@ on:
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
       - scripts/cmux-next/check-acpmux-guest-commands.ts
+      # The production link keyset mint (test-node/link-keyset-mint.test.ts).
+      - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
       - scripts/cmux-next/release/prod-promote.ts
@@ -49,6 +51,8 @@ on:
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
       - scripts/cmux-next/check-acpmux-guest-commands.ts
+      # The production link keyset mint (test-node/link-keyset-mint.test.ts).
+      - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
       - scripts/cmux-next/release/prod-promote.ts

@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import os
 
 /// Routing metadata verified by the original owner transport, not transport or serving authority.
 public struct NativeNetworkTarget: Equatable, Sendable {
@@ -15,7 +16,7 @@ public struct NativeNetworkTarget: Equatable, Sendable {
               reply.project.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "_-".contains($0)) }),
               context.user == "user_" + Self.digest("stack:\(reply.project):\(context.account)"),
               team == "team_" + Self.digest("stack-team:\(reply.project):\(reply.tenant)") || team == "team_" + Self.digest("personal:\(context.user)")
-        else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        else { throw NativeDeviceEnrollmentError.identity() }
         guard let supplied = URL(string: reply.origin) else { throw NativeDeviceEnrollmentError.invalidScope }
         origin = try NativeDeviceScope.canonicalOrigin(supplied)
         guard origin.absoluteString == reply.origin, Self.isMeshCIDR(reply.ipv4_cidr) else { throw NativeDeviceEnrollmentError.invalidScope }
@@ -39,12 +40,18 @@ extension MacInstallIdentity {
         // Validate caller selectors before token minting or any read.
         _ = try NativeDeviceScope(team: team, tenant: "selector", mesh: mesh ?? "mesh_" + String(repeating: "0", count: 26))
         let context = try await nativeContext(team: team)
-        let body = try JSONEncoder().encode(NativeNetworkTargetCall(params: .init(mesh: mesh)))
-        let reply = try await nativeOwnerRead(body, context: context)
-        guard reply.status == 200, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status, step: "host.network.target") }
-        let decoded = try JSONDecoder().decode(NativeNetworkTargetEnvelope.self, from: reply.body)
-        guard decoded.op == "host.network.target" else { throw NativeDeviceEnrollmentError.invalidIdentity }
-        let target = try NativeNetworkTarget(decoded.value, team: team, mesh: mesh, context: context)
+        // The platform serves this read on its own route (cmux-platform NativeNetwork.ts), not as an op on
+        // /v1/read: TeamDO answers that with "unknown read host.network.target". The mesh is a validated
+        // NativeMeshId (above), so it needs no escaping.
+        let reply = try await nativeOwnerGet(mesh.map { "/v1/host/network/target?mesh=\($0)" } ?? "/v1/host/network/target",
+                                             context: context)
+        guard reply.status == 200, reply.body.count <= 1_048_576 else {
+            // validation.invalid here is a tenant with more than one mesh; selector.not_found is none.
+            NativeNetworkRefusal.log("host.network.target", status: reply.status, body: reply.body)
+            throw NativeDeviceEnrollmentError.refused(reply.status, step: "host.network.target")
+        }
+        let decoded = try JSONDecoder().decode(NativeNetworkTargetReply.self, from: reply.body)
+        let target = try NativeNetworkTarget(decoded, team: team, mesh: mesh, context: context)
         try await nativeCheck(context)
         return target
     }
@@ -58,6 +65,23 @@ struct NativeNetworkTargetReply: Decodable, Sendable {
     let mesh: String
     let ipv4_cidr: String
 }
-private struct NativeNetworkTargetEnvelope: Decodable { let op: String; let value: NativeNetworkTargetReply }
-private struct NativeNetworkTargetParams: Encodable { let mesh: String? }
-private struct NativeNetworkTargetCall: Encodable { let op = "host.network.target"; let params: NativeNetworkTargetParams }
+/// A Native refusal's stable code and message (server text, no credential), logged so a route that does not
+/// start says why instead of a bare HTTP status.
+struct NativeNetworkRefusal: Decodable {
+    let code: String?
+    let message: String?
+
+    static func log(_ step: String, status: Int, body: Data) {
+        let refusal = try? JSONDecoder().decode(Self.self, from: body.prefix(4096))
+        log(step, status: status, code: refusal?.code, message: refusal?.message)
+    }
+
+    static func log(_ step: String, status: Int, code: String?, message: String?) {
+        let code = code ?? "no code", message = String((message ?? "").prefix(300))
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.native")
+            .error("\(step, privacy: .public) refused \(status): \(code, privacy: .public): \(message, privacy: .public)")
+    }
+}
+
+/// An owner op's refusal body: `{"ok": false, "error": {"code", "message"}}`.
+struct NativeOwnerRefusal: Decodable { let error: NativeNetworkRefusal? }

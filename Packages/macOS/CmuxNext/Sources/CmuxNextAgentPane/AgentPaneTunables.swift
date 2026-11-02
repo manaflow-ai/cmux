@@ -177,12 +177,13 @@ public nonisolated struct AgentPaneTunables {
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: true, code: "AgentPaneTunables.sessionInfo")
 
-    /// Native drawing is the shipped Session Info path; the page remains the fallback when this
-    /// Debug Settings switch is turned off. Leo ordered the native port to ship on by default.
+    /// The chat page draws Session Info by default; this Debug Settings switch draws it natively.
+    /// The native port shipped on by default (#32159) without the page's section chevrons, drag
+    /// grips, layout push or fit-to-content height, so it stays off until it reaches parity.
     public static let nativeSessionInfo = Tunable<Bool>.toggle(
         "agent.sessionInfo.native", PageTunables.section, "Session Info drawn natively",
         help: "The App draws Session Info over the agent pane; off, the chat page draws it.",
-        default: true, code: "AgentPaneTunables.nativeSessionInfo")
+        default: false, code: "AgentPaneTunables.nativeSessionInfo")
 
     /// `sessionInfo` was `agent.inspector`, the panel's old name: a file that still holds it keeps its choice.
     public static func registerRenames(_ store: TunableStore) {
