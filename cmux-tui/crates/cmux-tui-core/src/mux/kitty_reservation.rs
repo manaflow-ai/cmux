@@ -12,6 +12,12 @@ use super::*;
 const KITTY_RESERVATION_WAIT: Duration = Duration::from_millis(500);
 
 impl Mux {
+    /// Size the Kitty image budget for one more terminal before it reserves
+    /// ([`KittyImageSurfaceExpectation`]).
+    pub(crate) fn expect_kitty_image_surface(self: &Arc<Self>) -> KittyImageSurfaceExpectation {
+        KittyImageSurfaceExpectation { mux: Arc::downgrade(self) }
+    }
+
     pub(crate) fn reserve_kitty_image_surface(
         self: &Arc<Self>,
         surface: SurfaceId,

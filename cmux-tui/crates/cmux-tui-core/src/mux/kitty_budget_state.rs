@@ -147,6 +147,22 @@ impl Drop for KittyImageBudgetReservation {
     }
 }
 
+/// One terminal a respawn wave will add to the Kitty image budget before it
+/// reserves its share (one per respawn that starts at once). While it is
+/// alive the budget is sized for that terminal too, so the first respawn of
+/// a wave does not take a share that the next ones must then wait for it to
+/// give back while its launch is still in flight. Dropped right before its
+/// respawn reserves, or with the respawn when that is given up.
+pub(crate) struct KittyImageSurfaceExpectation {
+    pub(super) mux: Weak<Mux>,
+}
+
+impl Drop for KittyImageSurfaceExpectation {
+    fn drop(&mut self) {
+        drop(self.mux.upgrade());
+    }
+}
+
 pub(crate) struct RenderAttachmentPermit {
     pub(super) active: Arc<AtomicUsize>,
 }
