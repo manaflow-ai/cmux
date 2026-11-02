@@ -54,6 +54,37 @@ import Testing
         #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "Chromium was never asked to open DevTools")
     }
 
+    /// Review FIX at 978de5b4b47: console and inspect act on the pane's active Chromium tab, so a tab switch between
+    /// the key's turn and the next must not send them (they would open DevTools on the other page): the stand-in rolls
+    /// back instead.
+    @Test func aTabSwitchBeforeTheNextTurnSendsNothingAndRollsBack() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.right))
+        tab.performDevTools(.console)
+        #expect(tab.devToolsController.standIn)
+        tab.container.isHidden = true  // another tab of the pane shows (PaneContentView parks this one)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "no console for a page that is not shown")
+        #expect(!tab.devToolsController.reservesRoom, "the stand-in rolled back")
+    }
+
+    /// A stale ask never runs: console's stand-in, cancelled by the toggle, then a new stand-in by the toggle sends
+    /// exactly one command, the new one.
+    @Test func onlyTheNewestStandInsCommandIsSent() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.bottom))
+        tab.performDevTools(.console)
+        tab.performDevTools(.toggle)  // cancels the console stand-in
+        tab.performDevTools(.toggle)  // a new stand-in for show
+        await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"])
+    }
+
     /// A Chromium that creates DevTools (DEVTOOLS_WILL_OPEN inside the command) keeps the stand-in's views.
     @Test func devToolsOpensIntoTheStandInsArea() async throws {
         let rig = try Rig()
@@ -108,7 +139,13 @@ import Testing
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
             try? FileManager.default.removeItem(at: root)
+            // The runtime is `unowned` in its tabs and hosts: kept to the end of the test process so a late task or
+            // view teardown never reads it after it ended (the red run crashed there).
+            Self.kept.append(self)
         }
+
+        /// Rigs kept alive (see `close`).
+        static var kept: [Rig] = []
     }
 }
 

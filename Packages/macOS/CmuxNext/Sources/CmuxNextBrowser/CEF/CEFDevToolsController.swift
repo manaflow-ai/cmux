@@ -21,6 +21,8 @@ final class CEFDevToolsController {
     /// From the open key's turn until Chromium's `DEVTOOLS_WILL_OPEN`: the docked layout shows with the pane's
     /// ground in the DevTools area while Chromium has not been asked yet (`openWithStandIn`).
     private(set) var standIn = false
+    /// Which stand-in the pending next-turn ask belongs to: a cancel or a newer stand-in makes an older ask stale.
+    private var standInGeneration = 0
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
@@ -79,15 +81,24 @@ final class CEFDevToolsController {
         if views == nil { _ = makeViews(in: tab) }
         opening = true
         standIn = true
+        standInGeneration &+= 1
+        let generation = standInGeneration
         tab.container.layoutContent()
         // perf-gate-ok: one commit per DevTools open, so the stand-in frame reaches the screen before Chromium's creation.
         CATransaction.flush()
-        Task { @MainActor [weak self] in self?.askChromium(command) }
+        Task { @MainActor [weak self] in self?.askChromium(command, generation: generation) }
     }
 
     /// The stand-in's next turn: Chromium creates DevTools (`willOpen` ends the stand-in) or opens nothing.
-    private func askChromium(_ command: Int32) {
-        guard standIn, let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+    /// Only the stand-in's own ask runs (`generation`), and only while its tab is still the one shown in a window:
+    /// console and inspect act on the pane's active Chromium tab (`ExecuteChromeCommand`), so after a tab switch
+    /// between the two turns they would open DevTools on another page. Otherwise the stand-in rolls back.
+    private func askChromium(_ command: Int32, generation: Int) {
+        guard standIn, generation == standInGeneration else { return }
+        guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim,
+              tab.host.visibleTab === tab, tab.container.window != nil, !tab.container.isHiddenOrHasHiddenAncestor else {
+            return cancelStandIn()
+        }
         _ = shim.devToolsCommand(browserID, command, 0, 0)
         if standIn { cancelStandIn() }
     }
