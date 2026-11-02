@@ -13,6 +13,7 @@
 #include <strings.h>
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,8 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_find_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_parser.h"
@@ -161,16 +164,52 @@ std::map<int64_t, CefRefPtr<CefRunContextMenuCallback>>& MenuCallbacks() {
 }
 int64_t g_next_menu_token = 0;
 
-// JS dialog callbacks by token, with the browser that asked.
+// JS dialog callbacks by token, with the browser that asked and the frames
+// that may have asked: CEF does not name the dialog's frame, so these are the
+// browser's frames of the dialog's origin when it opened. When every one of
+// them has gone (OnFrameDetached) the dialog's frame is gone, and Chromium
+// never answers or resets it (an iframe removed while its alert shows).
+// Limits: a dialog of an opaque origin (about:blank, srcdoc, data:) matches
+// no frame and ends only as before (reset, close); one whose origin another
+// live frame shares stays until that frame goes too.
 struct PendingDialog {
   int browser_id;
   CefRefPtr<CefJSDialogCallback> callback;
+  std::set<std::string> frames;
 };
 std::map<int64_t, PendingDialog>& DialogCallbacks() {
   static std::map<int64_t, PendingDialog> callbacks;
   return callbacks;
 }
 int64_t g_next_dialog_token = 0;
+
+// "scheme://host[:port]" of a URL, or "" when it has none (about:, data:).
+std::string OriginOf(const std::string& url) {
+  const size_t scheme_end = url.find("://");
+  if (scheme_end == std::string::npos) {
+    return "";
+  }
+  const size_t path = url.find_first_of("/?#", scheme_end + 3);
+  return url.substr(0, path == std::string::npos ? url.size() : path);
+}
+
+// The browser's frames whose document is of `origin` now.
+std::set<std::string> FramesOfOrigin(CefRefPtr<CefBrowser> browser,
+                                     const std::string& origin) {
+  std::set<std::string> frames;
+  if (origin.empty()) {
+    return frames;
+  }
+  std::vector<CefString> ids;
+  browser->GetFrameIdentifiers(ids);
+  for (const CefString& id : ids) {
+    CefRefPtr<CefFrame> frame = browser->GetFrameByIdentifier(id);
+    if (frame && OriginOf(frame->GetURL().ToString()) == origin) {
+      frames.insert(id.ToString());
+    }
+  }
+  return frames;
+}
 
 void ShowDialog(CefRefPtr<CefBrowser> browser,
                 const char* kind,
@@ -180,7 +219,8 @@ void ShowDialog(CefRefPtr<CefBrowser> browser,
                 bool is_reload,
                 CefRefPtr<CefJSDialogCallback> callback) {
   const int64_t token = ++g_next_dialog_token;
-  DialogCallbacks()[token] = {browser->GetIdentifier(), callback};
+  DialogCallbacks()[token] = {browser->GetIdentifier(), callback,
+                              FramesOfOrigin(browser, OriginOf(origin))};
   g_cb.on_dialog(g_cb.context, browser->GetIdentifier(), token, kind,
                  origin.c_str(), message.c_str(), default_text,
                  is_reload ? 1 : 0);
@@ -258,9 +298,35 @@ class FileLoadGuard : public CefResourceRequestHandler {
   IMPLEMENT_REFCOUNTING(FileLoadGuard);
 };
 
+// Answers and forgets every pending dialog of `browser_id` for which `gone`
+// holds, telling the host of each (on_dialog_dropped).
+template <typename Gone>
+void DropDialogs(int browser_id, Gone gone) {
+  std::vector<std::pair<int64_t, CefRefPtr<CefJSDialogCallback>>> dropped;
+  for (auto it = DialogCallbacks().begin(); it != DialogCallbacks().end();) {
+    if (it->second.browser_id == browser_id && gone(it->second)) {
+      dropped.emplace_back(it->first, it->second.callback);
+      it = DialogCallbacks().erase(it);
+    } else {
+      ++it;
+    }
+  }
+  // Answered after the map is updated (an answer may re-enter a handler
+  // that walks it). The frame is gone, so the answer reaches nothing; it
+  // ends CEF's dialog so the page's next one can show.
+  for (auto& [token, callback] : dropped) {
+    callback->Continue(false, CefString());
+    if (g_cb.on_dialog_dropped) {
+      g_cb.on_dialog_dropped(g_cb.context, browser_id, token);
+    }
+  }
+}
+
 class Client : public CefClient,
                public CefContextMenuHandler,
                public CefDisplayHandler,
+               public CefFindHandler,
+               public CefFrameHandler,
                public CefJSDialogHandler,
                public CefKeyboardHandler,
                public CefLifeSpanHandler,
@@ -297,6 +363,8 @@ class Client : public CefClient,
     return this;
   }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+  CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
@@ -376,6 +444,62 @@ class Client : public CefClient,
     if (dropped && g_cb.on_dialog_reset) {
       g_cb.on_dialog_reset(g_cb.context, id);
     }
+  }
+
+  // A frame went away (an iframe removed, or replaced by a navigation in
+  // another process): a dialog whose possible frames are all gone was its,
+  // and Chromium drops it without an answer or a reset.
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser,
+                       CefRefPtr<CefFrame> frame) override {
+    const std::string id = frame->GetIdentifier().ToString();
+    DropDialogs(browser->GetIdentifier(), [&id](PendingDialog& pending) {
+      if (pending.frames.erase(id) == 0) {
+        return false;
+      }
+      return pending.frames.empty();
+    });
+  }
+
+  void OnFindResult(CefRefPtr<CefBrowser> browser,
+                    int,
+                    int count,
+                    const CefRect&,
+                    int active_match_ordinal,
+                    bool final_update) override {
+    if (g_cb.on_find_result) {
+      g_cb.on_find_result(g_cb.context, browser->GetIdentifier(), count,
+                          active_match_ordinal, final_update ? 1 : 0);
+    }
+  }
+
+  // Chromium opens a link in a new tab or window through here (Cmd-click,
+  // the context menu's Open Link in New Tab or Window, Search the web for):
+  // it opens in the App as a remote tab of its own (rb.open_tab), never as a
+  // tab of the hidden window no viewer sees. A current-tab navigation, a
+  // download and an ignored open proceed as Chromium decides.
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
+                        CefRefPtr<CefFrame>,
+                        const CefString& target_url,
+                        WindowOpenDisposition target_disposition,
+                        bool user_gesture) override {
+    switch (target_disposition) {
+      case CEF_WOD_UNKNOWN:
+      case CEF_WOD_CURRENT_TAB:
+      case CEF_WOD_SAVE_TO_DISK:
+      case CEF_WOD_IGNORE_ACTION:
+        return false;
+      default:
+        break;
+    }
+    // An open without a user gesture goes Chromium's way, popup blocker
+    // included, as before: only what the person asked for becomes a tab.
+    if (!g_cb.on_open_tab || !user_gesture) {
+      return false;
+    }
+    const std::string url = target_url.ToString();
+    g_cb.on_open_tab(g_cb.context, browser->GetIdentifier(), url.c_str(),
+                     static_cast<int>(target_disposition), 1);
+    return true;
   }
 
   void OnTitleChange(CefRefPtr<CefBrowser> browser,
@@ -474,6 +598,8 @@ class Client : public CefClient,
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     const int id = browser->GetIdentifier();
+    // The tab's dialogs close with it, unanswered.
+    DropDialogs(id, [](PendingDialog&) { return true; });
     Browsers().erase(id);
     Windows().erase(id);
     if (g_cb.on_tab_closed) {
@@ -990,6 +1116,30 @@ int rb_shim_stop_load(int browser_id) {
     return 0;
   }
   browser->StopLoad();
+  return 1;
+}
+
+int rb_shim_find(int browser_id,
+                 const char* text_utf8,
+                 int forward,
+                 int match_case,
+                 int find_next) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  // Chromium refuses an empty search (the host sends a stop instead).
+  if (!browser || !text_utf8 || text_utf8[0] == '\0') {
+    return 0;
+  }
+  browser->GetHost()->Find(CefString(text_utf8), forward != 0,
+                           match_case != 0, find_next != 0);
+  return 1;
+}
+
+int rb_shim_stop_finding(int browser_id, int keep_selection) {
+  CefRefPtr<CefBrowser> browser = BrowserFor(browser_id);
+  if (!browser) {
+    return 0;
+  }
+  browser->GetHost()->StopFinding(keep_selection == 0);
   return 1;
 }
 

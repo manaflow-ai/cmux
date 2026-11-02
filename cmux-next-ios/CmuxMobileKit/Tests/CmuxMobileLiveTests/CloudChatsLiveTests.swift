@@ -93,6 +93,48 @@ import Testing
         ])
     }
 
+    @Test func attentionFindsAnotherPairedMacWithAnExactCloudTeamAndMachine() async throws {
+        let attention = try #require(CloudChatAttention(userInfo: ["cmux": ["cloud": [
+            "kind": "permission", "event_id": "e", "machine_id": "vm", "session_id": "shared",
+            "team_id": "cloud-team",
+        ]]]))
+        let wrongTeam = try machine("vm", team: "different-team")
+        let unrelated = try machine("other", team: "cloud-team")
+        let owner = try machine("vm", team: "cloud-team")
+        let directories = ["focused": [wrongTeam, unrelated], "other": [owner]]
+        let match = await CloudChatAttentionResolver.find(macIDs: ["focused", "other"], attention: attention) {
+            directories[$0] ?? []
+        }
+        #expect(match?.macID == "other")
+        #expect(match?.machine.id == owner.id)
+        #expect(match?.id == "other\u{1}" + owner.id)
+    }
+
+    @Test func attentionNeverFallsBackToAnotherTeamOrUnavailableMac() async throws {
+        enum Offline: Error { case disconnected }
+        let attention = try #require(CloudChatAttention(userInfo: ["cmux": ["cloud": [
+            "kind": "question", "event_id": "e", "machine_id": "vm", "session_id": "shared",
+            "team_id": "owner-team",
+        ]]]))
+        let wrong = try machine("vm", team: "other-team")
+        let match = await CloudChatAttentionResolver.find(macIDs: ["focused", "offline"], attention: attention) { id in
+            if id == "offline" { throw Offline.disconnected }
+            return [wrong]
+        }
+        #expect(match == nil)
+    }
+
+    @Test func attentionWithNoPairedMacsStaysUnavailable() async throws {
+        let attention = try #require(CloudChatAttention(userInfo: ["cmux": ["cloud": [
+            "kind": "done", "event_id": "e", "machine_id": "vm", "session_id": "s", "team_id": "owner-team",
+        ]]]))
+        let match = await CloudChatAttentionResolver.find(macIDs: [], attention: attention) { _ in
+            Issue.record("No directory should be opened")
+            return []
+        }
+        #expect(match == nil)
+    }
+
     @Test func historyAndSendStayOnTheSelectedCloudMachine() async throws {
         let wire = Wire()
         let first = CloudChatRelay(machine: try machine("vm-a"), macID: "mac")

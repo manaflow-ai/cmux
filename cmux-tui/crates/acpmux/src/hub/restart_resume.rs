@@ -465,9 +465,9 @@ impl Hub {
     ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
-        let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            configured_attempts(c.auto_resume_delays_ms.as_ref())
-        });
+        let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
+        let attempts =
+            configured.map_or(DEFAULT_DELAYS_MS.len(), |d| configured_attempts(d.as_ref()));
         if attempts == 0 {
             return None;
         }
