@@ -152,8 +152,10 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
         out.push(BROWSER_STREAM);
         out.push(BROWSER_VIDEO_TRACK);
     }
-    if config.surface.available() {
+    if config.surface.streams_simulators() {
         out.push(SURFACE_STREAM);
+    }
+    if config.surface.available() {
         out.push(CLOUD_DESKTOP);
     }
     out
@@ -1927,6 +1929,11 @@ mod tests {
         assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
         config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);
         assert!(capabilities(&config).ends_with(&[SURFACE_STREAM, CLOUD_DESKTOP]));
+        // A Mac whose app cannot stream simulators still streams Cloud desktops, and never says
+        // `surface-stream-v1` (its phone would wait on a simulator that never opens).
+        config.surface = config.surface.clone().without_simulators();
+        assert!(!capabilities(&config).contains(&SURFACE_STREAM));
+        assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
     }
 
     #[test]

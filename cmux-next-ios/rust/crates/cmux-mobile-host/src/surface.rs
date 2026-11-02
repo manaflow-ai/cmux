@@ -81,18 +81,33 @@ const BUTTONS: &[&str] = &["home", "lock"];
 #[derive(Clone, Debug, Default)]
 pub struct SurfaceConfig {
     hosts: BrowserConfig,
+    /// Whether the app's source streams simulator phone tabs too (SimulatorKit loads); without
+    /// it the source serves only Cloud desktops.
+    no_simulators: bool,
 }
 
 impl SurfaceConfig {
     /// `source` starts the app's frame source for a tab (supervised: the
     /// app answers `need_surface`); None refuses every open.
     pub fn new(source: Option<Launcher>, max_tabs: usize) -> Self {
-        Self { hosts: BrowserConfig::new(source.map(host_launcher), max_tabs) }
+        Self { hosts: BrowserConfig::new(source.map(host_launcher), max_tabs), no_simulators: false }
+    }
+
+    /// The same source, but one that streams no simulator tabs (`CMUX_MOBILE_SURFACE_SIMULATORS=0`:
+    /// SimulatorKit does not load); it still streams Cloud desktops.
+    pub fn without_simulators(mut self) -> Self {
+        self.no_simulators = true;
+        self
+    }
+
+    /// Whether the app has a surface source at all (Cloud desktops, `cloud-desktop-v1`).
+    pub fn available(&self) -> bool {
+        self.hosts.available()
     }
 
     /// Whether this Mac streams simulator surfaces (`surface-stream-v1`).
-    pub fn available(&self) -> bool {
-        self.hosts.available()
+    pub fn streams_simulators(&self) -> bool {
+        self.available() && !self.no_simulators
     }
 
     /// Tabs with a running host (tests and diagnostics).
@@ -191,15 +206,18 @@ pub async fn serve(
     sender: &ChannelSender,
     receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    if !config.available() {
-        return Err(Refusal::new("no_surface_host", "this Mac does not stream simulator tabs"));
-    }
     let tab = args.get("tab").and_then(Value::as_str).unwrap_or_default();
     if let Some(surface) = surface_of(tab) {
+        if !config.streams_simulators() {
+            return Err(Refusal::new("no_surface_host", "this Mac does not stream simulator tabs"));
+        }
         if !tabs.is_phone_tab(surface).await {
             return Err(Refusal::new("forbidden", "that tab is not a phone tab on this Mac"));
         }
     } else if let Some((machine_id, team_id)) = cloud_desktop_of(tab) {
+        if !config.available() {
+            return Err(Refusal::new("no_surface_host", "this Mac does not stream Cloud desktops"));
+        }
         let snapshot =
             request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
         cloud_desktop_access(snapshot.links, machine_id, team_id)?;
@@ -215,7 +233,12 @@ pub async fn serve(
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
     let result = crate::browser::splice(claim, None, filter_frame, None, peer, sender, receiver, track).await;
-    config.hosts.release(tab, viewer).await;
+    if cloud_desktop_of(tab).is_some() {
+        // A Cloud desktop's source holds a VNC session to the machine: it ends with its viewer.
+        config.hosts.release_and_stop(tab, viewer).await;
+    } else {
+        config.hosts.release(tab, viewer).await;
+    }
     result
 }
 

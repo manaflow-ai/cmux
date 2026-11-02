@@ -97,6 +97,7 @@ public final class IPhoneHostService {
             stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
+        launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
         return launch

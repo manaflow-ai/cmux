@@ -86,14 +86,17 @@ public final class CloudDesktopSurfaceSources {
                 return
             }
         }
+        // Recorded before the start's await: a stop that arrives meanwhile (hostd's surface_stop or
+        // a restart's stopAll) stops this server, and the start then fails instead of orphaning it.
+        running[tab] = (server, watch)
         do {
             let port = try await server.start()
-            guard server.isRunning else { throw Failure.asleep }
-            running[tab] = (server, watch)
+            guard server.isRunning, running[tab]?.server === server else { throw Failure.asleep }
             logger.info("cloud desktop source for \(granted.label, privacy: .public) on port \(port, privacy: .public)")
             return (port, server.secret)
         } catch {
             watch.cancel()
+            if running[tab]?.server === server { running[tab] = nil }
             // hostd hears the failure; no surface_gone for a source it never got.
             server.onEnd = nil
             server.stop()

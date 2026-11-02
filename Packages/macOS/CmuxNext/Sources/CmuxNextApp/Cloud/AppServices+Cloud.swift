@@ -161,13 +161,13 @@ extension AppServices {
             guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
             return try await self.phoneCloudDesktop(target)
         }
-        let isDesktop = { (tab: String) in CloudDesktopSurfaceSources.target(of: tab) != nil }
         return MobileHostSurfaceClosures(start: { tab, onExit in
-            if isDesktop(tab) { return try await desktops.start(tab: tab, onExit: onExit) }
+            if CloudDesktopSurfaceSources.target(of: tab) != nil { return try await desktops.start(tab: tab, onExit: onExit) }
             guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
             return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in if isDesktop(tab) { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) } },
-        stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() })
+        }, stop: { tab in
+            if CloudDesktopSurfaceSources.target(of: tab) != nil { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) }
+        }, stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
     }
 
     /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
@@ -203,7 +203,8 @@ extension AppServices {
             guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, user: user))
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket,
+                                              cachedOwner: link.ownership.callerOwnsVM ? true : nil, user: user))
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
