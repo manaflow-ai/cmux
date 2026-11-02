@@ -53,7 +53,16 @@ struct NewTabSpareContextTests {
             @MainActor func keyCwd() -> String? {
                 focused().flatMap { NewTabPage.page(services, selected: $0.selectedTab, window: window, pane: $0, paletteActions: false).cwd }
             }
-            try await PasswordManagerRouteTests.until({ controller.state.workspaceID == workspace && keyCwd() != nil }, report: {
+            // The workspace's terminal pane gets the focus: a docked agent chat column can hold it (fleet run d87741821d15:
+            // the focused pane showed a conversation, so the page had no folder).
+            @MainActor func terminalPane() -> PaneController? {
+                controller.content?.panes.values.first { pane in pane.selectedTab.map { "\($0.kind)" == "terminal" } ?? false }
+            }
+            try await PasswordManagerRouteTests.until({
+                guard controller.state.workspaceID == workspace, let pane = terminalPane() else { return false }
+                if focused() !== pane { controller.focus.send(.focusPane(pane.paneKey, source: .intent)) }
+                return focused() === pane && keyCwd() != nil
+            }, report: {
                 "shows \(controller.state.workspaceID ?? "nil"), selected \(focused()?.selectedTab.map { String(describing: $0.kind) } ?? "nil"), "
                     + "tab cwd \(focused()?.selectedTab?.cwd ?? "nil"), page cwd \(keyCwd() ?? "nil")"
             })
