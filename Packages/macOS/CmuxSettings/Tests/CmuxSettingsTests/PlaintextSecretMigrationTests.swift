@@ -301,6 +301,39 @@ struct PlaintextSecretMigrationTests {
         #expect(!text.contains(#"\/"#))
     }
 
+    @Test func leavesRestOfFileUnchangedWhenScrubbing() throws {
+        let url = makeConfig("""
+        {
+            "zoom": 1.5,
+          "automation": {
+            "portBase": 9100,
+            "socketPassword": "secret"
+          },
+          "greeting": "line\\nnext caf\\u00e9",
+          "alpha":   true
+        }
+        """)
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .migratedAndScrubbed)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text == """
+        {
+            "zoom": 1.5,
+          "automation": {
+            "portBase": 9100
+          },
+          "greeting": "line\\nnext caf\\u00e9",
+          "alpha":   true
+        }
+        """)
+    }
+
     @Test func keepsSymlinkedConfigWhenScrubbing() throws {
         let fileManager = FileManager.default
         let dotfiles = fileManager.temporaryDirectory
