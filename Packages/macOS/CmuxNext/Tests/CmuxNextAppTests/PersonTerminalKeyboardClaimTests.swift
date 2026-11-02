@@ -297,4 +297,30 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(replayed == ["b", "c"], "the keys typed for the second creation were not run, in order: \(replayed)")
         }
     }
+
+    /// The person's new workspace replied but the window never shows it; the person clicks, then asks for another creation
+    /// and types. The left workspace no longer holds the hold open: the keys run as soon as that creation lands, not at the
+    /// hold's limit (review of #32148, note 1: they waited up to 2 s for a workspace the person left).
+    @Test func aLeftWorkspaceThatNeverShowsDoesNotDelayALaterCreationsKeys() async throws {
+        var replayed: [String] = []
+        try await Self.withWindow(replay: { event, _, _ in replayed.append(event.characters ?? "") }) { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .seconds(8)
+            let workspace = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new workspace opened no key hold")
+            coordinator.resolve(workspace, landed: true, workspace: "never-shown", in: h.window) // it replied; it never shows
+            let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 300, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
+                                                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            coordinator.personActed(in: h.window, event: click)
+            let tab = try #require(coordinator.begin(in: h.window, generation: h.controller.focus.beginIntent()), "the second creation opened no hold")
+            for (characters, code) in [("b", UInt16(11)), ("c", UInt16(8))] {
+                _ = router.interceptKeyDown(try Self.key(characters, keyCode: code, in: h.window), in: h.window)
+            }
+            coordinator.resolve(tab, landed: true, in: h.window)
+            try await PasswordManagerRouteTests.until({ replayed == ["b", "c"] }, within: .seconds(2), report: {
+                "the keys of the creation after the click waited for the left workspace (hold limit 8 s): \(replayed)"
+            })
+        }
+    }
 }

@@ -423,7 +423,7 @@ impl Mux {
         let entries = self
             .agent_roster
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .roster
             .entries
             .iter()
@@ -443,7 +443,7 @@ impl Mux {
         let entry = self
             .agent_roster
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .roster
             .entries
             .get(terminal_id.as_str())

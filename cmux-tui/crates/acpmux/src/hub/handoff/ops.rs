@@ -400,8 +400,8 @@ impl Hub {
         let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
         let web = control == crate::hub::Control::Web;
-        let cloud_mobile = web
-            && p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile");
+        let cloud_mobile =
+            web && p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile");
         // A start refused before delivery kept its promptId for the retry.
         let prompt_id = text_param(p, "promptId")
             .or(r.prompt_id.as_deref())

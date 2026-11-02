@@ -259,6 +259,47 @@ import os
         #expect(waiting.content.alphaValue == 1)
     }
 
+    /// Issue #32274: under STRESS, 3 of 20 reopens had a visible pane that showed no saved frame (an empty pane until
+    /// its live content). At the quit before, that pane still showed its frame ahead of its surface (the surface had not
+    /// come, so it had no session), and the quit replaced the saved frames with the sessions' frames only: it removed
+    /// the frame of a pane on screen. A pane still waiting for its surface at a quit keeps the frame it shows.
+    @Test func aPaneStillWaitingForItsSurfaceAtQuitKeepsItsFrameForTheNextLaunch() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal), next = WaitingPane(reveal: reveal)
+        defer { for pane in [waiting, next] { pane.window.close() } }
+        waiting.window.orderFrontRegardless()
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        try #require(frames.showAhead("tab-1", in: waiting.content, reveal: reveal))
+        // The app quits before the pane's surface comes: no session shows the pane yet.
+        await frames.save([:])
+        #expect(await Self.launch(directory).showAhead("tab-1", in: next.content, reveal: reveal),
+                "the quit removed the frame of a pane on screen: the next launch shows that pane empty")
+    }
+
+    /// Review of #32372 (P3): a pane that asked ahead of its surface while the launch read still ran gets its frame
+    /// when the read ends; a quit before then must not remove that frame either.
+    @Test func aPaneThatAskedAheadBeforeTheReadEndedKeepsItsFrameAtQuit() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal), next = WaitingPane(reveal: reveal)
+        defer { for pane in [waiting, next] { pane.window.close() } }
+        waiting.window.orderFrontRegardless()
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.showAhead("tab-1", in: waiting.content, reveal: reveal), "it shows nothing before the read ends")
+        // The app quits while the read still runs: no session shows the pane.
+        await frames.save([:])
+        probe.release()
+        await read.value
+        #expect(await Self.launch(directory).showAhead("tab-1", in: next.content, reveal: reveal),
+                "the quit removed the frame of a pane waiting for the read: the next launch shows that pane empty")
+    }
+
     /// The reopen number is the LAST terminal of the first window frame to show its frame, never the first; a terminal
     /// that never shows one leaves it unset.
     @Test func theLaunchNumberIsTheLastPaneAndOnlyOnceEveryPaneShowed() async throws {

@@ -48,6 +48,10 @@ extension CloudService {
             await onSent()
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
+        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
+        // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
+        // Every attempt asks with its own key: a same-key retry would replay a failed ensure.
+        _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user)
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
         do {
@@ -96,7 +100,7 @@ extension CloudService {
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
     /// call, and `team` is the team its approvals are answered for.
     private func appServerFlow(team: String, run: @escaping CloudAppOp) -> CloudMachineCreateFlow {
-        let approvals = CloudApprovalAnswer(call: sessionCall())
+        let approvals = CloudApprovalAnswer(call: sessionCall()) { [approvalHolds] in await approvalHolds.isAnswered($0, team: $1) }
         return CloudMachineCreateFlow(
             run: run,
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },

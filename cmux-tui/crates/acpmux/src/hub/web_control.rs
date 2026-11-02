@@ -274,10 +274,7 @@ impl Hub {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control)
                 .and_then(|()| {
-                    if cloud_mobile
-                        && control == Control::Web
-                        && !self.cloud_mobile_mode_asks(&m)
-                    {
+                    if cloud_mobile && control == Control::Web && !self.cloud_mobile_mode_asks(&m) {
                         return Err(RpcError::invalid_params(
                             "Cloud mobile requires an asking mode (default, plan or ask)",
                         ));
@@ -636,7 +633,8 @@ mod mode_write_tests {
             "schema": crate::store::META_SCHEMA, "id": "codex-test", "name": "codex",
             "harness": "codex", "family": "codex", "cwd": "/tmp", "status": "running",
             "createdAt": 1, "updatedAt": 2, "modes": {"currentModeId": "ask"},
-        })).expect("codex metadata");
+        }))
+        .expect("codex metadata");
         assert!(!hub.cloud_mobile_mode_asks(&codex), "codex is not a Claude phone profile");
 
         let mut bridge_cfg: Config = serde_json::from_value(json!({
@@ -645,8 +643,8 @@ mod mode_write_tests {
         }))
         .expect("bridge config");
         bridge_cfg.store.mode = StoreMode::Memory;
-        let bridge_store = crate::store::open(&bridge_cfg.store, Path::new("/nonexistent"))
-            .expect("bridge store");
+        let bridge_store =
+            crate::store::open(&bridge_cfg.store, Path::new("/nonexistent")).expect("bridge store");
         let bridge_hub = Hub::new(bridge_cfg, bridge_store);
         let bridge_meta: crate::store::SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "bridge-test", "name": "codex",

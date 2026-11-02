@@ -937,7 +937,8 @@ impl Hub {
                         next.get("turnId") == e.msg.get("turnId")
                             && next.get("control").and_then(Value::as_str) == Some("web")
                     });
-                    work.cloud_mobile_turn = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
+                    work.cloud_mobile_turn =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     work.turn = Some((
                         e.seq,
                         field("turnId"),
