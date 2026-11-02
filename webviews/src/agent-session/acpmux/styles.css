@@ -138,7 +138,10 @@
 .acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
 .acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
-.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
+/* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
+   icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
+   14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
+.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .acpmux-menu .ui-menu-check{color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
@@ -919,6 +922,9 @@ fieldset.acpmux-question[hidden]{display:none}
    A column: the search field, then the list, which is the scroller, so the field never scrolls away
    or fades with the rows. */
 .acpmux-palette-menu{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow:hidden}
+/* The palette deliberately removes the popup's outer padding, so its rows put the shared icon
+   column back at the popup edge instead of subtracting the absent padding token. */
+.acpmux-palette-menu .acpmux-menu-item { padding-inline: var(--cmux-menu-icon-x); }
 .acpmux-palette-menu{animation:none!important;transition:none!important}
 .acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
 .acpmux-palette-search{flex:none;padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border)}
