@@ -14,9 +14,9 @@
 //   (reply-footer.test.ts);
 // - every row with a leading icon (a tool row, a subagent's end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
-// - each status row between two replies has the same room above it as every other, and the same
-//   below; the room above is the reply's kept room (model.ts `keepsReplyRoom`), 26px more than below
-//   (design/chat-transcript.md "Rows between replies").
+// - each status row between two replies has the block gap above it and below it (design/grid.md 5.5:
+//   `--grid-gap-block` "24 | any two transcript blocks", and "Gaps never add up": the stack owns the
+//   gap, so #30865's 26px of reply room over a status row is 0 on the grid since #27580).
 //
 // CMUX_ROW_ALIGNMENT_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes each theme's
 // 2x stills and measurements to DIR.
@@ -36,11 +36,6 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   ];
   /** How far apart two edges may be, in CSS px. */
   const TOLERANCE = 0.5;
-  /**
-   * How much more room a status row has above than below when a reply is over it: the reply's kept
-   * room (`--cv-reply-room`, 36px) against the plain share it replaces over a status row (10px).
-   */
-  const REPLY_ROOM_EXTRA = 26;
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -71,7 +66,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   type Lead = { kind: string; label: string; ink: number };
   type Iconed = { kind: string; label: string; slot: number; slotWidth: number; text: number };
   type Gap = { kind: string; label: string; above: number; below: number };
-  type Measured = { leads: Lead[]; iconed: Iconed[]; gaps: Gap[] };
+  type Measured = { leads: Lead[]; iconed: Iconed[]; gaps: Gap[]; blockGap: number };
 
   const measure = (page: Page): Promise<Measured> =>
     page.evaluate(() => {
@@ -165,13 +160,19 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           });
         }
       }
-      return { leads, iconed, gaps };
+      // The block gap, read from the live token (design/grid.md 5.5, --grid-gap-block).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-gap-block)";
+      (document.querySelector(".acpmux-row") ?? document.body).appendChild(probe);
+      const blockGap = probe.getBoundingClientRect().height;
+      probe.remove();
+      return { leads, iconed, gaps, blockGap };
     });
 
   const px = (value: number) => `${Math.round(value * 100) / 100}px`;
 
   /** What breaks the shared left edge or the centred gaps, as sentences; empty when the rows keep them. */
-  const problems = ({ leads, iconed, gaps }: Measured) => {
+  const problems = ({ leads, iconed, gaps, blockGap }: Measured) => {
     const found: string[] = [];
     for (const item of leads)
       if (Math.abs(item.ink) > TOLERANCE)
@@ -189,14 +190,13 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           `the ${item.kind} row "${item.label}"'s words start at ${px(item.text)}, the first iconed row's at ${px(text)}`,
         );
     }
-    // A status row under a reply is not centred: the reply keeps the room its action row took on
-    // 2026-10-30 (model.ts `keepsReplyRoom`, `--cv-reply-room`; Leo, 2026-11-01: "i like this spacing
-    // kinda i prefer it to what we have now"), so the room above is that much more than the room below.
-    // Each side is still one size for every status row.
+    // A status row between two replies takes the block gap on both sides (design/grid.md 5.5, "block
+    // 24" between any two transcript blocks; "Gaps never add up", so no reply room adds to it).
+    if (!(blockGap > 0)) found.push(`the block gap token --grid-gap-block resolved to ${px(blockGap)}`);
     for (const gap of gaps)
-      if (Math.abs(gap.above - gap.below - REPLY_ROOM_EXTRA) > TOLERANCE)
+      if (Math.abs(gap.above - blockGap) > TOLERANCE || Math.abs(gap.below - blockGap) > TOLERANCE)
         found.push(
-          `the ${gap.kind} row "${gap.label}" has ${px(gap.above)} above it and ${px(gap.below)} below it, not ${REPLY_ROOM_EXTRA}px more above`,
+          `the ${gap.kind} row "${gap.label}" has ${px(gap.above)} above it and ${px(gap.below)} below it, not the ${px(blockGap)} block gap on both sides`,
         );
     for (const side of ["above", "below"] as const) {
       const sizes = gaps.map((gap) => gap[side]);
