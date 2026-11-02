@@ -336,10 +336,15 @@ final class ClassicUpgradeSimulator {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
+    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces), workspace ids
+    /// in the order shown. On the sidebar document a pinned workspace lists in the Pinned band, not in its machine section.
     func windows() -> [[[String]]] {
-        services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        let pinned = services.sidebarDoc.store?.shown?.layout.sections.first { $0.id.rawValue == SidebarDocStore.pinnedSection }?
+            .items.compactMap { refs.workspaceID(for: $0.ref) } ?? []
+        return services.windows.registry.value.windows.map { window in
+            let members = Set(window.workspaceIDs)
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -350,7 +355,7 @@ final class ClassicUpgradeSimulator {
                     }
                 }
                 return [loose] + groups
-            }
+            } + [pinned.filter(members.contains)]
         }
     }
 
