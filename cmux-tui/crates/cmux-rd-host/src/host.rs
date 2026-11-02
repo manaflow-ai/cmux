@@ -3,6 +3,7 @@
 //! with `stream.rs`. One viewer at a time in phase 1.
 
 use crate::args::Opts;
+use crate::carrier::SocketCarrier;
 use crate::clock::now_ns;
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL};
@@ -21,15 +22,15 @@ const DEFAULT_DISPLAY: &str = ":99";
 const DEFAULT_DISPLAY: &str = "main";
 /// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
 #[cfg(target_os = "linux")]
-const DEFAULT_CODEC: &str = "openh264";
+pub(crate) const DEFAULT_CODEC: &str = "openh264";
 #[cfg(target_os = "macos")]
-const DEFAULT_CODEC: &str = "videotoolbox";
+pub(crate) const DEFAULT_CODEC: &str = "videotoolbox";
 /// X apps draw one change with several requests, so the Linux host waits briefly for the
 /// rest; ScreenCaptureKit delivers whole composited frames, so the macOS host never waits.
 #[cfg(target_os = "linux")]
-const DEFAULT_SETTLE_US: u64 = 1000;
+pub(crate) const DEFAULT_SETTLE_US: u64 = 1000;
 #[cfg(target_os = "macos")]
-const DEFAULT_SETTLE_US: u64 = 0;
+pub(crate) const DEFAULT_SETTLE_US: u64 = 0;
 
 pub fn run(opts: &Opts) -> Res<()> {
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
@@ -383,8 +384,8 @@ fn stream_session(
         Some(p) => DatagramOut::Udp { sock: udp.try_clone()?, peer: SocketAddr::new(peer_ip, p) },
         None => DatagramOut::Stream,
     };
-    let carrier = if udp_port.is_some() { "udp" } else { "stream" };
-    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps, sink)?;
+    let carrier_name = if udp_port.is_some() { "udp" } else { "stream" };
+    let mut media = MediaSession::open(cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     write_control(
         stream,
@@ -393,13 +394,14 @@ fn stream_session(
             width,
             height,
             max_datagram,
-            carrier: carrier.into(),
+            carrier: carrier_name.into(),
             service: negotiated.service.clone(),
             caps: negotiated.caps.clone(),
         },
     )?;
     write_control(stream, &Control::Started { session })?;
-    let reason = media.run(stream, reader, udp, table, session, principal);
+    let mut carrier = SocketCarrier::new(stream, reader, udp, out);
+    let reason = media.run(&mut carrier, table, session, principal);
     media.release_input();
     media.close_upstreams();
     Ok(reason)

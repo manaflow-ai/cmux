@@ -395,6 +395,21 @@ struct AgentPaneDictationAudioTests {
         #expect(payload["audio"] == nil)
         #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audioOmitted"] == nil)
     }
+
+    @Test func finalTextCallbackExcludesVolatileHypotheses() async throws {
+        let engine = ScriptedDictationTranscriber()
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { _ in engine })
+        var finals: [String] = []
+        session.onFinalText = { finals.append($0) }
+        session.start()
+        try await waitFor { session.phase == .listening }
+        engine.emit(.partial("hel"))
+        engine.emit(.final("hello"))
+        engine.emit(.partial("wor"))
+        session.stop()
+        try await waitFor { session.phase == .idle }
+        #expect(finals == ["hello", " wor"])
+    }
 }
 
 private nonisolated struct GrantedDictationAuthorizer: DictationAuthorizing {
@@ -427,6 +442,25 @@ private nonisolated final class LongRecordingTranscriber: SpeechTranscribing, @u
             heard = true
         }
         return stream
+    }
+
+    func finishTranscribing() async {
+        lock.withLock { continuation }?.finish()
+    }
+}
+
+private nonisolated final class ScriptedDictationTranscriber: SpeechTranscribing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+
+    func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: DictationTranscriptionEvent.self, throwing: (any Error).self)
+        lock.withLock { self.continuation = continuation }
+        return stream
+    }
+
+    func emit(_ event: DictationTranscriptionEvent) {
+        lock.withLock { continuation }?.yield(event)
     }
 
     func finishTranscribing() async {

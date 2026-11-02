@@ -35,7 +35,7 @@ export function FontPicker({
   /** Writes the choice (null resets); the live preview ends once the returned promise settles. */
   onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted family while the list is open; null when it closes or rests on the default. */
-  onPreview(name: string | null): void;
+  onPreview(name: string | null, owner?: object): void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -45,6 +45,7 @@ export function FontPicker({
   // 400 ms would do nothing.
   const closedAt = useRef(Number.NEGATIVE_INFINITY);
   const showing = useRef<string | null>(null);
+  const owner = useRef<object | null>(null);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelDwell = () => {
     if (dwell.current !== null) clearTimeout(dwell.current);
@@ -53,15 +54,27 @@ export function FontPicker({
   const preview = (name: string | null) => {
     cancelDwell();
     if (name === showing.current) return;
+    // No preview left to show: end the one in effect under its own owner.
+    if (name === null) return end();
     showing.current = name;
-    onPreview(name);
+    owner.current = {};
+    onPreview(name, owner.current);
   };
-  const end = useRef(() => {});
-  end.current = () => {
-    cancelDwell();
-    if (showing.current !== null) preview(null);
+  // A save that settles late passes the owner it started under: a newer preview (and the pointer's
+  // pending dwell in a reopened list) belongs to someone else and is left alone.
+  const end = (expectedOwner?: object) => {
+    if (expectedOwner !== undefined && owner.current !== expectedOwner) return;
+    if (expectedOwner === undefined) cancelDwell();
+    if (showing.current !== null) {
+      const currentOwner = owner.current;
+      showing.current = null;
+      owner.current = null;
+      onPreview(null, currentOwner ?? undefined);
+    }
   };
-  useEffect(() => () => end.current(), []);
+  const endOnUnmount = useRef(() => {});
+  endOnUnmount.current = () => end();
+  useEffect(() => () => endOnUnmount.current(), []);
   const highlight = (name: string | undefined, by: "keyboard" | "pointer" | "none") => {
     const target = name && name !== DEFAULT_FONT_ROW ? name : null;
     if (by === "keyboard") return preview(target);
@@ -77,7 +90,7 @@ export function FontPicker({
   const close = () => {
     cancelDwell();
     dismiss();
-    preview(null);
+    end();
   };
   useEffect(() => {
     if (disabled && open) close();
@@ -87,8 +100,11 @@ export function FontPicker({
     cancelDwell();
     dismiss();
     const chosen = name === DEFAULT_FONT_ROW ? null : names.includes(name) ? name : undefined;
-    if (chosen === undefined || chosen === value) return preview(null);
-    void Promise.resolve(onPick(chosen)).finally(() => preview(null));
+    if (chosen === undefined || chosen === value) return end();
+    const pickOwner = owner.current;
+    void Promise.resolve(onPick(chosen)).finally(() => {
+      if (pickOwner) end(pickOwner);
+    });
   };
   const { rows, recent: recentRows } = fontRows({ names, recent, query });
   return (

@@ -265,6 +265,21 @@ approving review from a call owner in `.github/defaults-call-owners.json` other 
 author. A new setting whose default is off (false, null, `off`, `never`, `none`,
 `disabled` or empty) keeps what everyone had before it existed and passes on its own.
 
+## Warm sources
+
+Every compile, build or test job names the warm state it starts from in
+`.github/warm-sources.json`, beside the tiers above: kept DerivedData
+(`deriveddata-reuse`), the per-mini SwiftPM scratch (`spm-shared`), the fleet
+compiler-CAS nodes (`ssd-cas`), the DEV CAS seed (`dev-cas`), actions/cache on
+Blacksmith (`actions-cache`), the controller's warm Linux lanes (`linux-pool-warm`)
+and green-product reuse for the same tree (`product-reuse`). A job with none says
+why (`exempt`); one that compiles cold today says `cold: ...` until its cache is wired.
+`tests/test_ci_warm_sources.py` (release-notary guards) fails on a compile job missing
+from the table, an entry with neither, a source the job's steps do not wire, an
+exemption on a job that now wires a source, and an entry for a job that is gone. For
+a new job, `python3 tests/test_ci_warm_sources.py --suggest` prints the entry its
+steps give; each source's `runbook` says how to wire it.
+
 ## Measurements
 
 Before (#17470, a UI-only PR, run 37402420094):

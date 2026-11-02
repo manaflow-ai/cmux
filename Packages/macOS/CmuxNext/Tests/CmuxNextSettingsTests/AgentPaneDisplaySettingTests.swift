@@ -15,6 +15,9 @@ struct AgentPaneDisplaySettingTests {
     }
 
     static let rows: [Row] = [
+        Row(key: "agentPane.display.harnessPlacement", fallback: .string("symbols"),
+            accepted: [.string("symbols"), .string("left"), .string("top"), .string("compact")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
             refused: [.number(100), .number(5000), .string("wide")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
@@ -35,6 +38,11 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
+        // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
+        Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
+            accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
+            accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -48,6 +56,15 @@ struct AgentPaneDisplaySettingTests {
         for value in row.accepted { #expect(descriptor.accepts(value), "\(row.key) accepts \(value)") }
         for value in row.refused { #expect(!descriptor.accepts(value), "\(row.key) refuses \(value)") }
         #expect(SettingsSchema.agentSettableKeys.contains(row.key))
+    }
+
+    @Test func harnessPlacementPreservesAbsenceAndForwardsManagedValueSeparately() {
+        let key = "agentPane.display.harnessPlacement"
+        #expect(AgentPaneDisplaySetting(fileRoot: .object([:])).values[key] == nil)
+        let root: JSONValue = ["agentPane": ["display": ["harnessPlacement": "symbols"]]]
+        let value = AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: .string("left"))
+        #expect(value.values[key] == .string("symbols"))
+        #expect(value.values[key + ".managed"] == .string("left"))
     }
 
     @Test func thePageGetsTheChatKeysAndTheFollowedMarkdownKeysOnly() {
@@ -114,7 +131,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.rail.side",
+        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

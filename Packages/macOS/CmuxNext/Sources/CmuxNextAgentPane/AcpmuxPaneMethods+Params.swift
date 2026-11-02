@@ -23,7 +23,8 @@ nonisolated extension AcpmuxPaneMethods {
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
         "_acpmux/watch": (["enabled", "limit"], []),
-        "_acpmux/sessions": (["limit", "cursor"], []),
+        // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
+        "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
@@ -36,7 +37,7 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -70,11 +71,18 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
+        "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
+        // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
+        // `queue.stale` on another one; direct.ts answerHeld names both).
+        "_acpmux/queue_approve": (["sessionId", "promptId", "turnId", "revision"], []),
+        "_acpmux/queue_decline": (["sessionId", "promptId"], []),
+        "_acpmux/queue_get": (["sessionId", "promptId"], []),
         // `images`: an edit's kept image ids (acpmux attachment ids the queue lists); it names only
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
@@ -100,6 +108,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
+        "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
@@ -109,6 +119,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
+        // A Cloud chat's sign-in (cloudAgentLogin.ts): `agent` is `claude` or `codex`; `code` is
+        // Claude's pasted code, `key` an API key, both kept out of every log; `sessionId` the chat.
+        "_acpmux/agent_login/start": (["agent", "sessionId"], []),
+        "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
+        "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
+        "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),

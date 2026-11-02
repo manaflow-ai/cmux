@@ -1,0 +1,104 @@
+{
+  "family": "manaflow_ai.standup",
+  "owner": "app:manaflow-ai/standup",
+  "operations": [
+    {
+      "name": "manaflow_ai.standup.add",
+      "owner": "app:manaflow-ai/standup",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "cli": {
+        "path": "add",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": {
+          "en": "Standup: Add Note",
+          "ja": "スタンドアップ: メモを追加"
+        }
+      },
+      "docs": "Add one line to today's standup notes.",
+      "since": "manaflow_ai.standup/1",
+      "export": "add"
+    },
+    {
+      "name": "manaflow_ai.standup.list",
+      "owner": "app:manaflow-ai/standup",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": {
+          "en": "Standup: List Notes",
+          "ja": "スタンドアップ: メモを一覧表示"
+        }
+      },
+      "docs": "List the standup notes, oldest first.",
+      "since": "manaflow_ai.standup/1",
+      "export": "list"
+    },
+    {
+      "name": "manaflow_ai.standup.clear",
+      "owner": "app:manaflow-ai/standup",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "clear",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": {
+          "en": "Standup: Clear Notes",
+          "ja": "スタンドアップ: メモを消去"
+        }
+      },
+      "docs": "Delete every standup note.",
+      "since": "manaflow_ai.standup/1",
+      "export": "clear"
+    }
+  ]
+}

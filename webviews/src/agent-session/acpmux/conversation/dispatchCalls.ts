@@ -126,10 +126,13 @@ function statusFromTool(tool: Tool): string | undefined {
   return tool.status || undefined;
 }
 
+/// A plain-text output as the report's text, whole: the card's panel scrolls a long one (Leo,
+/// ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND
+/// WHAT WAS SAID TO SEE"). The line shows only its first line (DispatchCard.tsx `messagePreview`).
 function outputSummary(value: string | undefined): string | undefined {
   const text = value?.trim();
   if (!text || text.startsWith("{") || text.startsWith("[")) return undefined;
-  return text.length > 2_000 ? `${text.slice(0, 1_997)}…` : text;
+  return text;
 }
 
 function parseJSON(value: string | undefined): unknown {

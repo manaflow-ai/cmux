@@ -42,7 +42,7 @@ pub(crate) fn read_scratch_objects(
     overrides: &[Override],
     objects: &Path,
     args: &[&str],
-    address_space_limit: u64,
+    memory_limit: u64,
 ) -> Result<Option<Vec<u8>>, String> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -59,7 +59,7 @@ pub(crate) fn read_scratch_objects(
         READ,
         objects,
         &scratch,
-        Some(address_space_limit),
+        Some(memory_limit),
     );
     let _ = std::fs::remove_dir_all(&scratch);
     let output = match output {

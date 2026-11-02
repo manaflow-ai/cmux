@@ -34,6 +34,17 @@ public struct ProvisionalPane: Sendable, Hashable {
     public private(set) var column: ProvisionalColumn?
     /// Set when the pane opens as a new row below the target's row (New Row, `new-row`).
     public private(set) var row: ProvisionalRow?
+    /// The folder its terminal opens in, when the create names one (the folder it sends): its stand-in tab shows it
+    /// as its title from the key's frame, as the daemon's tab will, so nothing renames the tab when that one arrives
+    /// (RESIZE VIDEOS T1). Nil: the daemon picks the folder; the stand-in shows the placeholder.
+    public private(set) var cwd: String?
+
+    /// This pane, its terminal opening in `cwd` (the create's own folder, ``cwd``).
+    public func opening(in cwd: String?) -> ProvisionalPane {
+        var pane = self
+        pane.cwd = cwd
+        return pane
+    }
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
@@ -41,11 +52,11 @@ public struct ProvisionalPane: Sendable, Hashable {
     }
 
     /// A fresh provisional terminal pane that opens as a new column (New Column): `width` is its
-    /// viewport fraction; `widths` and `treeWidth` are the width changes it brings
-    /// (``ProvisionalColumn``); `left` opens it before the target's column (New Column Left).
-    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil, left: Bool = false) {
+    /// viewport fraction; `left` opens it before the target's column (New Column Left). The
+    /// columns there keep their widths (R3b).
+    @MainActor public init(columnWidth width: Double, left: Bool = false) {
         self.init(tab: nil)
-        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth, left: left)
+        column = ProvisionalColumn(paneHandle: handle, width: width, left: left)
     }
 
     /// A fresh provisional terminal pane that opens as a new row of `height` permille (New Row).

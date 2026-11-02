@@ -19,6 +19,8 @@ export function answerParams(
   item: NeedsYouItem,
   choice: NeedsYouAnswer,
 ): { method: string; params: Record<string, unknown> } | undefined {
+  // A guest's held prompt is answered on its card only (Review goes there): nothing to send.
+  if (item.kind === "held" && item.promptId) return undefined;
   if (item.kind === "held")
     return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
   if (!item.permissionId) return undefined;
@@ -39,7 +41,8 @@ export function useNeedsYou({
   callNative,
   sideSession,
 }: {
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows"> &
+    Partial<Pick<AcpmuxSnapshot, "queue" | "queueApproval">>;
   callNative: CallNative;
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
@@ -53,14 +56,19 @@ export function useNeedsYou({
 } {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
-  const { sessions, asks, sessionId, rows } = snapshot;
+  const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
   const tabs = useAttentionTabs();
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
         ? []
-        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows }, tabs }),
-    [mode, pillOn, sessions, asks, sessionId, rows, tabs],
+        : needsYouItems({
+            sessions,
+            asks: asks ?? [],
+            open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
+            tabs,
+          }),
+    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval, tabs],
   );
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
@@ -79,7 +87,14 @@ export function useNeedsYou({
     }
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
-      else
+      else if (item.promptId) {
+        // The held card itself, focused, so Return approves it once the owner has read it.
+        const card = [...document.querySelectorAll<HTMLElement>(".cv-held[data-held]")].find(
+          (each) => each.getAttribute("data-queued-message") === item.promptId,
+        );
+        card?.scrollIntoView({ block: "center" });
+        card?.focus({ preventScroll: true });
+      } else
         document
           .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
           ?.scrollIntoView({ block: "nearest" });

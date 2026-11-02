@@ -98,15 +98,25 @@ enum BrowserHitHandlers {
             // holds the page, instead of the terminal workspace a switch to an
             // empty space opens.
             try RoomHandlers.create(invocation: ActionInvocation(), context, action: "browser.link.openInNewSpace") { [weak page] room, state in
-                state.enterProfile(room)
-                services.windows.recordSaver.stateDidChange(state)
-                if let page {
-                    services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: state.id, room: room)
-                } else {
-                    try? Self.openWorkspace(url, newWindow: false, window: state.id, room: room, services)
-                }
+                Self.openInNewSpace(url, opener: page, room: room, state: state, services)
             }
         })
+    }
+
+    /// Open Link in New Space, once the space is mirrored: the window enters it only for the workspace claimed in this
+    /// turn (#31658); a link that opens as a plain tab, or nowhere, leaves the window as it is and the empty space goes (#31740).
+    static func openInNewSpace(_ url: URL, opener page: (any BrowserTab)?, room: ProfileID, state: WindowState, _ services: AppServices) {
+        let claimed = Set(services.windows.claims.pending.keys)
+        if let page {
+            services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: state.id, room: room)
+        } else {
+            try? Self.openWorkspace(url, newWindow: false, window: state.id, room: room, services)
+        }
+        guard services.windows.claims.pending.contains(where: { $0.value == state.id && !claimed.contains($0.key) }) else {
+            return services.machines.local.send("delete-profile") { _ = try await $0.deleteProfile(room, moveTo: nil) }
+        }
+        state.enterProfile(room)
+        services.windows.recordSaver.stateDidChange(state)
     }
 
     /// A new workspace whose only tab shows `url` on the default engine.

@@ -23,6 +23,8 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cmux-encode = { path = "../cmux-encode" }
+# The secure link of device hub sessions (`cmux-rd serve`).
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 
@@ -38,7 +40,9 @@ core-graphics = { version = "0.25", features = ["highsierra"] }
 cc = "1"
 
 [features]
-default = ["bench", "openh264"]
+# `cmux-rd serve`: device hub sessions over the secure link (cmux-rd-link).
+link = ["dep:cmux-rd-link"]
+default = ["bench", "openh264", "link"]
 # The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
 # (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
 openh264 = ["cmux-encode/openh264-download"]

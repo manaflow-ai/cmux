@@ -150,8 +150,12 @@ public actor MobileCompatSession {
         workspaceUpdatePending = false
         let tree = try await backend.tree()
         return MobileWorkspaceRows.result(for: tree, selected: selectedWorkspace,
-                                          createdWorkspace: createdWorkspace, createdTerminal: createdTerminal)
+                                          createdWorkspace: createdWorkspace, createdTerminal: createdTerminal,
+                                          hides: hides)
     }
+
+    /// An incognito workspace (`PhoneAccessGate.hidesWorkspace`): the phone never sees or reaches it.
+    nonisolated func hides(_ key: WorkspaceKey) -> Bool { access.hidesWorkspace(key.rawValue) }
 
     private func createWorkspace(_ request: MobileRPCRequest) async throws -> JSONValue {
         let key = try await backend.createWorkspace(name: request.string("title") ?? request.string("name"))
@@ -189,6 +193,8 @@ public actor MobileCompatSession {
         guard let id = request.string("workspace_id"), let key = MobileCompatIDs.workspaceKey(id) else {
             throw MobileRPCError.invalidParams("workspace_id must be a UUID")
         }
+        // An incognito workspace answers as one that does not exist: no close, rename or new terminal.
+        guard !hides(key) else { throw MobileRPCError.notFound("no workspace \(id)") }
         return key
     }
 }

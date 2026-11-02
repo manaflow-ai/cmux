@@ -125,6 +125,7 @@ impl BatchCloseOutcome {
 impl Mux {
     /// Plan, commit, and apply one batch close. Nothing changes unless the
     /// whole set commits; an unknown target changes nothing.
+    #[track_caller]
     pub(crate) fn commit_batch_close(
         &self,
         request: BatchCloseRequest<'_>,

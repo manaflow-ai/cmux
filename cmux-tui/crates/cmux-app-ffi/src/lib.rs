@@ -8,12 +8,10 @@
 //! archive: this crate links their crates, whose `#[unsafe(no_mangle)]`
 //! functions are the archive's exported symbols, over one Rust runtime.
 //! Add a new in-tree C ABI here, never as another static library.
-//! `motion` is cmux-motion's C ABI (the spring step and motion tokens); `chats_mirror` is the
-//! app's mirror of acpmux's chat index (cmux-chats-mirror).
+//! `motion` is cmux-motion's C ABI (the spring step and motion tokens).
 
 pub mod motion;
 
-pub use cmux_chats_mirror::ffi as chats_mirror;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;

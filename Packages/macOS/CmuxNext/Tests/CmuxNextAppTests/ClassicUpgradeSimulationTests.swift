@@ -17,7 +17,7 @@ import Testing
 /// Every launch is the Sparkle update relaunch: classic saved seconds ago, on
 /// quit, and removed its launch sentinel. Timing lines start with
 /// `CLASSIC-SIM` for the fleet log.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeSimulationTests {
     /// The first window shows before the migration's work, whatever classic held.
     static let firstWindowBudget: Duration = .seconds(10)
@@ -282,8 +282,14 @@ struct ClassicUpgradeSimulationTests {
         let background = decoded.windows[0].workspaces.filter { $0.key != selected }.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
         try #require(!background.isEmpty)
         let tabs = { (id: String) in store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty } ?? [] }
+        // `park-tabs` answers before the shells exit: a tab shows dead with `relaunch` once its host exited, a
+        // moment after the run's last park (the quiet window settle() had covered that by chance). Read once
+        // every one has (the daemon's tab-exit events), with a ceiling for a hang, not a budget.
+        let parked = { (id: String) in !tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true } }
+        let parkDeadline = ContinuousClock.now + .seconds(60)
+        while ContinuousClock.now < parkDeadline, !background.allSatisfy(parked) { try? await Task.sleep(for: .milliseconds(20)) }
         for id in background {
-            #expect(!tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true },
+            #expect(parked(id),
                     "\(store.workspace(id: id)?.name ?? id) is not parked: \(tabs(id).map { ($0.dead, $0.relaunch?.onShow) })")
         }
         // Shown: its terminals start, in the same tabs.
