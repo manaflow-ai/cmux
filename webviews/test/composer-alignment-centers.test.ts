@@ -26,7 +26,8 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   const TEXT_GAP = 8;
   /** The one-line box's height, read from the grid's token (schemas/layout-grid/layout-grid.json,
    *  `composer-box` = 2 x `composer-block-inset` + `composer-control`): 10 + 28 + 10 = 48 since #29887
-   *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44. */
+   *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44.
+   *  design/grid.md 5.1's "box | 44 tall for one line (8 + 28 + 8)" row is stale against the token. */
   const BOX_HEIGHT = gridLength("composer-box");
   setDefaultTimeout(180_000);
   try {

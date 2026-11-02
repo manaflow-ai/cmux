@@ -27,8 +27,10 @@ import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-model-quiet.test.ts", async () => {
   setDefaultTimeout(240_000);
-  /** The composer is the frame less the transcript column's edge on each side: --cv-edge is the
-   *  grid's icon box (16) since #27580 (design/grid.md 5.5, the minimum edge is 16; it was 18). */
+  /** The composer is the frame less the transcript column's edge on each side. --cv-edge
+   *  (conversation.css) is var(--grid-icon-box), 16, since #27580; it was 18. design/grid.md 5.5
+   *  Columns: "the minimum edge is 16", and a pane under the column's width "takes 16 on both
+   *  sides and column = pane width - 32". */
   const SIDES = 2 * gridLength("icon-box");
   try {
     await (await chromium.launch({ headless: true })).close();
