@@ -994,6 +994,26 @@ impl Default for TuiConfig {
     }
 }
 
+/// `artifacts` in the config: the agent artifact tools (`acpmux_mcp_artifacts.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactsConfig {
+    /// `enabled`: `false` keeps the artifact tools from every agent. Unset or `true`: they are
+    /// offered whenever this daemon has a cmux sign-in (`meshRelay.tokenCommand`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// `baseUrl`: the cmux-platform origin to use. Taken only when it is a platform Worker
+    /// (https `*.debussy.workers.dev`) or loopback http, so the sign-in goes nowhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+impl ArtifactsConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// `titles` in the config: how a chat its harness never titles gets one.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1237,6 +1257,11 @@ pub struct Config {
     /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    /// `artifacts`: the agent tools that save to and search the person's cmux artifacts
+    /// (`acpmux_mcp_artifacts.rs`). On whenever `meshRelay` holds a cmux sign-in;
+    /// `{"enabled": false}` turns them off, `baseUrl` names another cmux-platform deployment.
+    #[serde(default, skip_serializing_if = "ArtifactsConfig::is_default")]
+    pub artifacts: ArtifactsConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
