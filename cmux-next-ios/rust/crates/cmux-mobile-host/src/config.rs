@@ -390,11 +390,17 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
-        // Supervised: the app streams its phone tabs' simulators when this build
-        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        // Supervised: the app has a surface source (`CMUX_MOBILE_SURFACE_HOSTS=1`): its
+        // phone tabs' simulators when SimulatorKit loads (an app that cannot says
+        // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+                let config = crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
+                    config.without_simulators()
+                } else {
+                    config
+                }
             }
             _ => crate::surface::SurfaceConfig::default(),
         };
