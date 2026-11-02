@@ -45,6 +45,9 @@ class Fake:
         self.heads: dict[int, str | None] = {}
         self.second_jobs: dict[int, list[dict]] = {}
         self.job_reads: dict[int, int] = {}
+        self.cancelled: dict[int, int | None] = {}
+        self.fresh: dict[int, dict] = {}
+        self.pull_error: Exception | None = None
 
     def runs(self, workflow, status, start, end):
         self.calls.append(("runs", workflow, status))
@@ -59,15 +62,21 @@ class Fake:
         return self.jobs_by_run.get(run_id, [])
 
     def pull_head(self, number):
+        if self.pull_error:
+            raise self.pull_error
         return self.heads.get(number, HEAD)
 
     def run(self, run_id):
         self.reads[run_id] = self.reads.get(run_id, 0) + 1
-        done = self.reads[run_id] >= self.settles_after
-        return {"status": "completed" if done else "in_progress", "run_attempt": 1}
+        listed = next((r for runs in self.runs_by_workflow.values() for r in runs if r["id"] == run_id), {})
+        if self.cancelled.get(run_id) is None:
+            return {**listed, **self.fresh.get(run_id, {})}
+        done = self.reads[run_id] - self.cancelled[run_id] >= self.settles_after
+        return {**listed, "status": "completed" if done else "in_progress", "run_attempt": 1}
 
     def cancel(self, run_id):
         self.calls.append(("cancel", run_id))
+        self.cancelled[run_id] = self.reads.get(run_id, 0)
         if self.cancel_error:
             raise self.cancel_error
 
@@ -167,7 +176,32 @@ class Sweep(unittest.TestCase):
         fake.heads[7] = "d" * 40
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [])
-        self.assertTrue(any("moved past" in line for line in lines))
+        self.assertTrue(any("moved on" in line for line in lines))
+
+    def test_a_run_re_run_meanwhile_is_not_cancelled(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.fresh[7] = {"run_attempt": 2}
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [])
+        self.assertTrue(any("moved on" in line for line in lines))
+
+    def test_a_token_that_may_not_read_pull_requests_falls_back_to_the_fresh_run(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.pull_error = RuntimeError("GET /pulls/7: HTTP 403")
+        sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+        fake = Fake({"pr-checks.yml": [run(8)]}, {8: [job("PR size")]})
+        fake.pull_error = RuntimeError("GET /pulls/8: HTTP 403")
+        fake.fresh[8] = {"pull_requests": [{"number": 8, "head": {"sha": "e" * 40}}]}
+        sweep(fake)
+        self.assertEqual(mutations(fake), [])
+
+    def test_a_pull_request_read_that_fails_otherwise_leaves_the_run(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.pull_error = RuntimeError("GET /pulls/7: HTTP 502")
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [])
+        self.assertTrue(any("could not re-read" in line for line in lines))
 
     def test_a_job_a_runner_took_after_the_read_is_not_cancelled(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
@@ -186,6 +220,11 @@ class Sweep(unittest.TestCase):
     def test_a_run_with_a_second_page_of_jobs_is_gated(self):
         jobs = [job("PR size"), {"name": "(jobs past the first page)", "status": "unknown"}]
         self.assertEqual(rescue.verdict(jobs, NOW)[0], "gated")
+
+    def test_jobs_past_the_first_page_stand_in_as_unfinished(self):
+        client = rescue.GitHub("t", "o/r")
+        client.request = lambda method, path: {"total_count": 120, "jobs": [job("PR size")]}
+        self.assertEqual(rescue.verdict(client.jobs(7), NOW)[0], "gated")
 
     def test_a_dry_run_mutates_nothing(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
