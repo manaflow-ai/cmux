@@ -681,7 +681,10 @@ impl AgentTools {
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }
-            if server.name == "cmux"
+            // The `acpmux` server gets the list too: folded, `cmux` filters its
+            // tools by the same names; standalone (cmux off or missing, so no
+            // fold) the server's own filter is the only one (`acpmux_mcp::allowed`).
+            if (server.name == "cmux" || server.name == crate::acpmux_mcp::SERVER_NAME)
                 && let Some(tools) = tools
             {
                 server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
