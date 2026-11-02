@@ -126,6 +126,8 @@ public final class MockAgentSession: AgentSessionSource {
         case .sendQueuedNow(let promptID):
             queued.removeAll { $0.id == promptID }
             emit(.dequeued(promptId: promptID))
+        case .resumeQueue:
+            emit(.queuePaused(false, reason: nil))
         }
     }
 

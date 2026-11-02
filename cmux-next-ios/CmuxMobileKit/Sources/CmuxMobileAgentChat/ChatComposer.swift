@@ -484,11 +484,11 @@ struct ChatComposer: View {
 
     private func send(steer: Bool) {
         // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
-        if attachments.isEmpty, let run = runCmuxCommand, let (command, args) = CmuxSlashCommand.parse(text),
-           cmuxCommands.contains(command) {
+        if attachments.isEmpty, let run = runCmuxCommand, let parsed = CmuxSlashCommand.parse(text),
+           cmuxCommands.contains(parsed.command) {
             let typed = text
             Task { @MainActor in
-                if let refusal = await run(command, args) {
+                if let refusal = await run(parsed.command, parsed.args) {
                     store.clientError = refusal
                 } else if text == typed {
                     text = ""
