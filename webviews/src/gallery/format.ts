@@ -289,6 +289,8 @@ export type CloudPageVariant = VariantBase & {
   ports?: import("../pages/cloud/ops").PortForward[];
   /** Hold one port action after its control is activated to show the busy boundary. */
   pendingAction?: "forward" | "close" | "browser";
+  /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
+  snapshotsFail?: boolean;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
