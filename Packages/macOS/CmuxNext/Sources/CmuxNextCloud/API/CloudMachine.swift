@@ -396,11 +396,12 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var invitation: Invitation?
     /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
-    /// sandboxed; a value of another type fails the attach.
-    public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// sandboxed; a value of another type fails the attach. The word's rules are Rust's
+    /// (cmux-cloud-start-core `vm_kind`).
+    public var callerOwnsVM: Bool { CloudStartCore().vmKind(vmKind).ownsVm }
     /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
     /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
-    public var callerIsTeammate: Bool { vmKind == "team" }
+    public var callerIsTeammate: Bool { CloudStartCore().vmKind(vmKind).teammate }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
