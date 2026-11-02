@@ -2104,7 +2104,9 @@ fn open_splits_and_opens_in_one_call() {
     assert_eq!(result["structuredContent"]["idempotency_key"], "open-viewer-app-key");
     assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
     assert!(
-        result["structuredContent"]["recovery"].as_str().is_some_and(|s| s.contains("inspect")),
+        result["structuredContent"]["recovery"]
+            .as_str()
+            .is_some_and(|s| s.to_ascii_lowercase().contains("inspect")),
         "the pending open needs a usable recovery hint: {result}"
     );
     let sent = uncertain.backend.sent.borrow();
