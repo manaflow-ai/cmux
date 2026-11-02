@@ -25,6 +25,12 @@ extension Dictionary where Key == SurfaceID, Value == String? {
         }
         self = programs
     }
+
+    /// The same, a terminal that gave no answer counted as running its tab title when `unansweredRunsTitle` (a person's
+    /// close: only a confirmed "no program" closes with no question and no undo toast), else as running none.
+    @MainActor public init(_ answers: [SurfaceID: ProcessAnswer], of tabs: [TabModel], unansweredRunsTitle: Bool) {
+        if unansweredRunsTitle { self.init(answers, of: tabs, unanswered: { tab in tab.displayTitle }) } else { self.init(answers, of: tabs, unanswered: nil) }
+    }
 }
 
 /// What a close's read of one live terminal found: its foreground program (nil: its shell only), or no answer in time
