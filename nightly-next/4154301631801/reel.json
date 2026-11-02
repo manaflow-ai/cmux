@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4154301631801",
+  "notes": "notes/4154301631801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32631,
+      "title": "fix(acpmux): expose one-shot session context to hooks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32628,
+      "title": "base red: read agent.openSessionWorkspace arguments in CmuxNextAgentLanes (tip arch red from 31d87826d4b6)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32618,
+      "title": "Cloud Native: log which check refused the link child, and keep the enrollment across a fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32550,
+      "title": "RESIZE KEYS K4 follow-up: a row's minimum rounds up, so no dead row key press (review notes A, B, C of #32471)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32632,
+      "title": "Cloud Native: name the check behind invalidIdentity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32627,
+      "title": "fix(cmux-tui): server ensure replaces an owner whose registry lock is wedged (#32621)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32626,
+      "title": "P0 RESIZE KEYS: a keyboard resize press starts its spring in the key's own turn (first frame in the next refresh)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32615,
+      "title": "chief: Chief-to-Chief messaging on this Mac over acpmux_send, with the sender shown and replies back in the sender's chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28618,
+      "title": "Add a DEBUG capture fixture for native tab-row tools",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
