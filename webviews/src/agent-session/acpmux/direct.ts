@@ -100,6 +100,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -6439,10 +6440,22 @@ export class AcpmuxDirectClient {
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
+  /// A permission mode picked in a chat that starts with its first send (a Cloud or other remote
+  /// machine's, `startsOnSend`) before that send started it: the session the send starts takes it
+  /// before the prompt goes (ensureSession), as a New Tab start's held pick does (harnessSwitch.ts).
+  /// `ticket`: the pick's gesture, taken at the click (pane-native transport). A failed start keeps
+  /// it for the next send; another chat selected before the send drops it.
+  private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
+  holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
+    this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
+      const generation = this.selectionGeneration;
+      if (this.heldStartMode?.generation !== generation) this.heldStartMode = undefined;
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
@@ -6450,6 +6463,28 @@ export class AcpmuxDirectClient {
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
+      // The newest pick for this chat, one made while the start was pending included. It goes to the
+      // session this start made, never the selected one: another chat picked while the ticket is
+      // pending must not take a held Bypass permissions.
+      // create() selects the new session, a new generation: a pick made after that, while this chat
+      // is still the one selected, is also this start's.
+      const pick = this.heldStartMode;
+      const held =
+        pick &&
+        (pick.generation === generation ||
+          (pick.generation === this.selectionGeneration && this.selectedSessionId === sessionId))
+          ? pick
+          : undefined;
+      if (held) {
+        this.heldStartMode = undefined;
+        const ticket = await held.ticket?.catch(() => undefined);
+        // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
+        await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
+          (error: unknown) => {
+            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+          },
+        );
+      }
       return sessionId;
     }
     return this.selectedSessionId;
@@ -6859,6 +6894,11 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
+      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
+      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
+      // so its sender waits for it to show there instead of saying "Not sent" at once.
+      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -6879,7 +6919,8 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error))
+        // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
+        if (held && !isTrustRefusal(error) && !lostPrompt(error))
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
@@ -8473,6 +8514,17 @@ export class AcpmuxDirectClient {
         (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
       )
     );
+  }
+  /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
+  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  private journalsPrompts(blocks: unknown): boolean {
+    if (!this.localOrigin) return false;
+    try {
+      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
+    } catch {
+      return false;
+    }
   }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.

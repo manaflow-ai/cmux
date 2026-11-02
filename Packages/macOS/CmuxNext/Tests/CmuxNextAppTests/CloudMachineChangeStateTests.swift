@@ -109,6 +109,46 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
     }
 
+    /// A machine made for a send reads provisioning (live) before its daemon can answer: a connect
+    /// that failed then is retried once the record runs, and the start waits for running first.
+    @Test(.timeLimit(.minutes(1)))
+    func runningRetriesAnAppLinkThatFailedWhileProvisioning() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "new-machine", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "new-machine"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        #expect(await resolver.attempts == 1)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2, "provisioning -> running did not retry the failed connect")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aStartWaitsForANewMachineToRun() async throws {
+        let services = MachineIconTests.services()
+        let session = CloudMachineSession(machine: CloudMachine(id: "booting", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "booting"), resolver: StartingLinkResolver()),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        var reads = 0
+        session.refresher = { force in
+            #expect(force)
+            reads += 1
+            if reads == 3 { session.machine.status = .running }
+        }
+        await session.untilRunning(pause: { _ in await Task.yield() })
+        #expect(reads == 3 && session.machine.status == .running, "the start stopped reading before the machine ran")
+        reads = 0
+        session.machine.status = .provisioning
+        session.refresher = { _ in reads += 1; session.machine.status = .failed }
+        await session.untilRunning(pause: { _ in await Task.yield() })
+        #expect(reads == 1, "a machine that failed while provisioning is not read again")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func runningBeforeResumeAcknowledgementConnectsWhenPendingClears() async throws {
         let services = MachineIconTests.services()

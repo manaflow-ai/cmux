@@ -456,3 +456,31 @@ fn an_incognito_workspace_named_like_a_key_never_stops_the_phones_typing() {
     assert_eq!(typed["ok"], true, "the phone's Enter must reach a normal terminal: {typed}");
     mux.shutdown();
 }
+
+/// A chat names its workspace by `CMUX_WORKSPACE_ID`, maybe uppercase or
+/// without dashes; the phone's chat relay still finds it incognito
+/// (`mobile_chat::hides_workspace`).
+#[cfg(unix)]
+#[test]
+fn the_chat_relay_hides_an_incognito_workspace_in_any_key_spelling() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let key = |resource: &str| {
+        let rows = listed(&mux, &app);
+        row(&rows, resource).unwrap()["key"].as_str().unwrap().to_string()
+    };
+    let private_key = key(&private);
+    let normal_key = key(&normal);
+    for spelling in [
+        private_key.clone(),
+        private_key.to_uppercase(),
+        private_key.replace('-', ""),
+        private_key.replace('-', "").to_uppercase(),
+    ] {
+        assert!(mobile_chat::hides_workspace(&mux, &spelling), "{spelling}");
+    }
+    assert!(!mobile_chat::hides_workspace(&mux, &normal_key));
+    assert!(!mobile_chat::hides_workspace(&mux, &normal_key.to_uppercase()));
+}
