@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// `debug.motion` `trace_*` (DEBUG builds): one window's animated geometry, sampled on each
@@ -10,7 +11,8 @@ import CmuxNextWakeups
 ///
 /// After `trace_`: `start` (`window`, an index into `windows`, default 0; `targets`, keys
 /// to keep, default all; `window` also keeps `strip`), `stop` (the samples, then idle) or
-/// `read`. Each sample has `t` (ms since the first tick), `window` (`[width, height]`) and
+/// `read`. `stop` and `read` with `path` reply with counts only and write the full report to `path` off the main
+/// thread (use it for long traces: the reply's serialization is main-thread work). Each sample has `t` (ms since the first tick), `window` (`[width, height]`) and
 /// the keys the samplers give for the views they know: `tabs` (`[id, x, width, opacity]` per tab cell),
 /// `strip` (each tab strip's width: the pane content follows it in a live resize) and
 /// `sidebar` (`[width, presented width]`). Every report has `t0_s`, the first tick's host time. `stop` also lists `looping`: animations in the
@@ -61,10 +63,12 @@ final class MotionFrameTrace {
             expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
             return ["running": true, "views": views.count]
         case "stop":
+            if let path = params["path"] as? String { return writeReport(to: path, looping: true, stopping: true) }
             let report = self.report(looping: true)
             stop()
             return report
         default:
+            if let path = params["path"] as? String { return writeReport(to: path, looping: false, stopping: false) }
             return report(looping: false)
         }
     }
@@ -94,6 +98,40 @@ final class MotionFrameTrace {
         }
         samples.append(sample)
         return true
+    }
+
+    /// The serialization of a long trace (700 samples of every pane and divider: 85 ms on the main thread, STATUS
+    /// 4782) runs here, never on the main thread.
+    private let writer = DispatchQueue(label: "debug.motion.trace", qos: .utility)
+
+    /// `stop` or `read` with `path`: the reply is small (counts and the path); the full report is serialized and
+    /// written to `path` off the main thread (`path.tmp`, then renamed, so a reader never sees half a file). The main
+    /// thread only copies the samples (copy-on-write) and reads the window's layers for `looping`.
+    private func writeReport(to path: String, looping: Bool, stopping: Bool) -> [String: Any] {
+        let report = self.report(looping: looping)
+        if stopping { stop() }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let handed = Handed(report)
+        writer.async {
+            guard let data = try? JSONSerialization.data(withJSONObject: handed.value) else { return }
+            let temporary = url.appendingPathExtension("tmp")
+            do {
+                try data.blockingWrite(to: temporary)
+                try? FileManager.checked.removeItem(at: url)
+                try FileManager.checked.moveItem(at: temporary, to: url)
+            } catch {
+                try? FileManager.checked.removeItem(at: temporary)
+            }
+        }
+        return ["path": url.path, "writing": true, "samples": samples.count, "refresh_ms": report["refresh_ms"] ?? 0,
+                "t0_s": first, "running": client?.isActive == true]
+    }
+
+    /// The report handed to the writer queue once; the main actor never touches it again.
+    // crash-allow: a [String: Any] of numbers, strings and arrays the main actor built and no longer mutates.
+    private nonisolated struct Handed: @unchecked Sendable {
+        let value: [String: Any]
+        init(_ value: [String: Any]) { self.value = value }
     }
 
     private func report(looping: Bool) -> [String: Any] {
