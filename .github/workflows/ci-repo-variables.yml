@@ -22,6 +22,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/ci-repo-variables.yml
+      - scripts/ci/check_runner_pool_declaration.sh
       - scripts/ci/check_repo_variables.py
       - scripts/ci/cloud_overflow_switch.py
       - scripts/ci/pr_runner_pool.py
