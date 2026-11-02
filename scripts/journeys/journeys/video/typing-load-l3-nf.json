@@ -1,0 +1,167 @@
+{
+  "id": "typing-load-l3-nf",
+  "priority": "P0",
+  "title": "Typing under load L3: a seeded 2-minute typist (real HID keys) into a terminal (no film)",
+  "why": "Lawrence 2026-11-02: 'video + metric evidence that typing into terminals is never laggy, even when there's a lot of CLI/mcp commands and browser use and browser tabs etc going on in the background'. Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
+  "source": "TYPING UNDER LOAD (lead 02:3xZ)",
+  "budget_seconds": 260,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open"
+    },
+    {
+      "do": "load_stop"
+    },
+    {
+      "do": "env_windows",
+      "at": "end"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "probe_relaunch",
+      "mark": "probed"
+    },
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the typing workspace",
+      "since": "ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo typing-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the typing terminal runs its line",
+      "since": "term",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "typing-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "typing-${nonce}",
+      "as": "typing"
+    },
+    {
+      "do": "echo_start"
+    },
+    {
+      "do": "load_start",
+      "profile": "L3",
+      "seed": 7,
+      "duration": 240,
+      "keep": "typing",
+      "ready_timeout": 90
+    },
+    {
+      "do": "typing_rect",
+      "target": "terminal"
+    },
+    {
+      "do": "probe_mark",
+      "as": "before"
+    },
+    {
+      "do": "typist_play",
+      "seed": 7,
+      "seconds": 120,
+      "from": 0,
+      "to": 60,
+      "label": "typing-load-l3-part1"
+    },
+    {
+      "do": "typist_play",
+      "seed": 7,
+      "seconds": 120,
+      "from": 60,
+      "to": 120,
+      "label": "typing-load-l3-part2"
+    },
+    {
+      "do": "probe_mark",
+      "as": "after"
+    },
+    {
+      "do": "load_stop"
+    },
+    {
+      "do": "expect",
+      "title": "after the typing: the terminal still shows its last typed text (the frame kept)",
+      "since": "term",
+      "timeout": 10,
+      "all": [
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    }
+  ]
+}

@@ -71,7 +71,11 @@ LEASE_SECONDS = 540
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
-                         r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
+                         r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
+                         # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
+                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/flows-\d+\.jsonl"
+                         r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
+                         r"|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
@@ -374,6 +378,10 @@ def kit_tar(specs):
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
         tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(OCR_SOURCE, arcname="ocr.swift")
+        # TYPING UNDER LOAD (ext_load.py): the load tools and the typist/echo programs, from this commit.
+        for folder in ("tui-kit", "typing"):
+            if (HERE / folder).is_dir():
+                tar.add(HERE / folder, arcname=folder, filter=lambda t: None if "__pycache__" in t.name else t)
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
         info.size, info.mode = len(data), 0o644

@@ -24,7 +24,9 @@ Verdict:
     stands on --rounds rounds under pressure; the summary names the replaced rounds.
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
   - A PASS writes no .pass while an open P0 journey (open-p0-journeys.txt) or a golden video case
-    (video-goldens.txt, VIDEO EXTRA item 9) has no PASS, or has a FAIL, on the exact build job.
+    (video-goldens.txt, VIDEO EXTRA item 9) has no PASS, or has a FAIL, on the exact build job, or while the typing
+    rule fails (TYPING UNDER LOAD: no judged L6 run on the build, or one with p95 > 1 / max > 2 refreshes, a lost or
+    merged key; typing-load-results/<JOB>.jsonl).
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
   - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
     creation hold, not at once; every other step is checked and each check's pass count is reported. Never a .pass
@@ -461,6 +463,59 @@ def golden_blockers(job, listing=None):
     return blockers
 
 
+# TYPING UNDER LOAD (Lawrence P0 2026-11-02, lead 02:3xZ): "video + metric evidence that typing into terminals is
+# never laggy". A .pass needs, on the exact build job, at least one judged L6 typing run (every load at once plus the
+# 15 GB hog) whose key-to-photon is at most TYPING_P95 refreshes at p95 and TYPING_MAX at max (120 Hz), with no lost or
+# merged key and the exact order; and no judged L6 run that breaks it. Rows come from typing/ledger.py (one per judged
+# run, after the video judge and keys_check.py) in TYPING_LEDGER/<JOB>.jsonl. Only video-judged rows count (the rule
+# is photon time); a row of a dirty kit, a SMOKE ENV round, or a display that was not 120 Hz never counts.
+TYPING_LEDGER = Path(os.environ.get("SMOKE_GATE_TYPING_LEDGER", "/Users/lawrence/fun/wt/handoff/typing-load-results"))
+TYPING_PROFILE = "L6"
+TYPING_P95 = 1
+TYPING_MAX = 2
+
+
+def typing_row_ok(row):
+    """(counts, breaks, why) of one ledger row."""
+    if row.get("kit_dirty") is not False or row.get("smoke_env") is not False or row.get("source") != "video":
+        return False, False, "not judged (dirty kit, SMOKE ENV, or no video judge)"
+    if abs(float(row.get("refresh_ms") or 0) - 1000 / 120) > 0.35:
+        return False, False, f"display at {row.get('refresh_ms')} ms, not 120 Hz"
+    p95, top = row.get("p95_refreshes"), row.get("max_refreshes")
+    broke = []
+    if p95 is None or p95 > TYPING_P95:
+        broke.append(f"p95 {p95} > {TYPING_P95} refresh")
+    if top is None or top > TYPING_MAX:
+        broke.append(f"max {top} > {TYPING_MAX} refreshes")
+    if row.get("lost") or row.get("merged") or row.get("order_ok") is not True:
+        broke.append(f"keys: lost {row.get('lost')}, merged {row.get('merged')}, order_ok {row.get('order_ok')}")
+    return True, bool(broke), "; ".join(broke)
+
+
+def typing_blockers(job):
+    """[(what, why)] that block a .pass for JOB under the typing rule (empty = the rule holds)."""
+    rows = []
+    try:
+        for text in (TYPING_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job and row.get("profile") == TYPING_PROFILE:
+                rows.append(row)
+    except OSError:
+        pass
+    counted = [(r,) + typing_row_ok(r)[1:] for r in rows if typing_row_ok(r)[0]]
+    broken = [(r, why) for r, broke, why in counted if broke]
+    if broken:
+        r, why = broken[0]
+        return [(f"typing-load {TYPING_PROFILE}", f"{len(broken)} judged run(s) on {job} break the rule, e.g. {r.get('out')}: {why}")]
+    if not counted:
+        return [(f"typing-load {TYPING_PROFILE}", f"no judged {TYPING_PROFILE} typing run on {job} ({len(rows)} row(s); "
+                                                 f"ledger {TYPING_LEDGER})")]
+    return []
+
+
 def build_state(job, deadline, poll=30.0):
     """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
     while True:
@@ -698,11 +753,19 @@ def main(argv=None):
                              + [f"  {line}: {why}" for line, why in goldens])
             (out / "video-goldens.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
-        if blockers or goldens:
+        typing = typing_blockers(opts.build)
+        if typing:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but the typing rule blocks the "
+                              f".pass (p95 <= {TYPING_P95}, max <= {TYPING_MAX} refreshes in {TYPING_PROFILE}, no lost or merged key):"]
+                             + [f"  {line}: {why}" for line, why in typing])
+            (out / "typing-load.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+        if blockers or goldens or typing:
             return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
         summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
+        summary["typing_rule"] = {"profile": TYPING_PROFILE, "p95": TYPING_P95, "max": TYPING_MAX, "ledger": str(TYPING_LEDGER)}
         summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
