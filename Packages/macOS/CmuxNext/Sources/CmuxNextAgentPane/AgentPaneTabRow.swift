@@ -106,4 +106,7 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
+    /// The chat's page paints its surface's background (an `appearance.surfaces.agentPane` color)
+    /// under the header; the pane paints the same behind its tabs, so the row is one fill.
+    public var tabRowSurface: SurfaceKind? { surfaceKind }
 }

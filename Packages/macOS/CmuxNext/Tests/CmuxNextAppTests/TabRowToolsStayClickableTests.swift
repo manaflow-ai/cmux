@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxTheme
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
@@ -14,6 +15,7 @@ import Testing
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
+        var tabRowSurface: SurfaceKind? = .agentPane
         private(set) var shared: CGFloat = 0
         var onTabRowToolsChange: (() -> Void)?
         init(need: CGFloat) {
@@ -61,5 +63,43 @@ import Testing
         }
         // A pane wide enough for the tools shares the row; a narrow one keeps the chat's own header row.
         #expect(chatUnderRow == (CGFloat(width) - pane.toolbarWidth(shown: strip.height) >= chat.need * 2))
+    }
+
+    /// Leo (2026-11-01), on a chat with its own background color (`appearance.surfaces.agentPane`):
+    /// "why is the background STILL not removed". The page painted the chat's color under its tools,
+    /// but the row behind the tabs kept the pane's theme background, a darker band across the top.
+    /// While the chat shares the row, the strip paints the chat's background; otherwise its own.
+    @Test(arguments: [480, 900])
+    func theRowBehindTheTabsTakesTheChatsBackground(width: Int) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let items = (0..<3).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        let chatColor = ThemeRGB(hex: 0x282938)
+        pane.paneScope.setSurfaceBackgrounds(SurfaceBackgrounds(overrides: [.agentPane: SurfaceBackground(color: chatColor, opacity: 1)]))
+        let chat = RowChat(need: 220)
+        _ = pane.show(chat)
+        for _ in 0..<4 {
+            pane.needsLayout = true
+            pane.layoutSubtreeIfNeeded()
+        }
+        let shares = pane.contentHost.frame.minY < pane.stripView.frame.maxY
+        let fill = pane.stripView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+        if shares {
+            let shown = try #require(fill, "the row behind the tabs has no fill while the chat paints its own")
+            #expect(abs(shown.redComponent - chatColor.red) < 0.01 && abs(shown.blueComponent - chatColor.blue) < 0.01,
+                    "the strip paints \(shown), not the chat's \(chatColor)")
+        } else {
+            #expect(fill == nil, "a chat in its own header row leaves the strip clear")
+        }
+        // Nothing sharing the row: the strip is clear again.
+        chat.tabRowSurface = nil
+        pane.needsLayout = true
+        pane.layoutSubtreeIfNeeded()
+        #expect(pane.stripView.layer?.backgroundColor == nil)
     }
 }
