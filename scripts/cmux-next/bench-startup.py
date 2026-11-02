@@ -937,7 +937,7 @@ def seeded_focus(tag):
 
 
 def seeded_marker(tag):
-    return os.path.join(state_directories(tag)[0], "bench-startup-realistic-seedrun3-32274")  # scratch: seed once again
+    return os.path.join(state_directories(tag)[0], "bench-startup-realistic-seedrun4-32274")  # scratch: seed once again
 
 
 def one_run(tag, mode, timeout, profile=None):

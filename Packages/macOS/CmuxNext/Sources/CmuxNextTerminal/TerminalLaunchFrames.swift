@@ -276,6 +276,7 @@ public final class TerminalLaunchFrames {
             return false
         }
         guard let frame = frames[key], !taken.contains(key) else {
+            mark("diag.ahead.\(key).nofr.has\(frames[key] != nil).taken\(taken.contains(key)).open\(launchOpen)")
             noteMissed(key, "no_frame")
             return false
         }
@@ -293,6 +294,7 @@ public final class TerminalLaunchFrames {
             return false
         }
         taken.insert(key)
+        mark("diag.take.ahead.\(key).open\(launchOpen)")
         let view = LaunchFrameView(frame.image, scale: frame.scale, in: content.bounds)
         content.addSubview(view)
         ahead[ObjectIdentifier(content)] = Ahead(key: key, frame: frame, view: view, content: content)
@@ -353,12 +355,15 @@ public final class TerminalLaunchFrames {
                 return false
             }
             guard let found = frames[key], taken.insert(key).inserted else {
+                mark("diag.show.\(key).nofr.has\(frames[key] != nil).open\(launchOpen)")
                 noteMissed(key, "no_frame")
                 return false
             }
+            mark("diag.take.show.\(key).open\(launchOpen)")
             frame = found
         }
         if let missed = takeOver(frame, on: session, in: content) {
+            mark("diag.takeover.\(key).\(missed.split(separator: " ").first ?? "x").holding\(session.frameHold.isHolding).content\(session.surfaceHasContent)")
             // Shown ahead at a size the surface does not have: the pane stays shown (its terminal's background until
             // its first frame), never held clear again: a clear frame after a shown one is a flash.
             noteMissed(key, missed)
