@@ -98,19 +98,30 @@ public final class AppApprovalBroker: Sendable {
     private let schedule: Schedule
 
     public init(client: String, machine: String, timing: Timing = Timing(),
-                now: @escaping Now = { Int64((Date().timeIntervalSince1970 * 1000).rounded(.down)) },
-                schedule: @escaping Schedule = { delay, action in
-                    // task-owner: one bounded deadline per question or waiter; the action is a no-op once answered.
-                    Task.detached(priority: .utility) {
-                        try? await Task.sleep(for: delay)
-                        action()
-                    }
-                }) {
+                now: @escaping Now = AppApprovalBroker.unixMilliseconds,
+                schedule: @escaping Schedule = AppApprovalBroker.runAfter) {
         self.client = client
         self.machine = machine
         self.timing = timing
         self.now = now
         self.schedule = schedule
+    }
+
+    /// Unix milliseconds from the system clock.
+    @Sendable static func unixMilliseconds() -> Int64 {
+        Int64((Date().timeIntervalSince1970 * 1000).rounded(.down))
+    }
+
+    /// Runs `action` after `delay`. A named function, not a default-argument
+    /// closure: a single-expression closure that returns the `Task` where the
+    /// type says `Void` crashed the test process (an 8-byte write past a heap
+    /// buffer under ASan, Xcode 26.6).
+    @Sendable static func runAfter(_ delay: Duration, _ action: @escaping @Sendable () -> Void) {
+        // task-owner: one bounded deadline per question or waiter; the action is a no-op once answered.
+        _ = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: delay)
+            action()
+        }
     }
 
     // MARK: Host link
