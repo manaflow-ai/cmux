@@ -1110,8 +1110,15 @@ export function mergeToolItem(
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
   const locations = readLocations(update.locations) ?? before?.locations;
+  // ACP sends an empty object when an update changes status or output without changing the
+  // call's input. Keep the input from the initial call so a draft command never regresses to
+  // the blank/Thinking state after that update.
+  const hasRawInput =
+    update.rawInput !== undefined &&
+    update.rawInput !== null &&
+    !(objectValue(update.rawInput) && Object.keys(update.rawInput).length === 0);
   // The input's file, from the update that carries the input.
-  const input = update.rawInput ? inputPath(update) : before?.inputPath;
+  const input = hasRawInput ? inputPath(update) : before?.inputPath;
   const placed =
     update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
@@ -1133,7 +1140,7 @@ export function mergeToolItem(
       title: String(update.title ?? update.name ?? before?.title ?? callId),
       kind,
       status,
-      inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
+      inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
