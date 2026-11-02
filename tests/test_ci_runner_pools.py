@@ -119,6 +119,28 @@ class Declared(unittest.TestCase):
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
 
+    def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
+        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
+        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        self.assertEqual(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
+                         {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
+        self.assertTrue(checkout.get("continue-on-error"))
+        [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
+        self.assertTrue(step.get("continue-on-error"))
+        self.assertIn("steps.hosted-light-tooling.outcome == 'success'", str(step.get("if")))
+        self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
+        self.assertEqual(workflow["jobs"]["watch"]["permissions"].get("actions"), "write")
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
+        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+
+
 class Evidence(unittest.TestCase):
     def test_it_reads_the_variable_the_switch_writes(self) -> None:
         import cloud_overflow_switch as switch
