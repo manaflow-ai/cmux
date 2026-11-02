@@ -140,7 +140,7 @@
    "do": "bv_agent",
    "action": "stream",
    "rows": 400,
-   "seconds": 6,
+   "seconds": 3.5,
    "chunk_chars": 24,
    "chunk_ms": 16,
    "note": "stream-1"
@@ -257,7 +257,7 @@
    "do": "bv_agent",
    "action": "stream",
    "rows": 400,
-   "seconds": 6,
+   "seconds": 3.5,
    "chunk_chars": 24,
    "chunk_ms": 16,
    "note": "stream-2"
@@ -374,7 +374,7 @@
    "do": "bv_agent",
    "action": "stream",
    "rows": 400,
-   "seconds": 6,
+   "seconds": 3.5,
    "chunk_chars": 24,
    "chunk_ms": 16,
    "note": "stream-3"

@@ -118,7 +118,7 @@ def agent(load, theme, rounds=3, mbps=60):
                   {"do": "hid_key", "key": "h", "mark": f"type-{r}"}, {"do": "hid_key", "key": "i"},
                   {"do": "hid_key", "key": "return", "mark": f"send-{r}", "title": "send (Return)"},
                   {"do": "wait", "seconds": 0.8},
-                  {"do": "bv_agent", "action": "stream", "rows": 400, "seconds": 6, "chunk_chars": 24, "chunk_ms": 16, "note": f"stream-{r}"},
+                  {"do": "bv_agent", "action": "stream", "rows": 400, "seconds": 3.5, "chunk_chars": 24, "chunk_ms": 16, "note": f"stream-{r}"},
                   {"do": "wait", "seconds": 1.5},
                   {"do": "bv_agent", "action": "readiness", "note": f"streaming-{r}"},
                   {"do": "hid_key", "key": "2", "modifiers": ["cmd"], "mark": f"away-{r}", "title": "switch away (Cmd-2)"},

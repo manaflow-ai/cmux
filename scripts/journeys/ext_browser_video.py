@@ -153,7 +153,10 @@ def step_bv_state(j, step):
 def step_bv_agent(j, step):
     params = dict((k, v) for k, v in step.items() if k not in ("do", "note", "title"))
     sent = D.now()
-    reply = j.app.rpc("debug.agent_pane", params) or {}
+    try:
+        reply = j.app.rpc("debug.agent_pane", params) or {}
+    except Exception as error:  # noqa: BLE001  noted, never ends a recording mid-way (an unfinished movie is unreadable)
+        reply = {"error": str(error)[:400]}
     value = {"t_sent": sent, "t_returned": D.now(), "reply": reply}
     if step.get("note"):
         _note(j, step["note"], value)
