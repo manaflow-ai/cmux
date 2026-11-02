@@ -280,7 +280,6 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-
   test("Send stays on under the trust question, and every prompt sent goes in order after Trust", async () => {
     const page = await open(HELD);
     await trustAsk(page).waitFor({ timeout: 10_000 });
