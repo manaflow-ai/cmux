@@ -1,0 +1,860 @@
+{
+  "id": "83eddb41ff3d3b2ec2723f61",
+  "kind": "cmux",
+  "commit": "",
+  "command": "/usr/bin/env CMUX_FLEET_BUILD_TAG=chief-30784 CMUX_DEV_BACKEND_MODE=local /Users/Shared/cmux-build-fleet/recipes/cmux.sh https://github.com/manaflow-ai/cmux.git a472604c4a4e6af2d2107cfb572f5392461ae188",
+  "repo": "",
+  "ref": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+  "min_free_bytes": 21474836480,
+  "disk_declined_at": "0001-01-01T00:00:00Z",
+  "source_fault_at": "0001-01-01T00:00:00Z",
+  "labels": [
+    "cmux-next-linux",
+    "agent-native"
+  ],
+  "priority": -9,
+  "priority_class": "agent",
+  "unit_admission": true,
+  "state": "done",
+  "worker": "cmux-linux-pool-1102-010527-2bc25767",
+  "target_worker": "",
+  "artifact": "sha256:eea80780e58c6f8610cc5a6c870483daec68fe02a2ca2ace2d9675eaf1178e09",
+  "workspace_reset": true,
+  "storage": {
+    "before": {
+      "sampled_at": "2026-11-02T01:29:00.341481466Z",
+      "volumes": [
+        {
+          "path": "/srv/cmux-ci/work",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 146204807168,
+          "used_bytes": 164689829888,
+          "total_inodes": 39190528,
+          "free_inodes": 38156855,
+          "below_reserve": false
+        },
+        {
+          "path": "/srv/cmux-ci/cache",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 146204807168,
+          "used_bytes": 164689829888,
+          "total_inodes": 39190528,
+          "free_inodes": 38156855,
+          "below_reserve": false
+        }
+      ]
+    },
+    "before_cleanup": {
+      "sampled_at": "2026-11-02T01:32:53.10607541Z",
+      "volumes": [
+        {
+          "path": "/srv/cmux-ci/work",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 144777588736,
+          "used_bytes": 166117048320,
+          "total_inodes": 39190528,
+          "free_inodes": 38148181,
+          "below_reserve": false
+        },
+        {
+          "path": "/srv/cmux-ci/cache",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 144777588736,
+          "used_bytes": 166117048320,
+          "total_inodes": 39190528,
+          "free_inodes": 38148181,
+          "below_reserve": false
+        }
+      ]
+    },
+    "after_cleanup": {
+      "sampled_at": "2026-11-02T01:32:53.230364733Z",
+      "volumes": [
+        {
+          "path": "/srv/cmux-ci/work",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 145985646592,
+          "used_bytes": 164908990464,
+          "total_inodes": 39190528,
+          "free_inodes": 38157018,
+          "below_reserve": false
+        },
+        {
+          "path": "/srv/cmux-ci/cache",
+          "reserve_bytes": 10737418240,
+          "mount": "",
+          "total_bytes": 310911414272,
+          "free_bytes": 145985646592,
+          "used_bytes": 164908990464,
+          "total_inodes": 39190528,
+          "free_inodes": 38157018,
+          "below_reserve": false
+        }
+      ]
+    },
+    "workspace_reset": true,
+    "shared_cache_retained": true,
+    "phases": [
+      {
+        "name": "admission",
+        "started_at": "2026-11-02T01:29:00.338068989Z",
+        "finished_at": "2026-11-02T01:29:00.338069249Z",
+        "duration_ms": 0,
+        "state": "done"
+      },
+      {
+        "name": "input_restore",
+        "started_at": "2026-11-02T01:29:00.341483209Z",
+        "finished_at": "2026-11-02T01:29:00.341484481Z",
+        "duration_ms": 0,
+        "state": "done"
+      },
+      {
+        "name": "build",
+        "started_at": "2026-11-02T01:29:00.343492692Z",
+        "finished_at": "2026-11-02T01:32:38.980490127Z",
+        "duration_ms": 218636,
+        "state": "done"
+      },
+      {
+        "name": "artifact_upload",
+        "started_at": "2026-11-02T01:32:38.984975784Z",
+        "finished_at": "2026-11-02T01:32:53.099938958Z",
+        "duration_ms": 14114,
+        "state": "done"
+      },
+      {
+        "name": "cmux_checkout",
+        "started_at": "2026-11-02T01:29:00.535735Z",
+        "finished_at": "2026-11-02T01:29:16.509823Z",
+        "duration_ms": 15974,
+        "state": "done"
+      },
+      {
+        "name": "cmux_submodules",
+        "started_at": "2026-11-02T01:29:16.539842Z",
+        "finished_at": "2026-11-02T01:29:16.597058Z",
+        "duration_ms": 57,
+        "state": "done"
+      },
+      {
+        "name": "remote_tree",
+        "started_at": "2026-11-02T01:29:17.113937Z",
+        "finished_at": "2026-11-02T01:29:17.113937Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "commit": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+          "key": "4d241070765aa3dea54f98a29867cf1c0d78a0e1",
+          "published": "false"
+        }
+      },
+      {
+        "name": "cmux_web",
+        "started_at": "2026-11-02T01:29:23.437338Z",
+        "finished_at": "2026-11-02T01:30:15.406337Z",
+        "duration_ms": 51969,
+        "state": "done"
+      },
+      {
+        "name": "app_exe_prekey_wait",
+        "started_at": "2026-11-02T01:30:16.678714Z",
+        "finished_at": "2026-11-02T01:30:16.678714Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "usable": "true",
+          "wait_ms": "0"
+        }
+      },
+      {
+        "name": "swift_key",
+        "started_at": "2026-11-02T01:30:16.706023Z",
+        "finished_at": "2026-11-02T01:30:16.807326Z",
+        "duration_ms": 101,
+        "state": "done"
+      },
+      {
+        "name": "cache_swift_lane",
+        "started_at": "2026-11-02T01:30:16.922416Z",
+        "finished_at": "2026-11-02T01:30:16.922416Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "key": "0af768d1ca7f4e7a",
+          "outcome": "miss",
+          "why": "no skip key"
+        }
+      },
+      {
+        "name": "switch_answer",
+        "started_at": "2026-11-02T01:30:16.991175Z",
+        "finished_at": "2026-11-02T01:30:16.991175Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "source": "lease env",
+          "switch": "app_exe_cache",
+          "value": "on"
+        }
+      },
+      {
+        "name": "app_exe_key",
+        "started_at": "2026-11-02T01:30:17.027931Z",
+        "finished_at": "2026-11-02T01:30:17.29348Z",
+        "duration_ms": 266,
+        "state": "done"
+      },
+      {
+        "name": "cmux_app_exe_resolve",
+        "started_at": "2026-11-02T01:30:17.642174Z",
+        "finished_at": "2026-11-02T01:30:21.896928Z",
+        "duration_ms": 4255,
+        "state": "done"
+      },
+      {
+        "name": "swift_import_set",
+        "started_at": "2026-11-02T01:30:21.935951Z",
+        "finished_at": "2026-11-02T01:30:22.507155Z",
+        "duration_ms": 571,
+        "state": "done",
+        "details": {
+          "artifacts_changed": "",
+          "artifacts_graph": "description",
+          "artifacts_scope": "graph",
+          "artifacts_unused": "sentry-cocoa/Sentry-Dynamic-WithARM64e,sentry-cocoa/Sentry-WithoutUIKitOrAppKit,sentry-cocoa/Sentry-WithoutUIKitOrAppKit-WithARM64e,sentry-cocoa/SentryObjC-Dynamic,sentry-cocoa/SentryObjC-Static",
+          "basis": "record",
+          "compile_nodes": "ok",
+          "count_changed": "0",
+          "count_rebuilt": "0",
+          "count_written": "0",
+          "files": "9356",
+          "identity_ok": "true",
+          "modules": "148",
+          "modules_changed": "",
+          "modules_rebuilt": "",
+          "modules_written": "",
+          "objects_commit": "ad59f6652508a799c03c673abbfc8e1df4941b9f",
+          "outcome": "unchanged",
+          "seconds": "0.57"
+        }
+      },
+      {
+        "name": "cmux_app_exe",
+        "started_at": "2026-11-02T01:30:22.576556Z",
+        "finished_at": "2026-11-02T01:30:43.177197Z",
+        "duration_ms": 20601,
+        "state": "done"
+      },
+      {
+        "name": "swift_import_set_done",
+        "started_at": "2026-11-02T01:30:43.215981Z",
+        "finished_at": "2026-11-02T01:30:43.469722Z",
+        "duration_ms": 254,
+        "state": "done",
+        "details": {
+          "artifacts_graph": "description",
+          "artifacts_scope": "graph",
+          "artifacts_unused": "sentry-cocoa/Sentry-Dynamic-WithARM64e,sentry-cocoa/Sentry-WithoutUIKitOrAppKit,sentry-cocoa/Sentry-WithoutUIKitOrAppKit-WithARM64e,sentry-cocoa/SentryObjC-Dynamic,sentry-cocoa/SentryObjC-Static",
+          "compile_nodes": "ok",
+          "count_rebuilt": "0",
+          "objects_commit": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+          "outcome": "recorded",
+          "seconds": "0.25"
+        }
+      },
+      {
+        "name": "app_exe_stage",
+        "started_at": "2026-11-02T01:30:43.780561Z",
+        "finished_at": "2026-11-02T01:30:44.393127Z",
+        "duration_ms": 613,
+        "state": "done"
+      },
+      {
+        "name": "cmux_components",
+        "started_at": "2026-11-02T01:30:47.124056Z",
+        "finished_at": "2026-11-02T01:32:07.154801Z",
+        "duration_ms": 80031,
+        "state": "done"
+      },
+      {
+        "name": "component_web",
+        "started_at": "2026-11-02T01:30:47.36591Z",
+        "finished_at": "2026-11-02T01:30:49.36591Z",
+        "duration_ms": 2000,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "2.0"
+        }
+      },
+      {
+        "name": "component_fetch_pinned",
+        "started_at": "2026-11-02T01:30:49.362552Z",
+        "finished_at": "2026-11-02T01:30:49.862552Z",
+        "duration_ms": 500,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.5"
+        }
+      },
+      {
+        "name": "component_hostd_build",
+        "started_at": "2026-11-02T01:30:49.868114Z",
+        "finished_at": "2026-11-02T01:30:49.868114Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": true,
+        "details": {
+          "outcome": "hit",
+          "seconds": "0.0"
+        }
+      },
+      {
+        "name": "component_acpmux_build",
+        "started_at": "2026-11-02T01:30:49.875445Z",
+        "finished_at": "2026-11-02T01:30:49.875445Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": true,
+        "details": {
+          "outcome": "hit",
+          "seconds": "0.0"
+        }
+      },
+      {
+        "name": "component_tui_fetch",
+        "started_at": "2026-11-02T01:30:49.887441Z",
+        "finished_at": "2026-11-02T01:30:49.987441Z",
+        "duration_ms": 100,
+        "state": "done",
+        "cache_hit": true,
+        "details": {
+          "outcome": "hit",
+          "seconds": "0.1"
+        }
+      },
+      {
+        "name": "component_chief_build",
+        "started_at": "2026-11-02T01:30:49.902845Z",
+        "finished_at": "2026-11-02T01:31:00.802845Z",
+        "duration_ms": 10900,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "10.9"
+        }
+      },
+      {
+        "name": "component_verify_web",
+        "started_at": "2026-11-02T01:31:00.831653Z",
+        "finished_at": "2026-11-02T01:31:01.931653Z",
+        "duration_ms": 1100,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "1.1"
+        }
+      },
+      {
+        "name": "component_reject_providers",
+        "started_at": "2026-11-02T01:31:01.950158Z",
+        "finished_at": "2026-11-02T01:31:01.950158Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.0"
+        }
+      },
+      {
+        "name": "component_cli_resources",
+        "started_at": "2026-11-02T01:31:01.99719Z",
+        "finished_at": "2026-11-02T01:31:02.29719Z",
+        "duration_ms": 300,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.3"
+        }
+      },
+      {
+        "name": "component_diff_sidecar",
+        "started_at": "2026-11-02T01:31:02.271941Z",
+        "finished_at": "2026-11-02T01:31:03.371941Z",
+        "duration_ms": 1100,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "1.1"
+        }
+      },
+      {
+        "name": "component_cmux_tui",
+        "started_at": "2026-11-02T01:31:03.379371Z",
+        "finished_at": "2026-11-02T01:31:09.279372Z",
+        "duration_ms": 5900,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "5.9"
+        }
+      },
+      {
+        "name": "component_acpmux",
+        "started_at": "2026-11-02T01:31:09.311864Z",
+        "finished_at": "2026-11-02T01:31:09.311864Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.0"
+        }
+      },
+      {
+        "name": "component_optchat_chief",
+        "started_at": "2026-11-02T01:31:09.291155Z",
+        "finished_at": "2026-11-02T01:31:09.391155Z",
+        "duration_ms": 100,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.1"
+        }
+      },
+      {
+        "name": "component_cnx_hostd",
+        "started_at": "2026-11-02T01:31:09.441984Z",
+        "finished_at": "2026-11-02T01:31:09.441984Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.0"
+        }
+      },
+      {
+        "name": "component_cef",
+        "started_at": "2026-11-02T01:31:09.491498Z",
+        "finished_at": "2026-11-02T01:31:14.291498Z",
+        "duration_ms": 4800,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "4.8"
+        }
+      },
+      {
+        "name": "component_rb_host",
+        "started_at": "2026-11-02T01:31:14.298772Z",
+        "finished_at": "2026-11-02T01:31:14.798772Z",
+        "duration_ms": 500,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.5"
+        }
+      },
+      {
+        "name": "component_cua_helper",
+        "started_at": "2026-11-02T01:31:14.850238Z",
+        "finished_at": "2026-11-02T01:31:15.150238Z",
+        "duration_ms": 300,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.3"
+        }
+      },
+      {
+        "name": "component_ghostty_resources",
+        "started_at": "2026-11-02T01:31:15.154495Z",
+        "finished_at": "2026-11-02T01:31:15.754495Z",
+        "duration_ms": 600,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.6"
+        }
+      },
+      {
+        "name": "component_server_helper",
+        "started_at": "2026-11-02T01:31:15.789951Z",
+        "finished_at": "2026-11-02T01:31:18.289951Z",
+        "duration_ms": 2500,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "2.5"
+        }
+      },
+      {
+        "name": "component_frameworks",
+        "started_at": "2026-11-02T01:31:18.284729Z",
+        "finished_at": "2026-11-02T01:31:19.68473Z",
+        "duration_ms": 1400,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "1.4"
+        }
+      },
+      {
+        "name": "component_coderouter",
+        "started_at": "2026-11-02T01:31:19.650322Z",
+        "finished_at": "2026-11-02T01:31:19.850322Z",
+        "duration_ms": 200,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "0.2"
+        }
+      },
+      {
+        "name": "component_cmux_cua",
+        "started_at": "2026-11-02T01:31:19.853867Z",
+        "finished_at": "2026-11-02T01:31:32.153867Z",
+        "duration_ms": 12300,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "12.3"
+        }
+      },
+      {
+        "name": "component_ghostty_cli",
+        "started_at": "2026-11-02T01:31:19.819788Z",
+        "finished_at": "2026-11-02T01:32:07.119788Z",
+        "duration_ms": 47300,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "outcome": "built",
+          "seconds": "47.3"
+        }
+      },
+      {
+        "name": "cmux_resources",
+        "started_at": "2026-11-02T01:32:08.152436Z",
+        "finished_at": "2026-11-02T01:32:25.594218Z",
+        "duration_ms": 17442,
+        "state": "done"
+      },
+      {
+        "name": "cmux_ghostty_resources",
+        "started_at": "2026-11-02T01:32:25.623223Z",
+        "finished_at": "2026-11-02T01:32:26.093663Z",
+        "duration_ms": 470,
+        "state": "done"
+      },
+      {
+        "name": "cmux_web_guard",
+        "started_at": "2026-11-02T01:32:26.121617Z",
+        "finished_at": "2026-11-02T01:32:27.40842Z",
+        "duration_ms": 1287,
+        "state": "done"
+      },
+      {
+        "name": "cmux_parity",
+        "started_at": "2026-11-02T01:32:27.571362Z",
+        "finished_at": "2026-11-02T01:32:27.709251Z",
+        "duration_ms": 138,
+        "state": "done"
+      },
+      {
+        "name": "cmux_parity_reference",
+        "started_at": "2026-11-02T01:32:27.738314Z",
+        "finished_at": "2026-11-02T01:32:27.783201Z",
+        "duration_ms": 45,
+        "state": "done"
+      },
+      {
+        "name": "parity_reference",
+        "started_at": "2026-11-02T01:32:27.813012Z",
+        "finished_at": "2026-11-02T01:32:27.813012Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "accepted": "0",
+          "gaps": "0",
+          "other": "0",
+          "reference": "",
+          "relation": "none"
+        }
+      },
+      {
+        "name": "cmux_sign",
+        "started_at": "2026-11-02T01:32:27.841805Z",
+        "finished_at": "2026-11-02T01:32:35.15754Z",
+        "duration_ms": 7316,
+        "state": "done"
+      },
+      {
+        "name": "cmux_package",
+        "started_at": "2026-11-02T01:32:35.186362Z",
+        "finished_at": "2026-11-02T01:32:37.25202Z",
+        "duration_ms": 2066,
+        "state": "done"
+      },
+      {
+        "name": "switch_answer",
+        "started_at": "2026-11-02T01:32:37.283157Z",
+        "finished_at": "2026-11-02T01:32:37.283157Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "source": "lease env",
+          "switch": "bundle_store",
+          "value": "1"
+        }
+      },
+      {
+        "name": "pool_prewarm",
+        "started_at": "2026-11-02T01:32:37.9934Z",
+        "finished_at": "2026-11-02T01:32:37.9934Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "bytes": "9736859318",
+          "files": "59296",
+          "outcome": "stopped",
+          "reason": "job directory 34ba3a2ad4cdf8e86938ec71",
+          "seconds": "20.7"
+        }
+      },
+      {
+        "name": "linux_pool",
+        "started_at": "2026-11-02T01:32:38.024196Z",
+        "finished_at": "2026-11-02T01:32:38.024196Z",
+        "duration_ms": 0,
+        "state": "done",
+        "details": {
+          "commit": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+          "lane": "pool",
+          "lane_before": "ad59f6652508a799c03c673abbfc8e1df4941b9f",
+          "worker": "cmux-linux-pool-1102-010527-2bc25767"
+        }
+      },
+      {
+        "name": "cache_app",
+        "started_at": "2026-11-02T01:29:19.12407Z",
+        "finished_at": "2026-11-02T01:29:19.39407Z",
+        "duration_ms": 270,
+        "state": "done",
+        "cache_hit": false,
+        "cache_misses": 1,
+        "details": {
+          "key": "9a7570de892a5d69",
+          "outcome": "miss"
+        }
+      },
+      {
+        "name": "cache_cmux_tui_source",
+        "started_at": "2026-11-02T01:29:19.45862Z",
+        "finished_at": "2026-11-02T01:29:20.90862Z",
+        "duration_ms": 1450,
+        "state": "done",
+        "cache_hit": true,
+        "cache_hits": 1,
+        "details": {
+          "built_by": "cmux-linux-pool-1101-232458-774bd6be",
+          "built_commit": "09726cffb41e",
+          "bytes": "127922096",
+          "key": "2ba448e62caf391d",
+          "outcome": "hit",
+          "saved_seconds": "98.8"
+        }
+      },
+      {
+        "name": "cache_web",
+        "started_at": "2026-11-02T01:29:22.063772Z",
+        "finished_at": "2026-11-02T01:29:24.513772Z",
+        "duration_ms": 2450,
+        "state": "done",
+        "cache_hit": true,
+        "cache_hits": 1,
+        "details": {
+          "build_seconds": "0",
+          "built_by": "cmux-linux-pool-1101-232458-774bd6be",
+          "built_commit": "09726cffb41e",
+          "bytes": "13705004",
+          "key": "4fb2a9fb5d68f468",
+          "outcome": "hit",
+          "saved_seconds": "47.0",
+          "store_bytes": "0"
+        }
+      },
+      {
+        "name": "cache_app_exe",
+        "started_at": "2026-11-02T01:30:17.352839Z",
+        "finished_at": "2026-11-02T01:30:17.402838Z",
+        "duration_ms": 50,
+        "state": "done",
+        "cache_hit": false,
+        "cache_misses": 1,
+        "details": {
+          "key": "9ce7c868a2a4b1d4",
+          "outcome": "miss"
+        }
+      },
+      {
+        "name": "cache_acpmux",
+        "started_at": "2026-11-02T01:30:44.558531Z",
+        "finished_at": "2026-11-02T01:30:45.918531Z",
+        "duration_ms": 1360,
+        "state": "done",
+        "cache_hit": true,
+        "cache_hits": 1,
+        "details": {
+          "built_by": "cmux-linux-pool-1101-232458-774bd6be",
+          "built_commit": "09726cffb41e",
+          "bytes": "61525280",
+          "key": "861f89547ae31eed",
+          "outcome": "hit",
+          "saved_seconds": "85.8"
+        }
+      },
+      {
+        "name": "cache_optchat_chief",
+        "started_at": "2026-11-02T01:30:45.978775Z",
+        "finished_at": "2026-11-02T01:30:46.988775Z",
+        "duration_ms": 1010,
+        "state": "done",
+        "cache_hit": false,
+        "cache_misses": 1,
+        "details": {
+          "build_seconds": "10.9",
+          "key": "14be1d20f39be215",
+          "outcome": "store",
+          "reason": "no manifest",
+          "store_bytes": "21828960"
+        }
+      },
+      {
+        "name": "cache_cnx_hostd",
+        "started_at": "2026-11-02T01:30:46.267909Z",
+        "finished_at": "2026-11-02T01:30:47.087909Z",
+        "duration_ms": 820,
+        "state": "done",
+        "cache_hit": true,
+        "cache_hits": 1,
+        "details": {
+          "built_by": "cmux-linux-pool-1101-081805-dc158917",
+          "built_commit": "7a82f42df20b",
+          "bytes": "26009264",
+          "key": "5899482059f94f3c",
+          "outcome": "hit",
+          "saved_seconds": "22.4"
+        }
+      },
+      {
+        "name": "cache_sccache",
+        "started_at": "2026-11-02T01:32:07.21323Z",
+        "finished_at": "2026-11-02T01:32:07.21323Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hit": false,
+        "details": {
+          "compile_requests": "2",
+          "compile_units_hit": "0",
+          "compile_units_total": "0",
+          "key": "",
+          "non_cacheable": "2",
+          "outcome": "none"
+        }
+      },
+      {
+        "name": "cache_summary",
+        "started_at": "2026-11-02T01:32:38.970495Z",
+        "finished_at": "2026-11-02T01:32:38.970495Z",
+        "duration_ms": 0,
+        "state": "done",
+        "cache_hits": 4,
+        "cache_misses": 4,
+        "details": {
+          "layers": "acpmux=hit app-exe=miss app=miss cmux-tui-source=hit cnx-hostd=hit optchat-chief=store sccache=none web=hit",
+          "saved_seconds": "254.0"
+        }
+      }
+    ]
+  },
+  "submitter": "leoli.4u@gmail.com",
+  "submitter_verified": true,
+  "agent": "01a199d1-90c8-70b3-b6c1-97b8e335e033",
+  "workspace": "https://github.com/manaflow-ai/cmux/pull/30784",
+  "source_digest": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+  "cache_key": "cmux:a472604c4a4e",
+  "tag": "chief-30784",
+  "placement_reason": "linux_pool",
+  "supersede_key": "sha256:b3632692d55ac7193bf794188797c689afb1f725fea626022fb111fb3182b8d0",
+  "slot_key": "sha256:214619b8f521668b721b9b5edc936fc48faef76f3d95350a9f2a8345b446fffb",
+  "resolved_digest": "f4fb73ee45d97c6c0be303eae3eba14b844d0ed93b703b177924973744cf3e0e",
+  "variant": "dev",
+  "remote_tree": {
+    "state": "skipped",
+    "key": "4d241070765aa3dea54f98a29867cf1c0d78a0e1",
+    "commit": "a472604c4a4e6af2d2107cfb572f5392461ae188",
+    "error": "the commit is not on feat-cmux-next; its cmux-tui tree is published when it lands there (cmux-tui-tree-request.yml refuses other commits)",
+    "requested_at": "2026-11-02T01:32:54.019489Z"
+  },
+  "coalesce_key": "sha256:d0d7793a18d4dd5b176abc83d7b4f5f3d506f847f1d711b043d110917a0fc9e8",
+  "output_contract": "sha256:56db07b61699134100a0e24d32afc88e75168566ddc0a92b92ceb76cf4463bf9",
+  "started_at": "2026-11-02T01:29:00.305584Z",
+  "created_at": "2026-11-02T01:29:00.020275Z",
+  "updated_at": "2026-11-02T01:32:53.416985Z",
+  "lease_until": "0001-01-01T00:00:00Z",
+  "source_lineage": "cmux-next",
+  "builder": "auto",
+  "lease_env": {
+    "CMUX_POOL_APP_EXE_CACHE": "v4-on",
+    "CMUX_POOL_BUNDLE_STORE": "on"
+  },
+  "linux_pool": {
+    "routed_at": "2026-11-02T01:29:00.020275Z",
+    "mac_labels": [
+      "cmux",
+      "ram48"
+    ],
+    "machine_type": "n4d-standard-32",
+    "artifact_path": "artifacts/cmux.app.zip"
+  },
+  "linux_pool_decision": {
+    "execution_class": "linux-pool",
+    "eligible": true,
+    "requested_builder": "auto",
+    "builder_honored": false,
+    "fallback_policy": "blacksmith-linux",
+    "required_evidence": "linux-compile"
+  },
+  "reason": "Chief PR fresh-home validation for #30784"
+}
