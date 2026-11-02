@@ -22,6 +22,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# L1's auto-build must not compile here: the fleet self-test builds first (build-bins); this VM never compiles.
+os.environ["CMUX_TUIKIT_NO_BUILD"] = "1"
 TOOL = os.path.join(HERE, "load_profiles.py")
 PY = sys.executable
 
@@ -362,6 +364,74 @@ class StormL1(Base):
             events = [json.loads(line)["ev"] for line in f]
         self.assertEqual(events[0], "baseline")
         self.assertIn("change", events)
+
+
+class AutoBuild(Base):
+    def test_l1_tries_build_bins_when_the_storm_is_missing(self):
+        import tuikit
+        if tuikit.rust_bin("tk-storm"):
+            self.skipTest("tk-storm is built here")
+        done, out, app = self.run_tool("L1", "--duration", "1", "--rate", "20")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["build_bins"]["exit"], 69)  # CMUX_TUIKIT_NO_BUILD: tried, not compiled
+        self.assertEqual(m["build_bins"]["why"], "CMUX_TUIKIT_NO_BUILD=1")
+        self.assertEqual(m["engine"], "python")
+        # the build is set-up: its record is in the manifest before LOAD-READY
+        ready = m["ready"]["t_mono"]
+        self.assertTrue(all(c["t_mono"] >= ready for c in self._calls(out) if not c["kind"].startswith(("setup", "teardown"))))
+
+    def _calls(self, out):
+        with open(os.path.join(out, "L1", "calls.jsonl")) as f:
+            return [json.loads(line) for line in f]
+
+    def test_build_bins_with_a_fake_cargo(self):
+        """The build path itself, with a stand-in cargo (it records its argv and env, then fails): the account's
+        RUSTUP_HOME, --offline, --target-dir, the exit and the end of stderr come back."""
+        import tuikit
+        fake = os.path.join(self.tmp, "cargo")
+        record = os.path.join(self.tmp, "cargo.json")
+        with open(fake, "w") as f:
+            f.write("#!%s\nimport json, os, sys\njson.dump({'argv': sys.argv[1:], 'rustup': os.environ.get('RUSTUP_HOME')},"
+                    " open(%r, 'w'))\nsys.stderr.write('error: stand-in cargo fails on purpose')\nsys.exit(101)\n"
+                    % (PY, record))
+        os.chmod(fake, 0o755)
+        saved = {k: os.environ.get(k) for k in ("CARGO", "CMUX_TUIKIT_NO_BUILD")}
+        try:
+            os.environ["CARGO"] = fake
+            os.environ.pop("CMUX_TUIKIT_NO_BUILD", None)
+            code, built, why = tuikit.build_bins(quiet=True)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertEqual(code, 101)
+        self.assertIn("stand-in cargo fails on purpose", why)
+        with open(record) as f:
+            seen = json.load(f)
+        self.assertEqual(seen["argv"][:3], ["build", "--release", "--offline"])
+        self.assertIn("--target-dir", seen["argv"])
+
+    def test_find_cargo_ignores_a_slot_home(self):
+        import pwd
+        import tuikit
+        account = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".cargo", "bin", "cargo")
+        if not os.access(account, os.X_OK):
+            self.skipTest("no cargo in the account's ~/.cargo/bin")
+        saved = {k: os.environ.get(k) for k in ("HOME", "PATH", "CARGO", "CARGO_HOME")}
+        try:
+            os.environ.update(HOME=self.tmp, PATH="/usr/bin:/bin")
+            os.environ.pop("CARGO", None)
+            os.environ.pop("CARGO_HOME", None)
+            self.assertEqual(tuikit.find_cargo(), account)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class Safety(Base):
