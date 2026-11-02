@@ -183,7 +183,7 @@ struct DockEmptyPaneView: View {
                         )
                     }
                 }
-                if ChiefSettings.isEnabled {
+                if CmuxFeatureFlags.shared.isChiefAvailable, ChiefSettings.isEnabled {
                     Button(action: onNewChief) {
                         Label(
                             String(localized: "dock.action.newChief", defaultValue: "New Chief"),

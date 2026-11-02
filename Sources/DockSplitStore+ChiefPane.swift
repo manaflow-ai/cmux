@@ -6,12 +6,8 @@ import CmuxHomeCore
 extension DockSplitStore {
     /// Closes every Chief tab in this Dock, for when Chief turns off.
     func removeChiefPanels() {
-        for paneId in bonsplitController.allPaneIds {
-            let chiefTabs = bonsplitController.tabs(inPane: paneId).map(\.id).filter { tabId in
-                surfaceIdToPanelId[tabId].flatMap { panels[$0] } is ChiefPanel
-            }
-            guard !chiefTabs.isEmpty else { continue }
-            closeDockTabs(chiefTabs, inPane: paneId, confirmationPolicy: .tabsRequiringConfirmation)
+        for panelId in panels.keys where panels[panelId] is ChiefPanel {
+            _ = closePanel(panelId, force: true, recordsHistory: false)
         }
     }
 

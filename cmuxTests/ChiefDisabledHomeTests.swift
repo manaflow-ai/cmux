@@ -219,6 +219,23 @@ struct ChiefDisabledHomeTests {
         #expect(!manager.tabs.contains { $0.id == workspace.id })
     }
 
+    @Test func removeChiefPanelsClosesAPinnedDockTabWithoutHistory() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let workspace = try #require(manager.addWorkspaceIfActive(select: false))
+        let dock = try #require(workspace.dockSplit)
+        dock.ensureLoaded()
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let chiefTab = try #require(dock.newSurface(kind: .chief, inPane: pane, focus: false))
+        let tabId = try #require(dock.surfaceId(forPanelId: chiefTab))
+        dock.bonsplitController.updateTab(tabId, isPinned: true)
+
+        ChiefSettings.setEnabled(false)
+        dock.removeChiefPanels()
+        #expect(dock.panels[chiefTab] == nil)
+    }
+
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
         let setting = ChiefEnabledOverride(true)
         defer { setting.restore() }
