@@ -16,9 +16,41 @@ import Testing
     nonisolated struct Count: Equatable, Sendable { var value: Int }
     struct Opaque: Sendable { var value: Int }
 
+    /// A type of this module: main-actor isolated, so its `Equatable` conformance is too (the app modules' case):
+    /// its streams look `==` up at run time.
+    struct Mark: Equatable, Sendable { var value: Int }
+
     @MainActor @Observable final class Box {
         var count = Count(value: 0)
         var opaque = Opaque(value: 0)
+        var mark = Mark(value: 0)
+    }
+
+    /// REOPEN-F7 (9 of 10 sampled stalls of the turn after a reopen's first window commit, cmux18 job cea96828): the
+    /// lookup ran in `makeAsyncIterator` for every stream of an app type. The first value needs no `==`: the lookup
+    /// waits for the second, and then dedupes as before.
+    @Test func anAppTypeStreamLooksUpEqualityOnlyWhenASecondValueComes() async {
+        let box = Box()
+        var values = ObservationStream({ box.mark }).makeAsyncIterator()
+        guard case .unresolved = values.equality else {
+            Issue.record("the stream looked up Equatable at run time before its first value")
+            return
+        }
+        #expect(await values.next() == Mark(value: 0))
+        guard case .unresolved = values.equality else {
+            Issue.record("the first value looked up Equatable at run time")
+            return
+        }
+        Task { @MainActor in
+            box.mark = Mark(value: 0) // equal: wakes no consumer
+            await Task.yield()
+            box.mark = Mark(value: 1)
+        }
+        #expect(await values.next() == Mark(value: 1))
+        guard case .known = values.equality else {
+            Issue.record("the second value did not resolve ==")
+            return
+        }
     }
 
     @Test func anEquatableStreamAsksTheRuntimeNothing() async {

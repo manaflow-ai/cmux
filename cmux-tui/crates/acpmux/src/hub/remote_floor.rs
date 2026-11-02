@@ -121,9 +121,7 @@ impl Hub {
     /// and a mode the harness reported without declaring any.
     pub(super) fn session_asks_now(&self, session: &Session, meta: &SessionMeta) -> bool {
         // An authenticated remote connection runs the bridge in any mode.
-        if self.any_mode_for_web(meta)
-            && !session.floor.cloud_mobile_turn.load(Ordering::SeqCst)
-        {
+        if self.any_mode_for_web(meta) && !session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {
             return true;
         }
         if session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {

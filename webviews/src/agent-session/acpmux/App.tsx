@@ -100,6 +100,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type New
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -670,6 +671,7 @@ import { designSelectionChips, designSelectionRemovals } from "./designSelection
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
+import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -799,6 +801,8 @@ declare global {
       applyNowPlaying?(track: unknown): void;
       /// The app's read-aloud state (conversation/readAloud.ts): `{id}`, the message it reads or null.
       applyReadAloud?(state: unknown): void;
+      /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
+      applyAttentionTabs?(tabs: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -5818,6 +5822,10 @@ function DefaultComposerChips({
         snapshot.switching !== undefined ||
         (startsChat && !!snapshot.summary?.harness && window.cmuxAcpmuxActions?.["chat.new"] !== undefined)
       }
+      // A Cloud or other remote machine's chat starts with its first send: until then its mode pick
+      // is held for that start (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua
+      // sandpaper one"), and once its agent reports its modes, their menu replaces this one.
+      holdsStartMode={!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId}
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -6058,6 +6066,9 @@ function AcpmuxPane() {
   const catalogClientId = useRef(0);
 
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
+  /// one for the host's journal to send it again there (lostPrompt.ts).
+  const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
 
   /// A chat acpmux would not start because its folder harness needs the user's Enable or the
@@ -10129,6 +10140,9 @@ function AcpmuxPane() {
       applyReadAloud(state) {
         setReadAloudState(state);
       },
+      applyAttentionTabs(tabs) {
+        setAttentionTabs(tabs);
+      },
       revealTurn(turnId) {
         revealRef.current(turnId);
       },
@@ -10505,6 +10519,7 @@ function AcpmuxPane() {
         }
         connectingClient = client;
         directClient.current = client;
+        connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
         // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
         if (snapshotRef.current)
@@ -10878,7 +10893,18 @@ function AcpmuxPane() {
             if (!configurationSessionMatches(expectedSessionId, sessionId))
               // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
-            if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
+            if (harnessSwitch.pickMode(String(modeId))) return;
+            // A Cloud or other remote machine's chat starts with its first send: a pick before that
+            // is held, with its gesture taken now, and the send's new session takes it first.
+            if (!sessionId && client.startsOnSend) {
+              const ticket = postNative<{ ticket?: string }>("transport.gesture", {
+                intent: { method: "session/set_mode", params: { modeId: String(modeId) } },
+              }).then((reply) => reply?.ticket);
+              ticket.catch(() => undefined);
+              client.holdStartMode(String(modeId), ticket);
+              return;
+            }
+            await setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
@@ -11613,6 +11639,7 @@ function AcpmuxPane() {
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
   }, [
+    connectedClients,
     folderContinuation,
     harnessSwitch,
     newChatPrewarm,
@@ -13412,6 +13439,7 @@ function AcpmuxPane() {
                   return true;
                 }
                 const holder = composerHandle.current;
+                const sentOn = directClient.current;
                 callNative("chat.send", { text, attachments, steer }).then(
                   () => {
                     rememberStart();
@@ -13422,7 +13450,16 @@ function AcpmuxPane() {
                     if (keptInChat(error) || isTrustRefusal(error)) return;
                     // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
                     if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                    (composerHandle.current ?? holder)?.restore(text, attachments);
+                    const giveBack = () => (composerHandle.current ?? holder)?.restore(text, attachments);
+                    if (!lostPrompt(error)) return giveBack();
+                    // The connection went before acpmux took it (an acpmux restart or update): the host
+                    // sends it again on the next connection, where the chat shows it. Only one that never
+                    // shows comes back, saying why (lostPrompt.ts).
+                    void resentAfterLoss(error, connectedClients, sentOn).then((shown) => {
+                      if (shown) return promptLanded.current();
+                      giveBack();
+                      directClient.current?.notice(failedSendText(error, false, attachments));
+                    });
                   },
                 );
                 return true;
@@ -13478,15 +13515,22 @@ function AcpmuxPane() {
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
               const holder = composerHandle.current;
+              const sentOn = directClient.current;
               // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
               if (surfaceRef.current === "quick") startInBackground(text, taken);
               const turn = send();
               turn.then(() => promptLanded.current(), cancelOpenInWindow);
               // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
               // A prompt acpmux refused for the folder's trust that joined the hold (`holdRefused`)
-              // counts as taken: it waits in the queue now.
-              const held = Promise.race([taken, turn.then(() => true as const)]).catch((error: unknown) => {
+              // counts as taken: it waits in the queue now. One a dropped connection lost before acpmux
+              // took it is held until the host's resend shows on the next connection; only one that
+              // never shows says "Not sent" and comes back (lostPrompt.ts).
+              const held = Promise.race([taken, turn.then(() => true as const)]).catch(async (error: unknown) => {
                 if (heldRefusal(error)) return true as const;
+                if (lostPrompt(error)) {
+                  if (await resentAfterLoss(error, connectedClients, sentOn)) return true as const;
+                  directClient.current?.notice(failedSendText(error, false, attachments));
+                }
                 throw error;
               });
               if (queues) {
@@ -14487,7 +14531,11 @@ function AcpmuxPane() {
                       sessions={snapshot.sessions}
                       currentId={snapshot.sessionId}
                       asks={snapshot.asks}
+                      tabs={needsYou.attentionTabs}
                       onSelect={selectSession}
+                      onOpen={(item) =>
+                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
+                      }
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />

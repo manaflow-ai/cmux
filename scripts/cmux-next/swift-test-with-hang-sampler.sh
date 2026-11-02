@@ -66,14 +66,19 @@ tee_pid=$!
 # ReportCrash had written no report for it within the window either (the search
 # of both report directories found 316 reports, all older than the run).
 #
-# symbolicate=full, not the `symbolicate=off` the xcodebuild jobs use: an
-# unsymbolicated stack answers none of the question, and this costs only on a
-# run that has already crashed. interactive=no and timeout=0s so it never waits
-# for a keypress that cannot come; color=no so the log stays readable.
+# symbolicate=fast, not the `symbolicate=off` the xcodebuild jobs use: an
+# unsymbolicated stack answers none of the question. Not `full` either: full
+# also looks up inlined frames and source lines in the test binary's debug info,
+# and for CmuxNextPackageTests that took longer than the stall limit. Run
+# 41465146517 crashed in VideoJob.frame (shard 14), the backtracer was still
+# symbolicating 15 minutes later, the stall rule killed the run with exit 143
+# and the stack never printed. fast still names every function.
+# interactive=no and timeout=0s so it never waits for a keypress that cannot
+# come; color=no so the log stays readable.
 # The test bundle drops the variable from its environment once the runtime has read it
 # (Tests/Support/CmuxNextTestExitTrace), so only the test process gets a backtracer: an exit
 # test's child traps on purpose and must not spend minutes symbolicating.
-export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=full,color=no,threads=crashed}"
+export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=fast,color=no,threads=crashed}"
 swift test "$@" >&3 2>&1 &
 test_pid=$!
 # Only this run's processes: on a shared CI Mac other jobs run xctest and

@@ -108,6 +108,17 @@ pub(super) struct AttachedSurface {
     pub(super) input: (Weak<crate::Surface>, u64),
 }
 
+impl AttachedSurface {
+    /// Whether this client can type into the surface: an attach that may own the keyboard (the app's terminal view,
+    /// a legacy attach with no lease, or any view that is not read-only). A client attached only through read-only
+    /// views (`terminal.attach read_only`) watches; its keys are automation's, never the person's
+    /// (server/input_qos.rs).
+    pub(super) fn can_type(&self) -> bool {
+        self.view_sizes.is_empty()
+            || self.view_sizes.keys().any(|lease| !self.read_only_leases.contains(lease))
+    }
+}
+
 pub(super) struct DetachedSurface {
     pub(super) final_stream: bool,
     pub(super) rollback: Option<crate::mux::ClientSizeRollback>,
@@ -688,6 +699,7 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY

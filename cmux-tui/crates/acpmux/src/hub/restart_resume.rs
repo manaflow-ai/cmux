@@ -523,7 +523,8 @@ impl Hub {
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
-                    cloud_mobile = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
                     carried_ids = ids
                         .into_iter()
