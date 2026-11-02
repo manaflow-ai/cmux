@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The installs guest links' owner tokens come from (cmux#31372). A share room takes only its own
 /// environment's install tokens, and the daemon names that environment's API
