@@ -43,6 +43,7 @@ COLOR_TOL = 3              # max channel difference for "the same color" in exac
 TRACK_TOL = 6              # max channel difference to the divider's at-rest color while tracking it
 TRACK_MAX_PX = 200         # a divider moves at most this far between two complete frames
 MAX_DIVIDER_PX = 16        # a run wider than this is a pane, not a divider
+VISIBLE_SIDE_PX = 48       # the panes' color beside a divider run: the most common color this far on each side
 BLEND_ALPHA = (0.15, 0.85)  # a pixel is a blend when it is a*left + (1-a)*right with a in this range
 BLEND_MIN_DIFF = 12        # and differs from both neighbours by more than this in some channel
 BLEND_RESID = 4            # and lies this close (max channel) to the straight blend line
@@ -118,6 +119,7 @@ class Case:
     movie: Path | None
     notes: list = field(default_factory=list)
     input_t: list = field(default_factory=list)  # host s of each mouse event the app's journal kept
+    hidden_dividers: set = field(default_factory=set)  # (axis, coord, divider id): not visible at rest on that line
 
     @property
     def n(self):
@@ -575,6 +577,27 @@ def model_center(case, k, div_id, axis, coord_pt):
     return (start + length / 2) * case.scale
 
 
+def _side_color(line16, lo, hi):
+    """The most common exact color of line16[lo:hi], or None when the slice is empty."""
+    seg = line16[max(lo, 0):max(min(hi, len(line16)), 0)]
+    if not len(seg):
+        return None
+    colors, counts = np.unique(seg, axis=0, return_counts=True)
+    return colors[int(np.argmax(counts))]
+
+
+def divider_visible(line16, r0, r1):
+    """Whether the run [r0, r1) can be a divider seen between two panes: its color differs from the panes' color (the
+    most common color within VISIBLE_SIDE_PX) on BOTH sides. In a light theme the divider has the panes' color at rest,
+    so the run at the model divider is the panes' background between two words, and following it follows the text
+    (STATUS 5795: feat-steady-8a804e1-after-r1 gave a false 'shown 538 px, model 459 px', '-81 px jump' and blends)."""
+    color = line16[min(max((r0 + r1) // 2, 0), len(line16) - 1)]
+    for side in (_side_color(line16, r0 - VISIBLE_SIDE_PX, r0), _side_color(line16, r1, r1 + VISIBLE_SIDE_PX)):
+        if side is None or np.abs(side - color).max() <= TRACK_TOL:
+            return False
+    return True
+
+
 def _seed_model_tracks(case, line, window):
     coord_pt = line.coord / case.scale
     ids = []
@@ -594,8 +617,17 @@ def _seed_model_tracks(case, line, window):
             row16 = line.px[f].astype(np.int16)
             px = min(max(int(center), 0), len(row16) - 1)
             r0, r1 = _run_around(row16, px, COLOR_TOL)
-            if r1 - r0 <= MAX_DIVIDER_PX:
+            narrow, visible = r1 - r0 <= MAX_DIVIDER_PX, divider_visible(row16, r0, r1)
+            if narrow and visible:
                 tracks.append(Track(line, did, row16[px].copy(), r1 - r0, (r0 + r1) / 2, window))
+            elif not visible:
+                # The run at the model divider has the panes' color on a side (narrow: a gap between words; wide:
+                # the panes' background): no divider shows on this line, and its edges are not geometry here.
+                case.hidden_dividers.add((line.axis, line.coord, did))
+                note = (f"divider {did} on {line.axis} {line.coord} is not visible at rest (the panes' color on a side): "
+                        f"its geometry is not judged on this line")
+                if note not in case.notes:
+                    case.notes.append(note)
             break
     return tracks
 
@@ -698,13 +730,32 @@ def _edge_mask(case, line, f, tracks, length):
                         if 0 <= e < length:
                             marks[int(e)] = True
     for track in tracks:
-        if track.line is line and f in track.bounds:
+        # scan_lines() makes new Line objects on each call: the same line is the same axis and coordinate.
+        if (track.line.axis, track.line.coord) == (line.axis, line.coord) and f in track.bounds:
             s, e = track.bounds[f]
             marks[min(s, length - 1)] = marks[min(e, length - 1)] = True
     if not marks.any():
         return marks
     kernel = np.ones(2 * EDGE_NEAR_PX + 1, bool)
     return np.convolve(marks, kernel, mode="same") > 0
+
+
+MOVED_HALF_PX = 6          # a blend whose 13 px neighbourhood is exactly on the same line at rest moved by whole pixels
+
+
+def _moved_whole_pixels(line, x, rest):
+    """Whether line[x-6:x+7] (exact BGRA) occurs at a pixel boundary of one of the rest lines (bytes)."""
+    lo, hi = x - MOVED_HALF_PX, x + MOVED_HALF_PX + 1
+    if lo < 0 or hi > len(line):
+        return False
+    window = line[lo:hi].tobytes()
+    for raw in rest:
+        at = raw.find(window)
+        while at != -1:
+            if at % 4 == 0:
+                return True
+            at = raw.find(window, at + 1)
+    return False
 
 
 def check_blends(case, windows, tracks):
@@ -718,12 +769,19 @@ def check_blends(case, windows, tracks):
             continue
         for line in scan_lines(case):
             ref_blends = blend_mask(line.px[refs]).any(0)
+            rest = [line.px[r].tobytes() for r in refs]
             masks = blend_mask(line.px[frames]) & ~ref_blends
             for f, mask in zip(frames, masks):
                 if not mask.any():
                     continue
                 if use_edges:
                     mask = mask & _edge_mask(case, line, f, tracks, len(mask))
+                # Content moved by whole pixels: the blend's whole neighbourhood, byte for byte, is somewhere on this
+                # line at rest (a glyph's own antialiasing carried along by the drag, STATUS 5795), not an edge drawn
+                # off the device-pixel grid, whose mixed color no rest frame has.
+                for x in np.flatnonzero(mask):
+                    if _moved_whole_pixels(line.px[f], x, rest):
+                        mask[x] = False
                 where = np.flatnonzero(mask)
                 if len(where):
                     hits.setdefault(f, []).append(f"{line.axis} {line.coord} at {where[:4].tolist()}")

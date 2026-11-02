@@ -45,6 +45,7 @@ def shown_pos(k):
     return model_pos(max(k - 1, 0))
 
 
+MOVED = 6                 # vj.MOVED_HALF_PX
 LIGHT = (255, 255, 254)   # the light theme of feat-steady-8a804e1-after-r1: the divider has the panes' color at rest
 LIGHT_INK = (74, 74, 74)
 
@@ -244,6 +245,24 @@ class VideoJudgeTests(unittest.TestCase):
             center = int(x + w / 2) - x0
             r0, r1 = vj._run_around(row, center, vj.COLOR_TOL)
             self.assertFalse(vj.divider_visible(row, r0, r1), f"row {y}: run {x0 + r0}-{x0 + r1}")
+
+    def test_text_moved_by_whole_pixels_is_not_a_blend_and_a_new_mix_still_is(self):
+        # Row 481 of frames 156 (rest) and 161 (drag) of the real film: the right pane's glyphs moved +10 px with
+        # their exact antialiasing, which the old judge called a "half-pixel blend" at x 1619.
+        doc = json.loads((HERE / "fixture-video-judge-light-divider-8a804e1-r1.json").read_text())
+        rows = lambda f: np.frombuffer(base64.b64decode(doc["frames"][f]["rows"]["481"]), np.uint8).reshape(-1, 4)
+        rest, drag = rows("156"), rows("161")
+        new = [x for x in np.flatnonzero(vj.blend_mask(drag[None])[0] & ~vj.blend_mask(rest[None])[0])
+               if MOVED <= x < len(drag) - MOVED]
+        self.assertTrue(new, "the drag frame has blends at new places")
+        moved = [x for x in new if vj._moved_whole_pixels(drag, x, [rest.tobytes()])]
+        self.assertTrue(moved, [doc["x0"] + int(x) for x in new])
+        # A pixel mixed half way between two colors (an edge off the grid) inside that same text: no rest frame has
+        # that neighbourhood, so it is still a blend.
+        edge = drag.copy()
+        x = moved[0]
+        edge[x, :3] = (edge[x - 1, :3].astype(int) + edge[x + 1, :3].astype(int) + 1) // 2 + 1
+        self.assertFalse(vj._moved_whole_pixels(edge, x, [rest.tobytes()]))
 
     def test_a_dark_divider_between_panes_is_visible(self):
         row = _bgra(draw(200))[100].astype(np.int16)
