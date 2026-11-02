@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { COLUMN_REACH, offColumn, offTokenGaps, sharedEdge } from "../src/gallery/invariants";
+import { COLUMN_REACH, leadEdge, offColumn, offTokenGaps, sharedEdge } from "../src/gallery/invariants";
 
 test("the column is the edge most rows share", () => {
   expect(sharedEdge([24, 24, 24.2, 26])).toBe(24);
@@ -27,4 +27,10 @@ test("a gap is 0, a token or two tokens", () => {
     { key: "d -> e", gap: 13 },
   ];
   expect(offTokenGaps(gaps, [4, 8, 12, 16]).map(({ key }) => key)).toEqual(["gap-token:d -> e"]);
+});
+
+test("a glyph up to 16 px leads at its 16 px box; a wider glyph (a reply footer's 20) is its own box", () => {
+  expect(leadEdge({ left: 22, width: 12 })).toBe(20);
+  expect(leadEdge({ left: 20, width: 16 })).toBe(20);
+  expect(leadEdge({ left: 20, width: 20 })).toBe(20);
 });
