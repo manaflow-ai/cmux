@@ -124,9 +124,26 @@ pub fn tab<T: Eq + Hash + Clone>(
     shown: &HashSet<T>,
     opener: &HashMap<T, T>,
 ) -> Option<T> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (selected, old, surviving, shown, opener);
-    None
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(selected) = selected else {
+        return surviving
+            .iter()
+            .find(|id| shown.contains(*id))
+            .or_else(|| surviving.first())
+            .cloned();
+    };
+    if live.contains(selected) {
+        return Some(selected.clone());
+    }
+    let visible = |id: &T| live.contains(id) && shown.contains(id);
+    if let Some(family) = opener_family(selected, old, opener, visible) {
+        return Some(family.clone());
+    }
+    neighbor(selected, old, true, visible)
+        .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
+        .or_else(|| neighbor(selected, old, true, |id| live.contains(id)))
+        .or_else(|| surviving.first())
+        .cloned()
 }
 
 /// Chrome's opener step for a closed tab: the next child of `closed`, else
@@ -139,9 +156,25 @@ pub fn opener_family<'a, T: Eq + Hash>(
     opener: &'a HashMap<T, T>,
     qualifies: impl Fn(&T) -> bool,
 ) -> Option<&'a T> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (closed, old, opener, qualifies);
-    None
+    if opener.is_empty() {
+        return None;
+    }
+    let opened_by = |parent: &T| -> Option<&'a T> {
+        let (mut after, mut before) = around(closed, old)?;
+        let child = |id: &&T| opener.get(*id) == Some(parent) && qualifies(id);
+        after.find(child).or_else(|| before.find(child))
+    };
+    if !old.contains(closed) {
+        return None;
+    }
+    if let Some(child) = opened_by(closed) {
+        return Some(child);
+    }
+    let parent = opener.get(closed)?;
+    if let Some(sibling) = opened_by(parent) {
+        return Some(sibling);
+    }
+    qualifies(parent).then_some(parent)
 }
 
 /// The opener relations among `order`, from `opener` (child to opener,
@@ -150,9 +183,25 @@ pub fn opener_family<'a, T: Eq + Hash>(
 /// when a tab leaves the strip; a relation back to the tab itself is
 /// dropped. Only tabs in `order` are keys.
 pub fn live_openers<T: Eq + Hash + Clone>(opener: &HashMap<T, T>, order: &[T]) -> HashMap<T, T> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (opener, order);
-    HashMap::new()
+    let present: HashSet<&T> = order.iter().collect();
+    let mut result = HashMap::new();
+    for tab in order {
+        let mut seen: HashSet<&T> = HashSet::from([tab]);
+        let mut parent = opener.get(tab);
+        while let Some(current) = parent
+            && !present.contains(current)
+            && seen.insert(current)
+        {
+            parent = opener.get(current);
+        }
+        if let Some(parent) = parent
+            && present.contains(parent)
+            && parent != tab
+        {
+            result.insert(tab.clone(), parent.clone());
+        }
+    }
+    result
 }
 
 /// The workspace a window shows after `shown` left it: the next one below
@@ -172,7 +221,18 @@ pub fn workspace<T: Eq + Hash + Clone>(
     surviving: &[T],
     orders: &[Vec<T>],
 ) -> Option<T> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (shown, old, surviving, orders);
-    None
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(shown) = shown else { return surviving.first().cloned() };
+    if live.contains(shown) {
+        return Some(shown.clone());
+    }
+    let members: HashSet<&T> = old.iter().collect();
+    for order in orders.iter().filter(|order| order.contains(shown)) {
+        let rows: Vec<T> =
+            order.iter().filter(|id| *id == shown || members.contains(id)).cloned().collect();
+        if let Some(next) = neighbor(shown, &rows, true, |id| live.contains(id)) {
+            return Some(next.clone());
+        }
+    }
+    neighbor(shown, old, true, |id| live.contains(id)).or_else(|| surviving.first()).cloned()
 }

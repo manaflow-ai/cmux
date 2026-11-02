@@ -111,8 +111,40 @@ impl PaneCloseAim {
     /// the caller shows why) rather than at `focused`, the pane the focus
     /// model has now.
     pub fn aims_at_emptied_pane(&mut self, press: Press, focused: Option<&str>) -> bool {
-        // Red stub: the rule moves in the next commit.
-        let _ = (press, focused);
-        false
+        let Some(pane) = self.emptied.clone() else { return false };
+        if press.is_repeat {
+            if self.held {
+                return true;
+            }
+        } else if press.is_key {
+            self.held = false;
+        }
+        // The focus has not left the emptied pane yet: the press acts on it
+        // as on any pane.
+        if focused == Some(pane.as_str()) {
+            return false;
+        }
+        // The person moved the focus since (a click, a pane key): the press
+        // is theirs to aim.
+        let Some(last) = self
+            .move_
+            .as_ref()
+            .filter(|m| m.from.as_deref() == Some(pane.as_str()) && m.to.as_deref() == focused)
+        else {
+            self.emptied = None;
+            return false;
+        };
+        match last.presented_at {
+            Some(shown) if press.time >= shown => {
+                self.emptied = None;
+                false
+            }
+            _ => {
+                // Held, this key's repeats are the same press, aimed at the
+                // emptied pane too.
+                self.held = press.is_key;
+                true
+            }
+        }
     }
 }

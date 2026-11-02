@@ -266,9 +266,15 @@ impl Resolved {
         own_tabs: &std::collections::HashSet<String>,
         is_key: bool,
     ) -> Option<String> {
-        // Red stub: the rule moves in the next commit.
-        let _ = (ghostty, own_tabs, is_key);
-        None
+        let here: Vec<&String> = ghostty.iter().filter(|tab| own_tabs.contains(*tab)).collect();
+        if let Resolved::Terminal { tab, .. } = self
+            && is_key
+        {
+            return (here != [tab]).then(|| format!("ghostty focused {here:?} != [{tab}]"));
+        }
+        let key = if is_key { "" } else { " (window not key)" };
+        (!here.is_empty())
+            .then(|| format!("ghostty focused {here:?} while model is {}{key}", self.kind()))
     }
 }
 
@@ -296,9 +302,13 @@ pub enum CloseFocusPolicy {
 impl CloseFocusPolicy {
     /// Parses the cmux.json `layout.closeFocus` value (case-insensitive).
     pub fn from_config_value(value: &str) -> Option<CloseFocusPolicy> {
-        // Red stub: the rule moves in the next commit.
-        let _ = value;
-        None
+        if value.eq_ignore_ascii_case("previousNeighbor") {
+            Some(CloseFocusPolicy::PreviousNeighbor)
+        } else if value.eq_ignore_ascii_case("mostRecent") {
+            Some(CloseFocusPolicy::MostRecent)
+        } else {
+            None
+        }
     }
 }
 
@@ -486,8 +496,10 @@ impl FocusState {
     /// the focused terminal's tab. A creation hold binds each held key to
     /// it (P0 1193).
     pub fn typing_tab(&self) -> Option<&str> {
-        // Red stub: the rule moves in the next commit.
-        None
+        if let Some(Expectation { key: ExpectationKey::Tab { id }, .. }) = &self.expectation {
+            return Some(id);
+        }
+        self.terminal_tab()
     }
 
     /// The focused terminal's tab; none when the focus is not on a terminal.

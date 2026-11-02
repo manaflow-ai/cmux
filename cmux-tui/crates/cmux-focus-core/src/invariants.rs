@@ -196,9 +196,86 @@ fn violation(invariant: Invariant, window: Option<&str>, detail: String) -> Viol
 
 /// Invariants every focus state must satisfy.
 pub fn model(state: &Model, window: Option<&str>) -> Vec<Violation> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (state, window);
-    Vec::new()
+    let mut out = Vec::new();
+    let mut fail = |invariant, detail| out.push(violation(invariant, window, detail));
+    let resolved = &state.resolved;
+    if let Some(top) = state.overlays.last()
+        && *resolved != (Resolved::Overlay { overlay: *top })
+    {
+        fail(
+            Invariant::OverlayOnTop,
+            format!("resolved {} with overlay {} open", resolved.kind(), top.name()),
+        );
+    }
+    if let Some(pane) = state.pane.as_deref()
+        && !state.topology.contains_pane(pane)
+    {
+        fail(Invariant::LivePane, format!("focused pane {pane} is not in the topology"));
+    }
+    if let Some(pane) = resolved.pane() {
+        if Some(pane) != state.pane.as_deref() {
+            fail(
+                Invariant::LivePane,
+                format!("resolved pane {pane} != focused pane {}", or_nil(state.pane.as_deref())),
+            );
+        }
+        if let Some(tab) = resolved.tab()
+            && state.topology.pane(pane).and_then(|p| p.selected.as_deref()) != Some(tab)
+        {
+            fail(Invariant::LivePane, format!("resolved tab {tab} is not the selection of {pane}"));
+        }
+    }
+    if state.pane.is_none() && state.target.is_pane_scoped() && !state.topology.panes.is_empty() {
+        fail(
+            Invariant::PaneWhenPanes,
+            format!("{} panes and no focused pane", state.topology.panes.len()),
+        );
+    }
+    let selected = state.topology.selected_kind(state.pane.as_deref());
+    let fits = match resolved {
+        Resolved::Terminal { .. } => selected == Some(Kind::Terminal),
+        Resolved::BrowserPage { .. } | Resolved::AddressBar { .. } | Resolved::FindBar { .. } => {
+            selected == Some(Kind::Browser)
+        }
+        Resolved::AgentPage { .. } => selected == Some(Kind::Agent),
+        Resolved::Page { .. } => selected == Some(Kind::Page),
+        Resolved::Conversation { .. } => selected == Some(Kind::Conversation),
+        _ => true,
+    };
+    if !fits {
+        fail(
+            Invariant::TargetKind,
+            format!("{} on a {} tab", resolved.kind(), kind_name(selected)),
+        );
+    }
+    if matches!(state.target, Target::AddressBar {} | Target::FindBar {})
+        && selected != Some(Kind::Browser)
+    {
+        fail(
+            Invariant::TargetKind,
+            format!("target {} kept on a {} tab", state.target.describe(), kind_name(selected)),
+        );
+    }
+    if let Some(expectation) = &state.expectation
+        && expectation.generation != state.generation
+    {
+        fail(
+            Invariant::NoStaleExpectation,
+            format!(
+                "expectation {} from generation {} at {}",
+                expectation.key.describe(),
+                expectation.generation,
+                state.generation
+            ),
+        );
+    }
+    let all = state.topology.all_tab_ids();
+    let dead: Vec<&String> =
+        state.browser_focus_mode.iter().filter(|t| !all.contains(*t)).collect();
+    if !dead.is_empty() {
+        fail(Invariant::FocusModeLive, format!("focus mode on missing tabs {dead:?}"));
+    }
+    out
 }
 
 // MARK: Transitions (T)
@@ -223,9 +300,54 @@ pub fn transition(
     new: &Model,
     window: Option<&str>,
 ) -> Vec<Violation> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (old, event, new, window);
-    Vec::new()
+    let mut out = Vec::new();
+    let mut fail = |invariant, detail| out.push(violation(invariant, window, detail));
+    let moved = old.pane != new.pane || old.target != new.target;
+    match event {
+        FocusEvent::Expect { generation, .. } if *generation != old.generation => {
+            if moved || new.expectation != old.expectation {
+                fail(
+                    Invariant::NoSteal,
+                    format!("stale expect ({generation} at {}) changed focus", old.generation),
+                );
+            }
+        }
+        FocusEvent::WindowKey { .. }
+        | FocusEvent::AppActive { .. }
+        | FocusEvent::OverlayOpened { .. }
+        | FocusEvent::OverlayClosed { .. }
+        | FocusEvent::ContentPresented { .. } => {
+            if moved {
+                fail(
+                    Invariant::PassiveEvents,
+                    format!(
+                        "{} moved focus {}/{} -> {}/{}",
+                        event_name(event),
+                        or_nil(old.pane.as_deref()),
+                        old.target.describe(),
+                        or_nil(new.pane.as_deref()),
+                        new.target.describe()
+                    ),
+                );
+            }
+        }
+        FocusEvent::Responder { .. } if !old.overlays.is_empty() => {
+            if moved {
+                fail(
+                    Invariant::PassiveEvents,
+                    "responder report under an overlay moved focus".to_owned(),
+                );
+            }
+        }
+        _ => {}
+    }
+    if new.generation < old.generation && old.generation != u64::MAX {
+        fail(
+            Invariant::MonotonicGeneration,
+            format!("generation {} -> {}", old.generation, new.generation),
+        );
+    }
+    out
 }
 
 /// Model and transition checks for one reduction (the app adds its key
@@ -364,9 +486,24 @@ pub struct WorldResult {
 /// present the targeted tab yet is reported as unsettled and its content
 /// checks are skipped.
 pub fn world(observation: &Observation) -> WorldResult {
-    // Red stub: the rule moves in the next commit.
-    let _ = observation;
-    WorldResult::default()
+    let mut result = WorldResult::default();
+    for window in &observation.windows {
+        result.violations.extend(model(&window.model, Some(&window.id)));
+        // Under a top page the parked workspace presents nothing; its
+        // content checks wait for the page to hide.
+        if window.top_page == Some(true) {
+            continue;
+        }
+        if is_settled(window) {
+            result.violations.extend(content(window));
+        } else {
+            result.unsettled.push(window.id.clone());
+        }
+    }
+    result.violations.extend(key_window(observation));
+    result.violations.extend(overlays(observation));
+    result.violations.extend(context(observation));
+    result
 }
 
 /// The focused pane shows the tab the model targets.
@@ -405,9 +542,28 @@ pub fn responder_pane(responder: &Responder) -> Option<&str> {
 /// `debug.focus` uses the same table). `child_page` names the tab whose
 /// Chromium page window has the keys. None when nothing is expected.
 pub fn expected_responder(resolved: &Resolved, child_page: Option<&str>) -> Option<Responder> {
-    // Red stub: the rule moves in the next commit.
-    let _ = (resolved, child_page);
-    None
+    let content = |pane: &str| Responder::Content { pane: pane.to_owned() };
+    match resolved {
+        Resolved::Terminal { pane, .. } | Resolved::Conversation { pane, .. } => {
+            Some(content(pane))
+        }
+        // A Chromium page has the keys in its own window; this window keeps
+        // no responder.
+        Resolved::BrowserPage { pane, .. }
+        | Resolved::Page { pane, .. }
+        | Resolved::AgentPage { pane, .. } => Some(match child_page {
+            None => content(pane),
+            Some(_) => Responder::WindowOrNone {},
+        }),
+        Resolved::AddressBar { pane, .. } => Some(Responder::AddressBar { pane: pane.clone() }),
+        Resolved::FindBar { pane, .. } => Some(Responder::FindBar { pane: pane.clone() }),
+        // A docked DevTools has the keys in its own child window, like a page.
+        Resolved::DevTools { .. } => Some(Responder::WindowOrNone {}),
+        Resolved::Sidebar {} => Some(Responder::Sidebar {}),
+        Resolved::SidebarField {} => Some(Responder::SidebarField {}),
+        Resolved::TextField {} => Some(Responder::TextField {}),
+        Resolved::EmptyPane { .. } | Resolved::Overlay { .. } | Resolved::None {} => None,
+    }
 }
 
 /// W1-W4 and W8 for one settled window.
