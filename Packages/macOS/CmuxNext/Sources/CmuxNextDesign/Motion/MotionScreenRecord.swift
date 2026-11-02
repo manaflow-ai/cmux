@@ -75,7 +75,9 @@ final class MotionScreenRecord {
         let width = Int((source.width * scale).rounded()) / 2 * 2
         let height = Int((source.height * scale).rounded()) / 2 * 2
         let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-        let useDisplay = (params["filter"] as? String ?? "display") == "display"
+        // The display filter needs the window's screen; without one the window filter is used (and reported).
+        let useDisplay = (params["filter"] as? String ?? "display") == "display" && display != nil
+        guard width >= 2, height >= 2 else { return ["error": "the window has no size to record"] }
         let windowWidth = Int((window.frame.width * scale).rounded()), windowHeight = Int((window.frame.height * scale).rounded())
         func lines(_ key: String, _ extent: Int, _ limit: Int) -> [Int] {
             let asked = (params[key] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue }
@@ -388,6 +390,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
         state.withLock { $0.stoppedBy = String(describing: error) }
+        finish()
     }
 
     /// The kept rows and columns of one complete frame, exact (BGRA), after its host time.
@@ -397,6 +400,11 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         guard let base = CVPixelBufferGetBaseAddress(buffer) else { return }
         let width = min(CVPixelBufferGetWidth(buffer), options.width), height = min(CVPixelBufferGetHeight(buffer), options.height)
         let stride = CVPixelBufferGetBytesPerRow(buffer)
+        let recordSize = 8 + 4 * (options.rows.count * options.width + options.columns.count * options.height)
+        guard scan.count + recordSize <= Self.maxScanBytes else {
+            state.withLock { $0.scanDropped += 1 }
+            return
+        }
         var record = Data(capacity: 8 + 4 * (options.rows.count * options.width + options.columns.count * options.height))
         withUnsafeBytes(of: time.bitPattern.littleEndian) { record.append(contentsOf: $0) }
         for y in options.rows {
@@ -408,10 +416,6 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
             var line = [UInt32](repeating: 0, count: max(0, options.height))
             if x < width { for y in 0..<height { line[y] = base.load(fromByteOffset: y * stride + x * 4, as: UInt32.self) } }
             line.withUnsafeBytes { record.append(contentsOf: $0) }
-        }
-        guard scan.count + record.count <= Self.maxScanBytes else {
-            state.withLock { $0.scanDropped += 1 }
-            return
         }
         scan.append(record)
     }
