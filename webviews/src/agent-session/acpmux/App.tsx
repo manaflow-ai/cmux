@@ -2279,13 +2279,14 @@ const RowFrame = React.memo(function RowFrame({
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
           Keeping it as a separate hit target means content controls (including native media) never
           need to be enumerated by the gap handler. On the grid the stack places the gap under the row
-          (design/grid.md 5.5), so the target spans that placed gap. It comes first: the action rows
+          (design/grid.md 5.5), so the target spans the row's own bottom padding (inherited) and that
+          placed gap under it, down to the next row. It comes first: the action rows
           laid in the same gap are positioned later in the row and stay over it, with their clicks. */}
       <span
         className="acpmux-row__gap"
         data-transcript-gap="row"
         aria-hidden="true"
-        style={gapBelow > 0 ? { top: "100%", bottom: "auto", height: gapBelow, paddingBottom: 0 } : undefined}
+        style={gapBelow > 0 ? { bottom: -gapBelow, height: gapBelow, boxSizing: "content-box" } : undefined}
       />
       {messageEntering ? (
         // The article is the virtualizer's measured box. Animate only this presentation wrapper:
