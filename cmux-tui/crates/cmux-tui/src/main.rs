@@ -2511,10 +2511,6 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
-    // Check installed plugins in the background so a remote Git host never
-    // delays the daemon's first response. The worker's daily marker and
-    // source/working-tree checks keep local development installs untouched.
-    let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener

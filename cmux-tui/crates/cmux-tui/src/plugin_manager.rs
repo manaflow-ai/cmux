@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::thread::{self, JoinHandle};
 #[cfg(test)]
 use std::time::Instant;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -36,8 +35,6 @@ const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
 /// scan and allocation.
 const MAX_INSTALLED_PLUGIN_ENTRIES: usize = 256;
 const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
-const AUTO_UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const AUTO_UPDATE_MARKER: &str = ".last-auto-update-check";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PluginKind {
@@ -66,215 +63,6 @@ impl PluginKind {
             Self::Agent => "agent_plugin_",
         }
     }
-}
-
-/// Start the daemon-owned, best-effort check for updates to installed plugins.
-///
-/// The worker is deliberately detached from daemon startup: a remote Git host
-/// must never delay the session socket or the first terminal. It checks at
-/// most once per day and only replaces clean installs from HTTPS or SSH
-/// origins. Local paths, file URLs, symlinks, and dirty checkouts remain under
-/// the user's control.
-pub(crate) fn start_auto_update() -> Option<JoinHandle<()>> {
-    let root = install_root(PluginKind::Sidebar).ok()?;
-    if !root.is_dir() || !auto_update_due(&root, unix_seconds()) {
-        return None;
-    }
-    thread::Builder::new()
-        .name("cmux-plugin-auto-update".to_string())
-        .spawn(|| {
-            if let Err(error) = auto_update_installed_plugins() {
-                eprintln!("{BIN}: automatic plugin update check failed: {error}");
-            }
-        })
-        .ok()
-}
-
-fn auto_update_installed_plugins() -> anyhow::Result<()> {
-    let root = install_root(PluginKind::Sidebar)?;
-    if !root.is_dir() {
-        return Ok(());
-    }
-    {
-        let _marker_lock = PluginUpdateLock::acquire(&root)?;
-        if !auto_update_due(&root, unix_seconds()) {
-            return Ok(());
-        }
-        // Record the attempt before doing network work. A broken remote must
-        // not turn every daemon launch into another potentially slow check.
-        write_auto_update_marker(&root, unix_seconds())?;
-    }
-
-    for kind in [PluginKind::Sidebar, PluginKind::Agent] {
-        let plugins = match installed_plugins(kind) {
-            Ok(plugins) => plugins,
-            Err(error) => {
-                eprintln!(
-                    "{BIN}: cannot inspect {} plugins for updates: {error}",
-                    kind.manifest_kind()
-                );
-                continue;
-            }
-        };
-        for plugin in plugins {
-            if let Err(error) = auto_update_plugin(&plugin, kind) {
-                eprintln!("{BIN}: automatic update for plugin {:?} failed: {error}", plugin.name);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Result<()> {
-    // A symlink is commonly how a developer points cmux at a working tree.
-    // Never replace it, even when its origin is a hosted repository.
-    if fs::symlink_metadata(&plugin.dir)?.file_type().is_symlink() {
-        return Ok(());
-    }
-    let Some(source) = git_text(&plugin.dir, ["remote", "get-url", "origin"])
-        .filter(|source| is_auto_update_source(source))
-    else {
-        return Ok(());
-    };
-    if !auto_update_checkout_is_safe(&plugin.dir) {
-        return Ok(());
-    }
-    if validate_git_source(&source).is_err() {
-        return Ok(());
-    }
-    let Some(current) = git_text(&plugin.dir, ["rev-parse", "HEAD"]) else {
-        return Ok(());
-    };
-    let Some(remote) = git_text(&plugin.dir, ["ls-remote", source.as_str(), "HEAD"])
-        .and_then(|line| line.split_whitespace().next().map(str::to_owned))
-    else {
-        return Ok(());
-    };
-    if remote == current {
-        return Ok(());
-    }
-
-    let positionals = ["update".to_string(), plugin.id.clone()];
-    update_command_auto(&positionals, &CliOptions::default(), kind)
-        .map(|_| ())
-        .map_err(|error| anyhow::anyhow!(error.to_string()))
-}
-
-fn is_auto_update_source(source: &str) -> bool {
-    let source = source.trim();
-    if source.starts_with("file://") || is_local_git_path(source) {
-        return false;
-    }
-    source.starts_with("https://")
-        || source.starts_with("ssh://")
-        || source.starts_with("git://")
-        || source.starts_with("git@")
-}
-
-fn auto_update_status_is_safe(status: &str) -> bool {
-    let mut has_origin_upstream = false;
-    let mut has_ahead_behind = false;
-    for line in status.lines() {
-        if let Some(upstream) = line.strip_prefix("# branch.upstream ") {
-            has_origin_upstream = upstream.starts_with("origin/");
-            continue;
-        }
-        if let Some(ahead_behind) = line.strip_prefix("# branch.ab ") {
-            let mut fields = ahead_behind.split_whitespace();
-            let Some(ahead) = fields
-                .next()
-                .and_then(|value| value.strip_prefix('+'))
-                .and_then(|value| value.parse::<u64>().ok())
-            else {
-                return false;
-            };
-            if fields
-                .next()
-                .and_then(|value| value.strip_prefix('-'))
-                .and_then(|value| value.parse::<u64>().ok())
-                .is_none()
-            {
-                return false;
-            }
-            has_ahead_behind = ahead == 0;
-            continue;
-        }
-        if !line.is_empty() && !line.starts_with('#') {
-            return false;
-        }
-    }
-    has_origin_upstream && has_ahead_behind
-}
-
-fn auto_update_checkout_is_safe(dir: &Path) -> bool {
-    let Some(status) = git_text_allow_empty(
-        dir,
-        [
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "--untracked-files=all",
-            "--ignore-submodules=none",
-        ],
-    ) else {
-        return false;
-    };
-    auto_update_status_is_safe(&status)
-}
-
-struct PluginUpdateLock {
-    file: fs::File,
-}
-
-impl PluginUpdateLock {
-    fn acquire(root: &Path) -> anyhow::Result<Self> {
-        fs::create_dir_all(root)?;
-        let path = root.join(".plugin-update.lock");
-        let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
-        fs4::FileExt::lock(&file)?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for PluginUpdateLock {
-    fn drop(&mut self) {
-        let _ = fs4::FileExt::unlock(&self.file);
-    }
-}
-
-fn auto_update_marker_path(root: &Path) -> PathBuf {
-    root.join(AUTO_UPDATE_MARKER)
-}
-
-fn auto_update_due(root: &Path, now: u64) -> bool {
-    let Ok(text) = fs::read_to_string(auto_update_marker_path(root)) else {
-        return true;
-    };
-    let Ok(previous) = text.trim().parse::<u64>() else {
-        return true;
-    };
-    now.saturating_sub(previous) >= AUTO_UPDATE_INTERVAL.as_secs()
-}
-
-fn write_auto_update_marker(root: &Path, now: u64) -> anyhow::Result<()> {
-    let marker = auto_update_marker_path(root);
-    let temporary =
-        root.join(format!(".{AUTO_UPDATE_MARKER}.{}-{}.tmp", std::process::id(), now_nanos()));
-    fs::write(&temporary, format!("{now}\n"))?;
-    if let Err(error) = fs::rename(&temporary, &marker) {
-        // Windows does not replace an existing file with rename. Removing
-        // the old marker is safe because a missing marker simply causes the
-        // next launch to perform one bounded check.
-        let _ = fs::remove_file(&marker);
-        fs::rename(&temporary, &marker).map_err(|retry_error| {
-            let _ = fs::remove_file(&temporary);
-            anyhow::anyhow!(
-                "failed to persist {}: {error}; retry failed: {retry_error}",
-                marker.display()
-            )
-        })?;
-    }
-    Ok(())
 }
 
 /// A userland plugin build must not hold the CLI forever.
@@ -436,7 +224,6 @@ fn install_command(
         .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root(kind)?;
     fs::create_dir_all(&root)?;
-    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     // Keep the user-supplied source after `--` so a value beginning with `-`
     // cannot become a git option. The destination remains a separate final
@@ -564,23 +351,6 @@ fn update_command(
     options: &CliOptions,
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
-    update_command_inner(positionals, options, kind, false)
-}
-
-fn update_command_auto(
-    positionals: &[String],
-    options: &CliOptions,
-    kind: PluginKind,
-) -> Result<Value, ManagerError> {
-    update_command_inner(positionals, options, kind, true)
-}
-
-fn update_command_inner(
-    positionals: &[String],
-    options: &CliOptions,
-    kind: PluginKind,
-    require_clean_checkout: bool,
-) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(format!(
@@ -588,8 +358,6 @@ fn update_command_inner(
             kind.command_prefix()
         )));
     }
-    let root = install_root(kind).map_err(ManagerError::Failure)?;
-    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
         ManagerError::validation(
@@ -603,6 +371,7 @@ fn update_command_inner(
     // Build and validate a fresh clone before touching the active install.
     // Updating in place would let a failed pull or build leave the selected
     // plugin half-updated, which is unsafe for a daemon-owned process.
+    let root = install_root(kind)?;
     let temp_dir = root.join(format!(".update-{}-{}", std::process::id(), now_nanos()));
     let clone_result =
         run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
@@ -624,12 +393,6 @@ fn update_command_inner(
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
-        if require_clean_checkout && !auto_update_checkout_is_safe(&plugin.dir) {
-            return Err(ManagerError::validation(
-                Some("plugin"),
-                format!("plugin {} changed while its update was prepared", plugin.name),
-            ));
-        }
         let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
         let transaction =
             replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
@@ -818,11 +581,6 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
             continue;
         }
         let dir = entry.path();
-        if kind == PluginKind::Sidebar
-            && dir.file_name().and_then(|name| name.to_str()) == Some("agent")
-        {
-            continue;
-        }
         if dir.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
         {
             continue;
@@ -1675,10 +1433,6 @@ fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
 }
 
 fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
-    git_text_allow_empty(dir, args).filter(|value| !value.is_empty())
-}
-
-fn git_text_allow_empty<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
     let mut child = Command::new("git")
         .arg("-c")
         .arg("protocol.file.allow=always")
@@ -1692,7 +1446,7 @@ fn git_text_allow_empty<const N: usize>(dir: &Path, args: [&str; N]) -> Option<S
         String::from_utf8(read_bounded_child_stdout(&mut child, MAX_PLUGIN_GIT_OUTPUT_BYTES)?)
             .ok()?;
     let value = value.trim_end_matches(['\r', '\n']);
-    Some(value.to_string())
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Read child stdout with a hard allocation bound. The extra byte detects
@@ -1738,10 +1492,6 @@ fn non_empty_env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
-fn unix_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-}
-
 fn now_nanos() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
 }
@@ -1749,56 +1499,6 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn automatic_updates_only_use_remote_sources() {
-        for source in [
-            "https://github.com/manaflow-ai/cmux-sidebar-fzf",
-            "ssh://git@github.com/manaflow-ai/cmux-sidebar-fzf.git",
-            "git@github.com:manaflow-ai/cmux-sidebar-fzf.git",
-        ] {
-            assert!(is_auto_update_source(source), "remote source should update: {source}");
-        }
-        for source in [
-            "file:///tmp/cmux-sidebar-fzf",
-            "/Users/me/src/cmux-sidebar-fzf",
-            "../cmux-sidebar-fzf",
-            "http://github.com/manaflow-ai/cmux-sidebar-fzf",
-        ] {
-            assert!(
-                !is_auto_update_source(source),
-                "local or insecure source should stay manual: {source}"
-            );
-        }
-    }
-
-    #[test]
-    fn automatic_updates_require_a_clean_origin_tracking_branch() {
-        let clean = "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -1\n";
-        assert!(auto_update_status_is_safe(clean));
-        assert!(!auto_update_status_is_safe(
-            "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +1 -0\n"
-        ));
-        assert!(!auto_update_status_is_safe(
-            "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n1 .M N... 100644 100644 100644 abc def file\n"
-        ));
-        assert!(!auto_update_status_is_safe("# branch.oid abc\n# branch.head (detached)\n"));
-    }
-
-    #[test]
-    fn automatic_update_marker_waits_a_day() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-plugin-auto-update-test-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        assert!(auto_update_due(&root, 1_000));
-        write_auto_update_marker(&root, 1_000).unwrap();
-        assert!(!auto_update_due(&root, 1_000 + AUTO_UPDATE_INTERVAL.as_secs() - 1));
-        assert!(auto_update_due(&root, 1_000 + AUTO_UPDATE_INTERVAL.as_secs()));
-        fs::remove_dir_all(root).unwrap();
-    }
 
     fn manifest_text(name: &str) -> String {
         format!(

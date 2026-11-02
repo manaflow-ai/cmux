@@ -1524,7 +1524,6 @@ dependencies = [
  "cmux-link",
  "cmux-server-core",
  "flate2",
- "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "libc",
