@@ -76,9 +76,8 @@ struct CloudStartChat {
                 signedIn: services.cloud.isSignedIn)
     }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
-        if cloudDisabled { return "cloud_disabled" }
-        return signedIn ? nil : "not_signed_in"
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { // the rule: cmux-cloud-start-core `start`
+        CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
     }
 
     /// Keep the stable refusal code for bridge callers, but give the Cloud

@@ -216,8 +216,11 @@ public final class CreationInputBuffer {
     }
 
     /// The creation whose keys alone keep waiting (``leftWorkspaceWithKeys``) while the window shows `shown` and its
-    /// terminal has the keyboard there or not (`terminalReady`); nil when no left workspace's keys wait any more.
+    /// terminal has the keyboard there or not (`terminalReady`); nil when no left workspace's keys wait any more, or when
+    /// the window shows the workspace the person did not leave (``shownWorkspaceToWaitFor``): the hold ends there, and the
+    /// left one's keys go with it as before (review of #32352: keys typed into that shown workspace waited up to 2 s).
     public func keysKeptForLeftWorkspace(shown: String?, terminalReady: Bool) -> Int? {
+        if let current = shownWorkspaceToWaitFor, current == shown { return nil }
         guard let left = leftWorkspaceWithKeys, left.workspace != shown || !terminalReady else { return nil }
         return left.ticket
     }
