@@ -197,10 +197,36 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           )
         )
           return false;
-        if (want.length === 0 ? livePopups.length > 0 : livePopups.length === 0) return false;
-        // The trigger's expanded state and a mounted live popup are the semantic contract.  Popup
-        // geometry and opacity are animated independently, so tying this barrier to either one
-        // makes a loaded browser wait for presentation details rather than the menu state.
+        const popupFor = (button: HTMLElement) => {
+          const controls = button.getAttribute("aria-controls");
+          const controlled = controls ? document.getElementById(controls) : null;
+          const controlledPopup = controlled?.closest<HTMLElement>(".ui-popup");
+          if (controlledPopup && !controlledPopup.hasAttribute("data-ending-style")) return controlledPopup;
+          return livePopups.find(
+            (popup) =>
+              popup.getAttribute("aria-label") === button.getAttribute("aria-label") ||
+              (button.id && popup.getAttribute("aria-labelledby") === button.id),
+          );
+        };
+        // The trigger's expanded state and its own mounted live popup are the semantic contract.
+        // Do not count generic popups: a stale unrelated surface can remain mounted while this
+        // trigger's menu is closed.
+        for (const name of want) {
+          const button = [...document.querySelectorAll<HTMLElement>(pairs.find(([label]) => label === name)![1])].find(
+            (candidate) => {
+              const box = candidate.getBoundingClientRect();
+              return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+            },
+          );
+          if (!button || !popupFor(button)) return false;
+        }
+        if (want.length === 0 && pairs.some(([, selector]) => {
+          const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+            const box = candidate.getBoundingClientRect();
+            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+          });
+          return button && popupFor(button);
+        })) return false;
         return true;
       },
       [names.map((name) => [name, chip(name)] as const), want] as const,
