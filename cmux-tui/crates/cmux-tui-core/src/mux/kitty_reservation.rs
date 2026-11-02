@@ -13,17 +13,9 @@ const KITTY_RESERVATION_WAIT: Duration = Duration::from_millis(500);
 
 impl Mux {
     /// Size the Kitty image budget for the terminal that will reserve as
-    /// `surface` ([`KittyImageSurfaceExpectation`]). Within a wave it takes
-    /// over one of the wave's terminals.
-    pub(crate) fn expect_kitty_image_surface(
-        self: &Arc<Self>,
-        surface: SurfaceId,
-    ) -> KittyImageSurfaceExpectation {
-        self.expect_kitty_image_respawn(None, surface)
-    }
-
-    /// [`Self::expect_kitty_image_surface`] for a respawn that replaces
-    /// `old_runtime`. The dead runtime gives its share up in the same budget
+    /// `slot` ([`KittyImageSurfaceExpectation`]); within a wave it takes over
+    /// one of the wave's terminals. It respawns `old_runtime` (none: a new
+    /// terminal), whose dead runtime gives its share up in the same budget
     /// step: kept, the terminal counted twice (its old entry and its
     /// expectation), and the hysteresis kept the larger bucket after it.
     /// In one step, the worker never grows the other terminals in between

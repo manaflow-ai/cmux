@@ -88,7 +88,7 @@ fn a_respawn_wave_reserves_its_kitty_shares_without_waiting_for_a_launch_in_flig
     let mux = test_mux();
     let slots = (0..WAVE).map(|_| mux.next_id()).collect::<Vec<_>>();
     let expectations =
-        slots.iter().map(|slot| mux.expect_kitty_image_surface(*slot)).collect::<Vec<_>>();
+        slots.iter().map(|slot| mux.expect_kitty_image_respawn(None, *slot)).collect::<Vec<_>>();
     let share = kitty_image_limits_for_capacity(WAVE.next_power_of_two());
     let mut reservations = Vec::new();
     let mut waits = Vec::new();
@@ -131,7 +131,7 @@ fn a_wave_given_up_halfway_gives_back_the_kitty_shares_it_never_used() {
     let mux = test_mux();
     let slots = (0..WAVE).map(|_| mux.next_id()).collect::<Vec<_>>();
     let expectations =
-        slots.iter().map(|slot| mux.expect_kitty_image_surface(*slot)).collect::<Vec<_>>();
+        slots.iter().map(|slot| mux.expect_kitty_image_respawn(None, *slot)).collect::<Vec<_>>();
     let mut reservations = slots[..STARTED]
         .iter()
         .map(|slot| mux.reserve_kitty_image_surface(*slot).unwrap())
@@ -165,7 +165,7 @@ fn a_wave_given_up_halfway_gives_back_the_kitty_shares_it_never_used() {
 fn a_dropped_kitty_expectation_gives_its_share_back() {
     let mux = test_mux();
     let expectations =
-        (0..4).map(|_| mux.expect_kitty_image_surface(mux.next_id())).collect::<Vec<_>>();
+        (0..4).map(|_| mux.expect_kitty_image_respawn(None, mux.next_id())).collect::<Vec<_>>();
     let first = mux.reserve_kitty_image_surface(mux.next_id()).unwrap();
     assert_eq!(
         first.initial_limits(),
@@ -194,7 +194,7 @@ fn a_start_wave_is_sized_before_its_first_respawn_and_gives_back_the_unplanned()
     // Each planned respawn names its slot and reserves at once: the ones not
     // planned yet are still counted.
     for slot in &slots {
-        expectations.push(mux.expect_kitty_image_surface(*slot));
+        expectations.push(mux.expect_kitty_image_respawn(None, *slot));
         let started = Instant::now();
         reservations.push(mux.reserve_kitty_image_surface(*slot).unwrap());
         assert!(
