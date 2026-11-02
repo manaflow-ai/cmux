@@ -37,17 +37,13 @@ pub use view_offset::{Snap, center, fit, focus_after_scroll, snaps, snaps_into, 
 /// signed zero, which the port keeps exact.
 #[inline]
 pub fn swift_min(x: f64, y: f64) -> f64 {
-    // RED: rule not ported yet.
-    let _ = y;
-    x
+    if y < x { y } else { x }
 }
 
 /// `Swift.max(x, y)`: `y >= x ? y : x`.
 #[inline]
 pub fn swift_max(x: f64, y: f64) -> f64 {
-    // RED: rule not ported yet.
-    let _ = y;
-    x
+    if y >= x { y } else { x }
 }
 
 /// `Sequence.min(by:)`: the first element no other is "less" than.
