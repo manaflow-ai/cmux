@@ -6453,8 +6453,8 @@ export class AcpmuxDirectClient {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
-      const held = this.heldStartMode?.generation === this.selectionGeneration ? this.heldStartMode : undefined;
-      if (!held) this.heldStartMode = undefined;
+      const generation = this.selectionGeneration;
+      if (this.heldStartMode?.generation !== generation) this.heldStartMode = undefined;
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
@@ -6462,12 +6462,19 @@ export class AcpmuxDirectClient {
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
-      if (held && this.heldStartMode === held) {
+      // The newest pick for this chat, one made while the start was pending included. It goes to the
+      // session this start made, never the selected one: another chat picked while the ticket is
+      // pending must not take a held Bypass permissions.
+      const held = this.heldStartMode?.generation === generation ? this.heldStartMode : undefined;
+      if (held) {
         this.heldStartMode = undefined;
+        const ticket = await held.ticket?.catch(() => undefined);
         // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
-        await this.setMode(held.modeId, await held.ticket?.catch(() => undefined)).catch((error: unknown) => {
-          this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
-        });
+        await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
+          (error: unknown) => {
+            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+          },
+        );
       }
       return sessionId;
     }

@@ -98,3 +98,33 @@ test("a start the Cloud machine refuses keeps the held mode for the next send", 
     run.client.close();
   }
 });
+
+test("a held mode goes to the session its start made, even when another chat is selected before its ticket resolves", async () => {
+  const run = await cloud();
+  try {
+    let resolveTicket!: (ticket: string) => void;
+    run.client.holdStartMode("bypassPermissions", new Promise((resolve) => (resolveTicket = resolve)));
+    const started = run.client.ensureSession();
+    // The start is made; the pick's gesture ticket is still pending. The person selects another chat.
+    for (let turn = 0; turn < 50 && !run.wire.includes("session/new"); turn += 1) await Promise.resolve();
+    void run.client.select("other-chat").catch(() => undefined);
+    resolveTicket("gesture-2");
+    expect(await started).toBe("cloud-1");
+    expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual(["set_mode cloud-1 bypassPermissions gesture-2"]);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a mode picked while the start is pending is the one its session takes", async () => {
+  const run = await cloud();
+  try {
+    run.client.holdStartMode("acceptEdits");
+    const started = run.client.ensureSession();
+    run.client.holdStartMode("bypassPermissions");
+    await started;
+    expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual(["set_mode cloud-1 bypassPermissions -"]);
+  } finally {
+    run.client.close();
+  }
+});
