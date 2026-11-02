@@ -350,9 +350,12 @@ fn version_build(version: &str) -> Option<&str> {
 }
 
 /// The build id an acpmux binary carries, read from its bytes, so a binary
-/// for another platform is not run: clap's version text
-/// `<version> (<hash>[+dirty.<fp>] <date>)` is one string in it.
+/// for another platform is not run: its stamp `acpmux <version> (<hash>[+dirty.<fp>]
+/// <date>)` is one string in it (acpmux-build-id's `STAMP`). Without that
+/// marker (a binary from before it), the first `<version> (<build id>)`, but
+/// never rustc's own `rustc version <version> (<hash> <date>)`.
 fn embedded_build(bytes: &[u8]) -> Option<String> {
+    let mut first = None;
     let mut from = 0;
     while let Some(i) = bytes[from..].windows(2).position(|w| w == b" (") {
         let at = from + i;
@@ -363,11 +366,24 @@ fn embedded_build(bytes: &[u8]) -> Option<String> {
         let rest = &bytes[from..bytes.len().min(from + 80)];
         let Some(end) = rest.iter().position(|&b| b == b')') else { continue };
         let Ok(text) = std::str::from_utf8(&rest[..end]) else { continue };
-        if is_build_id(text) {
+        if !is_build_id(text) {
+            continue;
+        }
+        // The version before " (": back to the space (or other byte) before it.
+        let start = bytes[..at]
+            .iter()
+            .rposition(|&b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'+'))
+            .map_or(0, |p| p + 1);
+        let before = &bytes[..start];
+        if before.ends_with(b"acpmux ") {
             return Some(text.to_owned());
         }
+        if before.ends_with(b"rustc version ") || before.ends_with(b"rustc ") {
+            continue;
+        }
+        first.get_or_insert_with(|| text.to_owned());
     }
-    None
+    first
 }
 
 /// `<7-40 hex>[+dirty.<8 hex>] <YYYY-MM-DD>`, as build.rs writes it.
