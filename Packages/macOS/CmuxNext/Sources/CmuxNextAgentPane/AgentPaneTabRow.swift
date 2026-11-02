@@ -16,6 +16,8 @@ import CmuxNextSettings
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
+    var holes: [CGRect] = []
     private var offeredNativeRowTools: Bool?
     /// Only a shared page host has the return event stream needed by native controls.
     var supportsNativeTools = false
@@ -72,7 +74,8 @@ import CmuxNextSettings
             let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
             let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
                                              tools: row.sharedWidth(zoom: zoom) ?? 0) : []
-            page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            row.holes = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            view.applyNativeRects()
         }
         guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
         row.offered = next
@@ -106,4 +109,7 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
+    /// The chat's page paints its surface's background (an `appearance.surfaces.agentPane` color)
+    /// under the header; the pane paints the same behind its tabs, so the row is one fill.
+    public var tabRowSurface: SurfaceKind? { surfaceKind }
 }

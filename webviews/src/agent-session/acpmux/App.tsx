@@ -6436,7 +6436,12 @@ function AcpmuxPane() {
   const authQuery = snapshot.sessionId
     ? { sessionId: snapshot.sessionId }
     : healthHarness && healthLocal
-      ? { target: { harness: healthHarness } }
+      ? {
+          target: {
+            harness: healthHarness,
+            ...(snapshot.summary?.cwd?.startsWith("/") ? { cwd: snapshot.summary.cwd } : {}),
+          },
+        }
       : undefined;
   const {
     auth: sessionAuth,
