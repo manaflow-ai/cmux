@@ -160,16 +160,29 @@ export const sessionInfoOverChat = (paneWidth: number, width: number, column?: C
 /// typing a long draft never switches the panel between the two.
 export const POPOVER_BELOW_HEIGHT = 520;
 
-/// Whether the floating panel is a popover (POPOVER_BELOW_HEIGHT): it lies over the chat in a short pane.
-export const sessionInfoPopover = (paneHeight: number, overChat: boolean) =>
-  overChat && paneHeight > 0 && paneHeight < POPOVER_BELOW_HEIGHT;
+/// Whether a pushed panel, even at its narrowest, would leave the chat narrower than the panel itself
+/// (SESSION_INFO_WIDTH.min): a pane under 528px. Pushing there squeezed the chat to a sliver (a 370px
+/// pane kept about 100px of it, its "Not sent" line and Retry under the panel; cmuxterm-hq#6137), so
+/// the panel is a popover over the chat instead, as in a short pane (Leo, 2026-10-31: "sometimes the
+/// claude code/chatgpt desktop just straight up make it a popover that hides when you click away when
+/// the viewport is indeed too small"). A diff split that halves a wider pane still pushes, its chat
+/// under PUSH_MIN_CHAT but wider than the panel.
+export const tooNarrowToPush = (paneWidth: number) =>
+  paneWidth > 0 && paneWidth - SESSION_INFO_WIDTH.min - FLOAT_MARGIN < SESSION_INFO_WIDTH.min;
+
+/// Whether the floating panel is a popover: it lies over the chat in a short pane
+/// (POPOVER_BELOW_HEIGHT), or in one too narrow to push (tooNarrowToPush). A popover shows only when
+/// the person opens it (SessionInfoPresence `asked`), never from a saved open state alone.
+export const sessionInfoPopover = (paneHeight: number, overChat: boolean, paneWidth = 0) =>
+  overChat && ((paneHeight > 0 && paneHeight < POPOVER_BELOW_HEIGHT) || tooNarrowToPush(paneWidth));
 
 /// Whether Session Info pushes the chat aside. With Settings Push always, always. By default it
 /// floats in the right gutter and moves nothing while the gutter holds it (Leo, 2026-10-31: "why is
 /// the session info thing still pushing my layout when it doesnt need to???"), and where the gutter
 /// cannot hold it, it takes its column and the chat moves left instead of lying under it (Leo,
-/// 2026-11-01: "why does the session info not push the layout left ever anymore"). A short pane keeps
-/// it a popover over the chat (POPOVER_BELOW_HEIGHT), and a handoff review's wider form never pushes.
+/// 2026-11-01: "why does the session info not push the layout left ever anymore"). A short pane, or
+/// one too narrow to keep PUSH_MIN_CHAT beside it (tooNarrowToPush), keeps it a popover over the
+/// chat (sessionInfoPopover), and a handoff review's wider form never pushes.
 /// `overflow` is how far the chat's drawn content reaches past the column the model expects
 /// (chatContentOverflow): a panel that would lie over any row or the composer pushes, whatever the
 /// gutter's width says.
@@ -184,7 +197,7 @@ export const sessionInfoPushes = (
   pushes(placement) ||
   (!wide &&
     sessionInfoOverChat(pane.width, width + Math.max(0, overflow), column) &&
-    !sessionInfoPopover(pane.height, true));
+    !sessionInfoPopover(pane.height, true, pane.width));
 
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -457,6 +470,9 @@ export function useSessionInfo({
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
+  // The person opened it in this pane (the toggle, a running line's count, the palette), not only a
+  // saved state: a popover shows only then (SessionInfoPresence).
+  const [asked, setAsked] = useState(false);
   const shown = sessionInfoShown({ on, open, suppressed, covered });
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
@@ -500,6 +516,7 @@ export function useSessionInfo({
       onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
+      setAsked(true);
       setSessionInfoOpen(true);
     });
   }, [on, label, onBeforeOpen]);
@@ -535,6 +552,7 @@ export function useSessionInfo({
       onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
+      setAsked(true);
       setSessionInfoOpen(true);
     }
   };
@@ -542,6 +560,7 @@ export function useSessionInfo({
     onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
+    setAsked(true);
     setSessionInfoSection(section, true);
     setSessionInfoOpen(true);
     setRevealed({ section, at: Date.now() });
@@ -567,6 +586,7 @@ export function useSessionInfo({
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
+        asked={asked}
         onSuppress={suppress}
         registry={registry}
         subagents={subagents}
@@ -641,6 +661,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   beside,
   wide,
   openedOutputAt,
+  asked = false,
   onSuppress,
   registry,
   subagents,
@@ -684,6 +705,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
+  /// The person opened it in this pane (useSessionInfo), not only a saved open state.
+  asked?: boolean;
   /// That diff's split left no room for the chat beside Session Info: Session Info steps aside.
   onSuppress: () => void;
   registry?: ProcessRegistry;
@@ -754,8 +777,15 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   );
   // A handoff review's form has its own gutter: the rows' reading does not apply to it.
   const overChat = !push && sessionInfoOverChat(paneWidth, width + (wide ? 0 : overflow), column, wide);
-  // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
-  const popover = sessionInfoPopover(paneHeight, overChat);
+  // In a short pane, or one too narrow to push, over the chat it is a popover a click elsewhere hides.
+  const popover = sessionInfoPopover(paneHeight, overChat, paneWidth);
+  // A popover covers the chat it lies over, so it waits for the person: open only from a saved state
+  // (a new chat, a relaunch, a pane narrowed under it), it steps aside until the toggle, a running
+  // line's count or the palette opens it (cmuxterm-hq#6137: a new chat in a narrow pane opened with
+  // the panel over its Retry).
+  useLayoutEffect(() => {
+    if (drawn && popover && !asked) onSuppress();
+  }, [drawn, popover, asked, onSuppress]);
   useEffect(() => {
     const doc = shell?.ownerDocument;
     if (!native || !drawn || !popover || !doc) return;
