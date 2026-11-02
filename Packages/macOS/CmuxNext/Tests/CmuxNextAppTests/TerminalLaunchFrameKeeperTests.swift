@@ -128,6 +128,25 @@ import Testing
         #expect(!removed, "the keeper removed the frame of a pane still showing it ahead of its surface: the next launch shows it empty")
     }
 
+    /// The keeper test flake (2 of 10 on feat): Foundation's atomic write puts the bytes in a file beside the target
+    /// (`tab_kept@1x.jpg.sb-<id>`) and renames it after. Code that took every `<key>@...` name for a saved frame read
+    /// too early (the test) or removed another writer's file before its rename (the keeper's cleanup: a quit that saves
+    /// beside a late keeper write then lost that terminal's frame). Only `<key>@<scale>x.jpg` is a saved frame.
+    @Test func aKeeperWriteLeavesAnotherWritesFileInProgressAlone() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-in-progress-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Another write (the quit's, of a terminal this keeper does not keep) has its bytes down and not renamed yet.
+        let inProgress = directory.appending(path: "tab_quit@2x.jpg.sb-3ccdeb25-8UvLgh")
+        try Data("jpeg".utf8).write(to: inProgress)
+        let frame = try #require(TerminalLaunchFrameTests.frame(NSSize(width: 4, height: 4), scale: 1)
+            .cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(frame, key: "tab_kept", scale: 1, to: directory, keeping: ["tab_kept"])
+        #expect(FileManager.default.fileExists(atPath: inProgress.path),
+                "the keeper removed another write's file before its rename: that terminal's frame is lost")
+        #expect(Self.files("tab_quit", in: directory).isEmpty, "a file in progress counted as a saved frame")
+    }
+
     /// Never per keystroke: a terminal that changes constantly (an echo per key, a busy program) is saved at most once
     /// per interval.
     @Test func aBusyTerminalIsSavedAtMostOncePerInterval() async throws {
