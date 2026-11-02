@@ -333,6 +333,9 @@ pub mod method {
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.
     pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// One MCP request of `cmux computer-use` through this daemon's own
+    /// Computer Use bridge (`cua_v2/cli_bridge.rs`); the local socket only.
+    pub const MUX_COMPUTER_USE_MCP: &str = "_acpmux/computer_use_mcp";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";

@@ -14,6 +14,13 @@
 //! one card. Then the call runs, or the agent gets a plain answer that says
 //! what happened and what to do next (never "retry in a loop").
 //!
+//! The worker's app approvals (docs/computer-use-approvals.md) decide in
+//! the worker, never here. A call the worker held for the person and then
+//! refused (`approval_timeout`, `approval_pending`, `approval_denied`, which
+//! the `acpmux cua-mcp` bridge reports) comes back through [`approval`] in
+//! this server's error envelope: it says the person was asked on their Mac or
+//! phone, that the question stays open for 10 minutes, and what to do now.
+//!
 //! The check runs inside the call (`SetupCheck::run`), never on the
 //! server's dispatch thread: in direct mode it holds only that call's
 //! thread, in a `cmux_exec` script it is bounded by the script's limit. An
@@ -251,6 +258,22 @@ impl Refusal {
     }
 }
 
+/// A computer use call's result: a worker approval refusal in this server's
+/// error envelope (nothing ran), anything else unchanged. It only words what
+/// the worker decided.
+pub(super) fn approval(result: Value) -> Value {
+    let Some((refusal, app)) = acpmux::cua_v2::ApprovalRefusal::of_result(&result) else {
+        return result;
+    };
+    let error = json!({
+        "code": refusal.code(),
+        "message": refusal.message(app.as_deref()),
+        "details": {"app": app},
+        "retryable": refusal.retryable(),
+    });
+    super::tool_error(super::envelope(error, "not_run", None))
+}
+
 /// The tool result for `refusal`: nothing ran.
 pub(super) fn refusal(refusal: Refusal) -> Value {
     let error = json!({
@@ -358,6 +381,30 @@ mod tests {
                 "{phase}"
             );
         }
+    }
+
+    /// The worker's approval refusals come back with what the person was
+    /// asked and for how long; other results pass unchanged.
+    #[test]
+    fn an_approval_timeout_says_the_question_stays_open_ten_minutes() {
+        use acpmux::cua_v2::ApprovalRefusal;
+        let result = approval(ApprovalRefusal::Timeout.tool_result(Some("Safari")));
+        let error = &result["structuredContent"]["error"];
+        assert_eq!(result["isError"], true);
+        assert_eq!(result["structuredContent"]["state"], "not_run");
+        assert_eq!(error["code"], "computer_use.approval_timeout");
+        assert_eq!(error["retryable"], true);
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("on their Mac or phone"), "{message}");
+        assert!(message.contains("stays open there for 10 minutes"), "{message}");
+        assert!(message.contains("do not retry in a loop"), "{message}");
+        let denied = approval(ApprovalRefusal::Denied.tool_result(None));
+        assert_eq!(denied["structuredContent"]["error"]["retryable"], false);
+        let ran = json!({"content": [{"type": "text", "text": "clicked"}]});
+        assert_eq!(approval(ran.clone()), ran);
+        // A model-controlled error text that names a code is not a refusal.
+        let text_only = json!({"isError": true, "content": [{"type": "text", "text": "computer_use.approval_denied"}]});
+        assert_eq!(approval(text_only.clone()), text_only);
     }
 
     /// The card's reason names the app the call names, never free model text.

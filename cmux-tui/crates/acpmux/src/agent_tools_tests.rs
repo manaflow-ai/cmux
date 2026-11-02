@@ -171,6 +171,45 @@ fn own_servers_run_under_the_daemon_prefix() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The Computer Use card's labels acpmux marked at spawn reach the helper v2
+/// bridge's env only: no other server gets them, and a value inherited in a
+/// server's env never survives.
+#[test]
+fn computer_use_labels_reach_only_the_bridge() {
+    let root = std::env::temp_dir().join(format!("acpmux-cua-labels-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new("/bin/acpmux".into(), vec![])),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        ..memory_inputs(&root, None)
+    };
+    let mut env = std::collections::BTreeMap::new();
+    crate::cua_v2::Labels::for_session("claude", std::path::Path::new("/w/api-server"), "cmux")
+        .mark(&mut env);
+    let tools = super::resolve(&inputs).scoped(&env);
+    for server in &tools.servers {
+        let labels: Vec<_> = server
+            .env
+            .iter()
+            .filter(|(k, _)| crate::cua_v2::labels::KEYS.contains(&k.as_str()))
+            .cloned()
+            .collect();
+        if server.args.iter().any(|a| a == "cua-mcp") {
+            assert_eq!(
+                labels,
+                crate::cua_v2::Labels::new("claude", "api-server", "cmux").env(),
+                "{}",
+                server.name
+            );
+        } else {
+            assert!(labels.is_empty(), "{}: {labels:?}", server.name);
+        }
+    }
+    assert!(tools.servers.iter().any(|s| s.args.iter().any(|a| a == "cua-mcp")));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A launch without servers removes the last launch's MCP config, so the background-shell hook
 /// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
 /// the calls the hook turned away under the last one.

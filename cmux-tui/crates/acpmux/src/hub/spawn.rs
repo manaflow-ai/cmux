@@ -284,6 +284,13 @@ impl Hub {
         // The workspace picks the computer use display (agent_displays.rs);
         // `agent/command.rs` removes the key before the harness starts.
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
+        // The Computer Use card's labels for this session (`cua_v2::Labels`).
+        crate::cua_v2::Labels::for_session(
+            &meta.harness,
+            &meta.cwd,
+            crate::cua_v2::labels::CHAT_CLIENT,
+        )
+        .mark(&mut p.env);
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);

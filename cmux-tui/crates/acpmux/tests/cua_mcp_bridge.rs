@@ -69,6 +69,25 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
         writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
         while let Some(Ok(line)) = lines.next() {
             let request: Value = serde_json::from_str(&line).unwrap();
+            if request["method"] == "session/hello" {
+                // Kept for the label test; answered like the worker does.
+                std::fs::write(consent_home.join("hello.json"), &line).unwrap();
+                writeln!(writer, "{}", json!({"id": request["id"], "ok": true})).unwrap();
+                continue;
+            }
+            if request["method"] == "tools/call" && request["name"] == "ask_safari" {
+                // The worker asked the person and nobody answered in time.
+                let _ = tx.send(line);
+                writeln!(
+                    writer,
+                    "{}",
+                    json!({"id": request["id"], "ok": false,
+                    "code": "approval_timeout", "error": "no answer in 2 minutes",
+                    "target": {"name": "Safari"}})
+                )
+                .unwrap();
+                continue;
+            }
             if request["method"] == "machine/consent" {
                 let required = consent_home.join("machine-credential.json").exists()
                     || consent_home.join("consent.json").exists();
@@ -337,4 +356,64 @@ async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
         drop(helper);
         peer.await.unwrap();
     }
+}
+
+/// After admission the bridge says who the session is (`session/hello`) with
+/// the labels acpmux set in its env, and an approval timeout from the worker
+/// becomes a tool error that says the person was asked, on the same
+/// connection: the session (and a late Allow) survives it.
+#[test]
+fn the_bridge_says_hello_and_words_an_approval_timeout() {
+    let dir = Dir::new("hello");
+    let received = stand_in(&dir.0, 0o600);
+    let mut child = daemon_env::acpmux(&dir.0)
+        .arg("cua-mcp")
+        .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
+        .env("ACPMUX_CUA_LABEL_AGENT", "claude")
+        .env("ACPMUX_CUA_LABEL_WORKSPACE", "api-server")
+        .env("ACPMUX_CUA_LABEL_CLIENT", "cmux")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut call = |id: u64, name: &str| {
+        writeln!(
+            input,
+            "{}",
+            json!({"jsonrpc":"2.0","id":id,"method":"tools/call",
+            "params":{"name":name,"arguments":{}}})
+        )
+        .unwrap();
+        input.flush().unwrap();
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    let refused = call(1, "ask_safari");
+    let result = &refused["result"];
+    assert_eq!(result["isError"], true, "{refused}");
+    assert_eq!(result["structuredContent"]["error"]["code"], "computer_use.approval_timeout");
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("asked the person on their Mac or phone whether you may use Safari"),
+        "{text}"
+    );
+    assert!(text.contains("10 minutes") && text.contains("do not retry in a loop"), "{text}");
+    // The same connection serves the next call (the stand-in accepts one).
+    assert_ne!(call(2, "screenshot")["result"]["isError"], true);
+    let hello: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.0.join("hello.json")).unwrap()).unwrap();
+    assert_eq!(
+        hello,
+        json!({"id": 0, "method": "session/hello",
+               "params": {"agent": "claude", "workspace": "api-server", "client": "cmux"}})
+    );
+    let secret: Value =
+        serde_json::from_str(&received.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+    assert_eq!(secret, json!({"secret": SECRET}));
+    drop(input);
+    assert!(child.wait().unwrap().success());
 }

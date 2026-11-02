@@ -266,7 +266,7 @@ pub struct Inputs {
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
-const CUA_BRIDGE_ARG: &str = "cua-mcp";
+pub(crate) const CUA_BRIDGE_ARG: &str = "cua-mcp";
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
@@ -655,8 +655,19 @@ impl AgentTools {
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         let tools = session_env.get(MCP_TOOLS_ENV);
+        // The Computer Use session's card labels, which acpmux marked at spawn.
+        let labels = crate::cua_v2::Labels::in_spawn_env(session_env);
         for server in &mut self.servers {
-            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV && k != MCP_TOOLS_ENV);
+            server.env.retain(|(k, _)| {
+                k != CUA_SCOPE_ENV
+                    && k != MCP_TOOLS_ENV
+                    && !crate::cua_v2::labels::KEYS.contains(&k.as_str())
+            });
+            if let Some(labels) = &labels
+                && server.args.iter().any(|a| a == CUA_BRIDGE_ARG)
+            {
+                server.env.extend(labels.env());
+            }
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }

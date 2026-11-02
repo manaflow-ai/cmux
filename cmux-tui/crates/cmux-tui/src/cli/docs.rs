@@ -234,6 +234,35 @@ pub(super) const GUIDES: &[Guide] = &[
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
         browser page's own pixels are `cmux browser page screenshot`).",
     },
+    Guide {
+        topic: "Use apps on this machine with Computer Use: approvals and modes",
+        keywords: &[
+            "approval",
+            "approvals",
+            "approve",
+            "revoke",
+            "deny",
+            "cua",
+            "apps",
+            "bounded",
+            "unrestricted",
+        ],
+        text: "The cua_* tools see and use the apps on this machine through cmux Computer Use. \
+        In the default mode (ask) each agent session starts with no app: the first call on an app \
+        asks the person on cmux's card or their phone, and the call waits up to 2 minutes. When it \
+        fails with computer_use.approval_timeout the question stays open for 10 minutes: tell the \
+        person, do other work, and call again once after they allow it; never retry in a loop. \
+        approval_denied means the person said no for this call. Read the state with cua_status \
+        (mode, sessions and their apps, collectors) or `cmux computer-use status`; saved apps with \
+        cua_approvals_list (`cmux computer-use approvals list`); forget one with \
+        cua_approvals_revoke (`cmux computer-use approvals revoke APP|--all`). No tool or command \
+        approves an app: `cmux computer-use approvals approve ID` only shows the question again \
+        on cmux's card. From a terminal, `cmux computer-use tools`, `call TOOL --args JSON` and \
+        `screenshot --out FILE` use the same approvals in a session labelled cli. The machine's \
+        mode (ask, standard, bounded with a manifest, unrestricted for disposable VMs) is the box \
+        owner's: `cmux computer-use setup --mode ...` (the app confirms on macOS; sudo or UAC on \
+        Linux and Windows).",
+    },
 ];
 
 /// The guides for `query` (see [`Guide`]).
@@ -504,6 +533,20 @@ mod tests {
             assert!(guide.text.contains(words), "{words}");
         }
         assert_eq!(guides("status").len(), 1);
+    }
+
+    /// An agent asking about approvals finds the Computer Use guide, which
+    /// names the tools and says no tool approves.
+    #[test]
+    fn computer_use_guide_is_found_by_approval_words() {
+        let topic = "Use apps on this machine with Computer Use: approvals and modes";
+        for query in ["approval timeout", "revoke an app", "cua approvals", "unrestricted vm"] {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        for words in ["cua_status", "cua_approvals_revoke", "10 minutes", "No tool or command"] {
+            assert!(guide.text.contains(words), "{words}");
+        }
     }
 
     #[test]

@@ -486,7 +486,10 @@ impl ProxiedCall {
                 "details": {}, "retryable": true});
             return super::tool_error(super::envelope(error, "not_run", None));
         };
+        let computer_use = upstream.name() == computer_use_gate::SERVER;
         match upstream.call(&tool, self.arguments, cap) {
+            // The worker's approval refusals in this server's words.
+            Ok(result) if computer_use => computer_use_gate::approval(result),
             Ok(result) => result,
             Err((message, state)) => {
                 let error = json!({
@@ -554,6 +557,10 @@ impl<B: super::Backend> super::Server<B> {
         name: &str,
         arguments: &Map<String, Value>,
     ) -> Option<ProxiedCall> {
+        // cmux's own Computer Use tools share the `cua_` prefix; never the driver's.
+        if super::computer_use_tools::find(name).is_some() {
+            return None;
+        }
         let proxied = self.upstreams.iter_mut().find(|p| {
             name.strip_prefix(p.prefix.as_str()).is_some_and(|rest| rest.starts_with('_'))
         })?;
