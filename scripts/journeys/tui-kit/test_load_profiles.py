@@ -596,5 +596,19 @@ class AllL6(Base):
         self.assert_torn_down(app)
 
 
+class WorkersOption(unittest.TestCase):
+    """--workers reaches L1 (default 8) and the L6 children get it through passthrough."""
+
+    def test_default_and_passthrough(self):
+        import argparse
+        import load_profiles
+        a = argparse.Namespace(app_socket="/s", seed=7, duration=5.0, rate=120, agent_cps=400, agents_where="hidden",
+                               heavy_shape="40,200,12", engine="auto", workers=32, home=None, keep=None, socket=None,
+                               cli=None, app=None, devtools=False, acp=False)
+        out = load_profiles.passthrough(a)
+        self.assertEqual(out[out.index("--workers") + 1], "32")
+        self.assertEqual(load_profiles.L1.WORKERS, 8)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

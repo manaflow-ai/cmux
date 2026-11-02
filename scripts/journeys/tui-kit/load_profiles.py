@@ -333,6 +333,9 @@ class L1(Profile):
     WORKERS = 8
 
     def setup(self):
+        # --workers (default 8): each worker waits for its call, so the rate cap is about workers / call latency;
+        # under L6 a CLI call took 135 ms mean (cmux20 2026-11-02 09:37Z), so 8 workers reached 58 of 120/s.
+        self.WORKERS = int(getattr(self.a, "workers", None) or L1.WORKERS)
         self.ws = self.workspace("storm")
         self.mine = [[] for _ in range(self.WORKERS)]  # tabs each worker made (it closes only its own)
         self.lock = threading.Lock()
@@ -951,7 +954,7 @@ def l6_exit(codes):
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
            "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape,
-           "--engine", a.engine]
+           "--engine", a.engine, "--workers", str(a.workers)]
     for flag, value in (("--home", a.home), ("--keep", a.keep), ("--socket", a.socket), ("--cli", a.cli),
                         ("--app", a.app)):
         if value:
@@ -1086,6 +1089,7 @@ def main(argv=None):
     p.add_argument("--duration", type=float, default=120.0, help="seconds of load after LOAD-READY (0: until SIGTERM)")
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
+    p.add_argument("--workers", type=int, default=L1.WORKERS, help="L1: storm workers (each waits for its call)")
     p.add_argument("--agent-cps", type=int, default=400, help="L4: characters a second each agent streams")
     p.add_argument("--agents-where", choices=("hidden", "beside"), default="hidden")
     p.add_argument("--devtools", action="store_true",
