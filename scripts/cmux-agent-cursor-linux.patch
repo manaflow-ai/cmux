@@ -1,0 +1,50 @@
+diff --git a/Sources/CmuxAgentCursor/AutomationInputEvent.swift b/Sources/CmuxAgentCursor/AutomationInputEvent.swift
+index cbf24d95..003c8eef 100644
+--- a/Sources/CmuxAgentCursor/AutomationInputEvent.swift
++++ b/Sources/CmuxAgentCursor/AutomationInputEvent.swift
+@@ -133,9 +133,17 @@ extension AutomationInputEvent {
+     }
+ 
+     private static func number(_ object: [String: Any], _ key: String, in field: String) throws -> Double {
++        #if canImport(Darwin)
+         guard let value = object[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else {
+             throw AutomationInputEventError.invalidField(field)
+         }
++        #else
++        // No CFBoolean type ID here: JSON booleans are the shared boolean NSNumber instances.
++        guard let value = object[key] as? NSNumber,
++              value !== NSNumber(value: true), value !== NSNumber(value: false) else {
++            throw AutomationInputEventError.invalidField(field)
++        }
++        #endif
+         return value.doubleValue
+     }
+ 
+diff --git a/Sources/CmuxAgentCursor/GlidePlan+Animation.swift b/Sources/CmuxAgentCursor/GlidePlan+Animation.swift
+index b326daaa..38e0b30d 100644
+--- a/Sources/CmuxAgentCursor/GlidePlan+Animation.swift
++++ b/Sources/CmuxAgentCursor/GlidePlan+Animation.swift
+@@ -1,3 +1,4 @@
++#if canImport(QuartzCore)
+ import QuartzCore
+ 
+ /// CoreAnimation animations for the cursor layer, made from one plan.
+@@ -28,3 +29,4 @@ extension GlidePlan {
+         return animation
+     }
+ }
++#endif
+diff --git a/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift b/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
+index 94dae688..04d94bc1 100644
+--- a/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
++++ b/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
+@@ -1,3 +1,4 @@
++#if canImport(QuartzCore)
+ import QuartzCore
+ import Testing
+ @testable import CmuxAgentCursor
+@@ -28,3 +29,4 @@ import Testing
+         #expect(abs(animation.duration - plan.duration) < 1e-9)
+     }
+ }
++#endif

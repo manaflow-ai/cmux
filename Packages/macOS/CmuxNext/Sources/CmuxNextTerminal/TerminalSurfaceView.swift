@@ -431,6 +431,15 @@ public final class TerminalSurfaceView: NSView {
         return pixels * 4 * 3 + cells * 64
     }
 
+    /// Whether the terminal is currently using Ghostty's alternate screen.
+    /// Full-screen programs such as vim, less and tmux use this screen; the
+    /// key router reads it when evaluating `shortcuts.when` predicates.
+    public var isAlternateScreen: Bool {
+        guard let surface else { return false }
+        var metrics = ghostty_surface_grid_metrics_s()
+        return ghostty_surface_grid_metrics(surface, &metrics) && metrics.alternate_screen
+    }
+
     /// The grid the surface renders now: the locked grid, or what fits the
     /// view before a lock.
     var currentGrid: TerminalGridSize? {

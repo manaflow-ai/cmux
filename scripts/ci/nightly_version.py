@@ -43,6 +43,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+# Feed prefixes, bound on the <rss> root when a feed uses one without declaring
+# it there (publish-nightly-next-r2.py bind_feed_prefixes writes them since 11-01).
+FEED_PREFIXES = {"sparkle": SPARKLE_NS, "cmux": "https://cmux.com/xml-namespaces/cmux"}
+RSS_OPEN = re.compile(rb"<rss\b[^>]*>")
 TRACK_CHANNEL = {"nightly": "nightly", "rc": "rc", "nightly-next": "nightly"}
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 BUILD = re.compile(r"^[0-9]+$")
@@ -130,6 +134,24 @@ def fetch(source):
             time.sleep(delays[attempt])
 
 
+def bind_feed_prefixes(data):
+    """DATA with every feed prefix it uses declared on the <rss> root.
+
+    A feed whose carried-over item used a bare <cmux:sourceCommit> without the
+    root declaring cmux: (nightly-next, 2026-11-01) is otherwise unreadable here,
+    and this reader runs before the writer that repairs the feed.
+    """
+    root = RSS_OPEN.search(data)
+    if root is None:
+        return data
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix.encode() + rb":[A-Za-z_]", data) is not None
+        if used and re.search(rb"\sxmlns:" + prefix.encode() + rb"\s*=", opening) is None:
+            opening = opening[:-1] + f' xmlns:{prefix}="{uri}">'.encode()
+    return data[:root.start()] + opening + data[root.end():]
+
+
 def read_feed(source):
     try:
         # http:// only for a loopback test server; real feeds are https.
@@ -138,7 +160,7 @@ def read_feed(source):
         else:
             with open(source, "rb") as handle:
                 data = handle.read()
-        return ET.fromstring(data)
+        return ET.fromstring(bind_feed_prefixes(data))
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise Missing(f"cannot read feed {source}: it does not exist") from error

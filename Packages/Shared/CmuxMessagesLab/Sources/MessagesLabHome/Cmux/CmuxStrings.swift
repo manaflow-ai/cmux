@@ -67,6 +67,10 @@ enum CmuxStrings {
     static var send: String {
         String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
     }
+    /// The compose button after the person stops the Chief's turn.
+    static var continueTurn: String {
+        String(localized: "home.compose.continue", defaultValue: "Continue", table: "CmuxHome", bundle: .module)
+    }
     /// Reply to Selection (ChatController+ReplyQuote.swift): the menu item, the card's line and its remove button.
     static var replyToSelection: String {
         String(localized: "home.message.replyToSelection", defaultValue: "Reply to Selection", table: "CmuxHome", bundle: .module)
@@ -118,6 +122,12 @@ enum CmuxStrings {
     /// The context menu item on my "Not Delivered" message that sends it again.
     static var tryAgain: String {
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item on a person's committed Chief message: run the
+    /// Chief's turn again for that message (distinct from a failed send).
+    static var retryReply: String {
+        String(localized: "home.menu.retryReply", defaultValue: "Retry Reply", table: "CmuxHome", bundle: .module)
     }
 
     /// The context menu item that sends a bubble's text to another chat or agent.
