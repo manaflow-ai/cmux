@@ -69,8 +69,11 @@ pub unsafe extern "C" fn cmux_bookmark_mirror_call(
     let name = unsafe { CStr::from_ptr(call) }.to_string_lossy();
     // SAFETY: a live mirror from cmux_bookmark_mirror_new, used by one thread.
     let mirror = unsafe { &mut *mirror };
-    let value = catch_unwind(AssertUnwindSafe(|| mirror.0.call(&name, bytes)))
-        .unwrap_or_else(|_| serde_json::json!({"error": "panic"}));
+    let value = catch_unwind(AssertUnwindSafe(|| {
+        let _ = (&mirror.0, &name, bytes);
+        serde_json::json!({"error": "not wired"})
+    }))
+    .unwrap_or_else(|_| serde_json::json!({"error": "panic"}));
     let text = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
     CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
 }
