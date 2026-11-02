@@ -1231,7 +1231,114 @@ def step_focus_browser_pane(j, step):
     return {"workspace": ws.get("name"), "pane": panes[0].get("id")}
 
 
-STEPS = {"focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {"reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
+def _desktop_key(cua, key, modifiers=()):
+    mods = [{"control": "ctrl", "command": "cmd", "alt": "option"}.get(m, m) for m in modifiers]
+    sent = time.time()
+    if mods:
+        cua.tool("hotkey", {"scope": "desktop", "keys": mods + [key]}, check=False)
+    else:
+        cua.tool("press_key", {"scope": "desktop", "key": key}, check=False)
+    return sent, time.time()
+
+
+def step_hid_key(j, step):
+    """One real key (with MODIFIERS) as a keyboard sends it: CuaDriver desktop scope, to the front app, which must be
+    this app (else a step error: the key would go elsewhere)."""
+    if front_pid() != j.app.pid:
+        raise D.StepError(f"hid_key: the app is not the front app (front pid {front_pid()})")
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    cua = Cua()
+    try:
+        sent, done = _desktop_key(cua, step["key"], step.get("modifiers", []))
+    finally:
+        cua.close()
+    return {"key": step["key"], "modifiers": step.get("modifiers", []), "call_s": round(done - sent, 4)}
+
+
+def step_reopen_browser_keys(j, step):
+    """A real Cmd-Q (Keep), the reopen through LaunchServices as reopen_video does (no socket read while the app
+    launches), and AS SOON AS the reopened app's main window is listed: a real Cmd-L, then the marker TEXT with real
+    keys (desktop scope, front-app checked). Only then the socket: the app settles and is identified again. Records
+    the key times from the new process's main() (kernel start + the app's main_start mark)."""
+    text = j.sub(step["text"])
+    if not re.fullmatch(r"[a-z0-9]+", text):
+        raise D.StepError(f"reopen_browser_keys: marker must be lowercase letters and digits, not {text!r}")
+    record = {"how": "quit-keep-hid"}
+    env = j.app.launch_env()
+    cua, keys = Cua(), Cua()
+    try:
+        _end(j, cua, "quit-keep-hid", record)
+        pid = _reopen(j, record, env)
+        if not record.get("front_wall"):
+            raise D.StepError("reopen_browser_keys: the reopened app never became the front app: no key typed")
+        end = time.monotonic() + FRONT_TIMEOUT
+        main = None
+        while time.monotonic() < end and not main:
+            server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == pid])
+            main = max(server, key=lambda w: w["w"] * w["h"]) if server else None
+            if not main:
+                time.sleep(0.02)
+        if not main:
+            raise D.StepError("reopen_browser_keys: the reopened app showed no main window")
+        record["window_listed_wall"] = time.time()
+        if front_pid() != pid:
+            raise D.StepError("reopen_browser_keys: the app lost the front before the keys")
+        record["cmdl_wall"] = _desktop_key(keys, "l", ["cmd"])
+        record["marker_wall"] = [_desktop_key(keys, ch) for ch in text]
+    finally:
+        keys.close()
+        cua.close()
+    record["settled"] = _settle(j)
+    record["pid_matches"] = record.get("new_pid") == j.app.pid
+    try:
+        marks = (j.app.rpc("debug.timings", timeout=10) or {}).get("launch_ms_since_process_start") or {}
+    except (D.StepError, OSError, ValueError):
+        marks = {}
+    main_wall = (record["process_start_wall"] + marks["main_start"] / 1000.0
+                 if record.get("process_start_wall") and isinstance(marks.get("main_start"), (int, float)) else None)
+    if main_wall:
+        record["cmdl_ms_from_main_provisional"] = round((record["cmdl_wall"][0] - main_wall) * 1000, 1)
+        record["window_ms"] = round(marks.get("first_window_frame_committed", 0) - marks["main_start"], 1)
+    # The named terminals: look them up again in the restored topology (the driver's relaunch does the same).
+    topo = j.topology()
+    for alias in j.aliases.values():
+        place = j.place_of(alias["term"], topo)
+        if place:
+            alias["pane"] = place[1].get("id")
+    j.hold_from = D.now()
+    if not record["pid_matches"]:
+        raise D.StepError(f"reopen_browser_keys: the app that answers is not the reopened process: {record.get('new_pid')} vs {j.app.pid}")
+    return {k: record.get(k) for k in ("new_pid", "settled", "window_ms", "cmdl_ms_from_main_provisional", "dialog")}
+
+
+def cond_key_window_focus(j, want, cache):
+    """debug.focus of the KEY window (is_key), not windows[0]: its model.resolved is in IN."""
+    report = j.app.rpc("debug.focus", timeout=10) or {}
+    wins = [w for w in report.get("windows") or [] if isinstance(w, dict)]
+    key = [w for w in wins if w.get("is_key")]
+    if len(key) != 1:
+        return False, {"why": f"{len(key)} key windows of {len(wins)}", "key_window": report.get("key_window")}
+    resolved = (key[0].get("model") or {}).get("resolved")
+    return resolved in want["in"], {"resolved": resolved, "window": key[0].get("id"), "workspace": key[0].get("workspace_name")}
+
+
+def cond_terminal_in_other_workspace(j, want, cache):
+    """The terminal named NAME is in another workspace than the terminal named OTHER (a lost Cmd-N would leave the
+    Ctrl-backtick terminal in the current workspace)."""
+    topo = j.topology()
+    a, b = j.aliases.get(want["name"]), j.aliases.get(want["other"])
+    pa = j.place_of(a["term"], topo) if a else None
+    pb = j.place_of(b["term"], topo) if b else None
+    if not pa or not pb:
+        return False, {"why": "a named terminal is in no tab"}
+    wa, wb = pa[0].get("id"), pb[0].get("id")
+    return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
+
+
+STEPS = {"hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
+              "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
+              "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
               "reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
               "reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}

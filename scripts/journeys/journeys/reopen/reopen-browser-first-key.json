@@ -75,10 +75,10 @@
    "timeout": 15,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "addressBar"
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
      }
     }
    ]
@@ -101,10 +101,10 @@
    "timeout": 45,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "browserPage"
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
      }
     },
     {
@@ -143,10 +143,10 @@
    "timeout": 15,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "browserPage"
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
      }
     },
     {
@@ -155,37 +155,22 @@
    ]
   },
   {
-   "do": "real_quit",
-   "mark": "reopened1",
-   "title": "cycle 1: a real Cmd-Q (Keep) and reopen"
-  },
-  {
-   "do": "real_key",
-   "key": "l",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "cmdl1",
-   "title": "cycle 1: as soon as the window shows, a real Cmd-L"
-  },
-  {
-   "do": "hid_line",
+   "do": "reopen_browser_keys",
    "text": "mk${nonce}c1",
-   "enter": false,
-   "mark": "marker1",
-   "title": "cycle 1: a marker word with real keys into the address bar"
+   "mark": "reopened1",
+   "title": "cycle 1: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed a real Cmd-L and a marker word with real keys"
   },
   {
    "do": "expect",
    "title": "cycle 1: the address bar has the keyboard and shows the marker",
-   "since": "marker1",
+   "since": "reopened1",
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "addressBar"
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
      }
     },
     {
@@ -194,12 +179,14 @@
    ]
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "escape",
-   "mark": "esc1"
+   "modifiers": [],
+   "mark": "esc1",
+   "title": ""
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "n",
    "modifiers": [
     "cmd"
@@ -212,7 +199,7 @@
    "seconds": 1.5
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "`",
    "modifiers": [
     "control"
@@ -247,6 +234,12 @@
     },
     {
      "frame_text": "n1-${nonce}-42"
+    },
+    {
+     "terminal_in_other_workspace": {
+      "name": "new1",
+      "other": "term"
+     }
     }
    ]
   },
@@ -265,12 +258,9 @@
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
+     "key_window_focus": {
       "in": [
-       "browserPage",
-       "addressBar"
+       "browserPage"
       ]
      }
     },
@@ -280,37 +270,22 @@
    ]
   },
   {
-   "do": "real_quit",
-   "mark": "reopened2",
-   "title": "cycle 2: a real Cmd-Q (Keep) and reopen"
-  },
-  {
-   "do": "real_key",
-   "key": "l",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "cmdl2",
-   "title": "cycle 2: as soon as the window shows, a real Cmd-L"
-  },
-  {
-   "do": "hid_line",
+   "do": "reopen_browser_keys",
    "text": "mk${nonce}c2",
-   "enter": false,
-   "mark": "marker2",
-   "title": "cycle 2: a marker word with real keys into the address bar"
+   "mark": "reopened2",
+   "title": "cycle 2: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed a real Cmd-L and a marker word with real keys"
   },
   {
    "do": "expect",
    "title": "cycle 2: the address bar has the keyboard and shows the marker",
-   "since": "marker2",
+   "since": "reopened2",
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "addressBar"
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
      }
     },
     {
@@ -319,12 +294,14 @@
    ]
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "escape",
-   "mark": "esc2"
+   "modifiers": [],
+   "mark": "esc2",
+   "title": ""
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "n",
    "modifiers": [
     "cmd"
@@ -337,7 +314,7 @@
    "seconds": 1.5
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "`",
    "modifiers": [
     "control"
@@ -372,6 +349,12 @@
     },
     {
      "frame_text": "n2-${nonce}-42"
+    },
+    {
+     "terminal_in_other_workspace": {
+      "name": "new2",
+      "other": "term"
+     }
     }
    ]
   },
@@ -390,12 +373,9 @@
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
+     "key_window_focus": {
       "in": [
-       "browserPage",
-       "addressBar"
+       "browserPage"
       ]
      }
     },
@@ -405,37 +385,22 @@
    ]
   },
   {
-   "do": "real_quit",
-   "mark": "reopened3",
-   "title": "cycle 3: a real Cmd-Q (Keep) and reopen"
-  },
-  {
-   "do": "real_key",
-   "key": "l",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "cmdl3",
-   "title": "cycle 3: as soon as the window shows, a real Cmd-L"
-  },
-  {
-   "do": "hid_line",
+   "do": "reopen_browser_keys",
    "text": "mk${nonce}c3",
-   "enter": false,
-   "mark": "marker3",
-   "title": "cycle 3: a marker word with real keys into the address bar"
+   "mark": "reopened3",
+   "title": "cycle 3: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed a real Cmd-L and a marker word with real keys"
   },
   {
    "do": "expect",
    "title": "cycle 3: the address bar has the keyboard and shows the marker",
-   "since": "marker3",
+   "since": "reopened3",
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
-      "equals": "addressBar"
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
      }
     },
     {
@@ -444,12 +409,14 @@
    ]
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "escape",
-   "mark": "esc3"
+   "modifiers": [],
+   "mark": "esc3",
+   "title": ""
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "n",
    "modifiers": [
     "cmd"
@@ -462,7 +429,7 @@
    "seconds": 1.5
   },
   {
-   "do": "real_key",
+   "do": "hid_key",
    "key": "`",
    "modifiers": [
     "control"
@@ -497,6 +464,12 @@
     },
     {
      "frame_text": "n3-${nonce}-42"
+    },
+    {
+     "terminal_in_other_workspace": {
+      "name": "new3",
+      "other": "term"
+     }
     }
    ]
   },
@@ -515,12 +488,9 @@
    "timeout": 10,
    "all": [
     {
-     "app_rpc": {
-      "method": "debug.focus",
-      "path": "windows.0.model.resolved",
+     "key_window_focus": {
       "in": [
-       "browserPage",
-       "addressBar"
+       "browserPage"
       ]
      }
     },
