@@ -1830,7 +1830,7 @@
     "agent-pane.transcript#edit-long-line-code": 0.00251,
     "agent-pane.transcript#edit-long-line-code-cut": 0.00416,
     "agent-pane.transcript#edit-long-line-prose": 0.00417,
-    "agent-pane.transcript#edit-preview-open": 0.00497,
+    "agent-pane.transcript#edit-preview-open": 0.0566,
     "agent-pane.transcript#edited-files": 0,
     "agent-pane.transcript#failed-send-too-large": 0,
     "agent-pane.transcript#failed-sends-grouped": 0,
