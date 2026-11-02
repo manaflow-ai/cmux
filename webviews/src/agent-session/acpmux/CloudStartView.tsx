@@ -99,6 +99,9 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
       parts.push(`${Math.min(100, Math.floor((progress.objects / total) * 100))}%`);
     else if (progress?.receivedBytes) parts.push(size(progress.receivedBytes));
   }
+  if (operation.state === "done" && operation.checkoutState === "guest_verified" &&
+      operation.checkoutRepository && operation.checkoutCommit)
+    parts.push(`${operation.checkoutRepository}@${operation.checkoutCommit.slice(0, 12)}`);
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
