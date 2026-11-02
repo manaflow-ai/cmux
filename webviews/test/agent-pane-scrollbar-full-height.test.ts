@@ -358,10 +358,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const view = scroller.getBoundingClientRect();
       const middle = (view.top + view.bottom) / 2;
-      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
-        const box = row.getBoundingClientRect();
-        return box.top <= middle && box.bottom >= middle;
-      })!;
+      // The row across the middle, or the first under it when the middle falls in a gap between rows.
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+        (row) => row.getBoundingClientRect().bottom >= middle,
+      )!;
       return { row: row.getAttribute("aria-posinset")!, top: scroller.scrollTop };
     });
     await page.evaluate((posinset) => {

@@ -19,23 +19,27 @@ const height = (row: AcpmuxRow, width: number) => layoutConversation([row], widt
 
 afterEach(() => setChatDisplay({}));
 
-// These are the original first-layout estimates, including wrapping, collapse chrome and the
-// user's font size. A performance repair must not move the next row before the DOM measures it.
+// These are the first-layout estimates, including wrapping, collapse chrome and the user's font
+// size. A performance repair must not move the next row before the DOM measures it. On the layout
+// grid a row's height is its content alone: "A gap belongs to its container" (leo-workspace
+// design/grid.md Rule 5), so #27580 (044769ae) took the prompt's meta gap, meta row and message gap
+// (4 + 24 + 8 = 36) out of the row, and the stack places the turn gap (transcriptGrid.ts
+// transcriptGap). Every estimate here is 36 under its pre-grid value.
 for (const [font, expected] of [
   [
     14,
     [
-      [97.5, 303.5, 120.25],
-      [74.75, 279.5, 74.75],
-      [74.75, 165.75, 74.75],
+      [61.5, 267.5, 84.25],
+      [38.75, 243.5, 38.75],
+      [38.75, 129.75, 38.75],
     ],
   ],
   [
     20,
     [
-      [117, 401, 149.5],
-      [84.5, 377, 84.5],
-      [84.5, 214.5, 84.5],
+      [81, 365, 113.5],
+      [48.5, 341, 48.5],
+      [48.5, 178.5, 48.5],
     ],
   ],
 ] as const) {
@@ -86,10 +90,11 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
   }
 });
 
+// The rule's parser-backed height, without the 36 of row chrome #27580 moved to the stack's gap.
 test("hyphen thematic breaks keep their original parser-backed height", () => {
   for (const font of [14, 20]) {
     setChatDisplay({ "agentPane.display.font.size": font });
-    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(54);
+    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(18);
   }
 });
 

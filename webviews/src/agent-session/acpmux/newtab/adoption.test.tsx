@@ -174,3 +174,27 @@ test("the same screen with its keys in another order keeps its screen mounted", 
   expect(view.generation).toBe(1);
   expect(view.host?.inputToken).toBe("key-3");
 });
+
+// SHORTCUT LATENCY (2026-11-02): the host's places refresh sends only the open tabs and workspaces
+// (AgentPaneView.refreshNewTabPlaces); the page keeps the rest of its bar.
+test("a places event with only tabs and workspaces keeps the bar's actions, recent pages and commands", () => {
+  const history = [{ url: "https://example.com/", title: "Example" }];
+  (dom!.window as { __cmuxNewTabContext?: unknown }).__cmuxNewTabContext = {
+    omnibar: { ...EMPTY_OMNIBAR, actions, history, commands: ["make"], folders: ["/work/app"] },
+  };
+  const view = mount();
+  act(() => {
+    dom!.window.dispatchEvent(
+      places({
+        tabs: [{ id: "tab_1", kind: "terminal", title: "zsh", workspace: "Work" }],
+        workspaces: [{ id: "ws_2", name: "Other" }],
+      }),
+    );
+  });
+  expect(view.host?.omnibar?.tabs.map((tab) => tab.id)).toEqual(["tab_1"]);
+  expect(view.host?.omnibar?.workspaces.map((workspace) => workspace.id)).toEqual(["ws_2"]);
+  expect(view.host?.omnibar?.actions).toEqual(actions);
+  expect(view.host?.omnibar?.history.map((page) => page.url)).toEqual(["https://example.com/"]);
+  expect(view.host?.omnibar?.commands).toEqual(["make"]);
+  expect(view.host?.omnibar?.folders).toEqual(["/work/app"]);
+});

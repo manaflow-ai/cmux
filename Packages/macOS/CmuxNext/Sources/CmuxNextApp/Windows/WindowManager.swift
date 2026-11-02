@@ -59,15 +59,10 @@ final class WindowManager {
     })
     /// The "not saved for restore" toast shown for each session, so it can be taken back.
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
-    /// New workspaces a window asked for before the daemon reported them:
-    /// reconcile places each in that window (opening it when it is not
-    /// registered yet) and selects it.
-    var pendingClaims: [String: String] = [:]
-    /// Pending claims not to show on arrival; windows to open behind (automation, Option).
-    var quietClaims: Set<String> = [], behindWindows: Set<String> = []
-    /// Pending claims from runs without view-change permission (an agent's or the CLI's create): they
-    /// never open a Cloud machine nobody opened here (#28609); reconcile drops them for its workspaces.
-    var backgroundClaims: Set<String> = []
+    /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
+    var claims = WorkspaceClaims()
+    /// Windows to open behind (automation, Option).
+    var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
     var fillingOpenedMachine = false
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
@@ -287,12 +282,10 @@ final class WindowManager {
             }
         }
         reconcileMembership()
-        // Every remaining window closed (the open ones lost their workspaces while the app was
-        // not running): the most recent one opens, so the app never starts with no window.
-        if restoreClosed.windows.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
-           let front = registry.value.recency.first {
-            registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
-        }
+        // No saved window open (the last one closed, then quit, or the open ones' workspaces ended meanwhile): a relaunch restores
+        // only what was open at quit (#31514). Closed windows keep their workspaces; the launch window opens on a new one (or `firstWorkspace`).
+        let opensFresh = restoreClosed.windows.isEmpty && !registry.value.windows.isEmpty && !registry.value.windows.contains(where: \.isOpen)
+        if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
@@ -302,7 +295,7 @@ final class WindowManager {
         if let launch = launchWindowID, registry.value.window(launch) != nil { launchWindowID = nil }
         // Other windows took every workspace: the unregistered launch window
         // has nothing to show and closes.
-        if let launch = launchWindowID, !registry.value.windows.isEmpty, let controller = controller(for: launch) {
+        if !opensFresh, let launch = launchWindowID, !registry.value.windows.isEmpty, let controller = controller(for: launch) {
             launchWindowID = nil
             states[launch] = nil
             closeProgrammatically(controller)
@@ -394,6 +387,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
+        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: registry.isLaunching || !restored) // REOPEN-F2: a restore shows in place, never AppKit's zoom
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)

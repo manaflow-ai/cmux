@@ -2660,6 +2660,8 @@
     "agent-pane.tool-row-column#tall-fade": [],
     "agent-pane.transcript-chevron-column#dark": [],
     "agent-pane.transcript-chevron-column#light": [],
+    "agent-pane.transcript-row-alignment#finished": [],
+    "agent-pane.transcript-row-alignment#finished-hover": [],
     "agent-pane.transcript-row-alignment#footer": [
       "center-line:row subagentDone:agent-docs-check"
     ],
@@ -2730,6 +2732,7 @@
     "agent-pane.transcript#chips-and-previews": [],
     "agent-pane.transcript#codex-turn-command-under-messages": [],
     "agent-pane.transcript#codex-turn-drafts-replace": [],
+    "agent-pane.transcript#codex-turn-headers": [],
     "agent-pane.transcript#codex-turn-live": [],
     "agent-pane.transcript#codex-turn-raw-commands": [],
     "agent-pane.transcript#codex-turn-run-open": [],

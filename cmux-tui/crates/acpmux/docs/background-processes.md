@@ -159,7 +159,7 @@ process's command line and its kill never leave the machine.
 
 | Message | Params | Result |
 | --- | --- | --- |
-| `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
+| `_acpmux/process/list` (request, built) | `{sessionId?, limit?, cursor?}`; without `limit`, existing full list. With `limit`, `sessionId` required and `cursor` is the previous page's `nextCursor`. Requested limit is capped to 1,000. | Unpaged: `{processes: [Process]}`. Paged: `{processes: [Process], nextCursor: string|null}`. Pages are additionally cut to fit the 31 MiB RPC frame; a single oversized record gives an explicit `omitted` stub preserving process identity and state. |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
 | `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |

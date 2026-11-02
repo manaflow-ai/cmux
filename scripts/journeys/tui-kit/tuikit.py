@@ -34,7 +34,9 @@ import random
 import re
 import select
 import shlex
+import shutil
 import signal
+import subprocess
 import sys
 import time
 import zlib
@@ -122,9 +124,18 @@ class Log:
             self.f = None
 
 
+def nonnegative(kind):
+    def parse(text):
+        value = kind(text)
+        if value < 0:
+            raise argparse.ArgumentTypeError("must be 0 or more")
+        return value
+    return parse
+
+
 def parse_size(text):
     m = re.fullmatch(r"(\d+)x(\d+)", text or "")
-    if not m:
+    if not m or int(m.group(1)) < 1 or int(m.group(2)) < 1:
         raise argparse.ArgumentTypeError("size is COLSxROWS, for example 120x40")
     return int(m.group(1)), int(m.group(2))
 
@@ -139,24 +150,48 @@ def term_size(fd, fixed):
         return 80, 24
 
 
+PACE_MODES = ("sleep", "hybrid", "spin")
+
+
 class Pacer:
     """Frame k is due at start + k/fps. A late frame is drawn at once (never skipped: its index is the
-    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now."""
+    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now.
 
-    def __init__(self, fps):
+    mode: how the wait ends. `sleep`: one time.sleep to the due time (a timer the OS may coalesce:
+    on a fleet mini 266 of 601 frames came more than a frame late). `hybrid`: sleep to `spin_ms` before
+    the due time, then poll the clock (costs about spin_ms per frame of CPU). `spin`: poll only (a
+    whole core). The late time returned is measured after the wait, so it shows what the mode got."""
+
+    def __init__(self, fps, mode="sleep", spin_ms=2.0, clock=time.monotonic, sleep=time.sleep):
+        if mode not in PACE_MODES:
+            raise ValueError("pace mode %r" % mode)
         self.period = 1.0 / fps if fps > 0 else 0.0
-        self.start = time.monotonic()
+        self.mode = mode
+        self.spin = spin_ms / 1000.0
+        self.clock = clock
+        self.sleep = sleep
+        self.start = clock()
         self.base = 0
+        self.before = 0.0  # how late the frame was before its wait (0 when it waited)
 
     def wait(self, k):
+        """Waits for frame k; returns how late the frame starts after the wait (seconds)."""
         if not self.period:
             return 0.0
         due = self.start + (k - self.base) * self.period
-        now = time.monotonic()
+        now = self.clock()
         if now < due:
-            time.sleep(due - now)
-            return 0.0
+            self.before = 0.0
+            if self.mode == "sleep":
+                self.sleep(due - now)
+            else:
+                if self.mode == "hybrid" and due - now > self.spin:
+                    self.sleep(due - now - self.spin)
+                while self.clock() < due:
+                    pass  # pace: poll the clock to the due time (a sleep's wake-up may be coalesced late)
+            return max(0.0, self.clock() - due)
         late = now - due
+        self.before = late
         if late > 0.25:
             self.start, self.base = now, k
         return late
@@ -178,6 +213,21 @@ class Run:
 
 def shown_time(a, k, fps, t0):
     return k / fps if a.fake_clock else time.monotonic() - t0
+
+
+def darwin_bg():
+    """Whether this process is in the Darwin background class ("yes"/"no"; "n/a" off macOS)."""
+    if sys.platform != "darwin":
+        return "n/a"
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        value = libc.getpriority(4, 0)  # PRIO_DARWIN_PROCESS
+        if value == -1:
+            return "err%d" % ctypes.get_errno()
+        return "yes" if value & 0x1000 else "no"
+    except (OSError, AttributeError):
+        return "?"
 
 
 def rgb_hex(r, g, b):
@@ -253,6 +303,23 @@ def gradient_layout(cols, rows, style):
         lay["big_counter"] = {"row": rows - 6, "col": cols - 24, "digits": 6, "height": 5,
                               "read": "the frame index modulo 10^6 in 3x5 block digits, one blank column apart"}
     return lay
+
+
+def cmd_build_bins(a):
+    """cargo build --release of rust/ (std only, no network); prints where the programs are."""
+    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
+    if not os.access(cargo, os.X_OK):
+        sys.stderr.write("build-bins: no cargo on PATH or in ~/.cargo/bin\n")
+        return 69
+    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin()
+    # does not look
+    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
+                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")])
+    if done.returncode != 0:
+        return done.returncode
+    built = {name: rust_bin(name) for name in RUST_PROGRAMS}
+    print(json.dumps(dict(bin_dir=os.path.join(RUST_DIR, "target", "release"), **built)))
+    return 0 if all(built.values()) else 1
 
 
 def cmd_describe(a):
@@ -338,7 +405,45 @@ class Gradient:
         return "".join(parts)
 
 
+RUST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust")
+RATE_FLOOR = 0.95  # cmux-ad 03:40Z: a run below 95 % of its target rate is NOT RUN
+RUST_PROGRAMS = ("tk-gradient", "tk-storm")
+
+
+def rust_bin(name):
+    """The compiled program `name` (tuikit.py build-bins), or None: $CMUX_TUIKIT_BIN_DIR, else rust/target/release."""
+    folder = os.environ.get("CMUX_TUIKIT_BIN_DIR") or os.path.join(RUST_DIR, "target", "release")
+    path = os.path.join(folder, name)
+    return path if os.access(path, os.X_OK) else None
+
+
+def gradient_rust_argv(a, path):
+    """tk-gradient's command line for these options: the seeded style from gradient_style(seed)."""
+    st = gradient_style(a.seed)
+    argv = [path, "--seed", str(a.seed), "--hue", repr(st["hue"]), "--sat", repr(st["sat"]), "--val", repr(st["val"]),
+            "--speed", str(st["speed"]), "--diag", str(st["diag"]), "--word", st["word"], "--cjk", "".join(st["cjk"]),
+            "--emoji", "".join(st["emoji"]), "--fps", repr(float(a.fps)), "--cell", str(a.cell), "--frames",
+            str(a.frames), "--duration", repr(float(a.duration)), "--pace", a.pace, "--spin-ms", repr(float(a.spin_ms))]
+    if not a.sync:
+        argv.append("--no-sync")
+    if a.size:
+        argv += ["--size", "%dx%d" % a.size]
+    if a.fake_clock:
+        argv.append("--fake-clock")
+    if a.log:
+        argv += ["--log", a.log]
+    return argv
+
+
 def cmd_gradient(a):
+    if a.engine != "python":
+        path = rust_bin("tk-gradient")
+        if path:
+            sys.stdout.flush()
+            os.execv(path, gradient_rust_argv(a, path))  # the pane runs the compiled program itself
+        if a.engine == "rust":
+            sys.stderr.write("gradient: no tk-gradient (run `tuikit.py build-bins` on this Mac)\n")
+            return 2
     out = Out()
     log = Log(a.log)
     winch = [True]
@@ -346,11 +451,13 @@ def cmd_gradient(a):
         signal.signal(signal.SIGWINCH, lambda *_: winch.__setitem__(0, True))
     install_quit()
     g = Gradient(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
+    first = last = None
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
-        log.event("start", program="gradient", seed=a.seed, fps=a.fps)
+        log.event("start", program="gradient", seed=a.seed, fps=a.fps, pace=a.pace, spin_ms=a.spin_ms,
+                  darwin_bg=darwin_bg(), pid=os.getpid(), engine="python")
         while not run.done(k):
             if winch[0]:
                 winch[0] = False
@@ -359,16 +466,26 @@ def cmd_gradient(a):
                     g.resize(cols, rows)
                     log.event("size", cols=cols, rows=rows, frame=k)
             late = pacer.wait(k)
+            drawn, drawn_wall = time.monotonic(), time.time()
+            first = drawn if first is None else first
+            last = drawn
             text = g.frame(k, shown_time(a, k, a.fps, run.t0))
             out.write(text)
-            log.event("frame", frame=k, late_ms=round(late * 1000, 3), bytes=len(text))
+            # late_ms: how late the frame starts after its wait (a sleep that woke late counts);
+            # before_ms: how late it already was before the wait (the frame before took too long).
+            log.event("frame", frame=k, late_ms=round(late * 1000, 3), before_ms=round(pacer.before * 1000, 3),
+                      bytes=len(text.encode()), draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn,
+                      wall=drawn_wall)
             k += 1
     except Quit:
         pass
     finally:
         calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
-        log.event("end", frames=k)
+        achieved = (k - 1) / (last - first) if k > 1 and last > first else 0.0
+        verdict = "n/a" if a.fake_clock or k < 2 else ("NOT RUN" if achieved < RATE_FLOOR * a.fps else "ok")
+        log.event("end", frames=k, darwin_bg=darwin_bg(), achieved_fps=round(achieved, 3), target_fps=a.fps,
+                  verdict=verdict, engine="python")
         log.close()
     return 0
 
@@ -906,7 +1023,7 @@ def cmd_top(a):
     log = Log(a.log)
     install_quit()
     top = Top(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
@@ -1233,10 +1350,21 @@ def positive(text):
     return value
 
 
+def pace_args(p, default):
+    # gradient defaults to spin: on a fleet mini (job 0a364ec0ef40, cmux21, 30 s each) sleep and hybrid
+    # woke in bursts (frame interval p50 0.4 ms, p95 47 / 43 ms, about 1100-1300 wake-ups for 3600
+    # frames; taskpolicy -t0 -l0, taskpolicy -B and caffeinate -i did not change it), while spin held
+    # p50 8.33 / p95 8.33 / max 8.34 ms at one core. A load that is meant to draw at 120 fps spins.
+    p.add_argument("--pace", choices=PACE_MODES, default=default,
+                   help="how a frame wait ends: sleep, hybrid (sleep, then poll the last --spin-ms), spin "
+                        "(default %s)" % default)
+    p.add_argument("--spin-ms", type=float, default=2.0, help="hybrid: milliseconds polled before each frame")
+
+
 def common(p, duration=30.0, size=False):
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--duration", type=float, default=duration, help="seconds; 0 runs until a signal")
-    p.add_argument("--frames", type=int, default=0, help="stop after N frames (ticks); 0: no limit")
+    p.add_argument("--duration", type=nonnegative(float), default=duration, help="seconds; 0 runs until a signal")
+    p.add_argument("--frames", type=nonnegative(int), default=0, help="stop after N frames (ticks); 0: no limit")
     p.add_argument("--fake-clock", action="store_true", help="shown times come from the frame index (tests)")
     p.add_argument("--log", help="JSON lines of events with wall and mono stamps")
     if size:
@@ -1249,9 +1377,14 @@ def build_parser():
     p = sub.add_parser("gradient", help="120 fps truecolor gradient, art, CJK, emoji, frame counter")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=120.0)
+    pace_args(p, "spin")
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
+    p.add_argument("--engine", choices=("auto", "rust", "python"), default="auto",
+                   help="auto (default): the compiled tk-gradient when built (build-bins), else Python")
     p.set_defaults(fn=cmd_gradient)
+    p = sub.add_parser("build-bins", help="build the compiled programs (cargo, on this Mac)")
+    p.set_defaults(fn=cmd_build_bins)
     p = sub.add_parser("describe", help="gradient's element positions for --size")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--size", type=parse_size)
@@ -1286,6 +1419,7 @@ def build_parser():
     p = sub.add_parser("top", help="htop look-alike (seeded, synthetic)")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=30.0)
+    pace_args(p, "sleep")
     p.add_argument("--cores", type=int, default=10)
     p.set_defaults(fn=cmd_top)
     p = sub.add_parser("agent-stream", help="a coding agent's streamed answer in a terminal")

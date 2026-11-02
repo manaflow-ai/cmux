@@ -18,6 +18,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-git",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -1237,6 +1238,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-host-budget"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
@@ -1691,6 +1704,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "flate2",
+ "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",

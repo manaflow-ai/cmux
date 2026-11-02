@@ -143,6 +143,92 @@ fn process_cpu() -> Duration {
     Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
 }
 
+#[cfg(target_os = "linux")]
+fn uncached_rows(hub: &Hub, with_tools: bool) -> Built {
+    let mut rows = Rows::default();
+    for session in hub.sessions() {
+        let row = if with_tools {
+            hub.session_summary(&session)
+        } else {
+            hub.session_list_summary(&session)
+        };
+        rows.push(&row);
+    }
+    rows.finish()
+}
+
+#[cfg(target_os = "linux")]
+fn measure_rows(rounds: usize, mut run: impl FnMut()) -> (f64, f64) {
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        run();
+    }
+    (
+        start.elapsed().as_secs_f64() * 1000.0 / rounds as f64,
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / rounds as f64,
+    )
+}
+
+/// Same 7,828-record fixture as the live-index measurement, timing the full idle projections
+/// before and after the closed-summary bytes are warmed. The output supplies the PR's table.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "manual closed-summary-cache measurement"]
+async fn measure_7828_full_idle_closed_summary_cache() {
+    let rounds = 3;
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(uncached_rows(&baseline, false));
+    });
+    eprintln!(
+        "7828 watch/list baseline uncached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
+    );
+    let cached = scale_hub();
+    std::hint::black_box(Snapshot::build(&cached));
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(Snapshot::build(&cached));
+    });
+    eprintln!("7828 watch/list cached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle");
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(uncached_rows(&baseline, true));
+    });
+    eprintln!(
+        "7828 sessions?usage baseline uncached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
+    );
+    let cached = scale_hub();
+    std::hint::black_box(Snapshot::own_whole(&cached, true));
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(Snapshot::own_whole(&cached, true));
+    });
+    eprintln!(
+        "7828 sessions?usage cached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
+    );
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(
+            baseline
+                .sessions()
+                .iter()
+                .map(|session| baseline.session_summary(session))
+                .collect::<Vec<_>>(),
+        );
+    });
+    eprintln!(
+        "7828 peer sync baseline uncached summaries: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
+    );
+    let cached = scale_hub();
+    std::hint::black_box(cached.all_session_summaries());
+    let (wall, cpu) = measure_rows(rounds, || {
+        std::hint::black_box(cached.all_session_summaries());
+    });
+    eprintln!("7828 peer sync cached summaries: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle");
+}
+
 /// Same 7,828-record fixture used for the live-index before/after measurement. Each pair uses
 /// the same operation with the pre-index full walk and the indexed live projection.
 #[cfg(target_os = "linux")]
