@@ -120,7 +120,7 @@ class Declared(unittest.TestCase):
 
 
     def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
-        # cmux#32023: a hosted light job GitHub never assigns fails over to its re-run route.
+        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = workflow["jobs"]["watch"]["steps"]
         [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
