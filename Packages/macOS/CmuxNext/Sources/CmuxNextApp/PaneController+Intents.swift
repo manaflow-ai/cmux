@@ -427,7 +427,8 @@ extension PaneController {
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
             // The tab bar's menu, the strip's or the vertical list's (TabStripMenu).
-            return TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: paneKey), registry: registry).themeRows(in: view.themeScope.fullStrength)
+            return TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: paneKey), registry: registry, machineID: daemon.machineID)
+                .themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)

@@ -84,4 +84,19 @@ struct VerticalTabsMenuTests {
         }
         #expect(all(more).contains("splitRight"))
     }
+
+    @Test func anEmptyTabBarMenuKeepsItsMachineScopeOnEveryRow() throws {
+        let f = try Self.fixture()
+        let menu = TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: "p_remote"), registry: f.registry,
+                                     machineID: "ssh-remote")
+        func all(_ menu: NSMenu) -> [ActionMenuPayload] {
+            menu.items.flatMap { item in
+                let own = (item.representedObject as? ActionMenuPayload).map { [$0] } ?? []
+                return own + (item.submenu.map(all) ?? [])
+            }
+        }
+        let payloads = all(menu)
+        #expect(!payloads.isEmpty)
+        #expect(payloads.allSatisfy { $0.targetMachineID == "ssh-remote" })
+    }
 }
