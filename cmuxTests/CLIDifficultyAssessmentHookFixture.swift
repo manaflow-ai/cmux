@@ -45,9 +45,6 @@ struct DifficultyHookFixture {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    /// - Parameter lateReply: an assistant line appended to the transcript 300 ms after the
-    ///   hook's difficulty probe reaches cmux, as Claude Code writes the turn's reply after the
-    ///   async `Stop` hook has started.
     /// - Parameter duringNaming: lines the fake `claude` appends while it answers auto-naming's
     ///   prompt, as the user sends the next prompt during that call. `replaceDuringNaming`
     ///   instead replaces the whole transcript with these lines, as a truncated or rotated file.
@@ -59,7 +56,6 @@ struct DifficultyHookFixture {
         answer: String,
         paneEffort: String? = nil,
         transcript lines: [String] = DifficultyHookFixture.sixExchanges,
-        lateReply: String? = nil,
         duringNaming: [String] = [],
         replaceDuringNaming: [String] = [],
         paneTakenDuringRatingBy nextSessionId: String? = nil
@@ -110,15 +106,8 @@ struct DifficultyHookFixture {
         try script.write(to: fakeClaude, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeClaude.path)
 
-        let transcriptURL = transcript
-        let lateLine = lateReply.map(Self.assistantLine)
         _ = Harness.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
-            if let lateLine, Self.isDifficultyProbe(line) {
-                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
-                    try? Self.append(lateLine, to: transcriptURL)
-                }
-            }
-            return Self.respond(to: line, probe: probe)
+            Self.respond(to: line, probe: probe)
         }
     }
 
@@ -224,13 +213,6 @@ struct DifficultyHookFixture {
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((line + "\n").utf8))
-    }
-
-    private static func isDifficultyProbe(_ line: String) -> Bool {
-        guard let payload = Harness.jsonObject(line), payload["method"] as? String == "session_priority.set" else {
-            return false
-        }
-        return (payload["params"] as? [String: Any])?["probe"] as? Bool == true
     }
 
     /// Whether the first rating call's prompt held `user` as the prompt and `reply` as the reply.

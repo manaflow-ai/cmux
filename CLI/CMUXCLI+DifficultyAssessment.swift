@@ -14,15 +14,8 @@ struct DifficultyAssessmentConfig {
     static let excerptLimit = 1_500
     /// Seconds to wait for the `claude -p` classification call. Auto-naming's
     /// 60 second call runs first in the same async `Stop` hook; with each call's
-    /// 3 second kill grace and the wait for the turn's reply, both fit inside
-    /// the hook's 120 second timeout.
+    /// 3 second kill grace, both fit inside the hook's 120 second timeout.
     static let llmTimeout: TimeInterval = 30
-    /// How long to wait for the turn's reply to reach the transcript when the
-    /// `Stop` input does not carry it. Claude Code writes the reply about
-    /// 0.1–0.2 seconds after the async hook starts.
-    static let replyWait: TimeInterval = 5
-    /// How often the transcript is read again while waiting for the reply.
-    static let replyPollInterval: TimeInterval = 0.2
     /// The effort the classification call runs at, whatever effort cmux gave
     /// the pane's own Claude.
     static let classifierEffort = "low"
@@ -100,17 +93,6 @@ enum DifficultyAssessmentEngine {
         return ClaudeSessionDifficulty(rawValue: word)
     }
 
-    /// The turn's last user message and its reply, the last assistant message
-    /// after it; `nil` while no assistant message follows the last user
-    /// message. A reply from before it is an earlier turn's and never counts.
-    static func excerpt(from messages: [AutoNamingTranscriptMessage]) -> (user: String, assistant: String)? {
-        guard let userIndex = messages.lastIndex(where: { $0.role == "user" }),
-              let reply = messages[(userIndex + 1)...].last(where: { $0.role == "assistant" }) else {
-            return nil
-        }
-        return (messages[userIndex].text, reply.text)
-    }
-
     /// The excerpt with the reply Claude Code passed to the `Stop` hook: the
     /// turn's prompt, the last user message in `messages`, and `reply`.
     ///
@@ -129,7 +111,7 @@ enum DifficultyAssessmentEngine {
 
     /// The turn's final reply from Claude Code's `Stop` hook input
     /// (`last_assistant_message`), or `nil` when the input does not carry one
-    /// (an older Claude Code) or it is blank.
+    /// (an older Claude Code) or it is blank; the turn is then not rated.
     static func stopReply(fromHookInput object: [String: Any]?) -> String? {
         for key in ["last_assistant_message", "lastAssistantMessage"] {
             guard let text = (object?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),

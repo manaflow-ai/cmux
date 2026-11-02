@@ -41,19 +41,14 @@ import Testing
     }
 
     /// Auto-naming's call and this one run one after the other in the same async `Stop` hook,
-    /// with this pass's wait for the turn's reply before its call, and a call that overruns
-    /// takes up to 3 more seconds to kill. All of it fits in the hook's 120 s.
+    /// and a call that overruns takes up to 3 more seconds to kill. All of it fits in the
+    /// hook's 120 s.
     @Test func bothTurnEndCallsFitInTheAsyncHookTimeout() {
         let killGrace: TimeInterval = 3
         let config = DifficultyAssessmentConfig.self
         #expect(config.llmTimeout == 30)
         #expect(config.inFlightExpiry == 45)
-        #expect(config.replyWait == 5)
-        #expect(config.replyPollInterval == 0.2)
-        // The wait can end one poll late, after one more read of the transcript.
-        let replyWait = config.replyWait + config.replyPollInterval
-        #expect(AutoNamingConfig().llmTimeout + killGrace + replyWait + config.llmTimeout + killGrace < 120)
-        // The wait comes before the in-flight mark, so the expiry only covers the call.
+        #expect(AutoNamingConfig().llmTimeout + killGrace + config.llmTimeout + killGrace < 120)
         #expect(config.inFlightExpiry > config.llmTimeout + killGrace)
     }
 
@@ -67,37 +62,6 @@ import Testing
         #expect(Engine.parse("This looks hard") == nil)
         #expect(Engine.parse("") == nil)
         #expect(Engine.parse("medium") == nil)
-    }
-
-    /// The excerpt is the last user message and the reply that follows it in the same turn.
-    @Test func excerptPairsTheLastUserMessageWithItsReply() {
-        func message(_ role: String, _ text: String) -> AutoNamingTranscriptMessage {
-            AutoNamingTranscriptMessage(role: role, text: text)
-        }
-        let pair = Engine.excerpt(from: [message("user", "u1"), message("assistant", "a1"), message("user", "u2"), message("assistant", "a2")])
-        #expect(pair?.user == "u2")
-        #expect(pair?.assistant == "a2")
-        // Several assistant messages after the prompt: the last one is the reply.
-        let multi = Engine.excerpt(from: [message("user", "u1"), message("assistant", "a1a"), message("assistant", "a1b")])
-        #expect(multi?.user == "u1")
-        #expect(multi?.assistant == "a1b")
-    }
-
-    /// A conversation's first turn before Claude Code wrote its reply: nothing to rate yet.
-    @Test func excerptIsNilWhileThereIsOnlyTheUserMessage() {
-        #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "user", text: "u1")]) == nil)
-        #expect(Engine.excerpt(from: []) == nil)
-        #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "assistant", text: "a0")]) == nil)
-    }
-
-    /// The previous turn's reply never pairs with the new prompt.
-    @Test func excerptIsNilWhenTheOnlyReplyPrecedesTheLastUserMessage() {
-        let messages = [
-            AutoNamingTranscriptMessage(role: "user", text: "u1"),
-            AutoNamingTranscriptMessage(role: "assistant", text: "a1"),
-            AutoNamingTranscriptMessage(role: "user", text: "u2"),
-        ]
-        #expect(Engine.excerpt(from: messages) == nil)
     }
 
     /// Claude Code's `Stop` input carries the turn's final reply as `last_assistant_message`.

@@ -4,35 +4,12 @@ import Testing
 private typealias Fixture = DifficultyHookFixture
 private typealias Probe = DifficultyHookFixture.Probe
 
-/// CLI-process tests for which prompt and reply the turn-end difficulty pass rates: Claude Code
-/// writes the turn's reply after the async `Stop` hook starts, and the user may send the next
-/// prompt while auto-naming's call runs first.
+/// CLI-process tests for which prompt and reply the turn-end difficulty pass rates: the reply is
+/// the one the `Stop` input carries, which Claude Code writes to the transcript only after the
+/// async hook starts, and the user may send the next prompt while auto-naming's call runs first.
 @Suite(.serialized)
 struct CLIDifficultyAssessmentTurnTests {
     private static let step7 = "Redesign the sync engine, step 7"
-
-    /// The transcript ends with the new prompt when the hook starts; its reply lands 300 ms
-    /// after the hook's probe. The rating pairs the prompt with that reply, not the previous one.
-    @Test func ratesTheReplyThatLandsAfterTheHookStarts() throws {
-        let reply = "Cut the sync engine over in three phases."
-        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], lateReply: reply)
-        defer { run.cleanup() }
-        try run.stop(lastAssistantMessage: nil)
-        #expect(run.classifierPrompts().count == 1)
-        #expect(run.rated(user: Self.step7, reply: reply), "the rating must see this turn's reply; saw \(run.classifierPrompts())")
-        #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
-    }
-
-    /// A new conversation's first turn: only the prompt is on disk when the hook starts.
-    @Test func ratesTheFirstTurnOfAConversation() throws {
-        let reply = "Here is the migration plan."
-        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [Fixture.userLine("Plan a zero-downtime migration.")], lateReply: reply)
-        defer { run.cleanup() }
-        try run.stop(lastAssistantMessage: nil)
-        #expect(run.classifierPrompts().count == 1, "the first turn must be rated")
-        #expect(run.rated(reply: reply))
-        #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
-    }
 
     /// A `Stop` input without the turn's reply (a Claude Code that does not pass it): no call,
     /// even with a reply on disk, since nothing tells the hook when this turn's reply lands there
@@ -61,15 +38,16 @@ struct CLIDifficultyAssessmentTurnTests {
     }
 
     /// An earlier turn ended with the same reply text, and this turn's reply reaches the transcript
-    /// only after the hook starts: the rated prompt is still this turn's.
+    /// only after the hook starts (here during naming's call): the rated prompt is still this turn's.
     @Test func ratesThisTurnsPromptWhenAnEarlierReplyWasTheSame() throws {
         let prompt = "Design a multi-region Postgres failover, then reply with exactly OK."
-        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [
             Fixture.userLine("Remember the codeword TANGERINE. Reply with exactly OK."), Fixture.assistantLine("OK"),
             Fixture.userLine(prompt),
-        ], lateReply: "OK")
+        ], duringNaming: [Fixture.assistantLine("OK")])
         defer { run.cleanup() }
         try run.stop(lastAssistantMessage: "OK")
+        #expect(try String(contentsOf: run.transcript, encoding: .utf8).hasSuffix(Fixture.assistantLine("OK") + "\n"), "naming must have run")
         #expect(run.classifierPrompts().count == 1)
         #expect(run.rated(user: prompt, reply: "OK"), "saw \(run.classifierPrompts())")
     }
