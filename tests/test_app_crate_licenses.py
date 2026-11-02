@@ -97,6 +97,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     # 83755ce18d22 (cmux-focus-core over the app FFI) named these three in the gate.
                     "cmux-focus-core",
                     "cmux-tasks-core",
+                    # The bookmark reducer the app links for its optimistic view (V-11).
+                    "cmux-bookmarks-core",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                     "cmux-host-budget",

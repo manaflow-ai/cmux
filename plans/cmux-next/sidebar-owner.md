@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: the Priority view's machine tag takes the machine's identity colour, `MachineColor(name:)`, not its own
+  hash into the group palette (#32081, carrying Leo's handoff of 2026-10-21: "When #22763 merges, replace that body
+  with `MachineColor(name: machine).color`"). The tag text now matches the machine's colour elsewhere and follows the
+  person's `appearance.machineColors` picks; This Mac's rows still carry no tag. Workspace-row machine marks are
+  unchanged (neutral `Palette.textTertiary`, #29833).
+
 - 2026-11-01: Leo's three sidebar prototypes are App Store toggles that work in every build. Leo (2026-10-21):
   "not even, like, plugins. They're just f***ing toggles in the app store area". Workspaces as Tabs
   (`sidebar.workspacesAsTabs`), Chrome-Style Groups (`sidebar.chromeGroups`) and Workspaces Side by Side

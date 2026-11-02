@@ -52,6 +52,7 @@ FIRST_PARTY_GPL = {
     "cmux-layout-reducer-ffi",
     "cmux-focus-core",
     "cmux-tasks-core",
+    "cmux-bookmarks-core",
     "cmux-palette-ranker",
     "cmux-remote-browser",
     # The host CPU/RAM budget's C ABI, linked into cmux-app-ffi.

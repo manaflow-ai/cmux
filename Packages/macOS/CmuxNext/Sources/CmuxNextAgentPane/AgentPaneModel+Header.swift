@@ -227,6 +227,9 @@ extension AgentPaneModel {
             sessionInfo.update(info)
             return AgentPaneReply.success()
         case .copyText(let text):
+            guard transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.setString(text, forType: .string) else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")

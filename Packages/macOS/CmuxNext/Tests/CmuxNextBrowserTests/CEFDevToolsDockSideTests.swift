@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// default right) and applies it when it loads; the fork reports that as a dock-side choice and the pane moved
 /// DevTools there. Chrome has one source of truth for the side (the frontend's setting); cmux now writes its own side
 /// into that setting when Chromium asks where DevTools goes (every way it opens), so the frontend loads with cmux's side and never moves DevTools.
-@MainActor @Suite(.serialized) struct CEFDevToolsDockSideTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDevToolsDockSideTests {
     /// Chromium asks where DevTools goes (DEVTOOLS_WILL_OPEN) for every way it opens: cmux's commands, a panel, the
     /// page's Inspect, Chromium's own commands. cmux's side is written into the frontend's setting there, before the
     /// placement and so before the frontend exists.
@@ -87,6 +88,8 @@ import Testing
 
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
+            // Closed, not only emptied: a window never closed is left open (`.closesItsWindows`).
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)
             // The runtime is `unowned` in its tabs and hosts, and a tab shown in a window outlives the test's locals
             // (its views, the window): ending the runtime first crashed the run at teardown on the fleet ("read an
