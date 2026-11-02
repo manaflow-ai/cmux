@@ -22,12 +22,12 @@ scrolling unit instead of a split":
 | --- | --- | --- |
 | Cmd-D | Split Right, inside the row | never |
 | Cmd-Shift-D | Split Down, inside the row | never |
-| Cmd-Ctrl-D | New Column, after the focused column | horizontally, to reveal it |
+| Cmd-Ctrl-X | New Column, after the focused column | horizontally, to reveal it |
 | Cmd-Ctrl-Shift-D | New Row, below the focused row, in the focused column | vertically, to reveal it |
 | Cmd-Ctrl-N | New Pane (Auto Layout), inside the row | never |
 
-New Column moved to Ctrl-Cmd-D in 5c009fc9cbc (it replaces macOS's system Look Up chord in cmux
-windows). Cmd-Ctrl-Shift-D is reserved for New Row (user decision 2026-10-02, relayed by the
+New Column moved to Ctrl-Cmd-D in 5c009fc9cbc, then to Ctrl-Cmd-X (2026-10-31): macOS's Look Up
+(system hot key 70, on by default) takes a real Ctrl-Cmd-D before cmux sees it. Cmd-Ctrl-Shift-D is reserved for New Row (user decision 2026-10-02, relayed by the
 action-surfaces lead); Open Diff Viewer moves to Cmd-Ctrl-Shift-G, and
 `BrowserTabTitleTests.cmdCtrlShiftDIsReservedForNewRow` keeps the chord for action id `newRow`.
 
