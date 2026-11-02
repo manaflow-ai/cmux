@@ -1,0 +1,13 @@
+[package]
+name = "cmux-url-input"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Normalization of typed browser addresses (scheme inference, loopback and intranet hosts, search fallback), with no daemon dependencies so the app can link it"
+
+[dependencies]
+
+[lints]
+workspace = true

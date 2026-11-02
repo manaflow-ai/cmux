@@ -1785,6 +1785,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-url-input",
  "flate2",
  "fs4",
  "futures-util",
@@ -1915,6 +1916,10 @@ dependencies = [
  "libc",
  "tempfile",
 ]
+
+[[package]]
+name = "cmux-url-input"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-vm"

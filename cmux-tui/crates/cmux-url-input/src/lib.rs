@@ -1,9 +1,12 @@
 //! Normalization of user-typed browser URLs (scheme inference, loopback
 //! detection, query encoding).
+//!
+//! A crate of its own, with no daemon dependency, so the app can link the
+//! same rule (cmux-app-ffi); cmux-tui-core re-exports [`normalize_url`].
 
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`
-/// over the control socket, direct [`BrowserSurface::navigate`](super::BrowserSurface::navigate)):
+/// over the control socket, direct `BrowserSurface::navigate` in cmux-tui-core):
 /// explicit schemes pass through, loopback hosts and intranet addresses
 /// (`go/gday`, `devbox:8080`, `nas.local`, private IPs) get `http://`,
 /// dotted hosts get `https://`, and anything else becomes a web search.
@@ -151,3 +154,6 @@ fn percent_encode_query(input: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod normalize_url_corpus;
