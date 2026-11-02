@@ -4176,6 +4176,26 @@ class SharedRunnerStateTests(unittest.TestCase):
             self.assertIsNone(client.snapshot(now=now))
         get.assert_called_once()
 
+    def test_naive_embedded_artifact_time_uses_existing_fallback(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["artifact"]["created_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_naive_embedded_payload_time_uses_existing_fallback(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["snapshot"]["generated_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
     def test_malformed_embedded_queue_snapshot_uses_existing_artifact_path(self):
         now = dt.datetime.now(dt.timezone.utc)
         client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
