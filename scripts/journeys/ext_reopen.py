@@ -1623,6 +1623,53 @@ def step_cua_page_input(j, step):
                                     "key_replies_first", "after_keys")}
 
 
+_SEQ_CODES = {"f": 3, "i": 34, "e": 14, "l": 37, "d": 2, "k": 40, "y": 16, "s": 1, "o": 31, "a": 0, "b": 11, "c": 8}
+
+
+def step_app_keys(j, step):
+    """Control D: TEXT through the app's own debug.key, with no CuaDriver. MODE `sequence`: one debug.key {sequence}
+    of CGEvent key downs and ups (DebugKeySequence: key_code, down, after_ms GAP_MS) posted to the app's own event
+    queue, the path a real key takes; `sequence_page`: the same with key_window page (makes the page CefNSWindow key
+    first); `key`: one debug.key {key} per letter (synthesized into the shell window's dispatch); `key_page`: one
+    debug.key {key, target: page} per letter. Records every reply or error; never fails on a reply (evidence only)."""
+    text, mode, gap = j.sub(step["text"]), step["mode"], float(step.get("gap_ms", 30))
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    out = {"mode": mode, "text": text}
+
+    def call(params):
+        try:
+            return j.app.rpc("debug.key", params, timeout=15)
+        except (D.StepError, OSError, ValueError) as error:
+            return {"error": str(error)[:300]}
+
+    if mode in ("sequence", "sequence_page"):
+        seq = []
+        for ch in text:
+            seq += [{"key_code": _SEQ_CODES[ch], "down": True, "after_ms": gap}, {"key_code": _SEQ_CODES[ch], "down": False, "after_ms": gap}]
+        params = {"sequence": seq}
+        if mode == "sequence_page":
+            params["key_window"] = "page"
+        out["reply"] = call(params)
+        time.sleep(len(seq) * gap / 1000.0 + 0.5)
+    elif mode in ("key", "key_page"):
+        replies = []
+        for ch in text:
+            params = {"key": ch, "modifiers": []}
+            if mode == "key_page":
+                params["target"] = "page"
+            replies.append(call(params))
+            time.sleep(gap / 1000.0)
+        out["replies_first"] = replies[:2]
+        out["handled_by"] = sorted({str((r or {}).get("handled_by")) for r in replies})
+        out["errors"] = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")][:3]
+        time.sleep(0.5)
+    else:
+        raise D.StepError(f"app_keys: mode is sequence, sequence_page, key or key_page, not {mode!r}")
+    out["after"] = focus_probe(j)
+    return out
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1727,7 +1774,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"app_keys": step_app_keys, "cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),

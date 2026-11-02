@@ -1,0 +1,269 @@
+{
+ "id": "browser-keys-control-d1b",
+ "priority": "P1",
+ "title": "Control D for reopen-f4: debug.key per letter (no sequence), shell window dispatch; do the 11 letters reach the page field",
+ "why": "Diagnostic for reopen-f4 (STATUS 7362): C2 showed CuaDriver foreground keys reach the app's journal while the focus model says browserPage, but not the page. Control D takes CuaDriver out of the path: the app's own debug.key.",
+ "source": "REOPEN VIDEO for reopen-f4",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "browser"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-Shift-L opens a browser tab whose address bar takes the keys",
+   "since": "browser",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "mark": "url"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the page loads and has the keyboard",
+   "since": "loaded",
+   "timeout": 45,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newtab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "closetab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "set-up: after Cmd-T and Cmd-W the browser page has the keyboard again",
+   "since": "closetab",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='',ev=[];",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('');",
+    "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
+    "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
+    "['mousedown','mouseup','click','focus','blur','focusin','focusout'].forEach(function(n){addEventListener(n,function(e){ev.push(n+(e.target&&e.target.tagName?'.'+e.target.tagName.toLowerCase():''));show()},true)});",
+    "setInterval(show,200);",
+    "</script></head><body style='font:24px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px'><p id=o></p><p id=h></p><p id=e></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7);show()</script>",
+    "</body></html>"
+   ],
+   "title": "set-up: a local page (127.0.0.1) with a focused text field; its script shows every key the page gets, reversed"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "page4",
+   "title": "set-up: the browser tab goes to the local page"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the address bar takes the keys",
+   "since": "page4",
+   "timeout": 10,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}",
+   "mark": "url4"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded4"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the page ran its script and has the keyboard",
+   "since": "loaded4",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "pgok42"
+    }
+   ]
+  },
+  {
+   "do": "window_probe",
+   "name": "loaded",
+   "title": "probe: the page loaded and has the keyboard (before any click)"
+  },
+  {
+   "do": "app_keys",
+   "text": "fieldkeysok",
+   "mode": "key",
+   "gap_ms": 30,
+   "mark": "keys",
+   "title": "control 1B: debug.key per letter (no sequence), shell window dispatch"
+  },
+  {
+   "do": "window_probe",
+   "name": "after-keys",
+   "title": "probe: after the keys"
+  },
+  {
+   "do": "expect",
+   "title": "the page got every key in order (shown reversed) and the field shows the word",
+   "since": "keys",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seenkosyekdleif"
+    },
+    {
+     "frame_text": "fieldkeysok"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}
