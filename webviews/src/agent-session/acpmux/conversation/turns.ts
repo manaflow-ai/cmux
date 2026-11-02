@@ -342,6 +342,7 @@ export function turnViewFrom(
       sessionStatus,
       lineBelow,
       agentFamily,
+      foldedBackground,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -438,6 +439,7 @@ function shapedTurn(
   sessionStatus = false,
   lineBelow = false,
   agentFamily?: string,
+  foldedBackground: ReadonlySet<string> = new Set(),
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -445,6 +447,9 @@ function shapedTurn(
   const open = live ? "" : openFolds(rows, start, end, expanded);
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
+  const source = rows
+    .slice(start + 1, end)
+    .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -456,14 +461,12 @@ function shapedTurn(
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
     cached.agentFamily === agentFamily &&
-    cached.source.length === end - start - 1
+    cached.source.length === source.length
   ) {
     let same = true;
-    for (let index = start + 1; same && index < end; index += 1)
-      same = cached.source[index - start - 1] === rows[index];
+    for (let index = 0; same && index < source.length; index += 1) same = cached.source[index] === source[index];
     if (same) return cached.rows;
   }
-  const source = rows.slice(start + 1, end);
   // A steer draws where it went into the turn; bookkeeping sent in draws nothing
   // (incomingMessage.ts). The summary of the turn a prompt sent now stopped is not a Stop: the
   // turn goes on under that prompt, so it neither ends nor times the turn.

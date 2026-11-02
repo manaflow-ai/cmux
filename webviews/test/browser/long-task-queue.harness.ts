@@ -123,38 +123,44 @@ function run(): Promise<LongTaskQueueReport> {
       // Measure the same turn-view path separately from metadata heartbeats so a long transcript
       // cannot hide a per-token scan behind the stable-source fast path.
       let streamTurns = turns;
-      for (let stream = 0; stream < STREAM_TICK_COUNT && streamTurns; stream += 1) {
+      const runStreamSample = (stream: number) => {
+        if (stream >= STREAM_TICK_COUNT || !streamTurns) {
+          window.clearInterval(timer);
+          cancelAnimationFrame(frameHandle);
+          window.clearTimeout(taskHandle);
+          // Let the final frame/task observers receive their entries before reading the report.
+          window.setTimeout(() => {
+            observer?.disconnect();
+            resolve({
+              eventCount: events.length,
+              rowCount: rows.length,
+              ticks: tickMs.length,
+              frames,
+              tasks,
+              freshSnapshots,
+              tickMs,
+              maxTickMs: Math.max(...tickMs),
+              longTasks,
+              tickFrames,
+              tickTasks,
+              tickRowReads,
+              streamTickMs,
+              streamMaxTickMs: Math.max(...streamTickMs),
+            });
+          }, 0);
+          return;
+        }
         const streamed = rows.slice();
         const last = streamed.at(-1);
-        if (!last) break;
+        if (!last) return runStreamSample(STREAM_TICK_COUNT);
         streamed[streamed.length - 1] = { ...last, text: `fixture-${stream}` };
         const streamStarted = performance.now();
         streamTurns = turnViewFrom(streamed, expanded, { now: 1_791_000_000_000 }, streamTurns);
         streamTickMs.push(performance.now() - streamStarted);
-      }
-      window.clearInterval(timer);
-      cancelAnimationFrame(frameHandle);
-      window.clearTimeout(taskHandle);
-      // Let the final frame/task observers receive their entries before reading the report.
-      window.setTimeout(() => {
-        observer?.disconnect();
-        resolve({
-          eventCount: events.length,
-          rowCount: rows.length,
-          ticks: tickMs.length,
-          frames,
-          tasks,
-          freshSnapshots,
-          tickMs,
-          maxTickMs: Math.max(...tickMs),
-          longTasks,
-          tickFrames,
-          tickTasks,
-          tickRowReads,
-          streamTickMs,
-          streamMaxTickMs: Math.max(...streamTickMs),
-        });
-      }, 0);
+        window.setTimeout(() => runStreamSample(stream + 1), 0);
+      };
+      observer?.disconnect();
+      runStreamSample(0);
     }, TICK_MS);
   });
 }
