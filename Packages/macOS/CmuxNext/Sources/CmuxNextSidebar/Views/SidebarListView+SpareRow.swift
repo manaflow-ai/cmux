@@ -12,7 +12,7 @@ extension SidebarListViewComponents {
 
     /// Makes the spare after this pass's frame committed, when this list keeps one and has none.
     func scheduleSpareRow() {
-        guard keepsSpareRow, rowPool.spare == nil, !spareRowScheduled, window != nil else { return }
+        guard keepsSpareRow, rowPool.spare == nil, !spareRowScheduled, let window, windowShowsRows(window) else { return }
         spareRowScheduled = true
         afterFrameCommit { [weak self] in
             guard let self else { return }
@@ -24,7 +24,7 @@ extension SidebarListViewComponents {
     /// The spare, hidden in the list under the rows (its controls register with the window now, not in a key's
     /// turn); the apply that takes it puts it with the rows.
     func makeSpareRow() {
-        guard keepsSpareRow, rowPool.spare == nil, window != nil else { return }
+        guard keepsSpareRow, rowPool.spare == nil, let window, windowShowsRows(window) else { return }
         let view = WorkspaceRowView(key: Self.spareRowKey)
         SidebarPerfCounters.add(.spareRowViews)
         view.isHidden = true

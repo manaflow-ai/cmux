@@ -82,6 +82,8 @@ final class SidebarListView: NSView {
     /// Keeps one spare workspace row view (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
     var keepsSpareRow = false
     var spareRowScheduled = false
+    /// Whether `window` shows its lists now (spares are made only then). Tests inject an answer.
+    var windowShowsRows: @MainActor (NSWindow) -> Bool = { _ in true }
     /// Runs work once the current pass committed its frame (`AfterFrameCommit`); tests pass their own.
     var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
