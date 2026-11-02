@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// later. As in Chrome, which hides the docked DevTools view and gives the page its whole area when the close is asked,
 /// the close key's own turn now hides the DevTools area and lays the page out at full size; DEVTOOLS_CLOSED only frees
 /// the views. An open asked before that event waits for it (Chromium still has the closing DevTools).
-@MainActor @Suite(.serialized) struct CEFDevToolsCloseTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDevToolsCloseTests {
     @Test(arguments: [BrowserDevToolsDock.right, .bottom], [BrowserDevToolsCommand.close, .toggle])
     func theCloseKeysTurnGivesThePageItsWholeArea(dock: BrowserDevToolsDock, command: BrowserDevToolsCommand) async throws {
         let rig = try Rig()
@@ -139,6 +140,8 @@ import Testing
 
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
+            // Closed, not only emptied: a window never closed is left open (`.closesItsWindows`).
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)
             // The runtime is `unowned` in its tabs and hosts: kept to the end of the test process so a late task or
             // view teardown never reads it after it ended.

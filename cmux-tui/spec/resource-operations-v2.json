@@ -33796,6 +33796,14 @@
             },
             "description": "Position among all groups; defaults to the end."
           },
+          "reuse": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Answer the room's first group of this name (outer spaces trimmed, case kept) instead of making another; made when none has it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
