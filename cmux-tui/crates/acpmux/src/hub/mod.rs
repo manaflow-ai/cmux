@@ -491,7 +491,7 @@ pub struct Hub {
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
-    pub(super) closed_summary_cache: StdMutex<HashMap<String, (String, String)>>,
+    pub(super) closed_summary_cache: StdMutex<HashMap<String, (u64, String, String)>>,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -1333,15 +1333,19 @@ impl Hub {
 
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
         let id = session.id.clone();
-        if let Some(bytes) = self
-            .closed_summary_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&id)
-            .map(|pair| if with_tools { &pair.1 } else { &pair.0 })
-        {
-            if let Ok(row) = serde_json::from_str(bytes) {
-                return row;
+        let generation = self.events.summary_generation.load(Ordering::SeqCst);
+        if session.status() == SessionStatus::Closed {
+            if let Some(bytes) = self
+                .closed_summary_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .filter(|entry| entry.0 == generation)
+                .map(|entry| if with_tools { &entry.2 } else { &entry.1 })
+            {
+                if let Ok(row) = serde_json::from_str(bytes) {
+                    return row;
+                }
             }
         }
         let row = if with_tools {
@@ -1351,12 +1355,13 @@ impl Hub {
         };
         if session.status() == SessionStatus::Closed {
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = cache.entry(id).or_insert_with(|| (String::new(), String::new()));
+            let entry = cache.entry(id).or_insert_with(|| (generation, String::new(), String::new()));
+            entry.0 = generation;
             let bytes = serde_json::to_string(&row).unwrap_or_default();
             if with_tools {
-                entry.1 = bytes;
+                entry.2 = bytes;
             } else {
-                entry.0 = bytes;
+                entry.1 = bytes;
             }
         }
         row
