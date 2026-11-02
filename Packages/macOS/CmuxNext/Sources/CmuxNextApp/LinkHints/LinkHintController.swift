@@ -47,10 +47,8 @@ final class LinkHintController {
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         if replays.isReplay(event) { return false } // sent back to the page: it goes on, never held again
         guard var current = session, let tab = current.tab, let home = current.window,
-              window === home || window?.parent === home, current.isFocused() else {
-            cancel()
-            return false
-        }
+              window === home || window?.parent === home, current.isFocused() else { cancel(); return false }
+        if current.held.route(typedAt: event.timestamp) == .page { return false } // typed before the session: the page's, once
         let flags = event.modifierFlags.intersection([.command, .control, .option])
         if event.keyCode == 53 { cancel(); return true } // Escape ends the session
         let outcome: LinkHintSession.Outcome
@@ -63,7 +61,7 @@ final class LinkHintController {
             cancel()
             return false
         }
-        if current.keys.hints == nil { current.held.hold(event, typedAt: event.timestamp) }
+        if current.keys.hints == nil { current.held.hold(event) }
         session = current
         apply(outcome, on: tab)
         return true
