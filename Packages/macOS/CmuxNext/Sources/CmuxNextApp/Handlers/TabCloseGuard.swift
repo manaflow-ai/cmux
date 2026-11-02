@@ -138,9 +138,12 @@ enum TabCloseGuard {
                                  confirmed: Bool = false) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
         let answers = reads.warnTab ? await daemon.processAnswers(of: reads.others) : [:]
-        let title: (@MainActor (TabModel) -> String)? = confirmed ? { tab in tab.displayTitle } : nil
-        return (question(tabs, reads, answers, confirmed: confirmed), RunningPrograms(answers, of: reads.others, unanswered: title))
+        let asked = confirmed ? RunningPrograms(answers, of: reads.others, unanswered: Self.title(of:)) : RunningPrograms(answers, of: reads.others, unanswered: nil)
+        return (question(tabs, reads, answers, confirmed: confirmed), asked)
     }
+
+    /// What a terminal that gave no answer counts as running in a confirmed read: its tab title (the undo toast's cost).
+    private static func title(of tab: TabModel) -> String { tab.displayTitle }
 
     static func prompt(_ warning: CloseWarning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
         let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].title) : ConfirmationStrings.closeTabsTitle(tabs.count)
