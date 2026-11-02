@@ -302,6 +302,51 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   ].join(" && ");
 }
 
+/** Install and start acpmux's canonical per-user service on a baked Linux image. */
+export function cmuxTuiServiceInstallCommand(): string {
+  const unit = `[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+`;
+  return [
+    cmuxTuiLayoutSelector(),
+    `if [ "$CMUX_TUI_LAYOUT" = user ] && command -v loginctl >/dev/null 2>&1; then loginctl enable-linger "$CMUX_TUI_USER"; fi`,
+    `if [ "$CMUX_TUI_LAYOUT" = user ]; then`,
+    // Linger enables persistence but does not start a user manager on a fresh
+    // image. Start that manager before waiting for its bus, otherwise the
+    // first `systemctl --user` call races a manager that has never spawned.
+    `systemctl start "user@$(id -u "$CMUX_TUI_USER").service" >/dev/null 2>&1 || true`,
+    `i=0; while [ "$i" -lt 30 ] && [ ! -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus" ]; do i=$((i + 1)); sleep 1; done; test -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus"`,
+    `mkdir -p "$CMUX_TUI_HOME/.config/systemd/user"`,
+    `cat > "$CMUX_TUI_HOME/.config/systemd/user/acpmux.service" <<'ACPMUX_UNIT'`,
+    unit.trimEnd(),
+    `ACPMUX_UNIT`,
+    `chown -R "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.config"`,
+    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user daemon-reload`,
+    `${cmuxTuiAsDaemonUser('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" systemctl --user stop acpmux.service >/dev/null 2>&1 || true')}`,
+    `${cmuxTuiAsDaemonUser('"$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true')}`,
+    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service && XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service`,
+    `fi`,
+  ].join("\n");
+}
+
 const HOOK_BIN = '"$CMUX_TUI_HOOK_BIN"';
 const HOOK_TMP = '"$CMUX_TUI_HOOK_TMP"';
 /** Where `cmux-tui agent hook install` copies the helper for the daemon user (agent_hook_install.rs installed_helper). */
@@ -345,7 +390,7 @@ function acpmuxInstallSteps(source: CmuxTuiSource): string[] {
     `CMUX_TUI_ACPMUX_BIN="$(dirname "$CMUX_TUI_BIN")/acpmux"`,
     `CMUX_TUI_ACPMUX_TMP="$CMUX_TUI_ACPMUX_BIN.tmp"`,
     `if [ -x ${ACPMUX_BIN} ] && ${pinnedFile(source.acpmuxSha256, ACPMUX_BIN)}; then :; else ${fetchTo(ACPMUX_TMP, source.acpmuxUrl)} && ${pinnedFile(source.acpmuxSha256, ACPMUX_TMP)} && chmod 755 ${ACPMUX_TMP} && mv -f ${ACPMUX_TMP} ${ACPMUX_BIN}; fi`,
-    `ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
+    `mkdir -p "$CMUX_TUI_HOME/.local/bin" && chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local" "$CMUX_TUI_HOME/.local/bin" && ln -sfn ${ACPMUX_BIN} "$CMUX_TUI_HOME/.local/bin/acpmux" && chown -h "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local/bin/acpmux" && ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
     `${ACPMUX_BIN} --version`,
   ];
 }

@@ -29,7 +29,7 @@
 .acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 .acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
 .acpmux-git-status-text{flex:1;min-width:0}
-.acpmux-git-status .acpmux-git-secondary,.acpmux-diff-notice .acpmux-git-secondary{height:24px;padding:0 10px}
+.acpmux-git-status .acpmux-git-secondary,.acpmux-diff-notice .acpmux-git-secondary{height:24px;padding:0 8px}
 .acpmux-git-output{flex-basis:100%}
 .acpmux-git-output summary{color:var(--agent-muted)}
 .acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-caption);white-space:pre-wrap}

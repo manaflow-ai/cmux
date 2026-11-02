@@ -21,7 +21,7 @@ enum CloudGitHubHandlers {
             // The cmux GitHub App by default; the machine's own sign-in only when the App, the team's
             // connection or the machine's Cloud agent is not there.
             let setUp: @MainActor (CloudGitHubSetup.GitIdentity, CloudGitHubApp) async throws -> CloudGitHubSetup.Outcome = { identity, app in
-                let ran = try await cloud.machineAPI.exec(session.machineID, command: CloudGitHubSetup.command(identity, app: app == .ready),
+                let ran = try await cloud.api.exec(session.machineID, command: CloudGitHubSetup.command(identity, app: app == .ready),
                                                    timeoutMs: CloudGitHubSetup.timeoutMs)
                 return CloudGitHubSetup.parse(exitCode: ran.exitCode, stdout: ran.stdout)
             }

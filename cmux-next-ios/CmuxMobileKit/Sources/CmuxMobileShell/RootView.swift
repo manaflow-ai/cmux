@@ -314,7 +314,7 @@ public struct RootView: View {
         PushReplies.shared.signedOut()
         let ending = live
         live = nil
-        shellModel.discard()
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -455,7 +455,10 @@ final class KeptModel<Model: AnyObject> {
         return made
     }
 
-    func discard() { kept = nil }
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
 }
 
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
@@ -510,6 +513,9 @@ struct ShellView: View {
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
+        }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -572,24 +578,7 @@ struct ShellView: View {
         .onChange(of: shell.lastOpenLocation) { _, location in
             shell.locationChanged(location)
         }
-        .onChange(of: shell.store.activeWorkspaces) { _, _ in
-            shell.continueRestore()
-        }
-        .onChange(of: shell.store.macData) { _, _ in
-            shell.continueRestore()
-            // Its Mac answered or went away: open the route, or the Feed.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
-        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
-            shell.terminalTabs.liveDataChanged()
-        }
-        .onChange(of: shell.store.workspaces) { _, _ in
-            // A terminal page shown before the tree arrived (a launch
-            // restore) attaches now (design/terminal R1-0).
-            shell.terminalTabs.liveDataChanged()
-            // A tapped notification waits for its Mac's tree (a cold launch), then opens.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
+        .modifier(WorkspaceDataObserver(shell: shell))
         .onChange(of: pushKinds, initial: true) { _, preferences in
             PushRegistration.shared.setPreferences(preferences)
         }
@@ -611,6 +600,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
@@ -630,6 +620,36 @@ private struct NotificationRouteObserver: ViewModifier {
             }
             .onChange(of: shell.tab) { _, tab in
                 if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
+    }
+}
+
+/// Follows the workspaces and the Macs' data (restore, terminal pages, a
+/// waiting notification route). Its own modifier: the reads re-run only this
+/// modifier's body, not ShellView's, which rebuilt the drawer, the tabs and
+/// every bar's toolbar on each Mac tree update.
+private struct WorkspaceDataObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shell.store.activeWorkspaces) { _, _ in
+                shell.continueRestore()
+            }
+            .onChange(of: shell.store.macData) { _, _ in
+                shell.continueRestore()
+                // Its Mac answered or went away: open the route, or the Feed.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+                shell.terminalTabs.liveDataChanged()
+            }
+            .onChange(of: shell.store.workspaces) { _, _ in
+                // A terminal page shown before the tree arrived (a launch
+                // restore) attaches now (design/terminal R1-0).
+                shell.terminalTabs.liveDataChanged()
+                // A tapped notification waits for its Mac's tree (a cold launch), then opens.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
             }
     }
 }

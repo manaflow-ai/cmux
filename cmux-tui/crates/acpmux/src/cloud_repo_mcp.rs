@@ -2,7 +2,8 @@
 //!
 //! The agent and the web UI use the same daemon actions.  This stdio server
 //! forwards the chat ID supplied by acpmux; it never trusts a session id
-//! supplied by tool arguments.
+//! supplied by tool arguments. The acpmux connection must also prove the
+//! same session with its caller token before any CLI operation runs.
 
 use crate::client::Client;
 use crate::secret_mcp::error_result;
@@ -63,7 +64,10 @@ pub async fn run() -> Result<()> {
 
 fn ok(result: Value) -> Value {
     let text = result_text(&result);
-    let code = result["code"].as_str().or(result["error"]["code"].as_str());
+    let code = result
+        .get("code")
+        .and_then(Value::as_str)
+        .or_else(|| result.pointer("/error/code").and_then(Value::as_str));
     let is_error = code.is_some_and(|code| !matches!(code, "repo.needs_github" | "repo.ambiguous"));
     json!({"content":[{"type":"text","text":text}],"structuredContent":result,"isError":is_error})
 }
@@ -75,15 +79,19 @@ fn result_text(result: &Value) -> String {
         result.get("error").filter(|v| v.is_object()).unwrap_or(&Value::Null)
     };
     if error.get("code").and_then(Value::as_str).is_some() {
-        let mut text = error["message"].as_str().unwrap_or("Repository action failed").to_owned();
-        if error["code"].as_str() == Some("repo.needs_github") {
+        let mut text = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Repository action failed")
+            .to_owned();
+        if error.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
             text.push_str(
                 " Connect GitHub; this add will be retried automatically when it finishes.",
             );
         }
         return text;
     }
-    if let Some(repos) = result["repos"].as_array() {
+    if let Some(repos) = result.get("repos").and_then(Value::as_array) {
         return if repos.is_empty() {
             "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
         } else {
@@ -94,11 +102,11 @@ fn result_text(result: &Value) -> String {
             )
         };
     }
-    if result["state"].as_str() == Some("done") {
+    if result.get("state").and_then(Value::as_str) == Some("done") {
         return format!(
             "Attached {} at {}.",
-            result["repo"].as_str().unwrap_or("the repository"),
-            result["folder"].as_str().unwrap_or("the chat folder")
+            result.get("repo").and_then(Value::as_str).unwrap_or("the repository"),
+            result.get("folder").and_then(Value::as_str).unwrap_or("the chat folder")
         );
     }
     serde_json::to_string(result).unwrap_or_else(|_| "Repository action completed.".to_owned())
@@ -108,7 +116,7 @@ fn result_text(result: &Value) -> String {
 /// it without a shell keeps the chat ID in an argv value only
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
-async fn run_cli(action: &str, request: Value) -> Result<Value, String> {
+async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
     let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
     run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
 }
@@ -130,15 +138,15 @@ async fn run_cli_with(
         if action == REPO_LIST_ACTION { "list" } else { "add" },
         "--session",
     ]);
-    let session = request["session"].as_str().unwrap_or_default();
+    let session = request.get("session").and_then(Value::as_str).unwrap_or_default();
     command.arg(session);
     if action == REPO_LIST_ACTION {
-        if let Some(query) = request["query"].as_str() {
+        if let Some(query) = request.get("query").and_then(Value::as_str) {
             command.args(["--query", query]);
         }
     } else {
-        command.args(["--repo", request["repo"].as_str().unwrap_or_default()]);
-        if let Some(reference) = request["ref"].as_str() {
+        command.args(["--repo", request.get("repo").and_then(Value::as_str).unwrap_or_default()]);
+        if let Some(reference) = request.get("ref").and_then(Value::as_str) {
             command.args(["--ref", reference]);
         }
     }
@@ -152,25 +160,25 @@ async fn run_cli_with(
     })?
     .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{')) {
-        if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if value.get("code").is_some()
-                || value.get("repos").is_some()
-                || value.get("state").is_some()
-            {
-                return Ok(value);
-            }
-            if let Some(data) = value.get("data") {
-                return Ok(data.clone());
-            }
-            // `cmux --json` wraps a rejected machine reply as error_code/error;
-            // restore the shared flat typed action result for the agent.
-            if value.get("error_code").is_some() {
-                return Ok(json!({
-                    "code": value["error_code"].as_str().unwrap_or("repo.unavailable"),
-                    "message": value["error"].as_str().unwrap_or("Reconnect to the Cloud machine and retry.")
-                }));
-            }
+    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
+        && let Ok(value) = serde_json::from_str::<Value>(line)
+    {
+        if value.get("code").is_some()
+            || value.get("repos").is_some()
+            || value.get("state").is_some()
+        {
+            return Ok(value);
+        }
+        if let Some(data) = value.get("data") {
+            return Ok(data.clone());
+        }
+        // `cmux --json` wraps a rejected machine reply as error_code/error;
+        // restore the shared flat typed action result for the agent.
+        if value.get("error_code").is_some() {
+            return Ok(json!({
+                "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+            }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -190,12 +198,30 @@ fn args_object(params: &Value) -> Result<Value, Value> {
     }
 }
 
-pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
+pub async fn call(daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
+    call_for_caller(daemon.proven_caller_session(), session, params, run_cli).await
+}
+
+async fn call_for_caller<F, Fut>(
+    caller: Option<&str>,
+    session: &str,
+    params: &Value,
+    run: F,
+) -> Value
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    if caller != Some(session) {
+        return error_result(
+            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+        );
+    }
     let args = match args_object(params) {
         Ok(v) => v,
         Err(v) => return v,
     };
-    let name = params["name"].as_str().unwrap_or_default();
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     match name {
         "list_repos" => {
             let mut req = json!({"session": session});
@@ -204,7 +230,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             {
                 req.set("query", json!(query));
             }
-            match run_cli(REPO_LIST_ACTION, req).await {
+            match run(REPO_LIST_ACTION, req).await {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -221,7 +247,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             {
                 req.set("ref", json!(reference));
             }
-            match run_cli(REPO_ADD_ACTION, req).await {
+            match run(REPO_ADD_ACTION, req).await {
                 Ok(mut result) => {
                     enrich_retry(&mut result, session, repo, args.get("ref"));
                     ok(result)
@@ -240,12 +266,12 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
 fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option<&Value>) {
     let error = if result.get("code").and_then(Value::as_str).is_some() {
         result
-    } else if result["error"].is_object() {
-        &mut result["error"]
+    } else if let Some(error) = result.get_mut("error").filter(|error| error.is_object()) {
+        error
     } else {
         return;
     };
-    if error["code"].as_str() != Some("repo.needs_github") {
+    if error.get("code").and_then(Value::as_str) != Some("repo.needs_github") {
         return;
     }
     let mut args = json!({"session": session, "repo": repo});
@@ -261,6 +287,44 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cloud_repo_missing_or_foreign_caller_never_invokes_cli() {
+        for caller in [None, Some("other-chat")] {
+            for tool in ["list_repos", "add_repo"] {
+                let result = call_for_caller(
+                    caller,
+                    "own-chat",
+                    &json!({"name":tool,"arguments":{"repo":"org/repo"}}),
+                    |_, _| async { panic!("unauthenticated caller reached the CLI") },
+                )
+                .await;
+                assert_eq!(result["isError"], true);
+                assert!(
+                    result["content"][0]["text"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Restart the chat session")
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_repo_proven_caller_uses_protected_session() {
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"add_repo","arguments":{"repo":"org/repo","session":"other-chat"}}),
+            |action, request| async move {
+                assert_eq!(action, REPO_ADD_ACTION);
+                assert_eq!(request["session"], "own-chat");
+                Ok(json!({"state":"done","repo":"org/repo","folder":"/home/chats/own-chat/repo"}))
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false);
+    }
+
     #[test]
     fn retry_shape_is_stable() {
         let mut result = json!({"code":"repo.needs_github","message":"Connect GitHub."});

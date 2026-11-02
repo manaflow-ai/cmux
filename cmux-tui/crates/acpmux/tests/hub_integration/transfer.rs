@@ -89,6 +89,9 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
     let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let id = busy_chat(&mut src, &[("p-a", "a"), ("p-b", "b")]).await;
+    let running = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let begin_turn = running["turn"]["turnId"].clone();
+    assert!(begin_turn.is_string(), "{running}");
 
     // The running turn stops; nothing queued starts here once the move began.
     let begin = src
@@ -121,7 +124,21 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     let ran_there = texts(&mut dst, &id, "user_message").await;
-    assert_eq!(ran_there, ["hi", "until-cancel", "a", "b"], "history, then the queue once");
+    // The turn the move stopped goes on there first (`restart_resume.rs`, reason `moved`).
+    assert_eq!(
+        ran_there.len(),
+        5,
+        "history, the cut turn's continuation, the queue: {ran_there:?}"
+    );
+    assert_eq!(ran_there[..2], ["hi", "until-cancel"], "history: {ran_there:?}");
+    assert_moved_continuation(&ran_there[2]);
+    assert_eq!(ran_there[3..], ["a", "b"], "then the queue once: {ran_there:?}");
+    let scheduled = records(&mut dst, &id, "auto_resume_scheduled").await;
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    assert_eq!(scheduled[0]["reason"], "moved", "{scheduled:?}");
+    assert_eq!(scheduled[0]["turnId"], begin_turn, "{scheduled:?}");
+    assert_eq!(scheduled[0]["promptId"], "p-turn", "{scheduled:?}");
+    assert_eq!(begin["continues"], "p-turn~resume-1", "{begin}");
     let ran_here = texts(&mut src, &id, "user_message").await;
     assert_eq!(ran_here, ["hi", "until-cancel"], "the source ran nothing after the move began");
 
@@ -170,10 +187,36 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     .unwrap();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["transferBlocked"], false, "explicit abort restores authority: {info}");
-    // Given back: its queue runs, and it takes prompts again.
+    // Given back: the stopped turn goes on here, then its queue runs, and it takes prompts again.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
-    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
+    let ran = texts(&mut src, &id, "user_message").await;
+    assert_eq!(ran.len(), 5, "{ran:?}");
+    assert_eq!(ran[..2], ["hi", "until-cancel"], "{ran:?}");
+    // The move did not happen: the continuation says the chat stayed, never that it moved, so
+    // the agent does not report its turn finished on a machine it never reached.
+    assert_stayed_continuation(&ran[2]);
+    assert_eq!(ran[3..], ["a", "again"], "{ran:?}");
+    // The new words are an edit that keeps the continuation's provenance, as a restart restores.
+    let edits = records(&mut src, &id, "queue_updated").await;
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0]["promptId"], "p-turn~resume-1", "{edits:?}");
+    assert_stayed_continuation(edits[0]["text"].as_str().unwrap());
+    assert_eq!(edits[0]["_meta"]["provenance"]["reason"], "moved", "{edits:?}");
+}
+
+/// The continuation of a move that did not happen: it says the chat stayed and quotes the cut
+/// prompt.
+fn assert_stayed_continuation(text: &str) {
+    assert!(text.starts_with("This chat did not move"), "{text}");
+    assert!(!text.contains("moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
+}
+
+/// The prompt a move's continuation sends: it says the chat moved and quotes the cut prompt.
+fn assert_moved_continuation(text: &str) {
+    assert!(text.starts_with("This chat moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
 }
 
 /// Records of `kind` in a session's log, their `msg`.

@@ -27,7 +27,6 @@ nonisolated enum FeedStrings {
 
     static var reportsTitle: String { t("reports.title", "Reports basket") }
     static var reportsSubtitle: String { t("reports.subtitle", "Human view · reports do not wake a model") }
-    static var reportsLabs: String { t("reports.labs", "LABS") }
     static var reportsEmpty: String { t("reports.empty", "No agent reports yet") }
     static var reportsEmptyHint: String {
         t("reports.emptyHint", "Deliver to reports:<person> to add one without waking a Chief.")

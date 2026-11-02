@@ -21,6 +21,9 @@ use crate::rpc::method;
 /// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
 /// message its journal kept (`hub/message_events.rs` `name_message`).
 pub const SESSION_MESSAGES: &str = "session-messages-v1";
+/// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
+/// submit idempotent ensure/send/status operations over fd0.
+pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -84,6 +87,14 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability {
+        id: TRIGGER_CHAT,
+        wire: &[
+            method::TRIGGER_CHAT_ENSURE,
+            method::TRIGGER_CHAT_SEND,
+            method::TRIGGER_CHAT_STATUS,
+        ],
+    },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
@@ -101,8 +112,15 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
+    Capability {
+        id: "queue-approval-v1",
+        wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
+    },
     // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
     Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
+    // The owner reads a queued prompt whole, its blocks and revision (`hub/queue_approve.rs`).
+    Capability { id: "queue-get-v1", wire: &[method::MUX_QUEUE_GET] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
@@ -197,6 +215,13 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
+    // its one-use execution capability. The app exposes the rewind action only for configured
+    // new Cloud workspace sessions; local and legacy sessions never send this envelope.
+    Capability {
+        id: "agent-session-turn-rewind-v1",
+        wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -211,7 +236,20 @@ pub const CAPABILITIES: &[Capability] = &[
 
 /// The ids of [`CAPABILITIES`], in its order.
 pub fn ids() -> Vec<&'static str> {
-    CAPABILITIES.iter().map(|capability| capability.id).collect()
+    CAPABILITIES
+        .iter()
+        .filter(|capability| {
+            capability.id != "agent-session-turn-rewind-v1"
+                || [
+                    "CMUX_PLATFORM_ORIGIN",
+                    "CMUX_PLATFORM_WORKSPACE_ID",
+                    "CMUX_PLATFORM_MACHINE_ID",
+                ]
+                .iter()
+                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        })
+        .map(|capability| capability.id)
+        .collect()
 }
 
 /// `acpmux capabilities`: one id per line, or with `--json`
@@ -298,6 +336,10 @@ mod tests {
         let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "caps-test"}});
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
+        assert!(
+            client.daemon_lists(TRIGGER_CHAT),
+            "trigger chat capability must gate its CLI helper"
+        );
 
         let printed: Value = serde_json::from_str(&render(true)).unwrap();
         assert_eq!(printed, json!({"capabilities": expected}));

@@ -44,11 +44,13 @@ fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.g
 findings = [{"oracle": "desync", "signature": f, "detail": f, "count": 2, "first_n": 1, "sequence": []} for f in side.get("findings", [])]
 failure = {"oracle": "create", "detail": "split_right+split_right: no terminal, no refusal", "index": len(seq)} if fail else None
 split = {"played": 3, "hold": 1, "red": 0, "pass_hold": 1, "pass_not_judged": 2}
-speed = [{"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
-         for _ in range(3)]
+speed = [] if side.get("omit_speed") else [
+    {"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
+    for _ in range(3)]
 report = {"seed": seed, "played": len(seq), "seconds": float(side.get("seconds", 120)), "failure": failure,
           "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq, "findings": findings, "split_type": split}
-json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
+if not side.get("omit_report"):
+    json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
 row = {"id": "action-fuzz", "status": "fail" if fail else side.get("status", "pass"), "reason": "", "host": "cmux99", "build_job": build}
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 open(os.path.join(out, "acquire.log"), "w").write("capture-host: cmux99 is exclusive until 2026-10-31T09:00:00Z: the fleet controller places no step on its workers\n")
@@ -69,9 +71,25 @@ class Pure(unittest.TestCase):
     def test_plan_has_every_action_and_same_pairs(self):
         seq = ext_fuzz.plan(1, 3000)
         names = {i["a"] for i in seq}
-        self.assertEqual(names, set(ext_fuzz.ACTIONS))
+        # The full set: every action but the quit set's own (kept out so old seeds keep their plans).
+        self.assertEqual(names, {a for a in ext_fuzz.ACTIONS if ext_fuzz.WEIGHTS.get(a, 0) > 0})
+        self.assertEqual(set(ext_fuzz.ACTIONS) - names, {a for a in ext_fuzz.ACTIONS if ext_fuzz.ACTIONS[a].get("ends")})
         pairs = sum(1 for a, b in zip(seq, seq[1:]) if a["t"] == "pair" and a["a"] == b["a"] and ext_fuzz.ACTIONS[a["a"]].get("creates"))
         self.assertGreater(pairs, 50)
+
+    def test_quit_set_plays_every_quit_kind_and_each_ends_its_burst(self):
+        """QUIT P0: the quit set plays each quit kind and kill -9, and each one ends its burst, often right after a
+        create, a resize or typed text (a kill during them)."""
+        seq = ext_fuzz.plan(3, 2000, actions="quit")
+        ends = {a for a in ext_fuzz.ACTIONS if ext_fuzz.ACTIONS[a].get("ends")}
+        self.assertEqual(ends & {i["a"] for i in seq}, ends)
+        during = 0
+        for burst in ext_fuzz.bursts(seq):
+            for item in burst[:-1]:
+                self.assertNotIn(item["a"], ends, "a quit or kill in the middle of a burst")
+            if burst[-1]["a"] in ends and len(burst) > 1:
+                during += 1
+        self.assertGreater(during, 20, "quits and kills that follow another action at once")
 
     def test_alone_action_ends_the_burst_before_it(self):
         seq = [{"a": "new_terminal", "t": "now"}, {"a": "close_all", "t": "slow"}]
@@ -206,6 +224,28 @@ class Verdicts(unittest.TestCase):
         done, summary, _, tmp = self.run_fuzz({"jobT": {"status": "fail"}, "jobB": {}}, "--base", "jobB")
         self.assertEqual(summary["verdict"], "RED")
         self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+
+    def test_unjudged_baseline_never_writes_a_clean_certificate(self):
+        # The test build completes its actions and speed samples, but the A/B comparison was never
+        # valid: the baseline fails outside the fuzz oracle, its report disappears, or its timings
+        # are absent. Each of these previously wrote jobT.clean.
+        for side in ({"status": "fail"}, {"omit_report": True}, {"omit_speed": True}):
+            with self.subTest(baseline=side):
+                done, summary, _, tmp = self.run_fuzz({"jobT": {}, "jobB": side}, "--base", "jobB")
+                self.assertEqual(summary["verdict"], "NOT JUDGED", done.stdout + done.stderr)
+                self.assertEqual(done.returncode, 75)
+                self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+                self.assertTrue(summary["unjudged_base_rounds"] or summary["base_speed_samples"] == 0)
+                self.assertIn("UNJUDGED BASE", (tmp / "out" / "summary.txt").read_text())
+
+    def test_a_real_baseline_fuzz_failure_is_still_judged(self):
+        # Fixing an actual baseline-only bug is a useful clean comparison; the baseline's recorded
+        # oracle is evidence, unlike a failed smoke step with no fuzz report.
+        done, summary, _, tmp = self.run_fuzz({"jobT": {}, "jobB": {"fail_seeds": [100]}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "CLEAN", done.stdout + done.stderr)
+        self.assertTrue(summary["base_failures"])
+        self.assertEqual(summary["unjudged_base_rounds"], [])
+        self.assertTrue((tmp / "handoff" / "jobT.clean").exists())
 
     def test_no_base_or_zero_minutes_never_clean(self):
         done, summary, _, tmp = self.run_fuzz({"jobT": {}})

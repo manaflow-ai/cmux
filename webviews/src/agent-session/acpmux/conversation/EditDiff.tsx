@@ -5,7 +5,7 @@
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useState } from "react";
 import { editPatch, type TurnFile } from "../diff";
-import { copyText } from "./clipboard";
+import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
@@ -84,8 +84,8 @@ export function EditDiff({
           className="cv-codeblock__action cv-edit-diff__copy"
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
-            void copyText(patches.join("")).then(
-              () => setCopied(true),
+            void copyTextResult(patches.join("")).then(
+              (accepted) => setCopied(accepted),
               () => setCopied(false),
             )
           }

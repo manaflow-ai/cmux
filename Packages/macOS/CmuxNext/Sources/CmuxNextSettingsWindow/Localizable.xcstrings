@@ -133,6 +133,402 @@
         }
       }
     },
+    "settingsPage.chiefPet.about.captain": {
+      "comment": "Chief pet character Captain (a blue animated captain in a gold cap): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An animated captain in a gold cap who works, waits and cheers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبطان متحرك بقبعة ذهبية يعمل وينتظر ويهتف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animirani kapetan sa zlatnom kapom koji radi, čeka i slavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animeret kaptajn med guldkasket, der arbejder, venter og jubler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein animierter Kapitän mit goldener Mütze, der arbeitet, wartet und jubelt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un capitán animado con gorra dorada que trabaja, espera y celebra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un capitaine animé en casquette dorée qui travaille, attend et applaudit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un capitano animato con il berretto d'oro che lavora, aspetta ed esulta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金色の帽子をかぶったアニメーションのキャプテン。作業し、待ち、喜びます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រធានក្រុមមានចលនា ពាក់មួកមាស ដែលធ្វើការ រង់ចាំ និងអបអរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "금색 모자를 쓰고 일하고, 기다리고, 환호하는 애니메이션 캡틴."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animert kaptein med gulllue som jobber, venter og jubler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animowany kapitan w złotej czapce, który pracuje, czeka i wiwatuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um capitão animado de boné dourado que trabalha, espera e comemora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимированный капитан в золотой фуражке: работает, ждёт и радуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กัปตันแอนิเมชันในหมวกสีทองที่ทำงาน รอ และเชียร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altın şapkalı, çalışan, bekleyen ve sevinen hareketli bir kaptan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімований капітан у золотому кашкеті: працює, чекає і радіє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thuyền trưởng hoạt hình đội mũ vàng biết làm việc, chờ đợi và reo mừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "戴金色帽子的动画船长，会工作、等待和欢呼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "戴金色帽子的動畫船長，會工作、等待和歡呼。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.sprout": {
+      "comment": "Chief pet character Sprout (an animated green sprout): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An animated green sprout that works, waits and cheers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "برعم أخضر متحرك يعمل وينتظر ويهتف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animirana zelena klica koja radi, čeka i slavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animeret grøn spire, der arbejder, venter og jubler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein animierter grüner Spross, der arbeitet, wartet und jubelt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un brote verde animado que trabaja, espera y celebra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une pousse verte animée qui travaille, attend et applaudit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un germoglio verde animato che lavora, aspetta ed esulta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "作業し、待ち、喜ぶ、アニメーションの緑の芽。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពន្លកបៃតងមានចលនា ដែលធ្វើការ រង់ចាំ និងអបអរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일하고, 기다리고, 환호하는 애니메이션 초록 새싹."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animert grønn spire som jobber, venter og jubler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animowany zielony kiełek, który pracuje, czeka i wiwatuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um broto verde animado que trabalha, espera e comemora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимированный зелёный росток: работает, ждёт и радуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้นอ่อนสีเขียวแอนิเมชันที่ทำงาน รอ และเชียร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan, bekleyen ve sevinen hareketli yeşil bir filiz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімований зелений паросток: працює, чекає і радіє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mầm xanh hoạt hình biết làm việc, chờ đợi và reo mừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会工作、等待和欢呼的绿色动画小芽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "會工作、等待和歡呼的綠色動畫小芽。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.bolt": {
+      "comment": "Chief pet character Bolt (an animated little robot): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An animated little robot that works, waits and cheers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روبوت صغير متحرك يعمل وينتظر ويهتف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animirani mali robot koji radi, čeka i slavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animeret lille robot, der arbejder, venter og jubler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein animierter kleiner Roboter, der arbeitet, wartet und jubelt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un pequeño robot animado que trabaja, espera y celebra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un petit robot animé qui travaille, attend et applaudit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un piccolo robot animato che lavora, aspetta ed esulta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "作業し、待ち、喜ぶ、アニメーションの小さなロボット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ូបូតតូចមានចលនា ដែលធ្វើការ រង់ចាំ និងអបអរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일하고, 기다리고, 환호하는 애니메이션 꼬마 로봇."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animert liten robot som jobber, venter og jubler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animowany mały robot, który pracuje, czeka i wiwatuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um robozinho animado que trabalha, espera e comemora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимированный маленький робот: работает, ждёт и радуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หุ่นยนต์ตัวน้อยแอนิเมชันที่ทำงาน รอ และเชียร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan, bekleyen ve sevinen hareketli küçük bir robot."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімований маленький робот: працює, чекає і радіє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú robot nhỏ hoạt hình biết làm việc, chờ đợi và reo mừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会工作、等待和欢呼的动画小机器人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "會工作、等待和歡呼的動畫小機器人。"
+          }
+        }
+      }
+    },
     "settingsWindow.agentIntegrations.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -52622,6 +53018,534 @@
         }
       }
     },
+    "settingsPage.chiefPet.about.fox-arctic": {
+      "comment": "Chief pet character Arctic Fox (the fox in silver-blue): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A snow-white fox that keeps a cool head when builds break."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثعلب أبيض كالثلج يحافظ على هدوئه حين تتعطل عمليات البناء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snježnobijela lisica koja ostaje hladne glave kad buildovi puknu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En snehvid ræv, der bevarer roen, når builds fejler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein schneeweißer Fuchs, der kühlen Kopf bewahrt, wenn Builds scheitern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un zorro blanco como la nieve que mantiene la calma cuando fallan las compilaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un renard blanc comme neige qui garde la tête froide quand les builds cassent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una volpe bianca come la neve che resta calma quando le build si rompono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ビルドが壊れても冷静さを失わない、雪のように白いキツネ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ជ្រោងសដូចព្រិល ដែលនៅតែស្ងប់ស្ងាត់ពេល build បរាជ័យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빌드가 깨져도 침착함을 잃지 않는 눈처럼 하얀 여우."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En snøhvit rev som holder hodet kaldt når bygg feiler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Śnieżnobiały lis, który zachowuje zimną krew, gdy buildy się sypią."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma raposa branca como a neve que mantém a calma quando os builds quebram."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Белоснежная лиса, которая сохраняет хладнокровие, когда сборки падают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จิ้งจอกขาวราวหิมะ ที่ใจเย็นเสมอแม้บิลด์จะพัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Derlemeler bozulduğunda soğukkanlılığını koruyan kar beyazı bir tilki."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Білосніжна лисиця, що зберігає холодну голову, коли збірки падають."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú cáo trắng như tuyết luôn bình tĩnh khi bản dựng hỏng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雪白的狐狸，构建出错时依然冷静。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雪白的狐狸，建置出錯時依然冷靜。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.machine-violet": {
+      "comment": "Chief pet character Violet Machine (the leaf-eared robot in violet): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A violet robot that hums through the night shift."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روبوت بنفسجي يدندن طوال نوبة الليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ljubičasti robot koji pjevuši kroz noćnu smjenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En violet robot, der nynner sig gennem nattevagten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein violetter Roboter, der sich summend durch die Nachtschicht arbeitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot violeta que tararea durante el turno de noche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot violet qui fredonne pendant le service de nuit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot viola che canticchia per tutto il turno di notte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "夜勤をハミングしながらこなすバイオレットのロボット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ូបូតពណ៌ស្វាយ ដែលច្រៀងខ្សឹបៗពេញវេនយប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "야간 근무 내내 콧노래를 부르는 바이올렛 로봇."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En fiolett robot som nynner seg gjennom nattskiftet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fioletowy robot, który nuci przez całą nocną zmianę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um robô violeta que cantarola durante o turno da noite."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фиолетовый робот, который напевает всю ночную смену."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หุ่นยนต์สีม่วงที่ฮัมเพลงตลอดกะดึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gece vardiyası boyunca mırıldanan mor bir robot."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фіолетовий робот, що наспівує всю нічну зміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú robot tím vừa ngân nga vừa làm ca đêm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫色机器人，哼着歌度过夜班。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫色機器人，哼著歌度過夜班。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.machine-gold": {
+      "comment": "Chief pet character Gold Machine (the leaf-eared robot in gold): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gold-leafed robot that polishes every release."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روبوت بأوراق ذهبية يصقل كل إصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robot sa zlatnim listovima koji glanca svako izdanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En robot med gyldne blade, der pudser hver udgivelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Roboter mit goldenen Blättern, der jedes Release poliert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot de hojas doradas que pule cada versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot aux feuilles dorées qui peaufine chaque version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot dalle foglie dorate che rifinisce ogni release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "どのリリースもピカピカに仕上げる、金の葉のロボット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ូបូតស្លឹកពណ៌មាស ដែលខាត់គ្រប់ការចេញផ្សាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 릴리스를 반짝이게 다듬는 금빛 잎 로봇."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En robot med gylne blader som pusser hver utgivelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robot o złotych liściach, który szlifuje każde wydanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um robô de folhas douradas que dá polimento em cada versão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робот с золотыми листьями, который шлифует каждый релиз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หุ่นยนต์ใบไม้สีทองที่ขัดเกลาทุกรีลีส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sürümü parlatan altın yapraklı bir robot."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робот із золотим листям, що шліфує кожен реліз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú robot lá vàng chăm chút từng bản phát hành."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金叶机器人，把每次发布都打磨得闪闪发亮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金葉機器人，把每次發佈都打磨得閃閃發亮。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.moon-rose": {
+      "comment": "Chief pet character Rose Moon (the moon moth with rose wings): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rose moon moth that flutters toward green checks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عثة قمرية وردية ترفرف نحو العلامات الخضراء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ružičasti mjesečev moljac koji leprša prema zelenim kvačicama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rosa månemøl, der flagrer hen mod grønne flueben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein rosafarbener Mondfalter, der zu grünen Häkchen flattert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una polilla lunar rosa que revolotea hacia las marcas verdes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un papillon lunaire rose qui volette vers les coches vertes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una falena lunare rosa che svolazza verso le spunte verdi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "緑のチェックマークへひらひら飛んでいく、ローズ色のムーンモス。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មេអំបៅព្រះចន្ទពណ៌ផ្កាឈូក ដែលហើរទៅរកសញ្ញាធីកពណ៌បៃតង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "초록 체크 표시를 향해 날아가는 장밋빛 달나방."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rosa månemøll som flagrer mot grønne haker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Różana ćma księżycowa, która fruwa ku zielonym znaczkom."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma mariposa-lua rosa que esvoaça rumo aos checks verdes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розовая лунная моль, что порхает к зелёным галочкам."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผีเสื้อกลางคืนจันทราสีชมพูที่บินไปหาเครื่องหมายถูกสีเขียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeşil onay işaretlerine doğru kanat çırpan pembe bir ay güvesi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рожевий місячний метелик, що пурхає до зелених позначок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú bướm đêm trăng hồng bay về phía những dấu tích xanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰色的月亮蛾，朝着绿色对勾翩翩飞去。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰色的月亮蛾，朝著綠色勾號翩翩飛去。"
+          }
+        }
+      }
+    },
     "settingsWindow.density.previewCaption": {
       "comment": "Caption under a density preview: row height and text size in points.",
       "extractionState": "manual",
@@ -67763,43 +68687,43 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključuje Computer Use i vodi vas kroz macOS dozvole koje su mu potrebne."
+            "value": "Uključuje Computer Use i vodi kroz potrebne macOS dozvole."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slår Computer Use til og guider dig gennem de macOS-tilladelser, den kræver."
+            "value": "Slår Computer Use til og guider dig gennem tilladelserne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schaltet Computer Use ein und führt dich durch die nötigen macOS-Berechtigungen."
+            "value": "Schaltet Computer Use ein, führt durch die Berechtigungen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turns on Computer Use and walks you through the macOS permissions it needs."
+            "value": "Turns on Computer Use and walks you through its permissions."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activa Computer Use y te guía por los permisos de macOS que necesita."
+            "value": "Activa Computer Use y te guía por los permisos de macOS."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Active Computer Use et vous guide dans les autorisations macOS nécessaires."
+            "value": "Active Computer Use et vous guide dans les autorisations."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva Computer Use e ti guida tra i permessi di macOS necessari."
+            "value": "Attiva Computer Use e ti guida tra i permessi di macOS."
           }
         },
         "ja": {
@@ -67823,25 +68747,25 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slår på Computer Use og leder deg gjennom macOS-tillatelsene den trenger."
+            "value": "Slår på Computer Use og leder deg gjennom tillatelsene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Włącza Computer Use i prowadzi przez potrzebne uprawnienia macOS."
+            "value": "Włącza Computer Use i prowadzi przez uprawnienia macOS."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativa o Computer Use e orienta você pelas permissões do macOS necessárias."
+            "value": "Ativa o Computer Use e guia você pelas permissões do macOS."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Включает Computer Use и проводит через нужные разрешения macOS."
+            "value": "Включает Computer Use и проводит через разрешения macOS."
           }
         },
         "th": {
@@ -67853,19 +68777,19 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use'u açar ve gereken macOS izinlerinde size yol gösterir."
+            "value": "Computer Use'u açar ve macOS izinlerinde yol gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вмикає Computer Use і проводить через потрібні дозволи macOS."
+            "value": "Вмикає Computer Use і проводить через дозволи macOS."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật Computer Use và hướng dẫn bạn qua các quyền macOS cần thiết."
+            "value": "Bật Computer Use và hướng dẫn qua các quyền macOS cần thiết."
           }
         },
         "zh-Hans": {
@@ -67878,6 +68802,930 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "開啟 Computer Use，並引導你完成所需的 macOS 權限。"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.screenSaver": {
+      "comment": "Settings > Appearance wallpaper picker: the tile that uses the macOS screen saver (its aerial) as the window background.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Saver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmschoner"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur d’écran"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شاشة التوقف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvapantallas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕保護程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕保护程序"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 보호기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンセーバ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čuvar ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauseskærm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvaschermo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីរក្សាអេក្រង់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermsparer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygaszacz ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protetor de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заставка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพักหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Koruyucu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заставка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình bảo vệ màn hình"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.title": {
+      "comment": "Settings > Appearance floating bar: the button that opens the presets menu, and the step name in Undo (\"Preset → Frosted\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعدادات مسبقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predlošci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forudindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voreinstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Préréglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimpostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プリセット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프리셋"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsinnstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia wstępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predefinições"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пресеты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่าที่ตั้งไว้ล่วงหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hazır ayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пресети"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt sẵn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "预设"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預設組合"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.menu": {
+      "comment": "Settings > Appearance floating bar: VoiceOver name of the presets menu button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance presets"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعدادات المظهر المسبقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predlošci izgleda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forudindstillinger for udseende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Darstellungs-Voreinstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preajustes de apariencia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Préréglages d’apparence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimpostazioni dell’aspetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外観のプリセット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់រូបរាងជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모양 프리셋"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsinnstillinger for utseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia wstępne wyglądu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predefinições de aparência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пресеты оформления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่าที่ตั้งไว้ล่วงหน้าของรูปลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görünüm hazır ayarları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пресети вигляду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt sẵn giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外观预设"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外觀預設組合"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.solid": {
+      "comment": "Appearance preset: an opaque window with no material.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Massiv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deckend"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opaque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不透明"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្រអាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "불투명"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Heldekkende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сплошной"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทึบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Суцільний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不透明"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不透明"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.frosted": {
+      "comment": "Appearance preset: a mostly opaque window over frosted material.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frosted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مُثلَّج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Matirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frostet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Milchglas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esmerilado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Givré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Smerigliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すりガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ចក់ព្រិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반투명 유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frostet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Matowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fosco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Матовый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ฝ้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buzlu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Матовий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mờ sương"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磨砂"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磨砂"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.glass": {
+      "comment": "Appearance preset: a half see-through window over glass material.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زجاج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        }
+      }
+    },
+    "settingsPage.presets.clear": {
+      "comment": "Appearance preset: a mostly see-through window over clear glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شفاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prozirno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasparente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クリア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថ្លា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "투명"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przezroczyste"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прозрачный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şeffaf"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прозорий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong suốt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透明"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透明"
           }
         }
       }

@@ -1085,6 +1085,34 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
     { isWorking: true },
   );
 
+/// A running turn whose first run did one kind of work, two web fetches, between two messages: its
+/// collapsed line keeps that kind's glyph, the globe.
+const oneKindRunChat = () =>
+  chat(
+    [
+      user("Check what the two retry guides say, then run the tests.", 3),
+      assistant("I'll read both guides first.", 2.9),
+      activity(
+        [
+          tool("Fetch https://example.com/retries", "fetch", "completed"),
+          tool("Fetch https://example.com/backoff", "fetch", "completed"),
+        ],
+        2.8,
+      ),
+      assistant("Both guides cap retries at three with jittered backoff. Next I run the tests.", 2.5),
+      activity(
+        [
+          tool("bun test src/net", "execute", "in_progress", {
+            command: "bun test src/net",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -1311,6 +1339,64 @@ const BASH_PERMISSION = chat(
   },
 );
 
+const gridRhythmSnapshot = chat(
+  [
+    // Prior history exercises the followed composer boundary, including narrow panes.
+    assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+      id: "grid-history",
+    }),
+    user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
+    user("Review the current verification results", 3, {
+      id: "grid-header",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-agent",
+          text: "Review the current verification results",
+          raw: "Review the current verification results",
+        },
+      },
+      untyped: true,
+    }),
+    assistant(
+      "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
+      2.8,
+      { id: "grid-message" },
+    ),
+    activity(
+      [
+        tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
+        tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
+        tool("Run focused checks", "execute", "in_progress", {
+          command: "bun test transcript",
+          startedAt: minutesAgo(0.5),
+        }),
+      ],
+      2.7,
+      { id: "grid-tools" },
+    ),
+  ],
+  { isWorking: true },
+);
+
+const gridHistory = assistant(
+  Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"),
+  5,
+  { id: "grid-history" },
+);
+// A sent prompt with no output yet: the working indicator alone between it and the composer.
+const gridWaitingSnapshot = chat(
+  [gridHistory, user("Check the verification and report the result.", 0.2, { id: "grid-prompt" })],
+  { isWorking: true },
+);
+// A settled reply as the last element: the composer gap after a message keeps room for its actions.
+const gridSettledSnapshot = chat([
+  gridHistory,
+  user("Check the verification and report the result.", 1, { id: "grid-prompt" }),
+  assistant("The verification passed on every check.", 0.5, { id: "grid-message" }),
+  summary(0.4, { id: "grid-summary", status: "completed", durationMs: 9_000 }),
+]);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1366,10 +1452,38 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#MultiTool",
     "agent-session/acpmux/PermissionCard.tsx",
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "grid-rhythm": {
+      height: 900,
+      note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
+      snapshot: gridRhythmSnapshot,
+    },
+    "grid-waiting": {
+      height: 900,
+      note: "A prompt waiting for its first output: the working indicator sits centred, the block gap above and below it.",
+      snapshot: gridWaitingSnapshot,
+    },
+    "grid-settled": {
+      height: 900,
+      note: "A settled reply above the composer: the composer gap after a message is the block gap, so its hover row fits.",
+      snapshot: gridSettledSnapshot,
+    },
+    "grid-rhythm-hover": {
+      height: 900,
+      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      snapshot: gridRhythmSnapshot,
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
+        await ctx.waitFor(() => {
+          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
+          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
+        });
+      },
+    },
     "activity-tone-secondary": {
       note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
       snapshot: messageSurfaceChat,
@@ -2130,8 +2244,12 @@ export default agentPaneEntry({
       ),
     },
     "collapsed-run": {
-      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the several-tools glyph (four rings joined by a diagonal). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
       snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-one-kind": {
+      note: "A collapsed run of one kind of work (two web fetches) keeps that kind's glyph, the globe.",
+      snapshot: oneKindRunChat(),
     },
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
@@ -2503,7 +2621,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {
