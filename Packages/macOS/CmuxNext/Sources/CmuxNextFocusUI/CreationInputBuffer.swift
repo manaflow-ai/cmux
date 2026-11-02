@@ -57,7 +57,8 @@ public final class CreationInputBuffer {
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
     /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone).
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
-    /// shows that workspace (``awaitedWorkspace``) and are dropped when it fails or never shows
+    /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
+    /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
     /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false) -> Ticket {
         nextID += 1
@@ -197,10 +198,24 @@ public final class CreationInputBuffer {
     /// Nil when the hold has none, or its reply has not come (``hasPendingCreation`` holds the keys then).
     public var awaitedWorkspace: String? { workspaceTickets.max().flatMap { madeWorkspaces[$0] } }
 
-    /// The workspace the hold's keys wait to see shown: ``awaitedWorkspace`` unless the person left it (``personMovedOn()``).
-    /// A left workspace that replied and never shows keeps no other key waiting for the hold's limit (review of #32148): the
-    /// keys typed for it before the person left go with it when the hold ends (run there if it shows by then, else dropped).
+    /// The workspace every held key waits to see shown: ``awaitedWorkspace`` unless the person left it (``personMovedOn()``).
+    /// A left workspace keeps no other key waiting (review of #32148): only its own keys wait (``leftWorkspaceWithKeys``).
     public var shownWorkspaceToWaitFor: String? { workspaceTickets.subtracting(movedOnFrom).max().flatMap { madeWorkspaces[$0] } }
+
+    /// A new workspace the person left that replied and still holds keys typed for it before they left: those keys alone
+    /// wait for the window to show it with its terminal, or the hold's limit; the other lanes' keys go on (review of #32352:
+    /// the store shows a new workspace a frame after the create's reply, and the keys were dropped in the reply's turn).
+    public var leftWorkspaceWithKeys: (ticket: Int, workspace: String)? {
+        let held = Set(events.compactMap(\.creation))
+        return workspaceTickets.intersection(movedOnFrom).intersection(held).max().flatMap { id in madeWorkspaces[id].map { (id, $0) } }
+    }
+
+    /// The creation whose keys alone keep waiting (``leftWorkspaceWithKeys``) while the window shows `shown` and its
+    /// terminal has the keyboard there or not (`terminalReady`); nil when no left workspace's keys wait any more.
+    public func keysKeptForLeftWorkspace(shown: String?, terminalReady: Bool) -> Int? {
+        guard let left = leftWorkspaceWithKeys, left.workspace != shown || !terminalReady else { return nil }
+        return left.ticket
+    }
 
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
@@ -208,7 +223,7 @@ public final class CreationInputBuffer {
     /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
     /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'
     /// (review of #32098: they took the new workspace's lane and were dropped when it never showed). Keys held for them
-    /// before it still wait for them.
+    /// before it still wait for them to show (``leftWorkspaceWithKeys``); no other key waits for them.
     public func personMovedOn() {
         guard !workspaceTickets.isEmpty else { return }
         movedOnFrom.formUnion(workspaceTickets)
@@ -372,9 +387,10 @@ public final class CreationInputBuffer {
 
     /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
     /// `isShortcut(event, tab)`: whether `event` runs an app shortcut in tab `tab`'s context.
-    public func take(focused: String?, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
+    /// `keeping`: a creation whose keys stay held (a left workspace still to show, ``leftWorkspaceWithKeys``).
+    public func take(focused: String?, keeping kept: Int? = nil, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
         var keys: [HeldKey] = []
-        for (event, id) in events {
+        for (event, id) in events where kept == nil || id != kept {
             guard let lane = heldLane(id), lane.tab != focused else {
                 keys.append(.run(event, lane: heldLane(id)))
                 continue
@@ -387,7 +403,7 @@ public final class CreationInputBuffer {
                 keys.append(.type([event], lane: lane))
             }
         }
-        events.removeAll()
+        events.removeAll { kept == nil || $0.creation != kept }
         return keys
     }
 

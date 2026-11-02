@@ -375,11 +375,11 @@ final class CreationInputCoordinator {
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
-            // A new workspace's keys wait for the window to show it and for its terminal to have the keyboard.
-            if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || Self.keyboardTerminal(controller, window) == nil { return }
+            let terminal = Self.keyboardTerminal(controller, window) // a new workspace's keys wait for it to show with its terminal (a left one's: its own)
+            if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || terminal == nil { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
-            // Its focused terminal's surface is still to come (the presentation shows it on a later frame).
-            if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return }
+            if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return } // its surface comes on a later frame
+            if let kept = buffer.keysKeptForLeftWorkspace(shown: shown, terminalReady: terminal != nil) { return _ = runAgain(buffer.take(focused: terminal, keeping: kept) { self.shortcut($0, tab: $1, in: window) != nil }, from: buffer, in: window) }
         }
         buffers[window.windowNumber] = nil
         // A forced end drops the keys of a new workspace the window does not show, and the window's focus applies again.
