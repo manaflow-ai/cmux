@@ -155,7 +155,7 @@ struct KeyRouterBench {
         try #require(resolved?.id == target, "the when-clause binding does not win in a terminal (\(resolved?.id.rawValue ?? "nothing"))")
     }
 
-    @Test func keyRouterBench() throws {
+    @Test func keyRouterBench() async throws {
         let harness = try Self.harness()
         defer { harness.close() }
         let control = MallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
@@ -198,12 +198,12 @@ struct KeyRouterBench {
 
         // Where the allocations come from, per key kind that allocates.
         var sites = AllocationSites()
+        var summaries: [AllocationSites.Summary] = []
         for (key, row) in [(Self.plain, plainRow)] + chordRows where row.allocations > 0 {
             let traced = try Self.trace(key, in: harness)
-            for line in sites.report(key.name, traces: traced.traces, allocations: traced.allocations, keys: Self.traceKeys) {
-                print(line)
-            }
+            summaries.append(sites.summarize(key.name, traces: traced.traces, allocations: traced.allocations, keys: Self.traceKeys))
         }
+        for line in await sites.lines(summaries) { print(line) }
 
         let fields = ["plain_p99_us", "chord_p99_us", "plain_allocs", "chord_allocs", "key_equiv_views"]
         let decoded = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
@@ -217,7 +217,7 @@ struct KeyRouterBench {
     /// The chord step every Cmd or Ctrl key-down takes before the router resolves it (`KeyBindingTable.step`)
     /// allocates nothing: a first key that runs, one that arms a chord, the Cmd-J leader, an armed chord's next
     /// key and an unbound key. The readings and armed keys are made before the count (feat's step takes arrays).
-    @Test func chordStepAllocatesNothing() throws {
+    @Test func chordStepAllocatesNothing() async throws {
         let control = MallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         let cmdK = Shortcut("k", modifiers: [.command]), x = Shortcut("x", modifiers: [])
@@ -237,25 +237,30 @@ struct KeyRouterBench {
             ("unbound", [], [Shortcut("}", modifiers: [.shift, .command]), Shortcut("]", modifiers: [.shift, .command])]),
         ]
         let isRunnable: (ActionID) -> Bool = { _ in true }
+        // The same loop with nothing in it is the baseline: a Debug build's for-in over a range can allocate per
+        // iteration (PageRouterSubscribeEndTests, probe 5529e509), so only what the steps add counts.
+        let loop = try #require(MallocProbe.allocations { for _ in 0..<Self.allocationKeys {} })
         var sites = AllocationSites()
+        var summaries: [AllocationSites.Summary] = []
         for (name, keys, readings) in cases {
             let warm = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable)
             var step = warm
-            let allocations = MallocProbe.allocations {
+            let measured = try #require(MallocProbe.allocations {
                 for _ in 0..<Self.allocationKeys { step = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable) }
-            }
-            if let allocations, allocations > 0 {
+            })
+            let allocations = measured - loop
+            print("KEY-ROUTER-STEP \(name): \(allocations) allocations in \(Self.allocationKeys) steps (loop alone: \(loop))")
+            if allocations > 0 {
                 MallocProbe.beginTracing(capacity: Self.traceCapacity)
                 let traced = MallocProbe.allocations {
                     for _ in 0..<Self.traceKeys { step = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable) }
                 } ?? 0
-                for line in sites.report("step \(name)", traces: MallocProbe.endTracing(), allocations: traced, keys: Self.traceKeys) {
-                    print(line)
-                }
+                summaries.append(sites.summarize("step \(name)", traces: MallocProbe.endTracing(), allocations: traced, keys: Self.traceKeys))
             }
             #expect(step == warm)
-            #expect(allocations == 0, "\(name): the chord step made \(allocations ?? -1) allocations in \(Self.allocationKeys) keys")
+            #expect(allocations == 0, "\(name): the chord step made \(allocations) allocations in \(Self.allocationKeys) keys (loop alone: \(loop))")
         }
+        for line in await sites.lines(summaries) { print(line) }
     }
 
     // MARK: Measuring
@@ -431,18 +436,31 @@ private nonisolated struct MallocProbe {
 /// Names the call sites of traced allocations (after the measured loop: this allocates freely). Each trace is
 /// read as: the probe's frames, libmalloc's, then the allocating leaf (the first frame that is not an allocator
 /// entry point such as `swift_allocObject`, `swift_slowAlloc` or `_objc_rootAllocWithZone`), then the frames up
-/// to the first one in this test binary (cmux code) that is not the bench or the probe.
+/// to the first cmux frame (this test binary or a CmuxNext image) that is not the bench or the probe. Symbols come
+/// from `dladdr`; file:line from `atos` over the shown frames (the binary's debug map), when it answers.
 private nonisolated struct AllocationSites {
-    private struct Frame {
+    private nonisolated struct Frame {
+        let address: UInt
+        let base: UInt
+        let path: String
         let image: String
         let symbol: String
         let offset: Int
         let isOwn: Bool
-        var text: String { "\(symbol)+\(offset) [\(image)]" }
     }
 
     private typealias Demangle = @convention(c) (UnsafePointer<CChar>?, Int, UnsafeMutablePointer<CChar>?,
                                                  UnsafeMutablePointer<Int>?, UInt32) -> UnsafeMutablePointer<CChar>?
+
+    /// One key kind's grouped traces, before its lines are written.
+    nonisolated struct Summary {
+        let name: String
+        let allocations: Int
+        let traced: Int
+        let keys: Int
+        fileprivate let byOwn: [(UInt, Int)]
+        fileprivate let byPair: [(own: UInt?, leaf: UInt?, chain: [UInt], count: Int)]
+    }
 
     private var frames: [UInt: Frame] = [:]
     private let ownBase = UInt(bitPattern: #dsohandle)
@@ -454,12 +472,14 @@ private nonisolated struct AllocationSites {
         var info = Dl_info()
         // A return address: the call is the instruction before it.
         let found = UnsafeRawPointer(bitPattern: address &- 1).map { dladdr($0, &info) != 0 } ?? false
-        let image = found ? info.dli_fname.map { String(cString: $0) }.map { ($0 as NSString).lastPathComponent } ?? "?" : "?"
+        let path = found ? info.dli_fname.map { String(cString: $0) } ?? "?" : "?"
+        let image = (path as NSString).lastPathComponent
         let mangled = found ? info.dli_sname.map { String(cString: $0) } : nil
         let symbol = mangled.map(readable) ?? String(format: "0x%lx", address)
-        let offset = found && info.dli_saddr != nil ? Int(address) - Int(bitPattern: info.dli_saddr) : 0
-        let isOwn = found && UInt(bitPattern: info.dli_fbase) == ownBase
-        let result = Frame(image: image, symbol: symbol, offset: offset, isOwn: isOwn)
+        let offset = found && info.dli_saddr != nil ? Int(bitPattern: address) - Int(bitPattern: info.dli_saddr) : 0
+        let base = found ? UInt(bitPattern: info.dli_fbase) : 0
+        let isOwn = found && (base == ownBase || image.contains("CmuxNext"))
+        let result = Frame(address: address, base: base, path: path, image: image, symbol: symbol, offset: offset, isOwn: isOwn)
         frames[address] = result
         return result
     }
@@ -468,7 +488,7 @@ private nonisolated struct AllocationSites {
         guard let demangle, let text = mangled.withCString({ demangle($0, strlen($0), nil, nil, 0) }) else { return mangled }
         defer { free(text) }
         let full = String(cString: text)
-        return full.count > 220 ? String(full.prefix(220)) + "..." : full
+        return full.count > 200 ? String(full.prefix(200)) + "..." : full
     }
 
     private static func isProbe(_ frame: Frame) -> Bool {
@@ -489,39 +509,98 @@ private nonisolated struct AllocationSites {
         }
     }
 
-    /// `KEY-ROUTER-ALLOC` lines for one key kind: its allocations per key, then the top sites grouped by first
-    /// cmux frame, then by (first cmux frame, leaf) with the frames between them.
-    mutating func report(_ name: String, traces: [[UInt]], allocations: Int, keys: Int) -> [String] {
-        var byOwn: [String: Int] = [:]
-        var byPair: [String: Int] = [:]
-        var chains: [String: String] = [:]
+    /// Groups one key kind's traces by first cmux frame, and by (first cmux frame, leaf) with the frames between.
+    mutating func summarize(_ name: String, traces: [[UInt]], allocations: Int, keys: Int) -> Summary {
+        var byOwn: [UInt: Int] = [:]
+        var byPair: [String: (own: UInt?, leaf: UInt?, chain: [UInt], count: Int)] = [:]
         for trace in traces {
             let resolved = trace.map { frame($0) }
             // Past the probe's frames and libmalloc's.
             let mallocEnd = resolved.lastIndex { $0.image == "libsystem_malloc.dylib" }.map { $0 + 1 }
-            let start = mallocEnd ?? (resolved.firstIndex { !Self.isProbe($0) } ?? resolved.count)
-            let rest = Array(resolved[min(start, resolved.count)...])
-            let leafIndex = rest.firstIndex { !Self.isAllocator($0) } ?? max(0, rest.count - 1)
+            let start = min(mallocEnd ?? (resolved.firstIndex { !Self.isProbe($0) } ?? resolved.count), resolved.count)
+            let rest = Array(resolved[start...])
+            let leafIndex = rest.firstIndex { !Self.isAllocator($0) }
             let ownIndex = rest.firstIndex { $0.isOwn && !Self.isProbe($0) && !Self.isBench($0) }
-            let leaf = rest.isEmpty ? "?" : rest[leafIndex].text
-            let own = ownIndex.map { rest[$0].text } ?? "(no cmux frame)"
-            byOwn[own, default: 0] += 1
-            let pair = "cmux: \(own) | leaf: \(leaf)"
-            byPair[pair, default: 0] += 1
-            if chains[pair] == nil {
-                let end = min(rest.count, max(leafIndex, ownIndex ?? leafIndex) + 3)
-                chains[pair] = rest[min(leafIndex, end)..<end].map { "\($0.symbol) [\($0.image)]" }.joined(separator: " < ")
+            let own = ownIndex.map { rest[$0].address }
+            let leaf = leafIndex.map { rest[$0].address }
+            byOwn[own ?? 0, default: 0] += 1
+            // Grouped by symbol, not address: one function's several call sites stay apart only in the chain.
+            let key = "\(ownIndex.map { rest[$0].symbol } ?? "-")|\(leafIndex.map { rest[$0].symbol } ?? "-")"
+            if var known = byPair[key] {
+                known.count += 1
+                byPair[key] = known
+            } else {
+                let from = leafIndex ?? 0
+                let to = min(rest.count, max(from, ownIndex ?? from) + 3)
+                byPair[key] = (own, leaf, rest[from..<to].map(\.address), 1)
             }
         }
-        let perKey = { (count: Int) in String(format: "%.2f", Double(count) / Double(max(1, keys))) }
-        var lines = ["KEY-ROUTER-ALLOC \(name): \(allocations) allocations in \(keys) keys (\(perKey(allocations))/key), \(traces.count) traced"]
-        for (site, count) in byOwn.sorted(by: { $0.value > $1.value }).prefix(25) {
-            lines.append("KEY-ROUTER-ALLOC \(name) by-cmux-frame \(perKey(count))/key  \(site)")
+        return Summary(name: name, allocations: allocations, traced: traces.count, keys: keys,
+                       byOwn: byOwn.sorted { $0.value > $1.value }.prefix(20).map { ($0.key, $0.value) },
+                       byPair: byPair.values.sorted { $0.count > $1.count }.prefix(20).map { $0 })
+    }
+
+    /// `KEY-ROUTER-ALLOC` lines for `summaries`, every shown frame with its file:line when `atos` gives one.
+    mutating func lines(_ summaries: [Summary]) async -> [String] {
+        var shown = Set<UInt>()
+        for summary in summaries {
+            for (address, _) in summary.byOwn where address != 0 { shown.insert(address) }
+            for pair in summary.byPair { shown.formUnion(pair.chain) }
         }
-        for (pair, count) in byPair.sorted(by: { $0.value > $1.value }).prefix(25) {
-            lines.append("KEY-ROUTER-ALLOC \(name) by-site \(perKey(count))/key  \(pair)")
-            lines.append("KEY-ROUTER-ALLOC \(name)   chain: \(chains[pair] ?? "")")
+        let places = await Self.sourcePlaces(shown.map { frame($0) })
+        func text(_ address: UInt?) -> String {
+            guard let address, address != 0 else { return "(none)" }
+            let frame = frame(address)
+            let place = places[address].map { " at \($0)" } ?? ""
+            return "\(frame.symbol)+\(frame.offset) [\(frame.image)]\(place)"
+        }
+        var lines: [String] = []
+        for summary in summaries {
+            let perKey = { (count: Int) in String(format: "%.2f", Double(count) / Double(max(1, summary.keys))) }
+            lines.append("KEY-ROUTER-ALLOC \(summary.name): \(summary.allocations) allocations in \(summary.keys) keys "
+                + "(\(perKey(summary.allocations))/key), \(summary.traced) traced")
+            for (address, count) in summary.byOwn {
+                lines.append("KEY-ROUTER-ALLOC \(summary.name) by-cmux-frame \(perKey(count))/key  \(text(address))")
+            }
+            for pair in summary.byPair {
+                lines.append("KEY-ROUTER-ALLOC \(summary.name) by-site \(perKey(pair.count))/key  cmux: \(text(pair.own)) | leaf: \(text(pair.leaf))")
+                lines.append("KEY-ROUTER-ALLOC \(summary.name)   chain: " + pair.chain.map { text($0) }.joined(separator: " < "))
+            }
         }
         return lines
+    }
+
+    /// `file:line` of each frame, from `atos -o <image> -l <load address>` per image; empty where it gives none.
+    private static func sourcePlaces(_ frames: [Frame]) async -> [UInt: String] {
+        var places: [UInt: String] = [:]
+        for (base, group) in Dictionary(grouping: frames.filter { $0.base != 0 && $0.path != "?" }, by: \.base) {
+            guard let path = group.first?.path else { continue }
+            let output = FileManager.default.temporaryDirectory.appendingPathComponent("key-router-atos-\(UUID().uuidString).txt")
+            FileManager.default.createFile(atPath: output.path, contents: nil)
+            defer { try? FileManager.default.removeItem(at: output) }
+            guard let handle = try? FileHandle(forWritingTo: output) else { continue }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/atos")
+            process.arguments = ["-o", path, "-l", String(format: "0x%lx", base)] + group.map { String(format: "0x%lx", $0.address &- 1) }
+            process.standardOutput = handle
+            process.standardError = FileHandle.nullDevice
+            let ended: Bool = await withCheckedContinuation { continuation in
+                process.terminationHandler = { _ in continuation.resume(returning: true) }
+                do { try process.run() } catch {
+                    process.terminationHandler = nil
+                    continuation.resume(returning: false)
+                }
+            }
+            try? handle.close()
+            guard ended, let text = try? String(contentsOf: output, encoding: .utf8) else { continue }
+            let answers = text.split(separator: "\n", omittingEmptySubsequences: false)
+            for (frame, answer) in zip(group, answers) {
+                // "symbol (in image) (File.swift:123)": the last parenthesis names the place.
+                guard answer.hasSuffix(")"), let open = answer.lastIndex(of: "(") else { continue }
+                let place = answer[answer.index(after: open)..<answer.index(before: answer.endIndex)]
+                if place.contains(":"), !place.hasPrefix("in ") { places[frame.address] = String(place) }
+            }
+        }
+        return places
     }
 }
