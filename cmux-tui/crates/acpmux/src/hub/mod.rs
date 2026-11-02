@@ -1372,7 +1372,7 @@ impl Hub {
                     (entry_generation == generation
                         && (entry_expiry == 0 || now < entry_expiry)
                         && !bytes.is_empty())
-                        .then_some(bytes)
+                    .then_some(bytes)
                 })
             && let Ok(row) = serde_json::from_str(bytes)
         {
