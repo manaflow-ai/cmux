@@ -19,6 +19,7 @@ final class NotificationsPanelController {
     private var panel: NotificationsPanel?
     private let motion = CornerPanelMotion()
     private let card = NotificationsPanelView()
+    var cardView: NotificationsPanelView? { card } // the panel's view once made
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
     private var loaded = false
