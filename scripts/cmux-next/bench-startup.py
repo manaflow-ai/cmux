@@ -459,10 +459,21 @@ class Launch:
         return True
 
     def quit(self):
-        """Quits the app only; the daemon keeps running (keep sessions)."""
+        """Quits the app only; the daemon keeps running (keep sessions). The marks the quit writes (`quit.*`, each
+        terminal's frame save) are read until the app closes the pipe, into `quit_marks`, never into `marks`."""
+        launched = set(self.marks)
+        try:
+            os.kill(self.process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
         os.close(self.read_fd)
-        stop([self.process.pid], timeout=20)
+        if not wait_exit([self.process.pid], 20):
+            stop([self.process.pid], timeout=5)
         self.process.wait()
+        self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
+        for name in self.quit_marks:
+            self.arrived.pop(name, None)
 
 
 RUN_TAGS = []
@@ -980,6 +991,8 @@ def one_run(tag, mode, timeout, profile=None):
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
+        launch.terminals = launch_terminals(tag)
+        launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -989,6 +1002,10 @@ def one_run(tag, mode, timeout, profile=None):
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
     marks = dict(launch.marks)
+    marks["launch_terminals"] = getattr(launch, "terminals", None)
+    marks["quit_marks"] = getattr(launch, "quit_marks", {})
+    marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
+    marks["frames_after_quit"] = frame_files(tag)
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
@@ -1005,6 +1022,26 @@ def one_run(tag, mode, timeout, profile=None):
     print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
                                        "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
     return marks
+
+
+def launch_terminals(tag):
+    """The launch's visible terminals (debug.timings `launch_terminals`): by tab key, when each asked for its saved
+    frame, when it showed (`frame_shown_ms`) or why it did not (`missed`: no_frame, size, scale, live), and the max."""
+    try:
+        app = app_client(tag, timeout=5)
+        result = app.call("debug.timings").get("result") or {}
+        return {"panes": result.get("launch_terminals"), "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
+    except (OSError, ValueError, SystemExit) as error:
+        return {"error": str(error)}
+
+
+def frame_files(tag):
+    """The saved terminal frames on disk after the quit: {file: bytes} (TerminalLaunchFrames' folder)."""
+    directory = os.path.join(app_support_tag(tag), "terminal-launch-frames")
+    try:
+        return {name: os.path.getsize(os.path.join(directory, name)) for name in sorted(os.listdir(directory))}
+    except OSError:
+        return None
 
 
 def launch_stalls(tag):

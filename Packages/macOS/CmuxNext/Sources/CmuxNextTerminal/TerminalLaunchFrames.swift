@@ -397,12 +397,23 @@ public final class TerminalLaunchFrames {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
-            guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
-                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+            // Each shown terminal's outcome is a quit mark (`quit.terminal_frame.<key>.<outcome>`, issue #32274).
+            let skipped = surface.window?.isVisible != true ? "not_visible"
+                : surface.isHiddenOrHasHiddenAncestor ? "hidden" : surface.bounds.width > 0 ? nil : "no_width"
+            if let skipped {
+                mark("quit.terminal_frame.\(key).\(skipped)")
+                continue
+            }
+            // What the pane shows: a terminal still held over its slow attach saves its held frame.
+            guard let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else {
+                mark("quit.terminal_frame.\(key).no_snapshot")
+                continue
+            }
+            mark("quit.terminal_frame.\(key).snapshot")
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
         await save(images: frames)
+        mark("quit.terminal_frames.written")
     }
 
     /// Replaces the saved frames with `images` (by tab key, at their point size).
