@@ -121,6 +121,12 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
         didSet { slotIndexCache = nil }
     }
+    /// The tabs fill the bar: they are narrower than their widest, or scroll (``updateCrowded()``).
+    /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
+    /// room the tabs could use.
+    public private(set) var isCrowded = false
+    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    public var onCrowdedChange: ((Bool) -> Void)?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).

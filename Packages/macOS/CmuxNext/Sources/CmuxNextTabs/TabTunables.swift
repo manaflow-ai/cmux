@@ -24,6 +24,26 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// What the tab bar's trailing controls (the plus, the pane's pins and "…") show at rest
+/// (`TabTunables.crowdedControls`). Their room is kept either way, so no tab moves on hover.
+public nonisolated enum TabCrowdedControls: String, Sendable, CaseIterable, TunableChoice {
+    /// Hidden at rest while the tabs leave room beside them; muted at rest once the tabs fill the
+    /// bar, so the room they keep never reads as an empty strip (Leo 2026-10-20).
+    case shownWhenCrowded
+    /// Muted at rest whatever the tab count (Leo 2026-10-19).
+    case alwaysShown
+    /// Hidden at rest whatever the tab count (Lawrence 2026-10-20).
+    case hiddenAtRest
+
+    public var tunableTitle: String {
+        switch self {
+        case .shownWhenCrowded: "Shown when the tabs fill the bar"
+        case .alwaysShown: "Always shown"
+        case .hiddenAtRest: "Hidden at rest"
+        }
+    }
+}
+
 /// Debug Settings tunables of the tab strip (plans/cmux-next/tabs.md). The
 /// derived ones compute their default from the density tokens exactly as
 /// `TabStripMetrics` always did; the expression lives here once.
@@ -75,6 +95,27 @@ public nonisolated enum TabTunables {
         "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
         help: "Opacity of the tab bar's plus and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
         default: 0, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
+    // @intent Leo 2026-10-20 ("the rightmost area has a reservation of hidden icons"; "if you push or hover
+    // then you cant access the rightmost tabs"): the room stays (no push, no overlay), and once the tabs
+    // fill the bar its controls show muted at rest instead of leaving an empty strip.
+    public static let crowdedControls = Tunable<TabCrowdedControls>.choice(
+        "tabs.crowdedControls", .tabs, "Tab bar controls when crowded",
+        help: "Whether the plus and More show at rest once the tabs fill the bar, so their kept room is never an empty strip.",
+        default: .shownWhenCrowded, code: "TabTunables.crowdedControls")
+    public static let crowdedControlOpacity = Tunable<CGFloat>.number(
+        "tabs.crowdedControlOpacity", .tabs, "Tab bar controls at rest, crowded",
+        help: "Opacity of the tab bar's plus and More at rest while they show at rest (Tab bar controls when crowded).",
+        default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.crowdedControlOpacity")
+
+    /// The trailing controls' opacity at rest; `crowded`: the tabs fill the bar (``TabStripView/isCrowded``).
+    public static func restingControlAlpha(crowded: Bool) -> CGFloat {
+        let rest = restingControlOpacity.value
+        switch crowdedControls.value {
+        case .hiddenAtRest: return rest
+        case .alwaysShown: return max(rest, crowdedControlOpacity.value)
+        case .shownWhenCrowded: return crowded ? max(rest, crowdedControlOpacity.value) : rest
+        }
+    }
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover
@@ -107,7 +148,8 @@ public nonisolated enum TabTunables {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
+            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
+               crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, loadingAnimation.descriptor]
     }
 }

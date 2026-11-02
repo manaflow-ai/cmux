@@ -10,10 +10,13 @@ import Testing
 /// (2026-10-20) wants the plus and "…" hidden until the pointer is over the tab bar, and the Search Tabs
 /// chevron gone from the bar ("i dont like the down arrow"), its action kept in "…"'s menu. The
 /// controls keep their room, so nothing moves when they appear. Leo (2026-10-26): the pane’s ⋮
-/// fades in place; its normal hover fade must never slide the glyph sideways.
+/// fades in place; its normal hover fade must never slide the glyph sideways. Leo (2026-10-20, "the
+/// rightmost area has a reservation of hidden icons" / "if you push or hover then you cant access the
+/// rightmost tabs"): once the tabs fill the bar, the controls show muted at rest in the room they keep.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabBarRestingControlsTests {
-    private static func strip() -> (TabStripView, NSWindow) {
-        let model = TabStripModel(tabs: (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
+    /// `tabs` 2 leaves room beside them (not crowded); 12 fill the 900-point bar (crowded).
+    private static func strip(tabs: Int = 2) -> (TabStripView, NSWindow) {
+        let model = TabStripModel(tabs: (0..<tabs).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         let strip = TabStripView(model: model)
@@ -157,5 +160,73 @@ import Testing
         view.reveal.setPointerInside(false)
         #expect(view.moreButton.frame == resting, "fading out ⋮ must not move it left")
         #expect(view.moreButton.alphaValue == view.reveal.restAlpha, "the normal fade still hides ⋮")
+    }
+    private static func setCrowdedControls(_ mode: TabCrowdedControls?) {
+        TunableStore.shared.set(TabTunables.crowdedControls.key, mode.map { .choice($0.rawValue) })
+    }
+
+    /// 12 tabs fill the bar: the plus rests muted in its kept room instead of leaving an empty strip,
+    /// and revealing it moves no tab, so the rightmost tab stays where the pointer finds it.
+    @Test func aCrowdedStripsPlusShowsAtRestAndItsRevealMovesNoTab() throws {
+        DesignSettings.shared.plusButton = .hover
+        Self.setCrowdedControls(nil)
+        let (strip, window) = Self.strip(tabs: 12)
+        defer { window.closeAfterTest() }
+        #expect(strip.isCrowded, "12 tabs in 900 points are narrower than their widest")
+        let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+        let muted = TabTunables.crowdedControlOpacity.value
+        #expect(muted > 0)
+        #expect(abs(strip.newTabButton.alphaValue - muted) < 0.01, "plus at rest when crowded: \(strip.newTabButton.alphaValue)")
+        let last = try #require(strip.result.slots.last)
+        let clip = strip.tabsClip.frame
+        reveal.setPointerInside(true)
+        #expect(strip.newTabButton.alphaValue == 1)
+        strip.layoutSubtreeIfNeeded()
+        #expect(strip.tabsClip.frame == clip, "the reveal never narrows the tabs")
+        #expect(strip.result.slots.last == last, "the rightmost tab keeps its place under the pointer")
+        #expect(strip.newTabButton.frame.minX >= strip.tabsClip.frame.maxX - 0.5, "the plus never covers a tab")
+        reveal.setPointerInside(false)
+        #expect(abs(strip.newTabButton.alphaValue - muted) < 0.01)
+    }
+
+    /// A strip with room beside its tabs keeps Lawrence's hidden-at-rest controls; closing down to it
+    /// hides them again.
+    @Test func aStripWithRoomKeepsItsControlsHiddenAtRest() throws {
+        DesignSettings.shared.plusButton = .hover
+        Self.setCrowdedControls(nil)
+        let (strip, window) = Self.strip(tabs: 2)
+        defer { window.closeAfterTest() }
+        #expect(!strip.isCrowded)
+        #expect(strip.newTabButton.alphaValue == 0)
+    }
+
+    /// The pane's "…" follows its strip: hidden beside a strip with room, muted beside a crowded one.
+    @Test func thePanesMoreFollowsItsStripsCrowding() {
+        Self.setCrowdedControls(nil)
+        let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
+        toolbar.update(target: "tab0", kind: .terminal)
+        let more = toolbar.view.moreButton
+        let (roomy, roomyWindow) = Self.strip(tabs: 2)
+        defer { roomyWindow.closeAfterTest() }
+        toolbar.view.strip = roomy
+        #expect(more.alphaValue == 0, "\"…\" beside tabs with room: \(more.alphaValue)")
+        let (crowded, crowdedWindow) = Self.strip(tabs: 12)
+        defer { crowdedWindow.closeAfterTest() }
+        toolbar.view.strip = crowded
+        #expect(abs(more.alphaValue - TabTunables.crowdedControlOpacity.value) < 0.01, "\"…\" beside a full bar: \(more.alphaValue)")
+    }
+
+    /// The three versions (`tabs.crowdedControls`): shown when crowded (default), always shown, hidden at rest.
+    @Test func eachVersionsRestingOpacity() {
+        defer { Self.setCrowdedControls(nil) }
+        let muted = TabTunables.crowdedControlOpacity.value
+        Self.setCrowdedControls(nil)
+        #expect(TabTunables.crowdedControls.value == .shownWhenCrowded)
+        #expect(TabTunables.restingControlAlpha(crowded: false) == 0)
+        #expect(TabTunables.restingControlAlpha(crowded: true) == muted)
+        Self.setCrowdedControls(.alwaysShown)
+        #expect(TabTunables.restingControlAlpha(crowded: false) == muted)
+        Self.setCrowdedControls(.hiddenAtRest)
+        #expect(TabTunables.restingControlAlpha(crowded: true) == 0)
     }
 }
