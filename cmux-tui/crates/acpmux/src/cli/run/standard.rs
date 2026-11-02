@@ -33,6 +33,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Chats(..)
             | Command::Process(..)
             | Command::Worktree(..)
+            | Command::Group(..)
             | Command::Attach { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
@@ -967,6 +968,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {

@@ -39,7 +39,7 @@ const sessionInfo =
     const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
     setTabRow({ height: 28, trailingInset: 0 });
     setHeaderState({ inspector: true });
-    setChatDisplay({ "agentPane.display.inspector.placement": placement });
+    setChatDisplay({ "agentPane.display.sessionInfo.placement": placement });
     setSessionInfoOpen(open);
     await ctx.waitFor(() =>
       open
