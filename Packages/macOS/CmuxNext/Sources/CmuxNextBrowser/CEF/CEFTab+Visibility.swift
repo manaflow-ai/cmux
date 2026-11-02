@@ -37,6 +37,6 @@ extension CEFTab: BrowserContentVisibilityReporting {
 }
 
 public extension BrowserTab {
-    /// The page can take keys: Chromium created its browser (a non-Chromium page always can). Stub for the red commit.
-    var pageReady: Bool { true }
+    /// The page can take keys: Chromium created its browser (a non-Chromium page always can).
+    var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil } ?? true }
 }

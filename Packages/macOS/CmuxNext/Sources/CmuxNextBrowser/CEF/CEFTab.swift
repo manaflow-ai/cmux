@@ -326,6 +326,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         refreshExtensionActions()
+        onAttached?()
     }
 
     // What the page area shows, and when the document takes it over, are in

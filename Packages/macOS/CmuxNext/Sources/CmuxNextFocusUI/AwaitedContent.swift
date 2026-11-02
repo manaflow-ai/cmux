@@ -43,7 +43,7 @@ public struct AwaitedContent: Equatable, Sendable {
     public static func awaited(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> AwaitedContent? {
         if let pane {
             // The common case first (every key-down asks): the content shows.
-            if pane.shownTab == tab, pane.shownKind == kind { return nil }
+            if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return nil }
             guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
         } else if !paneInTopology {
             return nil

@@ -305,9 +305,7 @@ final class TabContentCache {
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
             browserTabs.track(page, tabID: key)
-            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) {
-                entry.chrome.showNotice(notice)
-            }
+            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
             onBrowserReady?(key)
         }
         return nil
@@ -434,6 +432,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        (page as? CEFTab)?.onAttached = { [weak self] in self?.onBrowserReady?(key) } // Chromium created its browser: the page takes keys now
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
@@ -473,9 +472,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         installReplacement(page, for: key)
         if let asleep { browsers[key]?.chrome.holdAddress(whileWaking: asleep) }
-        if !(page is HibernatedBrowserTab) {
-            browserTabs.track(page, tabID: key)
-        }
+        if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)
     }
 
