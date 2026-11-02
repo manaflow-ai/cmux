@@ -28,14 +28,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-bookmarks-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-focus-core"
 version = "0.1.0"
 dependencies = [
@@ -56,7 +48,6 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
- "cmux-bookmarks-core",
  "cmux-focus-core",
  "cmux-layout-reducer",
  "cmux-tasks-core",

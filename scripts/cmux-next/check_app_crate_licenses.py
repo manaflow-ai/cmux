@@ -52,7 +52,6 @@ FIRST_PARTY_GPL = {
     "cmux-layout-reducer-ffi",
     "cmux-focus-core",
     "cmux-tasks-core",
-    "cmux-bookmarks-core",
     "cmux-palette-ranker",
     "cmux-remote-browser",
 }

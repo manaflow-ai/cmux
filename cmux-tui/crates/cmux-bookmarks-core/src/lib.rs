@@ -6,8 +6,9 @@
 //! The home daemon (cmux-tui-core `workspace_registry::personal_bookmarks`)
 //! validates every op with these rules and writes SQLite rows in one
 //! transaction; its op JSON is the replay fingerprint, so the types here
-//! serialize exactly as they did there. The app links [`preview`] through
-//! cmux-app-ffi (`cmux_layout_reducer_json` op `bookmarks_apply`): it sends
+//! serialize exactly as they did there. The app is to link [`preview`]
+//! through cmux-app-ffi (`cmux_layout_reducer_json` op `bookmarks_apply`,
+//! one move PR with the re-pin and the Swift call): it sends
 //! its confirmed tree and its pending ops and shows the tree that comes
 //! back, so its optimistic view follows the daemon's rules
 //! (layer-ownership.md V-11). cmux-tui-core's `bookmark_parity_tests` run

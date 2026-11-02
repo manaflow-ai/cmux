@@ -1,5 +1,5 @@
-//! The app's optimistic bookmark view (`cmux_layout_reducer_json` op
-//! `bookmarks_apply`, layer-ownership.md V-11): the confirmed tree (the
+//! The app's optimistic bookmark view (for the app FFI op `bookmarks_apply`,
+//! layer-ownership.md V-11): the confirmed tree (the
 //! last `list-bookmarks` listing) with the pending ops applied in order by
 //! the daemon's own rules. A pending op the visible tree refuses (its
 //! target is gone, or it is already applied and now conflicts) changes

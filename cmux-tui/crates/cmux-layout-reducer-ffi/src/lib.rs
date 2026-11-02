@@ -1,8 +1,6 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
-//! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), the window focus machine (`cmux_focus_*`,
 //! [`focus`]: a handle per window, typed events and replies, no JSON),
@@ -137,12 +135,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_tasks_core::preview::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"bookmarks_apply" => {
-                let request: cmux_bookmarks_core::preview::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_type_ahead" => {
