@@ -61,7 +61,7 @@ class Declared(unittest.TestCase):
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
         # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
         pools = runner_pools.load_pools()
-        for size, name in ((2, "linux_2"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
+        for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
             with self.subTest(pool=name):
                 listed = runner_pools.members(pools[name])
                 self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")

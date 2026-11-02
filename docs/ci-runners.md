@@ -986,8 +986,8 @@ runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJ
 
 A picker's output still comes first where a run needs its own choice (an owned
 Mac, warm affinity); the pool is what follows it, never a literal label.
-A job measured at one size reads that size's pool (`linux_2`, `linux_8`,
-`linux_16`, `linux_32`), never the size's label: when the size stops starting
+A job measured at one size reads that size's pool (`linux_2`, `linux_4`,
+`linux_8`, `linux_16`, `linux_32`), never the size's label: when the size stops starting
 jobs, the reconciler moves the pool to its next member and the job follows,
 with no YAML edit.
 `fromJSON()` of an unset `RUNNER_POOLS` fails the workflow at once, which is
@@ -998,6 +998,7 @@ nobody serves.
 | --- | --- |
 | `linux` | Blacksmith 4 vCPU, Blacksmith 16 vCPU |
 | `linux_2` | Blacksmith 2 vCPU, then 4 vCPU |
+| `linux_4` | Blacksmith 4 vCPU, then 16 vCPU (ephemeral only, unlike `linux`) |
 | `linux_8` | Blacksmith 8 vCPU, then 16 vCPU |
 | `linux_16` | Blacksmith 16 vCPU, then 32 vCPU |
 | `linux_32` | Blacksmith 32 vCPU, then 16 vCPU |

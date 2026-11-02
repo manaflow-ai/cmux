@@ -84,6 +84,13 @@
         "blacksmith-4vcpu-ubuntu-2404"
       ]
     },
+    "linux_4": {
+      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). A stalled 4 vCPU size moves them to 16 vCPU",
+      "members": [
+        "blacksmith-4vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
     "linux_8": {
       "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them to 16 vCPU",
       "members": [
