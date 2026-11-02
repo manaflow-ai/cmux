@@ -57,9 +57,9 @@ export class GuestSendQueue {
   status(state: GuestPromptState): void {
     if (this.stopped) return;
     const prompt = this.prompts.list().find((entry) => entry.clientId === state.client_id);
-    if (!prompt || decided(prompt.state)) return;
+    if (!prompt) return;
     if (state.state === "refused" && state.reason === "share.rate_limited") {
-      // An earlier duplicate's late refusal must never undo a prompt already held by acpmux.
+      // An earlier duplicate's late refusal must never undo a prompt already held or decided.
       if (prompt.state !== "sending") return;
       this.sent.delete(prompt.clientId);
       this.retryAt.set(prompt.clientId, this.clock.now() + GUEST_PROMPT_RETRY_MS);

@@ -184,6 +184,8 @@ test("declined and refused messages read as one quiet line, the reason said", as
     await type(page.host, text);
     await enter(page.host);
   }
+  // The guest paces its sends (one every 600 ms, under the room's 2 a second).
+  await fake.until(() => fake.prompts().length === 2);
   const [skip, bump] = fake.prompts();
   await fake.frame({ v: 1, t: "prompt_state", client_id: skip!.client_id, state: "declined" });
   await fake.frame({
@@ -211,6 +213,8 @@ test("a message sent while the room is away goes after the reconnect, with the s
   // The room heard nothing of it; the next snapshot says nothing about it, so it goes again.
   await fake.until(() => fake.sockets.length === 2);
   await fake.join();
+  // The replay keeps the 600 ms gap from the first send.
+  await fake.until(() => fake.prompts().length === 1);
   expect(fake.prompts()).toEqual([sent!]);
   await page.unmount();
 });
