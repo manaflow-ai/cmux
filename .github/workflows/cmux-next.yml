@@ -5623,6 +5623,9 @@ jobs:
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
+          # With no owned runner idle the compile overflows to the Blacksmith macOS label whose queue moves
+          # (dev_landing_place.blacksmith_overflow(), the nightly signer's pick), not the busy DEV slot.
+          BLACKSMITH_CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           GAP_REPO: ${{ runner.temp }}/dev-compile-history
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
