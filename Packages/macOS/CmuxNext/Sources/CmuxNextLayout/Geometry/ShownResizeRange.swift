@@ -41,6 +41,15 @@ public nonisolated struct ShownResizeRange {
     /// (a share of the column's height; down is positive): the edge below that row, or above it for the last row.
     /// Each row keeps its minimum (``RowResize``). Nil when the column has no rows here or nothing moves.
     public func rowHeights(moving pane: PaneID, in column: LayoutColumn, by delta: Double) -> [RowHeight]? {
-        nil
+        guard column.hasRows, let stack = geometry.rowStacks[column.id],
+              let index = column.rows.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
+        let upper = index + 1 < column.rows.count ? index : index - 1
+        guard upper >= 0, let frame = stack.frame(of: column.rows[upper].id) else { return nil }
+        // One step is `delta` of the column's height in permille units: `(height + gap) * delta` points (G1).
+        let pointer = frame.maxY + (stack.frame.height + stack.gap) * CGFloat(delta)
+        let minimums = Dictionary(uniqueKeysWithValues: column.rows.map { ($0.id, SplitGeometry.minimumSize(of: $0.root, style: style).height) })
+        let heights = RowResize.heights(column.rows, stack: stack, upper: column.rows[upper].id, pointerY: pointer,
+                                        minimums: minimums, fits: !style.rowsEnabled)
+        return heights == column.rows.map { RowHeight(row: $0.id, height: $0.height) } ? nil : heights
     }
 }
