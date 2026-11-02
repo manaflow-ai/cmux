@@ -488,7 +488,8 @@ def main(argv=None):
                 rounds.append({"round": n, "steps": [], "status": "not run", "reason": why, "host": None, "seconds": 0,
                                "failing_step": None, "frames": [], "hog_logs": [], "pressure": {}, "hosts_offered": "",
                                "exclusive": None, "required_checks": {}, "required_missing": [], "known_gap": False,
-                               "key_gaps": [], "leases": [], "go": None})
+                               "key_gaps": [], "leases": [], "go": None, "slot": slot,
+                               "key_path": "real_hid" if slot in real_rounds else "debug.key"})
                 print(f"round {n}: not run ({why})", flush=True)
                 slot += 1
                 continue
@@ -519,9 +520,6 @@ def main(argv=None):
         (round_out / "run.log").write_text(done.stdout + done.stderr)
         row = round_result(round_out, opts.build, done.returncode, started)
         hog = pressure(round_out, opts.swap_gb)
-        no_pressure = row.get("status") == "pass" and not hog["ok"]
-        if no_pressure:
-            row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
         checks = required_checks(round_out)
         missing = missing_checks(checks)
         if row.get("status") == "pass" and missing:
@@ -541,6 +539,11 @@ def main(argv=None):
         exclusive = exclusive_line(round_out)
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
+        # The pressure rule comes LAST: every check above can turn the round into a FAIL or a not run first, so
+        # only a round whose sole fault is the missing pressure gets no_pressure (and may be run again below).
+        no_pressure = row.get("status") == "pass" and not hog["ok"]
+        if no_pressure:
+            row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
         # run.py logs "leased <lease>": a slot lease (slot-<host>-<token>) or a whole-host lease (the host alias).
         leases = sorted(set(re.findall(r"\bleased (\S+)", done.stdout + done.stderr)))
         record = {"round": n, "steps": step_results(round_out), "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
@@ -551,9 +554,9 @@ def main(argv=None):
                   "key_gaps": gaps, "leases": leases,
                   "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None,
                   "key_path": "real_hid" if slot in real_rounds else "debug.key", "key_paths": paths, "slot": slot}
-        # Only a round whose sole fault is the hog's missing pressure is run again (another not-run reason stays).
-        again = (no_pressure and record["status"] == "not run" and str(record.get("reason") or "").startswith("no memory pressure")
-                 and replaced < opts.rounds)
+        # Only a round whose sole fault is the hog's missing pressure is run again (a fail or another not-run
+        # reason stays). Diagnostic runs judge nothing, so they are never lengthened.
+        again = no_pressure and not opts.diagnostic and replaced < opts.rounds
         if again:
             replaced += 1
             record["replaced"] = True

@@ -31,7 +31,8 @@ os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
 n = int(os.path.basename(out).split("-")[1])
 plan = json.loads(os.environ["SMOKE_PLAN"])
 status = plan[n - 1] if n <= len(plan) else plan[-1]
-idle = status == "pass-idle"  # a pass whose hog log shows no pressure (this attempt only)
+idle = status in ("pass-idle", "pass-idle-nor3")  # a pass whose hog log shows no pressure (this attempt only)
+no_r3 = status == "pass-idle-nor3"  # ... and whose journey reached none of the R3 checks (a FAIL under pressure)
 status = "pass" if idle else status
 row = {"id": "smoke-dogfood", "status": status, "reason": "", "host": "cmux99",
        "build_job": os.environ.get("SMOKE_BUILD", "job123")}
@@ -56,7 +57,7 @@ if status == "pass" and not [o for o in opts if o != "key_path=real"]:
                                                                  "result": {"at_once": not late}, "key_path": path}]
     r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
     checks = [(title, not (r3 == "r3b-failed" and title.startswith("R3b: Cmd-D"))) for title in R3]
-    if r3 == "none":
+    if r3 == "none" or no_r3:
         checks = []
     if r3 == "one-r3b":
         checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (the build's binding) adds")]
@@ -267,6 +268,22 @@ class Verdicts(unittest.TestCase):
             self.assertEqual([r["key_path"] for r in detail[5:8]], ["debug.key", "debug.key", "real_hid"])
             self.assertIn("run again for slot 1", detail[0]["reason"])
             self.assertIn("rounds [1, 6] showed no memory pressure and were run again", open(os.path.join(tmp, "out", "summary.txt")).read())
+
+    def test_a_round_with_another_fault_is_never_run_again_even_without_pressure(self):
+        # Review BLOCK at 4744c8acbf2: the pressure rule ran first, so a round that missed its R3 checks (a FAIL)
+        # was replaced when it also showed no pressure, and the gate wrote a .pass.
+        plan = ["pass-idle-nor3"] + ["pass"] * 10
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(plan, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"), rounds=10)
+            self.assertEqual((code, summary["verdict"], summary["replaced_rounds"]), (1, "FAIL", []))
+            self.assertIn("resize checks were not all reached", summary["rounds_detail"][0]["reason"])
+            self.assertEqual(len(summary["rounds_detail"]), 10)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_diagnostic_run_never_runs_a_round_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass-idle"] * 3, tmp, extra=("--diagnostic",), rounds=3)
+            self.assertEqual((len(summary["rounds_detail"]), summary["replaced_rounds"]), (3, []))
 
     def test_a_failed_round_is_never_run_again(self):
         plan = ["pass-idle", "fail"] + ["pass"] * 10
