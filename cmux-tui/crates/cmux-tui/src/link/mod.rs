@@ -443,7 +443,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
     let cloud = match broker {
-        Some(bound) => CloudAccess::Broker(bound),
+        Some(bound) => CloudAccess::Broker(Box::new(bound)),
         None => CloudAccess::Relay(credential_socket),
     };
     tokio_runtime()?.block_on(serve(state, session_socket, cloud, owner, ready, served, watch))
@@ -453,7 +453,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
 /// stream, or through the credential relay socket (none: cloud hosts fail
 /// closed as unavailable). `run_serve` refuses a broker with a relay socket.
 enum CloudAccess {
-    Broker(cloud_broker::Bound),
+    Broker(Box<cloud_broker::Bound>),
     Relay(Option<PathBuf>),
 }
 
@@ -556,7 +556,8 @@ async fn serve(
     // Cloud host ids resolve through the private credential relay owned by
     // the signed-in app. A missing relay fails closed as unavailable.
     let (source, broker_driver) = match cloud {
-        CloudAccess::Broker(cloud_broker::Bound { stream, .. }) => {
+        CloudAccess::Broker(bound) => {
+            let cloud_broker::Bound { stream, .. } = *bound;
             stream.set_nonblocking(true)?;
             let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
             (cloud::CloudSource::Broker(source), Some(driver))
