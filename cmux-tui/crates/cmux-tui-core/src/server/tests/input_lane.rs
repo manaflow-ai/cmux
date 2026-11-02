@@ -56,7 +56,7 @@ fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
             mux.with_state(|_| {
                 held.send(()).unwrap();
                 let _ = released.recv_timeout(Duration::from_millis(300));
-            })
+            });
         }
     });
     holding.recv().unwrap();
@@ -113,7 +113,7 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
             .unwrap();
     let (new_sent, new_input) = mpsc::channel();
     respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
-    mux.insert_surface_runtime_for_test(respawned.clone());
+    mux.insert_surface_runtime_for_test(respawned);
 
     handle_command(&mux, client, key(old.id, b'b'), &writer).unwrap();
     assert_eq!(
