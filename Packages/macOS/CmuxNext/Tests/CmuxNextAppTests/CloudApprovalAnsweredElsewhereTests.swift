@@ -19,6 +19,9 @@ import Testing
         var approved: [String] = []
         var sheetCancelled = false
         var sheetAnswer: CheckedContinuation<Bool, Never>?
+        /// What answering the hold finds. The default: answered elsewhere, its feed item is closed
+        /// while the approved op still reads pending.
+        var approveMismatch = CloudApprovalAnswer.closedItem
 
         func call() throws -> JSONValue {
             calls += 1
@@ -48,8 +51,7 @@ import Testing
             },
             approve: { request, _, _ in
                 backend.approved.append(request)
-                // The hold was answered elsewhere: its feed item is closed while the approved op still reads pending.
-                throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem)
+                throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: backend.approveMismatch)
             },
             pause: { _ in },
             watchPause: watch ? yield : nil)
@@ -94,6 +96,9 @@ import Testing
         let creating = Task { try await flow(backend, watch: false).create(name: "cloud-chats", startedByPerson: true) }
         while backend.sheetAnswer == nil { await Task.yield() }
         backend.answeredElsewhere = true
+        // With no watch, the person's yes comes after the op approved elsewhere ended: the answer finds
+        // the request ended (``CloudMachineCreateFlow/alreadyAnswered``) and the same-key call replays it.
+        backend.approveMismatch = "state"
         for _ in 0..<20 { await Task.yield() }
         #expect(backend.calls == 1, "a flow with no watch called again while the sheet was open")
         #expect(!backend.sheetCancelled)
