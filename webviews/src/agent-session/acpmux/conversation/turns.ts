@@ -871,10 +871,45 @@ function shapeTurn(
   // thinking for 11 hours?").
   const ended = tail[lastSummary]?.at ?? summary.at;
   const since = Math.max(ended, tail[lastSummary + 1]?.at ?? ended);
-  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn({ ...summary, at: since }, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
-  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
+  // Each turn the agent started on its own ends as a prompt's turn does: its reply's footer is a row
+  // with the reply to copy, in the slot its live line held while the reply streamed (a reply alone
+  // too, not only work), so its end moves nothing (design/transcript-spacing.md "Reply footer").
+  const answered = withTailAnswers(tail);
+  if (
+    live &&
+    liveRuns &&
+    lineBelow &&
+    (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply))
+  )
+    shaped.push(...liveTurn({ ...summary, at: since }, answered, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
+}
+
+/// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
+/// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
+/// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
+function withTailAnswers(tail: AcpmuxRow[]): AcpmuxRow[] {
+  let from = 0;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < tail.length; at += 1) {
+    const row = tail[at]!;
+    if (row.kind !== "turnSummary") continue;
+    const body = tail.slice(from, at);
+    from = at + 1;
+    if (row.text) continue;
+    const answer = body[answerAt(body)];
+    if (!answer) continue;
+    out ??= [...tail];
+    out[at] = {
+      ...row,
+      text: answer.text,
+      answerId: answer.id,
+      turnCopy: turnCopyParts(body),
+      version: row.version * VERSION_SPAN + answer.version,
+    };
+  }
+  return out ?? tail;
 }
 
 const VERSION_SPAN = 1_000_000;
