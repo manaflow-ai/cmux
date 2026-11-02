@@ -10,9 +10,10 @@ import Testing
 struct AgentPaneBaseRedsTests {
     /// One CheckRun as GraphQL answers it, with the run it belongs to.
     private static func run(_ name: String, _ conclusion: String, workflow: Int, run: Int,
-                            status: String = "COMPLETED") -> [String: Any] {
+                            status: String = "COMPLETED", event: String = "pull_request") -> [String: Any] {
         ["__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
-         "checkSuite": ["workflowRun": ["databaseId": run, "workflow": ["databaseId": workflow, "name": "w\(workflow)"]]]]
+         "checkSuite": ["workflowRun": ["databaseId": run, "event": event,
+                                        "workflow": ["databaseId": workflow, "name": "w\(workflow)"]]]]
     }
 
     /// A commit status, which belongs to no workflow run and so can never be superseded.
@@ -95,8 +96,8 @@ struct AgentPaneBaseRedsTests {
 
     /// The bug that made this: label and edit events re-ran the same workflows on one head, the
     /// concurrency groups cancelled the older runs, and the Changes row read "19 failing" for a
-    /// pull request with two real reds. Cancelled duplicates, then one later success per check,
-    /// plus one real failure, count as 1 failing.
+    /// pull request with two real reds. Cancelled duplicates a newer run of the same check
+    /// replaced, then one later success per check, plus one real failure, count as 1 failing.
     @Test func cancelledDuplicatesAndSupersededRunsAreNotCounted() throws {
         var rollup: [[String: Any]] = []
         for name in ["Verify / scripts", "web / lint", "macOS compile"] {
@@ -118,33 +119,81 @@ struct AgentPaneBaseRedsTests {
                 "1 failing, as Session Info's Changes row counts it")
     }
 
-    /// A cancelled re-run never hides the verdict of the run before it, and a check a newer run of
-    /// its workflow did not run again keeps its older verdict.
-    @Test func aCancelledReRunKeepsThePreviousVerdict() {
+    /// A cancelled run that no newer run of its check replaced reached no verdict a person can
+    /// trust: it counts as failed, never as passing and never as absent.
+    @Test func aCancelledRunWithNoReplacementIsNotPassing() {
         let rollup = [
-            Self.run("Swift tests", "FAILURE", workflow: 2, run: 300),
-            Self.run("Swift tests", "CANCELLED", workflow: 2, run: 301),
+            Self.run("Swift tests", "CANCELLED", workflow: 2, run: 300),
             Self.run("lint", "SUCCESS", workflow: 2, run: 300),
         ]
-        let list = AgentPanePullRequest.checkList(AgentPanePullRequest.counted(rollup))
-        #expect(list.map(\.name) == ["Swift tests", "lint"])
-        #expect(list.map(\.state) == ["failed", "passed"])
+        let counted = AgentPanePullRequest.counted(rollup)
+        #expect(AgentPanePullRequest.checks(counted) == .init(state: "failing", passed: 1, total: 2))
+        #expect(AgentPanePullRequest.checkList(counted).map(\.state) == ["failed", "passed"])
+        // A newer run of the workflow that did not run this check again does not replace it.
+        let later = rollup + [Self.run("lint", "SUCCESS", workflow: 2, run: 301)]
+        #expect(AgentPanePullRequest.checks(AgentPanePullRequest.counted(later)).state == "failing")
     }
 
-    /// A `gh pr view` answer carries no run ids: there gh's `workflowName` and `startedAt` say
-    /// which run of a check is newest.
-    @Test func aGhViewAnswerUsesWorkflowNameAndStartTime() {
-        let rollup: [[String: Any]] = [
-            ["__typename": "CheckRun", "name": "test", "workflowName": "CI", "status": "COMPLETED",
-             "conclusion": "SUCCESS", "startedAt": "2026-11-01T10:05:00Z"],
-            ["__typename": "CheckRun", "name": "test", "workflowName": "CI", "status": "COMPLETED",
-             "conclusion": "FAILURE", "startedAt": "2026-11-01T10:00:00Z"],
-            ["__typename": "CheckRun", "name": "test", "workflowName": "Other", "status": "COMPLETED",
-             "conclusion": "FAILURE", "startedAt": "2026-11-01T09:00:00Z"],
+    /// A cancelled run that a newer run of the same workflow, event and name replaced is not
+    /// counted, so the replacement's pass is the check's verdict.
+    @Test func aCancelledRunReplacedByANewerPassIsPassing() {
+        let rollup = [
+            Self.run("Swift tests", "CANCELLED", workflow: 2, run: 300),
+            Self.run("Swift tests", "SUCCESS", workflow: 2, run: 301),
+        ]
+        #expect(AgentPanePullRequest.checks(AgentPanePullRequest.counted(rollup))
+            == .init(state: "passing", passed: 1, total: 1))
+    }
+
+    /// Runs of one workflow and name that different events started are different checks: a
+    /// `push` run's red stands beside a `pull_request` run's green, whichever is newer.
+    @Test func independentRunsOfOneNameEachCount() {
+        let rollup = [
+            Self.run("mux bun test", "FAILURE", workflow: 1, run: 200, event: "push"),
+            Self.run("mux bun test", "SUCCESS", workflow: 1, run: 201, event: "pull_request"),
         ]
         let counted = AgentPanePullRequest.counted(rollup)
-        #expect(AgentPanePullRequest.checks(counted) == .init(state: "failing", passed: 1, total: 2),
-                "CI's newer success replaces its older failure; Other's test is another check")
+        #expect(AgentPanePullRequest.checks(counted) == .init(state: "failing", passed: 1, total: 2))
+        #expect(AgentPanePullRequest.checkList(counted).map(\.state) == ["failed", "passed"])
+    }
+
+    /// A rerun of the very same check (workflow, event and name) replaces the run before it, in
+    /// either direction: only the newest counts.
+    @Test func aSameIdentityRerunCountsOnlyTheNewest() {
+        let fixed = [
+            Self.run("Swift tests", "FAILURE", workflow: 2, run: 300),
+            Self.run("Swift tests", "SUCCESS", workflow: 2, run: 301),
+        ]
+        #expect(AgentPanePullRequest.checks(AgentPanePullRequest.counted(fixed))
+            == .init(state: "passing", passed: 1, total: 1))
+        let broke = [
+            Self.run("Swift tests", "SUCCESS", workflow: 2, run: 300),
+            Self.run("Swift tests", "FAILURE", workflow: 2, run: 301),
+            Self.run("Swift tests", "CANCELLED", workflow: 2, run: 302),
+        ]
+        let counted = AgentPanePullRequest.counted(broke)
+        #expect(AgentPanePullRequest.checks(counted) == .init(state: "failing", passed: 0, total: 1),
+                "a cancelled newest run is the check's verdict, and it is not passing")
+    }
+
+    /// A context whose run's event was not read, or a `gh pr view` answer, which reads no runs,
+    /// cannot be proven superseded, so every one of its contexts counts.
+    @Test func unprovenRunsAreAllCounted() {
+        func noEvent(_ conclusion: String, run: Int) -> [String: Any] {
+            ["__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": conclusion,
+             "checkSuite": ["workflowRun": ["databaseId": run, "workflow": ["databaseId": 1, "name": "w1"]]]]
+        }
+        let unread = AgentPanePullRequest.counted([noEvent("FAILURE", run: 200), noEvent("SUCCESS", run: 201)])
+        #expect(AgentPanePullRequest.checks(unread) == .init(state: "failing", passed: 1, total: 2))
+
+        let ghView: [[String: Any]] = [
+            ["__typename": "CheckRun", "name": "test", "workflowName": "CI", "status": "COMPLETED",
+             "conclusion": "CANCELLED", "startedAt": "2026-11-01T10:00:00Z"],
+            ["__typename": "CheckRun", "name": "test", "workflowName": "CI", "status": "COMPLETED",
+             "conclusion": "SUCCESS", "startedAt": "2026-11-01T10:05:00Z"],
+        ]
+        #expect(AgentPanePullRequest.checks(AgentPanePullRequest.counted(ghView))
+            == .init(state: "failing", passed: 1, total: 2))
     }
 
     /// The same name in another workflow is another check. Job labels repeat across workflows, so

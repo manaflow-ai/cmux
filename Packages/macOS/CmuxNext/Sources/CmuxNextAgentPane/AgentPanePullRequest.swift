@@ -79,8 +79,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
 
     /// Its checks summed: `failing` when any failed, else `pending` when any has not finished, else
     /// `passing`, or `none` without checks. A neutral check counts as passed. Counted over
-    /// ``counted(_:)``: a cancelled or skipped check and a run a newer run of the same check
-    /// replaced are not counted at all.
+    /// ``counted(_:)``: a skipped check and a run a newer run of the same check replaced are not
+    /// counted at all; a cancelled run nothing replaced counts as failed.
     public struct Checks: Equatable, Sendable {
         public var state: String
         public var passed: Int
@@ -255,8 +255,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// `pull_request` trigger whose concurrency groups differ runs twice and both runs stand, and
     /// a dispatched or rescued re-run outranks the run it stands beside without cancelling it.
     /// Dropping the older of those on a base tip can only fail to excuse a red, which is the safe
-    /// direction. A pull request's own rollup goes through ``counted(_:)`` instead, which compares
-    /// single checks rather than whole runs.
+    /// direction. A pull request's own rollup goes through ``counted(_:)`` instead, which drops a
+    /// run only when a newer run of the same workflow, event and check name exists.
     static func latestRuns(_ rollup: [[String: Any]]) -> [[String: Any]] {
         var newest: [String: Int] = [:]
         for check in rollup {
@@ -284,43 +284,46 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             .map(identity))
     }
 
-    /// A pull request's own rollup as its counts read it: one context per check, its newest run's,
-    /// with every cancelled or skipped context left out first.
+    /// A pull request's own rollup as its counts read it: skipped contexts left out, and of the
+    /// rest, every run that a newer run of the very same check proves superseded left out too.
     ///
     /// A head's rollup lists every run of every workflow a pull request event started, and label or
     /// edit events start the same workflows again, whose concurrency groups then cancel the older
     /// runs. Counted whole, a pull request with two real reds read "19 failing" (17 of them
-    /// cancelled duplicates). So a cancelled context, which reached no verdict, is not counted, nor
-    /// is a skipped one, which never ran; and of the runs left, only the newest of each check (its
-    /// workflow and name, ``identity(_:)``, by run id, else by `startedAt`, else the later in the
-    /// list) is. Dropping the cancelled ones first means a cancelled re-run never hides the verdict
-    /// of the run before it. A context with no name (a commit status always has one) is kept as
-    /// it is. Unlike ``latestRuns(_:)`` this compares checks, not whole runs, so a check a newer run
-    /// did not run again keeps its older verdict.
+    /// cancelled duplicates). Only a supersession that is proven is undone here: two contexts are
+    /// runs of one check when they share the workflow, the event that started the run and the
+    /// name (``supersessionKey(_:)``), and of those only the one in the highest run id counts. So
+    /// - a cancelled run a newer run of its check replaced is not counted;
+    /// - a cancelled run with no newer run of its check is counted, and as failed
+    ///   (``outcome(_:)`` has no CANCELLED case): a cancellation a person asked for is a red;
+    /// - runs of one workflow and name that other events started (a `push` run beside a
+    ///   `pull_request` one, say) are separate checks and each counts, so neither hides the
+    ///   other's red;
+    /// - a context whose run, workflow or event was not read (a commit status, another app's
+    ///   check run, a `gh pr view` answer) cannot be proven superseded and is counted as it is.
+    /// A skipped context never ran and is not counted at all.
     static func counted(_ rollup: [[String: Any]]) -> [[String: Any]] {
-        let ran = rollup.filter { !["CANCELLED", "SKIPPED"].contains(conclusionOf($0)) }
-        func rank(_ check: [String: Any], _ index: Int) -> (Int, String, Int) {
-            (runOf(check)?.run ?? -1, check["startedAt"] as? String ?? "", index)
+        let ran = rollup.filter { conclusionOf($0) != "SKIPPED" }
+        var newest: [String: Int] = [:]
+        for check in ran {
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { continue }
+            newest[key] = max(newest[key] ?? run, run)
         }
-        var newest: [String: (Int, String, Int)] = [:]
-        for (index, check) in ran.enumerated() {
-            guard let key = countedKey(check) else { continue }
-            let candidate = rank(check, index)
-            if let kept = newest[key], kept > candidate { continue }
-            newest[key] = candidate
+        return ran.filter { check in
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { return true }
+            return run >= (newest[key] ?? run)
         }
-        return ran.enumerated().filter { index, check in
-            guard let key = countedKey(check) else { return true }
-            return newest[key].map { $0 == rank(check, index) } ?? true
-        }.map(\.element)
     }
 
-    /// The check a context is a run of, for ``counted(_:)``: its ``identity(_:)``, with gh's
-    /// `workflowName` standing in for the workflow when the run was not read; nil without a name.
-    private static func countedKey(_ check: [String: Any]) -> String? {
-        guard check["name"] is String || check["context"] is String else { return nil }
-        guard runOf(check) == nil, let workflow = check["workflowName"] as? String else { return identity(check) }
-        return "\(workflow)\u{0}\(name(check))"
+    /// The check a context is a run of, for ``counted(_:)``: its workflow, the event that started
+    /// its run, and its name; nil unless all three were read, since only then can a newer run
+    /// prove it superseded.
+    private static func supersessionKey(_ check: [String: Any]) -> String? {
+        guard let run = runOf(check), !run.workflow.isEmpty,
+              let event = ((check["checkSuite"] as? [String: Any])?["workflowRun"] as? [String: Any])?["event"] as? String,
+              !event.isEmpty,
+              check["name"] is String else { return nil }
+        return "\(run.workflow)\u{0}\(event)\u{0}\(name(check))"
     }
 
     /// Each check run or commit status with its outcome, failed first; links only when https. A
