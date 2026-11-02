@@ -36,6 +36,16 @@ test("a 5 s turn still says Worked for 5s", () => {
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain("Worked for 5s");
 });
 
+// Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
+// the copy/whatever buttons. those buttons should always just be there left aligned".
+test("the buttons lead the footer row; Worked for comes after them", () => {
+  const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
+  const group = markup.indexOf("cv-turn-action-group");
+  expect(group).toBeGreaterThan(-1);
+  expect(markup.indexOf("Copy")).toBeGreaterThan(group);
+  expect(markup.indexOf("cv-turn-summary")).toBeGreaterThan(markup.indexOf("Copy"));
+});
+
 test("a turn stopped within a second still says it stopped", () => {
   expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
 });
