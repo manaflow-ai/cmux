@@ -37,14 +37,18 @@ pub fn serve_terminal_host_stdio(
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
+    crate::scratch_launch_trace("h.enter");
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+    crate::scratch_launch_trace("h.bootstrapped");
     let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
         // Keep the one-frame bootstrap probe useful for compatibility and
         // packaging diagnostics. Production launchers always follow it
         // with Launch on the same private pipe.
         return Ok(());
     };
+    crate::scratch_launch_trace("h.launch_frame_read");
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
+    crate::scratch_launch_trace("h.decoded");
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
@@ -59,6 +63,7 @@ pub fn serve_terminal_host_stdio(
         }
     };
 
+    crate::scratch_launch_trace("h.started");
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
     // In a build with an orphan grace (tagged DEV, staging, debug), a plain
@@ -82,6 +87,7 @@ pub fn serve_terminal_host_stdio(
     }
     let listener = HostListener::bind(&endpoint)?;
     crate::debug_spans::mark("host.endpoint_bound");
+    crate::scratch_launch_trace("h.endpoint_bound");
 
     let start_nonce = CapabilityToken::random()?;
     let record = TerminalHostRecord {
@@ -109,6 +115,7 @@ pub fn serve_terminal_host_stdio(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
     let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
+    crate::scratch_launch_trace("h.publication_lock");
     // The lease's and the record directory's syncs run after Ready (below),
     // off the new terminal's first output (new-terminal-100x).
     let (lease, unsynced_lease) = HostLivenessLease::acquire_deferring_sync(liveness_path(
@@ -116,6 +123,7 @@ pub fn serve_terminal_host_stdio(
         &record,
     ))?;
     crate::debug_spans::mark("host.lease_acquired");
+    crate::scratch_launch_trace("h.lease");
     let mut guard = HostServiceGuard {
         shared: shared.clone(),
         endpoint,
@@ -137,6 +145,7 @@ pub fn serve_terminal_host_stdio(
         record.incarnation,
     );
     crate::debug_spans::mark("host.record_written");
+    crate::scratch_launch_trace("h.record_written");
     crate::debug_spans::finish(crate::debug_spans::take());
 
     // Integration failure-injection seam for the narrow record-before-
@@ -166,6 +175,7 @@ pub fn serve_terminal_host_stdio(
     // independently adoptable shell; a replacement daemon discovers the
     // record and connects through the already-listening Unix socket.
     let _ = write_frame(writer, &response);
+    crate::scratch_launch_trace("h.ready_written");
     // The discovery files' remaining syncs, after Ready: they only order
     // the files on disk for a power cut, which also ends this host.
     let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);

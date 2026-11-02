@@ -601,6 +601,7 @@ mod unix {
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
+        crate::scratch_launch_trace("h.pty_open_start");
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
         // A frontend's shell starts through login(1) (`login_shell`); the
@@ -627,7 +628,9 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
+        crate::scratch_launch_trace("h.pty_spawn_start");
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        crate::scratch_launch_trace("h.pty_spawned");
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));

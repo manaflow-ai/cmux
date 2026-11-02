@@ -234,7 +234,7 @@ pub(crate) fn scratch_launch_trace(phase: &str) {
     let line = format!(
         "LAUNCH-TRACE {} {:?} {}\n",
         start.elapsed().as_micros(),
-        std::thread::current().name().unwrap_or(""),
+        format!("{}:{}", std::process::id(), std::thread::current().name().unwrap_or("")),
         phase
     );
     use std::io::Write as _;

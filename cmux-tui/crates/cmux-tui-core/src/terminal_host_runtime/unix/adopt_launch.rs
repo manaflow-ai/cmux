@@ -228,11 +228,13 @@ pub(crate) fn start(
     if let Some(parent) = record_path.parent() {
         prepare_private_dir(parent)?;
     }
+    crate::scratch_launch_trace("h.pty_lock_start");
     let lock = PtyOwnershipLock::acquire(
         record_path,
         &bootstrapped.terminal_id.to_hex(),
         &bootstrapped.incarnation.to_hex(),
     )?;
+    crate::scratch_launch_trace("h.pty_lock");
     let shared = match adopt {
         None => spawn_host_runtime(launch, bootstrapped)?,
         Some(spec) => spawn_adopted_runtime(launch, bootstrapped, spec)?,
