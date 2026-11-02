@@ -191,6 +191,8 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
+  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
   onOpen: (_url: string) => {},
