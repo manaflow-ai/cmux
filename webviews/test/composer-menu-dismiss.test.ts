@@ -161,18 +161,21 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           const button = document.querySelector(pairs.find(([label]) => label === name)![1])!;
           const controls = button.getAttribute("aria-controls");
           const controlled = controls ? document.getElementById(controls) : null;
+          const controlledPopup = controlled?.closest<HTMLElement>(".ui-popup");
           const popup =
-            controlled?.closest(".ui-popup") ??
-            livePopups.find(
-              (popup) =>
-                popup.getAttribute("aria-label") === name ||
-                (button.id && popup.getAttribute("aria-labelledby") === button.id),
-            );
+            controlledPopup && !controlledPopup.hasAttribute("data-ending-style")
+              ? controlledPopup
+              : livePopups.find(
+                  (popup) =>
+                    popup.getAttribute("aria-label") === name ||
+                    (button.id && popup.getAttribute("aria-labelledby") === button.id),
+                );
           if (
             !popup ||
             popup.hasAttribute("data-ending-style") ||
             popup.getBoundingClientRect().height === 0 ||
-            getComputedStyle(popup).opacity !== "1"
+            Number.parseFloat(getComputedStyle(popup).opacity) <= 0 ||
+            getComputedStyle(popup).pointerEvents === "none"
           )
             return false;
         }
