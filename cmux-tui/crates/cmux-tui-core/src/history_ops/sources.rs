@@ -148,8 +148,8 @@ mod tests {
         }
     }
 
-    /// A closed tab item (`closed.list` shape) of one tab of `tab_kind`.
-    fn closed_tab(id: &str, at_ms: i64, tab: serde_json::Value) -> Value {
+    /// A closed tab item (`closed.list` shape) that holds the one tab `tab`.
+    fn closed_tab(id: &str, at_ms: i64, tab: Value) -> Value {
         serde_json::json!({"id": id, "kind": "tab", "closed_at_ms": at_ms,
             "screens": [{"tabs": [tab]}]})
     }
@@ -171,7 +171,7 @@ mod tests {
         let entries = closed_entries(&items);
         for (text, found) in [("same-session", true), ("codex", true), ("no-such-chat", false)] {
             let query = cmux_history::HistoryQuery {
-                kinds: vec![cmux_history::HistoryKind::Closed],
+                kinds: vec![HistoryKind::Closed],
                 text: text.to_owned(),
                 limit: Some(1),
                 ..Default::default()
