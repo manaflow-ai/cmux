@@ -17,6 +17,13 @@
 //! name only for that set. `cmux vm` is a hidden alias of `cmux machine` for
 //! every verb; only `vm ls|list` keeps listing the VM API's VMs, as it always did.
 //!
+//! `cmux machine new` is the one way to make a machine. With the cmux app on
+//! this Mac and no VM API credential, it makes the same Cloud machine the
+//! app's New Cloud Machine… does (the app action `cloud new-machine`, whose
+//! old spelling stays as a hidden alias) and prints how to reach it; a flag
+//! only the VM API takes (`--snapshot`, `--image`, …), a credential of its
+//! own, or no app sends it to the VM API as before ([`new_route`]).
+//!
 //! `cmux machine key new` with no credential of its own (no `CMUX_VM_API_KEY`,
 //! no config file) asks the cmux app (`vm.agent_key.create`, the socket's usual
 //! same-process rule) to mint a VM-only agent key with the signed-in session,
@@ -386,6 +393,114 @@ fn prepared(args: &[String]) -> Option<(GlobalArgs, Scope, Vec<String>)> {
     Some((global, scope, rest))
 }
 
+/// Where `cmux machine new` goes: the app's Cloud create, or the VM API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NewRoute {
+    /// The app action `cloud new-machine`: a Cloud machine in the sidebar.
+    App,
+    /// The cmux VM API (cmux-vm's `create`).
+    VmApi,
+}
+
+/// Flags only the app's Cloud create takes (`cmux action describe cloud new-machine`).
+const APP_CREATE_FLAGS: [&str; 6] =
+    ["--size", "--persistent", "--repo", "--machine-config", "--bootstrap", "--bootstrap-script"];
+
+/// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
+const VM_API_CREATE_FLAGS: [&str; 5] =
+    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
+
+/// Where `<scope> new <tail>` goes. `vm new` (the old name) stays the VM
+/// API's. A flag only one side takes picks that side; otherwise a VM API
+/// credential of the caller's own (`has_credential`) keeps it on the VM API,
+/// as it always ran, and with none the app makes it when there is one
+/// (`app_present`), since the VM API would only refuse it for want of a key.
+pub(super) fn new_route(
+    scope: Scope,
+    tail: &[String],
+    has_credential: impl FnOnce() -> bool,
+    app_present: bool,
+) -> NewRoute {
+    if scope == Scope::Vm {
+        return NewRoute::VmApi;
+    }
+    let flags: Vec<&str> = tail
+        .iter()
+        .take_while(|word| *word != "--")
+        .filter(|word| word.starts_with("--"))
+        .map(|word| word.split('=').next().unwrap_or(word))
+        .collect();
+    if flags
+        .iter()
+        .any(|flag| VM_API_CREATE_FLAGS.contains(flag) || CMUX_VM_VALUE_GLOBALS.contains(flag))
+    {
+        return NewRoute::VmApi;
+    }
+    if flags.iter().any(|flag| APP_CREATE_FLAGS.contains(flag)) {
+        return NewRoute::App;
+    }
+    if !app_present || has_credential() {
+        return NewRoute::VmApi;
+    }
+    NewRoute::App
+}
+
+/// `cmux machine new --help`: both routes, the app's first.
+const NEW_HELP: &str = "\
+usage: cmux machine new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
+                        [--repo OWNER/NAME[@REF]] [--machine-config FILE]
+                        [--bootstrap lane --bootstrap-script FILE] [--json]
+
+Make a Cloud machine. With the cmux app signed in, this is the same machine
+File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
+confirm when an agent asks, and it prints the machine's target and how to open
+a terminal, start an agent or run a command there. With no flags it takes the
+app's default size and pauses when idle (--persistent keeps it running).
+
+  cmux machine new
+  cmux machine new --name api-dev --size medium --repo OWNER/NAME
+
+Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
+config file or `cmux machine key new`), it makes a VM API machine instead,
+which also takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
+--public-egress, --idle-timeout SECONDS and --idempotency-key KEY. Run
+`cmux vm new --help` for those.
+
+`cmux cloud new-machine` is the old name of the app route and still works.
+";
+
+/// What a person reads after `cmux machine new` (the app's `cloud new-machine`)
+/// made a machine: its name and target, then the three things one does next.
+/// `None` for every other run, and for a JSON or quiet caller.
+pub(super) fn created_line(params: &Value, result: &Value) -> Option<String> {
+    if params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = result.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return Some(
+            "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
+             `cmux machine list` when it is ready.\n"
+                .to_owned(),
+        );
+    }
+    let id = result.get("machine_id")?.as_str()?;
+    let target = result
+        .get("target")
+        .and_then(Value::as_str)
+        .map_or_else(|| format!("machine:{id}"), str::to_owned);
+    let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
+    let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
+    let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
+    Some(format!(
+        "Created Cloud machine {name}: {status}.\n\n\
+         Next:\n  \
+         open a terminal:  cmux cloud ssh --target {target}\n  \
+         start an agent:   cmux cloud start-session --target {target} --agent claude\n  \
+         run a command:    cmux cloud exec --target {target} --command 'uname -a'\n"
+    ))
+}
+
 /// `cmux machine VERB …` for this module's verbs, and `cmux vm …`. `None` for
 /// any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -403,6 +518,30 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Some(words) = cloud_access(rest) {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
+    let env = |name: &str| std::env::var(name).ok();
+    if let [verb, tail @ ..] = rest
+        && matches!(verb.as_str(), "new" | "create")
+    {
+        if scope == Scope::Machine
+            && tail.len() == 1
+            && tail.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help"))
+        {
+            print!("{NEW_HELP}");
+            return Some(0);
+        }
+        let has_credential =
+            || has_own_credential(&env) || !matches!(cmux_vm::token::read_stored(&env), Ok(None));
+        // A named socket that is not the app's makes `run_cli_action` answer
+        // `None`, and the VM API takes it as before.
+        let app_present = global.app_socket.is_some()
+            || global.socket.is_some()
+            || super::cloud_machines::app_found();
+        if new_route(scope, tail, has_credential, app_present) == NewRoute::App
+            && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
+        {
+            return Some(code);
+        }
+    }
     let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
@@ -414,7 +553,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    let env = |name: &str| std::env::var(name).ok();
     if is_token_create(&plan) && !has_own_credential(&env) {
         return Some(mint_through_app(&global, &plan));
     }

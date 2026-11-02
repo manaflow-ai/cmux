@@ -13,6 +13,10 @@ impl Mux {
         fingerprint: &Value,
     ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_before_commit.lock().unwrap().clone() {
+            hook();
+        }
         let path: ResolvedResourcePath = serde_json::from_value(intent["path"].clone())
             .context("stored topology close intent has an invalid path")?;
         let workspace = self
@@ -498,6 +502,14 @@ impl Mux {
                 "topology close target changed workspaces before commit"
             );
         }
+        // The scope is the workspace the target lives in now, read under
+        // the commit locks: the stored path can be stale (a tab moved to
+        // another workspace after the intent was made), and a scoped walk
+        // of the wrong workspace would leave the closed rows stored.
+        let target_workspace = live_close_workspace(&state, operation, &slots)
+            .filter(|live| Some(*live) == slots.workspace)
+            .and_then(|live| state.workspace_by_id(live))
+            .map(|workspace| workspace.public_id.clone());
         let mut plan = self.resource_close_plan_locked(
             operation,
             slots,
@@ -506,8 +518,30 @@ impl Mux {
             &notifications,
             true,
         )?;
-        let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // A tab, pane or screen close that keeps its workspace changes that
+        // workspace only: project it alone, as a create does, so the close's
+        // registry and state hold follows the workspace, not the session
+        // (CLI-1: a CLI `tab close` took 1 s under load). A workspace close,
+        // a terminal close, a close that empties its workspace and a target
+        // that no longer lives in its stored workspace take the full
+        // projection; a scoped walk that meets a change outside its scope
+        // falls back to it.
+        let scoped = matches!(
+            operation,
+            ResourceOperation::TabClose
+                | ResourceOperation::PaneClose
+                | ResourceOperation::ScreenClose
+        ) && plan.workspace_close.is_none()
+            && registry.public_fold_seeded();
+        let mut projection = match target_workspace {
+            Some(workspace) if scoped => self.resource_effect_projection_scoped_locked(
+                &registry,
+                &mut plan.state,
+                &[workspace],
+                json!({}),
+            )?,
+            _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
+        };
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still
         // retire that receipt.
@@ -529,6 +563,7 @@ impl Mux {
             &projection.changes,
             &plan.terminal_batch,
             plan.workspace_close.as_ref(),
+            projection.restates_all,
         )?;
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
@@ -817,4 +852,27 @@ impl Mux {
             selection_resync,
         })
     }
+}
+
+/// The workspace the target of a tab, pane or screen close lives in, from
+/// the live tree; `None` for another close or a target that is gone.
+fn live_close_workspace(
+    state: &State,
+    operation: ResourceOperation,
+    slots: &EffectSlots,
+) -> Option<WorkspaceId> {
+    let (workspace_index, _) = match operation {
+        ResourceOperation::TabClose => state.screen_of(state.pane_of(slots.tab?)?)?,
+        ResourceOperation::PaneClose => state.screen_of(slots.pane?)?,
+        ResourceOperation::ScreenClose => {
+            let screen = slots.screen?;
+            let index = state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.screens.iter().any(|item| item.id == screen))?;
+            (index, 0)
+        }
+        _ => return None,
+    };
+    state.workspaces.get(workspace_index).map(|workspace| workspace.id)
 }

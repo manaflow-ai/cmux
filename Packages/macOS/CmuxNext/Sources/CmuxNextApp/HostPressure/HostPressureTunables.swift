@@ -40,13 +40,13 @@ enum HostPressureIndicatorStyle: String, Sendable, CaseIterable, TunableChoice {
 enum HostPressureTunables {
     static let section = TunableSection(id: "hostPressure", title: "Host Pressure", symbol: "gauge.with.dots.needle.67percent", order: 50)
 
-    /// Off (the default, cmux#22662: a new dev surface ships off): no indicator, no service,
-    /// no timer and no sampling. On: each visible window's indicator subscribes, and the app's
-    /// one monitor reads the host every 15 s while at least one window can be seen.
+    /// On (the default: Leo asked for cmux NEXT to warn on CPU and RAM, so it ships on): each
+    /// visible window's indicator subscribes, and the app's one monitor reads the host every 15 s
+    /// while at least one window can be seen. Off: no indicator, no service, no timer and no sampling.
     static let enabled = Tunable<Bool>.toggle(
         "hostPressure.enabled", section, "Show the host pressure indicator",
-        help: "Off by default. On: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
-        default: false, code: "HostPressureTunables.enabled")
+        help: "On by default: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
+        default: true, code: "HostPressureTunables.enabled")
 
     static let force = Tunable<HostPressureForce>.choice(
         "hostPressure.force", section, "Force level",

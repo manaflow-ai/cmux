@@ -278,12 +278,12 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
-    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
-    /// for working out a terminal's grid before its host exists.
+    /// The width a surface gets in a host `hostWidth` points wide (less the scroller's strip), for working out a
+    /// terminal's grid before its host exists. The strip is the host's own (``TerminalScroller/reservedWidth``): the
+    /// terminal's scroller is pinned to ``SystemScrollers/nativeStyle`` whatever the system's "Show scroll bars"
+    /// setting, so a Mac set to legacy scrollers (a mini with no trackpad) reserves nothing either.
     public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
-        let reserved = NSScroller.preferredScrollerStyle == .legacy
-            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
-        return max(0, hostWidth - reserved)
+        max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
