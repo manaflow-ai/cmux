@@ -1140,7 +1140,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      BUILD_CONFIGURATION="Release" REOPEN_RELEASE_FLAG=1
       shift
       ;;
     --config|--config=*)
@@ -1214,6 +1214,13 @@ done
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
   exit 1
+fi
+
+# REOPEN VIDEO scratch (never merge): a chrome-parity-* tag's --release is the bench configuration (the debug.* socket
+# kept), as the dogfood line's Resources/build/cmux-next.dogfood.conf does, so a feat tip build compares with the dogfood one.
+if [[ "${REOPEN_RELEASE_FLAG:-0}" -eq 1 && "$TAG" == chrome-parity-* ]]; then
+  BUILD_CONFIGURATION="Release" BENCH_HOOKS=1
+  echo "==> --release of dogfood tag '$TAG': the bench configuration (reopen-video scratch)"
 fi
 
 if [[ -z "$TAG" ]]; then
