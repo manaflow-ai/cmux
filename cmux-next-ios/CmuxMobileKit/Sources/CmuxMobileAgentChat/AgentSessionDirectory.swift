@@ -27,9 +27,36 @@ public final class AgentSessionDirectory {
         return DisconnectedAgentSource(summary: summary)
     }
 
-    /// A message for the next new agent chat that opens with its composer up (New Agent Chat
-    /// from Shortcuts with a prompt): it goes into that composer, unsent, once.
-    @ObservationIgnored public var newChatDraft: String?
+    /// New Agent Chat from Shortcuts with a prompt: the message waits for the chat of the
+    /// workspace it made (`workspaceID`, the placeholder's id until the Mac names it) and goes
+    /// into that chat's composer, unsent, once. One left over (the person went elsewhere) is
+    /// dropped after `expiresAt`.
+    public struct NewChatDraft: Sendable {
+        public var workspaceID: String
+        public var text: String
+        public var expiresAt: Date
+
+        public init(workspaceID: String, text: String, expiresAt: Date) {
+            self.workspaceID = workspaceID
+            self.text = text
+            self.expiresAt = expiresAt
+        }
+    }
+
+    @ObservationIgnored public var newChatDraft: NewChatDraft?
+
+    /// The draft for the chat of workspace `id` (`resolve` maps a placeholder's id to the Mac's),
+    /// taken once; nil when there is none for it, or it is too old.
+    public func takeNewChatDraft(for id: String, now: Date = Date(), resolve: (String) -> String) -> String? {
+        guard let draft = newChatDraft else { return nil }
+        if draft.expiresAt < now {
+            newChatDraft = nil
+            return nil
+        }
+        guard resolve(draft.workspaceID) == resolve(id) else { return nil }
+        newChatDraft = nil
+        return draft.text
+    }
 
     public init() {}
 

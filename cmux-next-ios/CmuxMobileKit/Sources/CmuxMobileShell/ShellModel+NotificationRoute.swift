@@ -152,7 +152,7 @@ extension ShellModel {
         }
     }
 
-    private func macName(_ id: String?) -> String? {
+    func macName(_ id: String?) -> String? {
         guard let id else { return nil }
         return store.teams.flatMap(\.macs).first { $0.id == id }?.name
     }

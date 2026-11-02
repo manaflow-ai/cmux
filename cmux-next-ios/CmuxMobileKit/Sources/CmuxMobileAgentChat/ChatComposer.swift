@@ -198,7 +198,8 @@ struct ChatComposer: View {
                 refused = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            if size > inlineFileBytes {
+            // A video stays by its URL whatever its size: its frames are read from there.
+            if size > inlineFileBytes || AgentVideo.isVideoName(url.lastPathComponent) {
                 files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
@@ -484,8 +485,9 @@ struct ChatComposer: View {
 
     private func send(steer: Bool) {
         // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
-        if attachments.isEmpty, let run = runCmuxCommand, let parsed = CmuxSlashCommand.parse(text),
-           cmuxCommands.contains(parsed.command) {
+        // A cmux command is cmux's whether the menu offers it here or not (the Mac's
+        // `composerCommand`): one it can't run now is refused, never sent to the agent.
+        if let run = runCmuxCommand, let parsed = CmuxSlashCommand.parse(text) {
             let typed = text
             Task { @MainActor in
                 if let refusal = await run(parsed.command, parsed.args) {

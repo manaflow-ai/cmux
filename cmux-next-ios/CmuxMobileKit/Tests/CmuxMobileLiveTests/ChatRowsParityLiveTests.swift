@@ -64,6 +64,14 @@ import Testing
         #expect(AcpmuxSessionSource.documentData(large) == nil)
     }
 
+    @Test @MainActor func pdfsPastTheInlineBudgetGoAsLinks() {
+        let pdf = { (id: String) in AgentAttachment(id: id, kind: .file, name: "\(id).pdf", data: Data("%PDF".utf8) + Data(count: 7 << 20)) }
+        let attachments = [pdf("a"), pdf("b"), pdf("c")]
+        #expect(AcpmuxSessionSource.inlineDocuments(attachments) == ["a", "b"])
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: attachments, uploaded: ["c": "/w/c.pdf"])
+        #expect(blocks.map { $0["type"]?.stringValue } == ["document", "document", "resource_link"])
+    }
+
     @Test func statusReadsOnlyLabelsAndTheAuthSource() throws {
         let info = try json(#"""
         {"sessionId":"s-123","harness":"claude","cwd":"/Users/me/proj","model":"claude-opus-5-5",

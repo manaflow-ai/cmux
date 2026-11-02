@@ -167,7 +167,6 @@ final class ShellModel {
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
-        ChiefMessenger.shared.compose = { [weak self] subject in self?.messagingChief = subject }
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -189,17 +188,22 @@ final class ShellModel {
     /// in the most recent folder on the Mac new workspaces go to, opened with its composer up and
     /// `prompt` in it (sent when the person taps Send, as the Mac's quick composer's text is).
     func startAgentChat(prompt: String?) {
-        guard let mac = creator.targetMac else {
-            toast = CmuxMobileToast(symbol: "desktopcomputer", text: "Connect a Mac to start an agent chat")
-            return
-        }
         tab = .workspaces
-        // task-owner: one wait for the Mac's agents (its link may be idle after a cold launch), then the start
+        // task-owner: one wait for a Mac and its agents (after a cold launch the account's Macs and
+        // their links come a moment later), then the start
         Task { @MainActor [weak self] in
-            if let live = self?.live, !(self?.creator.options(on: mac.id).agents.contains("") ?? false) {
+            if let live = self?.live, self?.creator.targetMac == nil {
+                _ = await live.waitUntil(within: .seconds(20)) { [weak self] in self?.creator.targetMac != nil }
+            }
+            guard let self else { return }
+            guard let mac = self.creator.targetMac else {
+                self.toast = CmuxMobileToast(symbol: "desktopcomputer", text: "Connect a Mac to start an agent chat")
+                return
+            }
+            if let live = self.live, !self.creator.options(on: mac.id).agents.contains("") {
                 _ = await live.agentsReady(on: mac.id)
             }
-            self?.createAgentChat(on: mac, prompt: prompt)
+            self.createAgentChat(on: mac, prompt: prompt)
         }
     }
 
@@ -209,7 +213,9 @@ final class ShellModel {
             toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "\(mac.name) can't start an agent chat from here")
             return
         }
-        AgentSessionDirectory.shared.newChatDraft = prompt
+        AgentSessionDirectory.shared.newChatDraft = prompt.map {
+            AgentSessionDirectory.NewChatDraft(workspaceID: workspace.id, text: $0, expiresAt: Date().addingTimeInterval(120))
+        }
         show(workspace: workspace)
     }
 
@@ -580,11 +586,25 @@ final class ShellModel {
     /// Sends Send Message…'s message to the Chief of the workspace's Mac (Chief follows the
     /// focused Mac, as a Chief notification moves it), then shows that conversation on Home.
     func sendToChief(_ text: String, about subject: ChiefMessageAbout) {
-        if let live, live.canLink(macID: subject.macID), live.focusedMacID != subject.macID { live.select(macID: subject.macID) }
-        ChiefSources.shared.mac.send(text: text)
-        messagingChief = nil
-        tab = .home
-        homePath = NavigationPath(chiefConversation: nil)
+        guard let live else {
+            ChiefSources.shared.mac.send(text: text)
+            messagingChief = nil
+            return
+        }
+        // task-owner: one send to the subject Mac's Chief, then Home shows it (or the toast says why not)
+        Task { @MainActor [weak self] in
+            let sent = await live.sendToChief(text, on: subject.macID)
+            guard let self else { return }
+            guard sent else {
+                let mac = self.macName(subject.macID) ?? "the Mac"
+                self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief on \(mac). Nothing was sent.")
+                theme.haptics.error()
+                return
+            }
+            self.messagingChief = nil
+            self.tab = .home
+            self.homePath = NavigationPath(chiefConversation: nil)
+        }
     }
 
     func openChiefCallSettings() {

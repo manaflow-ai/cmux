@@ -11,11 +11,25 @@ import UniformTypeIdentifiers
 struct PickedMovie: Transferable {
     let url: URL
 
+    /// Where picked videos are copied; `sweep()` empties what earlier launches left.
+    static var root: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-composer-videos", isDirectory: true)
+    }
+
+    /// Deletes copies older than a day (a draft's video is sent or dropped well before then).
+    static func sweep(now: Date = Date()) {
+        let manager = FileManager.default
+        guard let folders = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        for folder in folders {
+            let made = (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+            if now.timeIntervalSince(made) > 86_400 { try? manager.removeItem(at: folder) }
+        }
+    }
+
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .movie) { received in
-            let folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-composer-videos", isDirectory: true)
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            PickedMovie.sweep()
+            let folder = PickedMovie.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let copy = folder.appendingPathComponent(received.file.lastPathComponent)
             try FileManager.default.copyItem(at: received.file, to: copy)

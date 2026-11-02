@@ -310,6 +310,9 @@ public struct RootView: View {
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
         AgentChatLauncher.shared.cancelPending()
+        AgentSessionDirectory.shared.newChatDraft = nil
+        // Send Message… needs a signed-in shell's Chief.
+        ChiefMessenger.shared.compose = nil
         // A pending approval/reply or notification route belongs to the old
         // account, including if sign-out came from an expired server session.
         PushReplies.shared.signedOut()
@@ -744,10 +747,12 @@ private struct LiveCallHost: ViewModifier {
                                userName: user?.name.split(separator: " ").first.map(String.init))
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
+                ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
                 AgentChatLauncher.shared.handler = nil
+                ChiefMessenger.shared.compose = nil
             }
     }
 }

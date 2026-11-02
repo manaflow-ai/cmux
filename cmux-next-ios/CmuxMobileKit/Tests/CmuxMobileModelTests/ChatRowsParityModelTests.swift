@@ -17,6 +17,12 @@ import Testing
         #expect(subject.flatMap { URL(string: $0.link) }.flatMap(CmuxLink.init(url:))?.target == .workspace("ws_0123456789abcdef0123456789abcdef"))
     }
 
+    @Test func messageAboutRefusesAnIDThatWouldBreakTheLink() {
+        var workspace = Workspace(id: "w1", macID: "mac-1", title: "api", directory: "~/api", tabs: [], lastActivityAt: Date())
+        workspace.resourceID = "ws_abc) [x](https://evil"
+        #expect(ChiefMessageAbout(workspace: workspace) == nil)
+    }
+
     @Test func messageAboutATabNamesTheTab() {
         let workspace = Workspace(id: "w1", macID: "mac-1", title: "api", directory: "~/api", tabs: [], lastActivityAt: Date())
         var tab = WorkspaceTab(id: "s4", kind: .terminal, title: "zsh")

@@ -21,15 +21,20 @@ public struct ChiefMessageAbout: Identifiable, Hashable, Sendable {
 
     /// The workspace's link, nil when the Mac's tree did not carry its public id.
     public init?(workspace: Workspace) {
-        guard let id = workspace.resourceID, id.hasPrefix("ws_") else { return nil }
+        guard let id = workspace.resourceID, id.hasPrefix("ws_"), Self.isLinkID(id) else { return nil }
         self.init(title: workspace.title, link: "cmux://workspace/\(id)", macID: workspace.macID)
     }
 
     /// The tab's link, nil when the Mac's tree did not carry its public id.
     public init?(tab: WorkspaceTab, in workspace: Workspace) {
-        guard let id = tab.linkIDs?.tab, id.hasPrefix("tab_") else { return nil }
+        guard let id = tab.linkIDs?.tab, id.hasPrefix("tab_"), Self.isLinkID(id) else { return nil }
         let title = tab.isAgent ? (tab.task ?? tab.title) : tab.title
         self.init(title: title, link: "cmux://tab/\(id)", macID: workspace.macID)
+    }
+
+    /// A public id as the Mac's links spell it: letters, digits and `_` only.
+    static func isLinkID(_ id: String) -> Bool {
+        !id.isEmpty && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "_" }
     }
 
     /// The message's start: a Markdown link chip, as the Mac writes it (`HomeMessageRouting.mention`).

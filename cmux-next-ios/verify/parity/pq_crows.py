@@ -584,7 +584,68 @@ def shortcut(j, label):
     return out
 
 
-FLOWS = {"slash": slash, "edit": edit, "queue": queue, "video": video, "pdf": pdf, "message": message, "shortcut": shortcut}
+def stopall(j, label):
+    """Two chats working on the Mac at once: one the phone started (a long turn sent from the
+    phone) and one the Mac started (rig setup, over its local acpmux socket). The Agent Chats
+    list's Filter menu. After: Stop All Agents, confirmed: acpmux ends the phone's chat's turn
+    (`turn_result` cancelled) and keeps the Mac's running (only its owner stops it), and the
+    phone says so."""
+    st = chat_seed(j, key="crows_stop", turns=("ONE",))
+    long = "Write a detailed 3000-word story about a lighthouse keeper, then reply DONE."
+    open_chat(j, st)
+    type_in_composer(j, long)
+    send(j)
+    folder = pq.rsh(f"cd {t.PROJ} && pwd -P").stdout.strip()
+    made = r.acpmux("session/new", {"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude", "policy": "approve-all"}}})
+    mac_sid = made["sessionId"]
+    # The Mac's prompt, sent and left running (a notification-like request that returns once queued).
+    pq.rsh(f"python3 -c {shlex.quote(r._ACPMUX)} {shlex.quote(os.environ['PQ_ACPMUX_SOCK'])} session/prompt "
+           f"{shlex.quote(json.dumps({'sessionId': mac_sid, 'prompt': [{'type': 'text', 'text': long}]}))} >/dev/null 2>&1 &", timeout=10)
+
+    def both_running():
+        a, b = session(st["session"]) or {}, session(mac_sid) or {}
+        return (a.get("status"), b.get("status")) if a.get("status") == "running" and b.get("status") == "running" else None
+    out = {"before_status": t.until(both_running, timeout=120, what="both chats working")[0], "mac_session": mac_sid}
+    pq.open_grid(j) if not j.sim.find(label="Page Menu") else None
+    page_menu(j)
+    page_row(j, "Search Agent Chats")
+    time.sleep(3)
+    f = j.sim.wait(ident="agentChats.filter", timeout=10) or j.sim.wait(label="Filter", timeout=5)
+    check(f, "no Agent Chats filter")
+    j.sim.tap_el(f)
+    time.sleep(1.2)
+    out["filter_menu"] = labels(j)
+    pq.shot(f"stopall-{label}-menu")
+    if label == "before":
+        out["has_stop_all"] = "Stop All Agents" in out["filter_menu"]
+        dismiss(j)
+        r.acpmux("session/cancel", {"sessionId": mac_sid})
+        r.acpmux("session/cancel", {"sessionId": st["session"]})
+        return out
+    r.tap(j, "Stop All Agents")
+    time.sleep(1)
+    pq.shot("stopall-after-confirm")
+    out["confirm"] = labels(j)
+    buttons = [e for e in j.sim.find(label="Stop All Agents") if e.frame[1] > 400]
+    check(buttons, "no confirmation")
+    j.sim.tap_el(buttons[-1])
+
+    def phone_stopped():
+        s1 = session(st["session"]) or {}
+        return s1 if s1.get("status") != "running" and (s1.get("lastTurn") or {}).get("status") == "cancelled" else None
+    stopped, took = t.until(phone_stopped, timeout=60, what="the phone's chat to stop")
+    out["phone_chat_after"] = {"status": stopped.get("status"), "lastTurn": (stopped.get("lastTurn") or {}).get("status")}
+    out["stop_s"] = round(took, 1)
+    m = session(mac_sid) or {}
+    out["mac_chat_after"] = {"status": m.get("status")}
+    time.sleep(2)
+    out["alert"] = [e.label for e in j.sim.find() if e.label and ("Stopped" in e.label or "owner" in e.label)]
+    pq.shot("stopall-after-result")
+    r.acpmux("session/cancel", {"sessionId": mac_sid})
+    return out
+
+
+FLOWS = {"stopall": stopall, "slash": slash, "edit": edit, "queue": queue, "video": video, "pdf": pdf, "message": message, "shortcut": shortcut}
 
 
 def run(name, label):

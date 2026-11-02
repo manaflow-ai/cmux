@@ -787,9 +787,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         case .agent:
             let surface = surface(tabID)
             surface.composerFocused = true
-            // New Agent Chat from Shortcuts with a prompt: it waits in this new chat's composer.
-            if let draft = sessions.newChatDraft, surface.text.isEmpty {
-                sessions.newChatDraft = nil
+            // New Agent Chat from Shortcuts with a prompt: it waits in this new chat's composer,
+            // once the Mac made the chat (not the placeholder's page).
+            if !store.isPending(workspaceID), surface.text.isEmpty,
+               let draft = sessions.takeNewChatDraft(for: workspaceID, resolve: { [store] in store.resolvedWorkspaceID($0) }) {
                 surface.text = draft
             }
         case .terminal: terminal.focusInput(for: tab, in: workspace)
@@ -1536,7 +1537,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// chat itself stays as it was. acpmux's refusal (a Claude chat the Mac started) shows in its
     /// own words. False when no copy was made.
     public func editAndResend(_ id: TabsKitTab.ID, through seq: Int, prompt: String) async -> Bool {
-        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent, pendingTabTitle == nil else { return false }
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return false }
+        guard pendingTabTitle == nil else {
+            show(named("Another tab is opening. Try again in a moment."))
+            return false
+        }
         pendingTabTitle = "Fork"
         defer { pendingTabTitle = nil }
         let copy: WorkspaceTab

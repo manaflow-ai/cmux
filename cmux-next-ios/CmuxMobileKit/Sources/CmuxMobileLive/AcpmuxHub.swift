@@ -519,9 +519,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// A failed upload throws, so nothing is sent without its attachments.
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
-        // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded.
+        // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
+        // past the prompt's inline budget the rest go as links to their uploaded copies.
         let attachments = await Self.inlinePDFs(attachments)
-        for attachment in attachments where attachment.imageMIMEType == nil && Self.documentData(attachment) == nil {
+        let inline = Self.inlineDocuments(attachments)
+        for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
             let payload: LinkUpload.Payload
             if let data = attachment.data {
                 payload = .data(data)
@@ -533,7 +535,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
             uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
         }
-        return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
+        // Base64 of PDFs and video frames (megabytes) is made off the main actor.
+        return await Task.detached(priority: .userInitiated) {
+            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
+        }.value
+    }
+
+    /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
+    /// one-message bound (31 MiB) with room for the text and images.
+    nonisolated static let inlineDocumentBudget = 16 << 20
+
+    /// The PDFs that go as `document` blocks: each one up to its cap, in order, while the
+    /// prompt's total stays within `inlineDocumentBudget`.
+    nonisolated static func inlineDocuments(_ attachments: [AgentAttachment]) -> Set<String> {
+        var total = 0
+        var ids: Set<String> = []
+        for attachment in attachments {
+            guard let data = documentData(attachment), total + data.count <= inlineDocumentBudget else { continue }
+            total += data.count
+            ids.insert(attachment.id)
+        }
+        return ids
     }
 
     /// Uploads into the session's folder; a folder the Mac won't write to
@@ -574,13 +596,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The blocks for `text` and `attachments`, with each file's path on the Mac. A video's
     /// link is followed by its frames note and each frame (label, then image), as the Mac sends it.
-    static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:]) -> [JSONValue] {
+    nonisolated static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:],
+                                         inlineDocuments: Set<String>? = nil) -> [JSONValue] {
+        let inline = inlineDocuments ?? Self.inlineDocuments(attachments)
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
             if let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
-            } else if let data = documentData(attachment) {
+            } else if inline.contains(attachment.id), let data = documentData(attachment) {
                 blocks.append(.object(["type": .string("document"), "mimeType": .string("application/pdf"),
                                        "data": .string(data.base64EncodedString()), "name": .string(attachment.name)]))
             } else if let path = uploaded[attachment.id] {
@@ -612,7 +636,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return blocks
     }
 
-    static func mimeType(name: String) -> String {
+    nonisolated static func mimeType(name: String) -> String {
         let ext = (name as NSString).pathExtension
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
     }

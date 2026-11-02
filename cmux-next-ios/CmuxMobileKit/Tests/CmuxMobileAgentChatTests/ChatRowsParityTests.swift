@@ -132,6 +132,19 @@ import Testing
         #expect(AgentVideo.withoutFrameText("clip.mov frame at 0:02.0", imageNames: []) == "clip.mov frame at 0:02.0")
     }
 
+    @Test func newChatDraftGoesOnlyToItsWorkspaceOnce() {
+        let directory = AgentSessionDirectory()
+        let now = Date()
+        directory.newChatDraft = .init(workspaceID: "pending-1", text: "fix the build", expiresAt: now + 60)
+        let resolve: (String) -> String = { $0 == "pending-1" ? "w9" : $0 }
+        #expect(directory.takeNewChatDraft(for: "w2", now: now, resolve: resolve) == nil, "another workspace's chat")
+        #expect(directory.takeNewChatDraft(for: "w9", now: now, resolve: resolve) == "fix the build")
+        #expect(directory.takeNewChatDraft(for: "w9", now: now, resolve: resolve) == nil, "once")
+        directory.newChatDraft = .init(workspaceID: "w9", text: "late", expiresAt: now - 1)
+        #expect(directory.takeNewChatDraft(for: "w9", now: now, resolve: resolve) == nil, "too old")
+        #expect(directory.newChatDraft == nil)
+    }
+
     @Test func pdfIsKnownByName() {
         #expect(AgentAttachment(kind: .file, name: "Brief.PDF").isPDF)
         #expect(!AgentAttachment(kind: .image, name: "x.pdf").isPDF)

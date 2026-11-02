@@ -174,8 +174,8 @@ public final class AgentChatStore {
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
     /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
-    /// (Edit and Resend of an earlier prompt). Not observed: read when a menu opens.
-    @ObservationIgnored public private(set) var turnSeqs: [String: Int] = [:]
+    /// (Edit and Resend of an earlier prompt).
+    public private(set) var turnSeqs: [String: Int] = [:]
     /// acpmux holds the waiting prompts (`queue_paused`) until the person resumes them.
     public private(set) var queuePaused = false
     /// The pause's reason as acpmux logged it (`stop`: a person's Stop held agent messages).
