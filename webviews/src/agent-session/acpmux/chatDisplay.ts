@@ -61,8 +61,8 @@ export interface ChatDisplay {
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
-/// The saved settings key keeps its old `inspector` name, so a saved Push or Overlay choice survives.
-export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
+export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
