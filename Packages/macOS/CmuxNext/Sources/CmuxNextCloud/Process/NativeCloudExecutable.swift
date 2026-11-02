@@ -7,7 +7,6 @@ import Security
 /// hash or key, so `link_route` says why Native fell back.
 package enum NativeCloudExecutableRefusal: Error, Equatable, CustomStringConvertible {
     case ownSigning(OSStatus)
-    case unsignedApp
     case noResources
     case binaryMoved
     case signing(String, OSStatus)
@@ -21,7 +20,6 @@ package enum NativeCloudExecutableRefusal: Error, Equatable, CustomStringConvert
     package var description: String {
         switch self {
         case .ownSigning(let status): "native executable refused: the app's own signature is unreadable (OSStatus \(status))"
-        case .unsignedApp: "native executable refused: the app has no team id (ad-hoc or unsigned release build)"
         case .noResources: "native executable refused: the bundle has no Resources"
         case .binaryMoved: "native executable refused: bin/cmux-tui resolves outside the bundle"
         case .signing(let what, let status): "native executable refused: \(what) signature check failed (OSStatus \(status))"
@@ -40,17 +38,14 @@ package enum NativeCloudExecutableRefusal: Error, Equatable, CustomStringConvert
 package struct NativeCloudExecutable: Sendable {
     package enum Publisher: Sendable {
         case team(String)
-        #if DEBUG
+        /// An app signed with no team id (ad hoc): debug and test builds and the fleet's DEV builds. There is no
+        /// publisher to pin, so the child is pinned by its code hash alone. Whoever can swap the bundled binary of
+        /// such an app can already change the app itself, so a team-signed app never takes this path.
         case development
-        #endif
 
         package static func current() throws -> Self {
             if let team = try NativeCloudExecutable.ownTeam() { return .team(team) }
-            #if DEBUG
             return .development
-            #else
-            throw NativeCloudExecutableRefusal.unsignedApp
-            #endif
         }
     }
     let binary: URL
@@ -75,11 +70,12 @@ package struct NativeCloudExecutable: Sendable {
                                                             binary: information[kSecCodeInfoTeamIdentifier as String] as? String)
             }
             text += " and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        #if DEBUG
         case .development:
-            // Explicit debug/test software identity. This case does not exist in a release.
-            break
-            #endif
+            // The app has no team id (Publisher.current), so neither may the child claim one: the code hash pins it.
+            guard bundleInformation[kSecCodeInfoTeamIdentifier as String] == nil else {
+                throw NativeCloudExecutableRefusal.publisher(expected: "none", app: bundleInformation[kSecCodeInfoTeamIdentifier as String] as? String,
+                                                            binary: information[kSecCodeInfoTeamIdentifier as String] as? String)
+            }
         }
         requirement = text
     }
