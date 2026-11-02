@@ -110,6 +110,11 @@ class BetweenSnapshotsTests(unittest.TestCase):
             j = Journey(App({"term_3": LINE}, {"p3": LINE}))
             j.smoke_snapshots = {"h1": {"terms": ["k1"]}, "h2": {"terms": ["k1", "k2"]}}
             self.assertEqual(ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:h1..h2"}, {})[1]["verdict"], "wrong")
+            # No terminal made between h1 and h2, the line on the old terminal k1: wrong, not unjudged.
+            ext_smoke._layout = lambda j: (TERMS, {})
+            j = Journey(App({"term_1": LINE}, {"p1": LINE}))
+            j.smoke_snapshots = {"h1": {"terms": ["k1", "k2"]}, "h2": {"terms": ["k1", "k2"]}}
+            self.assertEqual(ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:h1..h2"}, {})[1]["verdict"], "wrong")
         finally:
             ext_smoke._layout, ext_smoke._focused_pane = saved
 

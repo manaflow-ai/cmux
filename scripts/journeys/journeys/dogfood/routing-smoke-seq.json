@@ -50,6 +50,11 @@
       "do": "smoke_make_key"
     },
     {
+      "do": "video_start",
+      "name": "routing-h0",
+      "seconds": 40
+    },
+    {
       "do": "smoke_snapshot",
       "name": "h1"
     },
@@ -168,11 +173,6 @@
     {
       "do": "routing_type_now",
       "text": "echo RH3-${nonce}-$((6*7))"
-    },
-    {
-      "do": "video_start",
-      "name": "routing-h0",
-      "seconds": 40
     },
     {
       "do": "expect",

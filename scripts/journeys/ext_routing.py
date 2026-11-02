@@ -110,7 +110,16 @@ def cond_routing_marker(j, want, cache):
     names = _names_by_term(j)
     landed = [{"terminal": t, "workspace": terms[t][0], "pane": terms[t][1], "selected": terms[t][2],
                "name": names.get(terms[t][3]) or names.get(t)} for t in holders]
-    if expect is None:
+    old_term = None
+    if expect is None and str(want["on"]).startswith("new:") and len(holders) == 1:
+        # No terminal was made for the line (0 new), and the line ran on a terminal the first snapshot already had:
+        # the keys reached an OLD terminal, a product red (review should-fix 3 at 2264f21c0cf), not a harness doubt.
+        snap = (getattr(j, "smoke_snapshots", {}) or {}).get(str(want["on"])[4:].split("..")[0]) or {}
+        if holders[0] in set(snap.get("terms") or []):
+            old_term = holders[0]
+    if old_term is not None:
+        verdict = "wrong"
+    elif expect is None:
         # The harness could not name one expected terminal (0 or 2+ new terminals, no selected terminal in the
         # focused pane): no verdict about the product (review N2 at 2d05ea3072e).
         verdict = "unjudged"
@@ -123,14 +132,16 @@ def cond_routing_marker(j, want, cache):
     else:
         verdict = "wrong"
     problems = []
-    if expect is None:
+    if old_term is not None:
+        problems.append(f"{line} ran on {old_term}, a terminal the snapshot already had; no terminal was made for it ({why})")
+    elif expect is None:
         problems.append(f"no expected terminal: {why}")
     elif want.get("in_new_workspace") and str(want["on"]).startswith("new:"):
         snap = (getattr(j, "smoke_snapshots", {}) or {}).get(str(want["on"])[4:].split("..")[0]) or {}
         if terms[expect][0] in set(snap.get("workspaces") or []):
             problems.append(f"the new terminal is in workspace {terms[expect][0]}, which the snapshot had: Cmd-N made "
                             "no new workspace for it")
-    if verdict not in ("right", "unjudged"):
+    if verdict not in ("right", "unjudged") and old_term is None:
         problems.append(f"{line} is {verdict}: on {len(holders)} terminals {[l['name'] or l['pane'] for l in landed]}, "
                         f"expected {why}")
     elif verdict == "right":

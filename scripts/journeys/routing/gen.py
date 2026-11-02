@@ -194,15 +194,17 @@ def cases(attempts):
     # H. The smoke gate's own sequence (steps 4-16 of smoke-dogfood.json, the 1-in-7 rate of STATUS 4124/4288): three
     # times Cmd-N, Ctrl-` as soon as the workspace shows, the line at once; judged after the third, each line on
     # exactly its own new terminal.
-    steps = []
+    seq = []
     for n in range(1, 4):
-        steps += [{"do": "smoke_snapshot", "name": f"h{n}"},
+        seq += [{"do": "smoke_snapshot", "name": f"h{n}"},
                   {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": f"h{n}-ws"},
                   {"do": "expect", "title": f"H{n}: Cmd-N shows its workspace", "since": f"h{n}-ws", "timeout": 20,
                    "all": [{"smoke_workspaces": {"new": n}}, {"smoke_frame": {}}]},
                   {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"h{n}"},
                   type_now("H", n)]
-    steps += filmed("H", 0, [check("H", n, f"new:h{n}..h{n + 1}" if n < 3 else "new:h3",
+    # The movie covers the whole race (review note 5 at 2264f21c0cf); each check is its own expect, judged after all
+    # three lines (a red on one check ends the journey: the tally shows the first red line of a run).
+    steps = filmed("H", 0, seq + [check("H", n, f"new:h{n}..h{n + 1}" if n < 3 else "new:h3",
                                    f"H{n}: the line typed at once after Ctrl-` {n} of 3 ran in its new terminal only",
                                    "h1", in_new_workspace=True) for n in range(1, 4)])
     out.append(journey("routing-smoke-seq", "Routing H: the smoke gate's sequence, 3 x (Cmd-N, Ctrl-`, a line at once); "
