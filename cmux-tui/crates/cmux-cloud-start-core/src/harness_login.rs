@@ -6,9 +6,12 @@
 //! logs this decision and keeps it on the machine's `cloud.machines` row
 //! (`harness_login`), never a silent skip.
 //!
-//! The app gathers the inputs (the build gate, the account, the platform's
-//! owner answer, the guest's `/etc/cmux/vm-kind`, the machine's own login) and
-//! asks [`decide`]; it runs the confirm and the transfer itself.
+//! The app gathers the inputs (the build and its setting, the chat's harness,
+//! the account, the platform's owner answer, the guest's `/etc/cmux/vm-kind`
+//! probe output, the machine's login probe output) and asks [`decide`], one
+//! call that reads all of them; it runs the confirm and the transfer itself.
+//! So an app FFI that does not answer is one failure the app records as
+//! `ffi-failed`, never an ordinary skip reason (cmux#32416).
 
 use serde::{Deserialize, Serialize};
 
@@ -127,16 +130,31 @@ impl Reason {
 }
 
 /// What the start knows so far. Fields the start has not asked yet are absent.
+///
+/// The app sends the raw facts and this resolves them: `dogfood` (with `setting`) gives the gate,
+/// `harness` the provider, `guest_stdout` the guest's kind and `machine_probe` the machine's login.
+/// The resolved fields (`gate`, `provider`, `guest_kind`, `machine_login`) are taken as given when
+/// their raw fact is absent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Inputs {
+    /// Whether this is a DEV or dogfood build; with it the gate is [`passes_harness_login`].
+    pub dogfood: Option<bool>,
+    /// The `cmux.cloud.passHarnessLogin` setting, absent when unset.
+    pub setting: Option<bool>,
     pub gate: bool,
+    /// The chat's harness ("" for none named): the provider is [`login_provider`]'s.
+    pub harness: Option<String>,
     pub provider: Option<Provider>,
     pub signed_in: bool,
     /// Absent when not asked (an earlier check decided).
     pub caller_owns: Option<bool>,
+    /// The stdout of [`GUEST_KIND_PROBE`] once it ran; absent when not run or the exec failed.
+    pub guest_stdout: Option<String>,
     /// The guest's `/etc/cmux/vm-kind` ("" when missing); absent when not read or the read failed.
     pub guest_kind: Option<String>,
+    /// The machine's login probe once it ran: the login is [`crate::machine_login::parse`]'s.
+    pub machine_probe: Option<crate::machine_login::Probe>,
     pub machine_login: Option<MachineLogin>,
     pub cached: bool,
     /// What came of it once decided: "installed", "declined" (the confirm), or the transfer's fixed failure text.
@@ -149,6 +167,16 @@ pub struct Inputs {
 pub struct Decision {
     pub step: Step,
     pub reason: Reason,
+    /// Whether this build passes a login (the resolved gate).
+    pub gate: bool,
+    /// The provider whose login the start passes; absent for a harness with no transfer.
+    pub provider: Option<Provider>,
+    /// The guest's kind as read ("" for none); absent when not read.
+    pub guest_kind: Option<String>,
+    /// The machine's login as read; absent when not read.
+    pub machine_login: Option<MachineLogin>,
+    /// What the start runs on the guest to read its kind ([`GUEST_KIND_PROBE`]), once `reads_machine`.
+    pub guest_kind_probe: String,
     /// Whether the start reads the guest and its login: only once the earlier checks let it go on.
     pub reads_machine: bool,
     /// Whether the guest takes the caller's login: an `owner` guest, or a `team` one, since the
@@ -232,13 +260,43 @@ fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
     line
 }
 
+/// Whether this build passes the harness login: the setting when set, else only DEV and dogfood
+/// builds (`defaults write ... cmux.cloud.passHarnessLogin -bool NO` makes a DEV build behave as production).
+pub fn passes_harness_login(dogfood: bool, setting: Option<bool>) -> bool {
+    setting.unwrap_or(dogfood)
+}
+
+/// `d` with its raw facts resolved into the fields the rules read.
+fn resolved(d: &Inputs) -> Inputs {
+    let mut d = d.clone();
+    if let Some(dogfood) = d.dogfood {
+        d.gate = passes_harness_login(dogfood, d.setting);
+    }
+    if let Some(harness) = d.harness.as_deref() {
+        d.provider = login_provider(Some(harness));
+    }
+    if let Some(stdout) = d.guest_stdout.as_deref() {
+        d.guest_kind = guest_kind(stdout);
+    }
+    if let Some(probe) = &d.machine_probe {
+        d.machine_login = Some(crate::machine_login::parse(probe.exit_code, &probe.stdout));
+    }
+    d
+}
+
 /// The start's decision for these inputs.
 pub fn decide(d: &Inputs) -> Decision {
+    let d = &resolved(d);
     let (step, reason) = step_and_reason(d);
     let kind = d.guest_kind.as_deref();
     Decision {
         step,
         reason,
+        gate: d.gate,
+        provider: d.provider,
+        guest_kind: d.guest_kind.clone(),
+        machine_login: d.machine_login,
+        guest_kind_probe: GUEST_KIND_PROBE.to_owned(),
         reads_machine: d.gate
             && d.provider == Some(Provider::Claude)
             && d.signed_in
