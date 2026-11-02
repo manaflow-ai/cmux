@@ -1535,6 +1535,75 @@ def step_rpc_try(j, step):
         return {"error": str(error)[:400]}
 
 
+def _page_window(j):
+    """The visible Chromium page window: debug.window_list's visible CefNSWindow that takes the mouse and is wider than
+    100 points, with its window-server frame (top-left screen points)."""
+    wins = (j.app.rpc("debug.window_list", timeout=15) or {}).get("windows") or []
+    pages = [w for w in wins if w.get("class") == "CefNSWindow" and w.get("visible") and not w.get("ignores_mouse")
+             and (w.get("frame") or {}).get("width", 0) > 100]
+    if len(pages) != 1:
+        raise D.StepError(f"cua_page_input: {len(pages)} visible page windows: {json.dumps(pages)[:300]}")
+    server = [w for w in _jxa_json(ALL_WINDOWS_JXA, []) if w.get("number") == pages[0]["id"]]
+    if not server:
+        raise D.StepError(f"cua_page_input: page window {pages[0]['id']} is not on the window server's list")
+    return pages[0], server[0]
+
+
+def step_cua_page_input(j, step):
+    """Control C: CuaDriver's WINDOW-targeted foreground path into the page's Chromium window. get_window_state
+    (screenshot only) of (app pid, page window id) for its pixel scale; then, when X/Y are given (points in the app's
+    main window, top left), a click with delivery_mode foreground at that point converted to the page window's
+    screenshot pixels; then each letter of TEXT with press_key delivery_mode foreground, same pid and window_id. Records
+    every reply (no image) and focus_probe after the click and after the keys."""
+    page, server = _page_window(j)
+    main = max(main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == j.app.pid]), key=lambda w: w["w"] * w["h"])
+    out = {"page_window": page, "page_server": server}
+    shot = str(Path(j.out) / f"probe-cua-window-{page['id']}.png")
+    cua = Cua()
+    try:
+        state = cua.tool("get_window_state", {"pid": j.app.pid, "window_id": page["id"], "include_accessibility_tree": False,
+                                              "screenshot_out_file": shot}, check=False, timeout=60)
+        meta = state.get("structuredContent") or {}
+        out["window_state"] = {k: v for k, v in meta.items() if k not in ("elements", "tree_markdown", "screenshot")}
+        scale = 1.0
+        try:
+            import struct
+            with open(shot, "rb") as f:
+                head = f.read(24)
+            png_w = struct.unpack(">I", head[16:20])[0]
+            scale = png_w / float(server["w"])
+            out["png_width"] = png_w
+        except (OSError, struct.error, ZeroDivisionError) as error:
+            out["png_error"] = str(error)[:200]
+        out["pixel_scale"] = scale
+        if "x" in step:
+            sx, sy = main["x"] + float(step["x"]), main["y"] + float(step["y"])
+            lx, ly = sx - server["x"], sy - server["y"]
+            if not (0 <= lx < server["w"] and 0 <= ly < server["h"]):
+                raise D.StepError(f"cua_page_input: point ({sx}, {sy}) is outside the page window {server}")
+            if step.get("mark_click"):
+                j.marks[step["mark_click"]] = D.now()
+            out["click_args"] = {"pid": j.app.pid, "window_id": page["id"], "x": lx * scale, "y": ly * scale,
+                                 "delivery_mode": "foreground"}
+            out["click_reply"] = cua.tool("click", out["click_args"], check=False, timeout=30)
+            time.sleep(0.4)
+            out["after_click"] = focus_probe(j)
+        text = j.sub(step.get("text", ""))
+        if text:
+            if step.get("mark"):
+                j.marks[step["mark"]] = D.now()
+            replies = [cua.tool("press_key", {"pid": j.app.pid, "window_id": page["id"], "key": ch,
+                                              "delivery_mode": "foreground"}, check=False, timeout=30) for ch in text]
+            out["key_replies_first"] = replies[:2]
+            out["key_errors"] = [i for i, r in enumerate(replies) if r.get("isError")]
+            time.sleep(0.4)
+            out["after_keys"] = focus_probe(j)
+    finally:
+        cua.close()
+    (Path(j.out) / "probe-control-c.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    return {k: out.get(k) for k in ("pixel_scale", "click_args", "click_reply", "after_click", "key_errors", "after_keys")}
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1639,7 +1708,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
