@@ -120,7 +120,7 @@ def undo_steps(case: dict) -> list[dict]:
     if effect == "new-tab":
         return [action("closeTab")]
     if effect == "new-pane":
-        return [action("closePane")]
+        return [action("closeTab")]  # closePane refuses a pinned dock column (newColumn); the new pane's one tab closes it
     if effect == "new-workspace":
         return [action("closeWorkspace", confirm=True)]
     if effect in ("overlay",):
@@ -186,7 +186,7 @@ def round_journey(group: list[dict], presses: int) -> dict:
     if first["arm"] == "warm":
         # ONE recording per journey (a second recording in the same app process fails: STATUS 4418), the cases one
         # after the other in it.
-        video = f"sf-{cond}"
+        video = f"sf-{slug('-'.join(c['action'] for c in group))[:60]}-{cond}"
         steps.append(kit_record_start(video, min(118.0, PRE_RECORD_S + len(group) * presses * 3.2 + 4), REQUIRE_HZ))
         for case in group:
             steps += context_steps(case)
