@@ -4963,12 +4963,19 @@ a.cv-sha:focus-visible {
   justify-content: center;
 }
 /* Through the fisheye (Chromium: glass.css FISHEYE) the words under the disc read large behind the
-   arrow, so the arrow carries a soft halo of the surface and stays legible over them. */
+   arrow, so the arrow sits on a soft pool of the surface that fades out well inside the rim and
+   stays legible over them (a gradient, not a drop-shadow filter: no elevation, no extra pass). */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root:not([data-reduce-transparency]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
-      filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 1px var(--glass-surface))
-        drop-shadow(0 0 3px var(--glass-surface));
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: radial-gradient(
+        closest-side,
+        color-mix(in srgb, var(--glass-surface) 72%, transparent) 45%,
+        transparent
+      );
     }
   }
 }
