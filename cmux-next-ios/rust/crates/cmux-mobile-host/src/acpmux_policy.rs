@@ -36,10 +36,7 @@ const GLOBAL_METHODS: &[&str] = &[
 /// Requests that carry a target still pass through canonical session checks.
 pub(crate) fn global_request(request: &Value) -> bool {
     let Some(method) = request.get("method").and_then(Value::as_str) else { return false };
-    if GLOBAL_METHODS.contains(&method) {
-        return true;
-    }
-    matches!(method, "_acpmux/harnesses" | "_acpmux/models")
+    (GLOBAL_METHODS.contains(&method) || matches!(method, "_acpmux/harnesses" | "_acpmux/models"))
         && !["sessionId", "session", "name"]
             .iter()
             .any(|key| request.get("params").and_then(|params| params.get(*key)).is_some())
@@ -316,9 +313,10 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
     Some(value.to_string())
 }
 
-fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
-    // Conversation tabs name acpmux chats, whose aliases require canonical
-    // authorization. Bare daemon `session`/`session_id` fields instead name a
+fn daemon_chat_blocked(value: &Value, state: &SessionExposure, trusted_response: bool) -> bool {
+    // Phone-supplied conversation aliases require canonical authorization;
+    // trusted daemon rows already name their actual chat, including valid
+    // short IDs. Bare daemon `session`/`session_id` fields instead name a
     // terminal registry or source label and must remain untouched.
     [
         "/agent_session",
@@ -330,7 +328,9 @@ fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
         value
             .pointer(path)
             .and_then(|agent| agent.as_str().or_else(|| agent.get("session").and_then(Value::as_str)))
-            .is_some_and(|id| !allowed(state, id, &HashSet::new()))
+            .is_some_and(|id| {
+                if trusted_response { state.blocked.contains(id) } else { !allowed(state, id, &HashSet::new()) }
+            })
     })
         // Terminal hooks use native harness IDs, not acpmux aliases. The
         // daemon compares expect_agent.session exactly; a short native ID
@@ -351,7 +351,7 @@ pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<
     }
     let mut value: Value = serde_json::from_str(message).ok()?;
     fn clean(value: &mut Value, state: &SessionExposure) {
-        if daemon_chat_blocked(value, state) {
+        if daemon_chat_blocked(value, state, true) {
             *value = Value::Null;
             return;
         }
@@ -379,7 +379,9 @@ pub fn daemon_request_blocked(message: &str, state: &SessionExposure) -> bool {
         return true;
     }
     state.configured
-        && serde_json::from_str::<Value>(message).ok().is_some_and(|value| daemon_chat_blocked(&value, state))
+        && serde_json::from_str::<Value>(message)
+            .ok()
+            .is_some_and(|value| daemon_chat_blocked(&value, state, false))
 }
 
 /// The refusal for a control request on a session whose current mode (acpmux
@@ -526,12 +528,17 @@ mod tests {
     #[test]
     fn catalog_queries_are_global_but_targeted_queries_are_checked() {
         for state in [SessionExposure::default(), exposure(&["00000000-0000-7000-8000-000000000001"])] {
-            for method in ["_acpmux/harnesses", "_acpmux/models"] {
+            for method in GLOBAL_METHODS.iter().chain(["_acpmux/harnesses", "_acpmux/models"].iter()) {
                 let global = json!({"id":1,"method":method,"params":{}}).to_string();
                 assert!(exposure_refusal(&global, &state, &HashSet::new()).is_none());
                 if state.configured {
-                    let targeted = json!({"id":2,"method":method,"params":{"sessionId":"00000000-0000-7000-8000-000000000001"}}).to_string();
-                    assert!(exposure_refusal(&targeted, &state, &HashSet::new()).is_some());
+                    for key in ["sessionId", "session", "name"] {
+                        let targeted = json!({"id":2,"method":method,"params":{key:"00000000-0000-7000-8000-000000000001"}});
+                        assert!(!global_request(&targeted));
+                        assert!(exposure_refusal(&targeted.to_string(), &state, &HashSet::new()).is_some());
+                        let malformed = json!({"id":3,"method":method,"params":{key:null}});
+                        assert!(!global_request(&malformed));
+                    }
                 }
             }
         }
@@ -540,10 +547,11 @@ mod tests {
     #[test]
     fn daemon_nested_projection_keeps_other_tabs_and_terminal_identity() {
         let blocked = "00000000-0000-7000-8000-000000000001";
-        let visible = "00000000-0000-7000-8000-000000000002";
-        let state = exposure(&[blocked]);
+        let visible = "sess-a";
+        let state = exposure(&[blocked, "sess-blocked"]);
         let message = json!({"id":1,"data":{"session":"main","workspaces":[{"tabs":[
             {"id":"hidden","agent_session":{"session":blocked}},
+            {"id":"short-hidden","extra":{"conversation":{"agent_session":{"session":"sess-blocked"}}}},
             {"id":"visible","agent_session":{"session":visible}},
             {"id":"terminal"}
         ]}]}})
