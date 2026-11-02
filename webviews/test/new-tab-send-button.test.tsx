@@ -454,13 +454,13 @@ for (const template of ["screen", "classic"] as const) {
         }),
     });
     await page.paste(file, true);
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
     await act(async () => resolve(bytes));
     expect(page.prompts).toHaveLength(1);
-    expect(page.prompts[0]!.text).toBe("/login");
+    expect(page.prompts[0]!.text).toBe("/logout");
     expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
   });
 
@@ -661,10 +661,10 @@ for (const template of ["screen", "classic"] as const) {
 
   test(`${template}: a Claude terminal-only refusal preserves its draft`, async () => {
     const page = await commandPage(template, async () => {});
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
-    expect(page.field.value).toBe("/login");
+    expect(page.field.value).toBe("/logout");
     expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
   });
 }

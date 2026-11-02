@@ -1,4 +1,3 @@
-import CmuxNextAgentPane
 import CmuxNextDaemon
 import CryptoKit
 import Foundation
@@ -9,7 +8,7 @@ extension FeedHandoffDriver {
     /// The FeedDO id of a local item. The daemon already gives its items the
     /// cloud shape (`fi_` plus 20 of `[a-z0-9]`), so `feed.adopt` keeps the
     /// same id; any other id is hashed per install, stable for every retry.
-    nonisolated static func cloudID(install: String, local: String) -> String {
+    public nonisolated static func cloudID(install: String, local: String) -> String {
         let tail = local.dropFirst(3)
         if local.hasPrefix("fi_"), tail.count == 20,
            tail.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber) }) {

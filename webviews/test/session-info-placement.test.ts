@@ -121,13 +121,12 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
       }
     });
 
-    // Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the fucking layout. It's
-    // supposed to just be the, you know, a thing that you can drag and drop. The thing that it was
-    // already there before." Where the right gutter cannot hold it (a 1200px pane, a pane of a split at
-    // 560 and 700, a narrow window at 900) it floats over the chat, under the header, and no row and
-    // not the composer moves: the chat keeps its width and every row its place.
+    // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where the
+    // right gutter cannot hold it (a 1200px pane, a pane of a split at 560 and 700, a narrow window at
+    // 900) it takes its column under the header: the chat moves left and narrows, and the panel covers
+    // no row and not the composer. On base it floated over the chat's right end.
     for (const width of [560, 700, 900, 1200]) {
-      test(`${name}: in a ${width}px pane it floats under the header and takes no column`, async () => {
+      test(`${name}: in a ${width}px pane it pushes the chat left and covers no row`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
@@ -144,7 +143,6 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
           }
           const before = await chat();
-          const beforeRows = await transcript(page);
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
           const rows = await transcript(page);
@@ -152,13 +150,10 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           expect(rows.length).toBeGreaterThan(0);
           expect({
             placement: await panel.getAttribute("data-placement"),
-            chatWidth: await chat(),
+            narrower: (await chat()) < before,
             underHeader: box.top >= header.y + header.height - 0.5,
-            moved: rows.map(
-              (row, index) =>
-                Math.abs(row.left - beforeRows[index]!.left) + Math.abs(row.right - beforeRows[index]!.right),
-            ),
-          }).toEqual({ placement: "overlay", chatWidth: before, underHeader: true, moved: rows.map(() => 0) });
+            covers: rows.filter((row) => meets(row, box)),
+          }).toEqual({ placement: "push", narrower: true, underHeader: true, covers: [] });
         } finally {
           await page.close();
         }
@@ -203,7 +198,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             short: box.bottom - box.top < 700 * 0.5,
             foot,
-          }).toEqual({ placement: "overlay", short: true, foot: "the page" });
+          }).toEqual({ placement: width === 700 ? "push" : "overlay", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
@@ -213,8 +208,8 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
     // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
-    // drew a frame or more later. Where the new gutter cannot hold it (1200px) it lies over the chat
-    // (data-over-chat) in that same frame, and the chat never moves for it.
+    // drew a frame or more later. Where the new gutter cannot hold it (1200px) it pushes the chat in
+    // that same frame.
     for (const [from, to] of [
       [1600, 1200],
       [1200, 1600],
@@ -244,7 +239,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
           const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
-          expect(placed).toEqual({ width: to, placement: "overlay", inset: 8, overChat: to === 1200 });
+          expect(placed).toEqual({ width: to, placement: to === 1200 ? "push" : "overlay", inset: 8, overChat: false });
         } finally {
           await page.close();
         }

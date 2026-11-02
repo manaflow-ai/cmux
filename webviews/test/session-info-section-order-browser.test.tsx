@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
@@ -81,6 +82,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8").replace(/^@import[^;]*;$/gm, ""))
     .join("\n");
+  // The grid's --grid-* lengths, as the app's pane has them from pages/shared/desktop.css (generated
+  // from schemas/layout-grid/layout-grid.json). Since #27570 the section list's gaps are those tokens.
+  const gridTokens = readFileSync(path.join(src, "pages/shared/desktop.css"), "utf8")
+    .split("\n")
+    .filter((line) => /^\s*--grid-[\w-]+\s*:/.test(line))
+    .join("\n");
 
   let browser: Browser;
   beforeAll(async () => {
@@ -91,9 +98,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   });
 
   // Away from the panel, so no section starts hovered.
-  const show = async (page: Page) => {
+  const show = async (page: Page, { grid = false } = {}) => {
     await page.setContent(
-      `<style>${css} body { margin: 0 }</style>` +
+      `<style>${grid ? `:root {\n${gridTokens}\n}\n` : ""}${css} body { margin: 0 }</style>` +
         `<div style="position: absolute; left: 40px; top: 40px; width: 320px">${markup}</div>`,
     );
     await page.mouse.move(2, 2);
@@ -136,10 +143,15 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    test("the default order draws the three blocks: 6px inside a block, none where it runs, 8px, a hairline, 8px between", async () => {
+    // Since #27570 the section list owns the spacing (sessionInfo.css, design/grid.md section 3, with
+    // 5.5's gap tokens: `--grid-gap-inner` 12 "inside a block", `--grid-gap-block` 24): one inner gap
+    // between any two sections of a block, About's included, and one block gap between blocks with
+    // the hairline centred in it. Before the grid it was 6px
+    // inside a block, none inside About, and 8px, a hairline, 8px between blocks.
+    test("the default order draws the three blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        await show(page, { grid: true });
         const geometry = await page.evaluate(() => {
           const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
           const rule = (id: string) => {
@@ -159,10 +171,11 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             rules: ruled.map(rule),
           };
         });
-        expect(geometry.about).toEqual([0, 0, 0]);
-        expect(geometry.made).toBeCloseTo(6, 1);
-        // This page has no desktop.css, so the hairline is its 0.5px fallback.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
+        const inner = gridLength("gap-inner");
+        for (const gap of geometry.about) expect(gap).toBeCloseTo(inner, 1);
+        expect(geometry.made).toBeCloseTo(inner, 1);
+        // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-block"), 1);
         // The hairline over the first section of each block but the first, and nowhere else.
         expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
       } finally {
@@ -192,19 +205,30 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           const handle = document
             .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!
             .getBoundingClientRect();
-          const body = document.querySelector(".acpmux-session-info__body")!.getBoundingClientRect();
+          const scroller = document.querySelector<HTMLElement>(".acpmux-session-info__body")!;
+          const body = scroller.getBoundingClientRect();
+          // The scrollport's right edge: where a classic scrollbar's track begins.
+          const scrollport = body.left + scroller.clientLeft + scroller.clientWidth;
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
           const title = document
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
             inBody: handle.right <= body.right + 0.5,
+            // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
+            clearOfScrollbar: scrollport - handle.right >= 3.5,
             afterSection: handle.left >= section.right - 0.5,
             rightOfTitle: handle.left > title.right,
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
-        expect(inside).toEqual({ inBody: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
+        expect(inside).toEqual({
+          inBody: true,
+          clearOfScrollbar: true,
+          afterSection: true,
+          rightOfTitle: true,
+          titleAtTextColumn: 8,
+        });
       } finally {
         await page.close();
       }

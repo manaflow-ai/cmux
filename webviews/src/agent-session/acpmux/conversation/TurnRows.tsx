@@ -51,6 +51,7 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { PresentationContext } from "./PresentationContext";
 
 /// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
 export { runStretches, type RunStretch } from "./toolGroups";
@@ -263,6 +264,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
     forkSeq,
@@ -392,7 +394,47 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
-          {label && (
+          <span className="cv-turn-action-group">
+            {!messages && copy && <MessageCopy text={copy} />}
+            {failedRetry && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact"
+                aria-label={t("turn.retry")}
+                title={t("turn.retryLabel")}
+                disabled={retrying}
+                onClick={failedRetry}
+              >
+                <Retry size={ROW_ICON} />
+              </button>
+            )}
+            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
+              <RetryModelMenu
+                retryWith={retryWith}
+                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+              />
+            )}
+            {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            {!messages && <PinButton rowId={row.id} />}
+            {!messages && text && <ReadAloudButton id={row.id} text={text} />}
+            {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
+              <button
+                type="button"
+                className="cv-turn-auth-action"
+                onClick={() => {
+                  void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
+                }}
+              >
+                {t("turn.transferCredentials", {
+                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
+                })}
+              </button>
+            )}
+          </span>
+          {!messages && label && (
             <span className="cv-turn-summary">
               {label}
               {hasTokens(row.tokens) && (
@@ -419,47 +461,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ArrowRight size={ROW_ICON} aria-hidden="true" />
             </button>
           )}
-          <span className="cv-turn-action-group">
-            {copy && <MessageCopy text={copy} />}
-            {failedRetry && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
-                disabled={retrying}
-                onClick={failedRetry}
-              >
-                <Retry size={ROW_ICON} />
-              </button>
-            )}
-            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
-              <RetryModelMenu
-                retryWith={retryWith}
-                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
-              />
-            )}
-            {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
-            )}
-            <PinButton rowId={row.id} />
-            {text && <ReadAloudButton id={row.id} text={text} />}
-            {text && row.answerId && <MessageMore rowId={row.answerId} />}
-            {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() => {
-                  void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
-                }}
-              >
-                {t("turn.transferCredentials", {
-                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
-                })}
-              </button>
-            )}
-          </span>
-          <MessageTime at={row.at} className="cv-turn-time" />
+          {!messages && <MessageTime at={row.at} className="cv-turn-time" />}
         </MessageFooterRow>
       </div>
     </>

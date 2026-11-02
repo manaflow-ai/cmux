@@ -2555,12 +2555,16 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
-          JOBS: prepare-nightly-variant-primary prepare-nightly-variant await-nightly-tree-marker
+          # Not prepare-nightly-variant-primary: it moves the whole app twice and scans every file of it, which
+          # took 4.8 min on a dedicated nightly Mac (run 41360732074: download 59 s, browser-data proof 99 s,
+          # upload 62 s) against 57 s on its Blacksmith route (run 41358657711), on the feed's critical path.
+          JOBS: prepare-nightly-variant await-nightly-tree-marker
           NIGHTLY: "1"
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py

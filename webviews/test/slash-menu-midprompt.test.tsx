@@ -266,3 +266,88 @@ test("a prompt that comes back to the composer reads a Codex skill as typed", as
   await press(field, "Enter");
   expect(sent).toEqual(["use /$emil-color now"]);
 });
+
+test("where a command shares a Codex skill's name, the first word goes as the skill only when picked", async () => {
+  const both = (): AcpmuxSnapshot => {
+    const snapshot = codexChat();
+    return { ...snapshot, commands: [{ name: "emil-color", description: "", source: "agent" }, ...snapshot.commands!] };
+  };
+  const picked = await composer(both(), "/emil-c");
+  expect(names()).toEqual(["/emil-color", "/emil-color"]);
+  await press(picked.field, "ArrowDown");
+  await press(picked.field, "Enter");
+  expect(picked.prompt.plainText()).toBe("/emil-color ");
+  await press(picked.field, "Enter");
+  expect(picked.sent).toEqual(["/$emil-color"]);
+  const typed = await composer(both(), "/emil-color now");
+  await press(typed.field, "Enter");
+  expect(typed.sent).toEqual(["/emil-color now"]);
+  // Further on, only the skill is read: it always goes with its `$`.
+  const mid = await composer(both(), "use /emil-color now");
+  await press(mid.field, "Enter");
+  expect(mid.sent).toEqual(["use /$emil-color now"]);
+});
+
+test("a skill word in the prompt carries the skill's description as its tooltip; a built-in none", async () => {
+  await composer(codexChat(), "/init then use /emil-color");
+  const tokens = [...host.querySelectorAll<HTMLElement>(".acpmux-slash-token")];
+  expect(tokens.map((token) => [token.textContent, token.dataset.tooltip ?? null])).toEqual([
+    ["/init", null],
+    ["/emil-color", "Colour in CSS"],
+  ]);
+  expect(tokens[1]!.getAttribute("aria-description")).toBe("Colour in CSS");
+});
+
+test("a recalled prompt brings its own skill picks: an older one without the skill sends as typed", async () => {
+  const snapshot = codexChat();
+  const both: AcpmuxSnapshot = {
+    ...snapshot,
+    commands: [{ name: "emil-color", description: "", source: "agent" }, ...snapshot.commands!],
+    rows: [user("/emil-color old", 3), user("/$emil-color new", 2)],
+  };
+  const { field, prompt, sent } = await composer(both, "");
+  const up = async () =>
+    act(async () => {
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    });
+  await up();
+  expect(prompt.plainText()).toBe("/emil-color new");
+  await up();
+  expect(prompt.plainText()).toBe("/emil-color old");
+  await press(field, "Enter");
+  expect(sent).toEqual(["/emil-color old"]);
+});
+
+test("Return sends a path or a short word at the prompt's end instead of rewriting it", async () => {
+  // A skill whose name holds the letters of each word, scattered (the mock's /design-vocabulary).
+  const withSkill = (): AcpmuxSnapshot => {
+    const snapshot = chat();
+    return {
+      ...snapshot,
+      commands: [...snapshot.commands!, { name: "design-vocabulary", description: "", source: "skill" }],
+    };
+  };
+  for (const typed of ["look in /dev", "check /tmp", "see /etc", "into /opt", "great job /s"]) {
+    const { field, prompt, sent } = await composer(withSkill(), typed);
+    await press(field, "Enter");
+    expect([typed, sent]).toEqual([typed, [typed]]);
+    expect(prompt.plainText()).not.toContain("/design-vocabulary");
+  }
+});
+
+test("Return sends a word that only starts a later part of a name; the arrows or Tab still pick it", async () => {
+  const sending = await composer(chat(), "fix it /pr");
+  expect(names()).toEqual(["/review-pr"]);
+  await press(sending.field, "Enter");
+  expect(sending.sent).toEqual(["fix it /pr"]);
+  const arrowed = await composer(chat(), "fix it /pr");
+  // The caret where typing left it (jsdom keeps no selection of its own).
+  await act(async () => arrowed.prompt.setCaret("fix it /pr".length));
+  await press(arrowed.field, "ArrowDown");
+  await press(arrowed.field, "Enter");
+  expect(arrowed.prompt.plainText()).toBe("fix it /review-pr ");
+  const tabbed = await composer(chat(), "fix it /pr");
+  await act(async () => tabbed.prompt.setCaret("fix it /pr".length));
+  await press(tabbed.field, "Tab");
+  expect(tabbed.prompt.plainText()).toBe("fix it /review-pr ");
+});
