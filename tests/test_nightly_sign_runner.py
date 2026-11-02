@@ -521,7 +521,9 @@ class OwnedVerify(unittest.TestCase):
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
     # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
     # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
-    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
+    # The cmux NIGHTLY-identity copy's secret-free Mac jobs: the macOS signer's verify, and the release
+    # signer pool's image job and verify.
+    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy", "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool")
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:

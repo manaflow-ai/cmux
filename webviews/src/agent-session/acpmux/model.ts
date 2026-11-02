@@ -1417,17 +1417,20 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 /// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
 /// id like more alignment too"): `statusEdge`.
 export const isStatusRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined &&
-  (row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
-    row.kind === "compaction" ||
-    row.kind === "failover" ||
-    row.kind === "policyUnenforced" ||
-    row.kind === "agentPair" ||
-    row.kind === "sessionStart" ||
-    row.kind === MESSAGE_RUN ||
-    (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
-    (row.kind === "activity" && isToolRun(row)));
+  row !== undefined && (row.kind === "user" ? isIncomingLine(row.incoming?.kind) : isStatusKind(row));
+/// `incoming` is read once per call here and in isLineRow: layoutConversation asks both of every
+/// row, hidden bookkeeping included, and rowLayoutLinearity.test.ts counts those reads.
+const isIncomingLine = (kind: string | undefined) => kind === "message" || kind === "notice";
+const isStatusKind = (row: AcpmuxRow) =>
+  row.kind === "backgroundTask" ||
+  row.kind === SUBAGENT_DONE ||
+  row.kind === "compaction" ||
+  row.kind === "failover" ||
+  row.kind === "policyUnenforced" ||
+  row.kind === "agentPair" ||
+  row.kind === "sessionStart" ||
+  row.kind === MESSAGE_RUN ||
+  (row.kind === "activity" && isToolRun(row));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
 /// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
 /// over the row's items.
@@ -1516,9 +1519,8 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
   row.kind === MESSAGE_RUN ||
   row.kind === PENDING_MESSAGES ||
-  (row.kind === "user" &&
-    !row.received &&
-    (row.incoming?.kind === "message" || row.incoming?.kind === "notice" || row.incoming?.kind === "inbox"));
+  (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
+const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
