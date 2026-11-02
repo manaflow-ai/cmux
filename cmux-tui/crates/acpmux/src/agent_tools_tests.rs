@@ -254,3 +254,49 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         acpmux.env
     );
 }
+
+/// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
+/// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
+/// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
+/// hook prints still reaches Claude Code.
+#[test]
+fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hook-skew-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let script = |name: &str, body: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let run = |command: &str| {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    let old =
+        words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
+    let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
+    assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
+    let out = run(&super::hook_command(&old));
+    assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
+    // A binary that is gone does not block either.
+    let gone = words(root.join("gone").to_string_lossy().into_owned());
+    assert!(run(&super::hook_command(&gone)).status.success());
+    // The hook's own answer still gets through.
+    let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
+    let out = run(&super::hook_command(&deny));
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
+    let _ = std::fs::remove_dir_all(&root);
+}
