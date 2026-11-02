@@ -1001,7 +1001,7 @@ test("host events switch the header to native tools and invoke the same web hand
   await render(false, "still-hidden");
   expect(sent).toHaveLength(count);
   await render(true, "shown");
-  expect(sent.at(-1)!.tools).toHaveLength(4);
+  expect(sent.at(-1)!.tools).toHaveLength(5);
   await act(async () => root!.unmount());
   root = undefined;
   expect(sent.at(-1)!.tools).toEqual([]);
