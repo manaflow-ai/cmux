@@ -819,6 +819,10 @@ def _settle(j, timeout=20):
     return False
 
 
+class _NoFilm(Exception):
+    pass
+
+
 def step_reopen_video(j, step):
     if not D.ACTIVATE:
         raise D.NotRun("reopen_video needs a whole-host lease (run.py --whole-host): a key window and CuaDriver's grants")
@@ -836,9 +840,18 @@ def step_reopen_video(j, step):
         movie_dir = Path(j.out) / f"rec-{index}"
         shutil.rmtree(movie_dir, ignore_errors=True)
         movie_dir.mkdir(parents=True, exist_ok=True)
+        film = step.get("film", True)
         cua = Cua()
         keys = Cua()  # a second session for the marker keys and clicks: no recording, no per-action screenshots
         try:
+            if not film:
+                # No film (cmux-ad 01:30Z: CuaDriver recording is not a film source; the HARNESS recorder cannot
+                # film a launch yet): the app's own marks and the exact state only. CuaDriver is input only.
+                record["film"] = False
+                _end(j, cua, how, record)
+                pid = _reopen(j, record, env)
+                record["markers"] = _type_markers(j, cua, keys, pid, before, rects, record) if step.get("type_keys", True) else []
+                raise _NoFilm()
             # The pointer away from the sync points before the film starts.
             away = (float(screen.get("w") or 1920) * 0.36, 11)
             use_warp = warp(*away)
@@ -870,6 +883,8 @@ def step_reopen_video(j, step):
             time.sleep(TAIL_SECONDS)
             cua.tool("stop_recording", {}, check=False, timeout=60)
             record["record_stopped_wall"] = time.time()
+        except _NoFilm:
+            pass
         finally:
             keys.close()
             cua.close()
@@ -890,6 +905,7 @@ def step_reopen_video(j, step):
             "main_start", "first_window_frame_committed", "terminal.launch_frame_shown", "first_terminal_frame",
             "launch.visible_terminals_drawn", "sidebar_rows_shown") if k in marks_ms}
         record["launch_terminals"] = timings.get("launch_terminals")
+        record["launch_terminals_frame_shown_max_ms"] = timings.get("launch_terminals_frame_shown_max_ms")
         main = marks_ms.get("main_start")
         if record.get("process_start_wall") and isinstance(main, (int, float)):
             record["main_wall"] = record["process_start_wall"] + main / 1000.0
@@ -908,7 +924,7 @@ def step_reopen_video(j, step):
         cleaned = exact_state(j)
         record["differences"] = state_differences(before, cleaned)
         record["cleaned"] = cleaned
-        movie = next(iter(sorted(movie_dir.glob("*.mp4"))), None)
+        movie = next(iter(sorted(movie_dir.glob("*.mp4"))), None) if film else None
         if movie:
             shutil.move(str(movie), str(Path(j.out) / f"reopen-{index}.mp4"))
             record["movie"] = f"reopen-{index}.mp4"
