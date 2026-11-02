@@ -50,12 +50,15 @@ it("deletes a created team whose owner could not be added, so a later create may
 it("ignores client-selected metadata and follows all discovery and membership pages", async () => {
   const stack = personalTenantStack(e, async (r) => {
     const url = new URL(r.url)
-    expect(url.searchParams.get("limit")).toBe("100")
     if (url.pathname.endsWith("/teams")) {
+      expect(url.searchParams.get("limit")).toBe("100")
       expect(url.searchParams.get("user_id")).toBe(stackUser)
       return Response.json(url.searchParams.has("cursor") ? { items: [team], pagination: { next_cursor: null } } : { items: [{ id: tenant, client_metadata: { cmuxVmPersonalTenant: marker }, client_read_only_metadata: { cmuxVmPersonalTenant: marker } }], pagination: { next_cursor: "next" } })
     }
-    expect(url.searchParams.get("team_id")).toBe(tenant)
+    // The production members read (stack-server.ts listTeamMembers): team_id alone. Stack refuses `limit` here (400 SCHEMA_ERROR).
+    expect(r.method).toBe("GET")
+    if (!url.searchParams.has("cursor")) expect(r.url).toBe(`https://api.stack-auth.com/api/v1/team-member-profiles?team_id=${tenant}`)
+    expect([...url.searchParams.keys()].filter((k) => k !== "cursor")).toEqual(["team_id"])
     return Response.json(url.searchParams.has("cursor") ? { items: [{ user_id: "another-user" }], pagination: { next_cursor: null } } : { items: [{ user_id: stackUser }], pagination: { next_cursor: "members-next" } })
   })!
   expect(await stack.find(marker)).toEqual([{ id: tenant, marker }])
@@ -86,4 +89,16 @@ it("classifies only definitive rejections as safe to retry and never leaks answe
   }
   const broken = personalTenantStack(e, async () => new Response("private malformed response", { headers: { "content-type": "application/json" } }))!
   await expect(broken.create(marker)).rejects.toThrow("identity service unavailable")
+})
+
+it("names the failed call, its status and Stack's known-error code, and nothing from the body", async () => {
+  const stack = personalTenantStack(e, async () => Response.json({ secret: e.STACK_SECRET_SERVER_KEY }, { status: 403, headers: { "x-stack-known-error": "INSUFFICIENT_ACCESS_TYPE" } }))!
+  const error: unknown = await stack.create(marker).catch((value: unknown) => value)
+  expect(error).toBeInstanceOf(PersonalTenantIdentityError)
+  expect((error as PersonalTenantIdentityError).failure).toEqual({ call: "create", status: 403, code: "INSUFFICIENT_ACCESS_TYPE" })
+  expect(JSON.stringify((error as PersonalTenantIdentityError).failure)).not.toContain(e.STACK_SECRET_SERVER_KEY)
+  const joined = personalTenantStack(e, async (r) => r.method === "POST" && new URL(r.url).pathname.endsWith("/teams") ? Response.json(team) : r.method === "POST" ? Response.json({}, { status: 400, headers: { "x-stack-known-error": "not a code; " + e.STACK_SECRET_SERVER_KEY } }) : Response.json({}))!
+  expect(((await joined.create(marker).catch((value: unknown) => value)) as PersonalTenantIdentityError).failure).toEqual({ call: "join", status: 400 })
+  const unreachable = personalTenantStack(e, async () => { throw new TypeError("network") })!
+  expect(((await unreachable.find(marker).catch((value: unknown) => value)) as PersonalTenantIdentityError).failure).toEqual({ call: "find", cause: "network" })
 })

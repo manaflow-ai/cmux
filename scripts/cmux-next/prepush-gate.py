@@ -62,6 +62,14 @@ Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, b
 calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
 font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
 
+Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
+gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
+the release-notary job's test (scripts/whats-new/test_digest.py, test_the_repository_highlights_validate) validates
+it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/validate.py's rules: a tryIt or docs
+link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
+the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
+#30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
+
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
@@ -228,6 +236,40 @@ FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 # The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
 LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
 LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
+
+# The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
+HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
+HIGHLIGHTS_DIR = "release-notes/next/highlights/"
+HIGHLIGHTS_CODE = ("scripts/whats-new/digest.py", "scripts/whats-new/validate.py")
+HIGHLIGHTS_HINT = ("Fix the highlight: add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, "
+                   "240 characters (release-notes/next/WRITING.md).")
+# Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
+# (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
+# as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
+# digest.parse refuses is its ValueError. The result, one JSON object {name: [problem, ...]}, goes to the result file,
+# never to stdout or stderr: a warning the validator prints cannot hide it (review of #31260).
+HIGHLIGHTS_PROGRAM = """\
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import digest
+out = {}
+pairs = sys.argv[3:]
+for name, path in zip(pairs[0::2], pairs[1::2]):
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except UnicodeDecodeError as error:
+        out[name] = [f"is not UTF-8 text ({error}); the release-notary test cannot read it"]
+        continue
+    try:
+        out[name] = list(digest.entry_problems(digest.parse(name, text)))
+    except ValueError as error:
+        out[name] = [str(error)]
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump(out, f)
+"""
+# The validator names the made-up nightly document it wraps one entry in; the finding names the file instead.
+HIGHLIGHTS_DOCUMENT = re.compile(r"^[^\s:]+\.json: ")
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -864,6 +906,55 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
+                       restrict: set[str] | None = None) -> list[str]:
+    """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
+
+    The validator is the release-notary test's (HIGHLIGHTS_CODE): for the hook (TRUSTED_SCRIPTS) the one at this
+    clone's origin/feat-cmux-next, so a pushed edit to it cannot pass its own highlight; for a plain run the head's.
+    It fails open: no validator at that ref, or one that does not run, prints a warning and refuses nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
+                HIGHLIGHTS_DIR).decode()
+    files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
+    try:
+        if code_rev is None:
+            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+        blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
+        if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
+            return []  # a validator older than the highlights' rules: CI's test is older too
+        with tempfile.TemporaryDirectory(prefix="cmux-prepush-highlights-") as tmp:
+            work = Path(tmp)
+            for p in HIGHLIGHTS_CODE:
+                (work / Path(p).name).write_bytes(blobs[f"{code_rev}:{p}"])
+            args = []
+            for index, p in enumerate(files):
+                (work / f"{index}.md").write_bytes(blobs[f"{head}:{p}"] or b"")
+                args += [Path(p).name, str(work / f"{index}.md")]
+            result = work / "result.json"
+            code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
+                            timeout=60)
+            # The exit code and the result file are the answer; the output is only for the warning below.
+            if code != 0 or not result.is_file():
+                raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
+            problems = json.loads(result.read_text(encoding="utf-8"))
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
+        log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
+            "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
+        return []
+    found = []
+    for p in files:
+        name = Path(p).name
+        for problem in problems.get(name, []):
+            problem = HIGHLIGHTS_DOCUMENT.sub("", problem, count=1)
+            problem = problem[len(name) + 2:] if problem.startswith(name + ": ") else problem
+            found.append(f"{p}: {problem}")
+    return found
+
+
 def window_freezes(repo: Path, base: str, head: str, window: Path | None = None) -> list[str]:
     """Each pushed commit that changes a path a WINDOW FREEZE line holds without that line's token.
 
@@ -937,11 +1028,13 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
-         restrict: set[str] | None = None, swiftformat_layer: bool = False) -> list[tuple[str, list[str]]]:
+         restrict: set[str] | None = None, swiftformat_layer: bool = False,
+         highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
 
     SWIFTFORMAT_LAYER: run SwiftFormat (main() sets it for the local pre-push hook and a plain local run only), or
-    when `--only` names swiftformat."""
+    when `--only` names swiftformat. HIGHLIGHTS_LAYER: validate the What's New highlights the push changes (set
+    like SWIFTFORMAT_LAYER), or when `--only` names highlights."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
@@ -965,6 +1058,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
             reserved.append((CRASH_ALLOW_CHECK, unreviewed))
+    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates): CI's release-notary test stays the backstop.
+    if highlights_layer if only is None else "highlights" in only:
+        t0 = time.monotonic()
+        bad = highlight_problems(repo, base, head, trusted_scripts, restrict)
+        if timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
+        if bad:
+            reserved.append((HIGHLIGHTS_CHECK, bad))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
         return reserved
@@ -1108,7 +1209,8 @@ def finding_key(record: str) -> str:
 
 
 def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
-             trusted_scripts: Path | None = None, swiftformat_layer: bool = False) -> list[tuple[str, list[str]]]:
+             trusted_scripts: Path | None = None, swiftformat_layer: bool = False,
+             highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
     """[(check, findings)] the push's own range OWN (push_range.OwnRange) adds.
 
     gate() over own.base..own.head; for a merge (own.before), less what gate() finds over each range the push
@@ -1120,11 +1222,15 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     taken off and refuses (fails closed). A record without a file location in a check that also printed located
     ones describes them (`check-crash-safety: 1 violation(s)`): it is kept only when one of that check's located
     findings is."""
-    found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer)
+    found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer,
+                 highlights_layer=highlights_layer)
     if not own.before or not found:
         return found
     changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer))
+    changed |= {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head, "--",
+                               HIGHLIGHTS_DIR).decode().split("\0") if p}
+    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
+                        highlights_layer=highlights_layer))
               for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
@@ -1380,7 +1486,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
-                                       "sidebar,crash-allow,freeze")
+                                       "sidebar,crash-allow,freeze,highlights")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1465,7 +1571,9 @@ def main(argv: list[str] | None = None) -> int:
     swiftformat_layer = not args.base and not os.environ.get("GITHUB_ACTIONS")
     found_any = []
     for own in ranges:
-        found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer)
+        # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
+        found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
+                              highlights_layer=swiftformat_layer)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
@@ -1514,6 +1622,8 @@ def main(argv: list[str] | None = None) -> int:
             print("prepush-gate: push refused by the guardrails (CMUX_NEXT_CHECKS_SKIP_REASON does not skip them)")
             return 1
         return 0
+    if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
+        print(HIGHLIGHTS_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

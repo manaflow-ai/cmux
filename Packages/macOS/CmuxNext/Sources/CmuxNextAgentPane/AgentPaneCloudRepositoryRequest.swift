@@ -92,7 +92,10 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
             }
         }
         do {
-            var sendable = params.sendableObject as! [String: any Sendable]
+            guard case let .object(values) = params else {
+                return AgentPaneReply.failure(code: "seed.bad_request", message: "Cloud repository parameters must be an object.")
+            }
+            var sendable = values.mapValues(\.sendableObject)
             if method != "cloud.repo.local", method != "cloud.repo.sync", let sessionID {
                 // The page never chooses the session. Bind this frame to the pane's own chat.
                 sendable["session"] = sessionID

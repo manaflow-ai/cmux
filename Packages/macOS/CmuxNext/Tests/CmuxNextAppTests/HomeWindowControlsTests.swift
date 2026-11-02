@@ -155,10 +155,13 @@ struct HomeWindowControlsTests {
         #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
     }
 
-    /// The avatar-only list keeps its band under the lights; an open search sits under them.
+    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
+    /// an open search sits under them too.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(closed.listTop == HomeSidebarHeaderLayout.band)
+        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
+        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
+        #expect(closed.listTop >= closed.filter.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)

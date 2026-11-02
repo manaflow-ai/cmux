@@ -1,5 +1,15 @@
-import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
-import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { authLoginText, authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
+import React, {
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
@@ -58,6 +68,14 @@ export type QuickMenu = {
   /// Account presentation alternatives for the gallery; the compact submenu is the default. Every
   /// layout but inline lists Cmux routers under a Provider heading inside the Account choices.
   routeLayout?: "submenu" | "inline" | "grouped";
+  /// How wide the menu is, for the gallery's versions; `fit` is the default (Leo 2026-11-01: "i
+  /// also don't like the way this composer has so much space between stuff surely we can get more
+  /// compact horizontally" / "see claude code has that"). `fit`: as wide as the open tab's rows, as
+  /// Claude Code's menu is, with an effort column as wide as a level's name. `stable`: as wide as the
+  /// rows every tab shows. `snug`: `stable` with tighter columns and a lower floor. Each of these
+  /// keeps its widest width while open, so a tab switch never narrows it (#25796). `wide`: the fixed
+  /// 480px menu with the 112px effort column (before).
+  widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
@@ -382,6 +400,34 @@ export function QuickModelMenu({
     const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
     selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [open, tab]);
+  // A compact width never narrows while the menu is open: a tab switch keeps the
+  // menu's width and the rail's place (#25796), though each tab's rows (Account and Effort show only
+  // on the chat's tab) want their own. The floor is the widest the menu has been since it opened;
+  // the observer goes with the rail, so it ends when the menu closes.
+  const railWidth = useRef<ResizeObserver | null>(null);
+  const holdsWidth = menu.widthLook !== "wide";
+  const railRef = useCallback(
+    (node: HTMLFieldSetElement | null) => {
+      rail.current = node;
+      railWidth.current?.disconnect();
+      railWidth.current = null;
+      const popupNode = node?.closest<HTMLElement>(".ui-popup");
+      if (!popupNode || !holdsWidth || typeof ResizeObserver === "undefined") return;
+      let widest = 0;
+      popupNode.style.minWidth = "";
+      const observer = new ResizeObserver(() => {
+        const width = popupNode.getBoundingClientRect().width;
+        if (width <= widest) return;
+        widest = width;
+        // Never past the room the pane gives (min-width beats max-width): a pane that narrows while
+        // the menu is open, or a first reading before the boundary applies, keeps it inside.
+        popupNode.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+      });
+      observer.observe(popupNode);
+      railWidth.current = observer;
+    },
+    [holdsWidth],
+  );
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
     setScrolled(false);
@@ -1144,7 +1190,7 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && auth && authText(auth.verdict, t) && (
+      {auth && authText(auth.verdict, t) && (
         <>
           <MenuSeparator />
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
@@ -1152,7 +1198,7 @@ export function QuickModelMenu({
           </MenuItem>
           {canSessionLogin(auth.verdict) && auth.onLogin && (
             <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+              <span className="acpmux-menu-label">{authLoginText(auth.verdict, t)}</span>
             </MenuItem>
           )}
           {auth.onRefresh && (
@@ -1206,13 +1252,19 @@ export function QuickModelMenu({
   // pushing the segments past the narrow chat boundary.
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
-      {families.list
-        .flatMap((family) => [...family.models, ...family.more])
+      {((menu.widthLook ?? "fit") !== "fit" || !shownTab ? families.list : shownTab.routes)
+        // The rows a tab shows, never its Legacy models: the longest model name of any harness's
+        // Legacy list sized the whole menu, so every row's keys sat far from its name.
+        .flatMap((family) => (menu.widthLook === "wide" ? [...family.models, ...family.more] : family.models))
         .map((model) => (
           <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
             <span className="acpmux-menu-label">{model.name}</span>
             {/* The effort column: its fixed width (CSS), never the levels side by side. */}
             {menu.inlineEffort === true && <span className="acpmux-quick-width-probe-efforts" />}
+            {/* The star and the ⌘N key after it, so every tab's rows fit whichever tab shows. */}
+            <span
+              className={`acpmux-quick-width-probe-trail${families.stars ? " acpmux-quick-width-probe-starred" : ""}`}
+            />
           </div>
         ))}
     </div>
@@ -1227,7 +1279,7 @@ export function QuickModelMenu({
         flip={false}
         align="start"
         label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+        className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "fit"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
         // A native menu panel cannot draw the harness strip or the More models scroll area.
         // Keep this combined surface inside the window in both directions.
@@ -1258,7 +1310,7 @@ export function QuickModelMenu({
         {families ? (
           <div className="acpmux-quick-layout">
             {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
+            <fieldset ref={railRef} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
               {tabs.map((entry) => {
                 const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
                 const name = entry.name;

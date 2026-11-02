@@ -13,8 +13,14 @@ extension WorkspaceRowView {
         let th = ceil(title.intrinsicContentSize.height)
         let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let top = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
-        return (th, sh, top, isExpanded ? top + th / 2 : b.height / 2)
+        let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
+        // The title centers its capitals on its line of the stack (#27598).
+        let titleCenter = stackTop + th / 2
+        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
+                                                                    capHeight: title.font.capHeight)
+        // The icon and the trailing marks center on the whole row, one line or two (Leo 2026-10-14: "wait that's
+        // not centered? why is it superscript?"); only an expanded row puts them on its title's line.
+        return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
@@ -31,8 +37,10 @@ extension WorkspaceRowView {
         // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
         let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
                     (bounds.width * 0.4).rounded(.down))
-        timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
-        return trailing - w - Metrics.space2
+        let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
+        timeLabel.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: height))
+        timeLabel.frame.origin.y = SidebarStyle.textY(timeLabel, centerY: cy)
+        return columns.trailingEdge(before: timeLabel.frame)
     }
 
     /// The Unpin button of an expanded pinned row, with the menu button (hover,
@@ -50,7 +58,7 @@ extension WorkspaceRowView {
             let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
             pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
         return showMore ? pinButton.frame.minX : nil
     }
@@ -60,6 +68,9 @@ extension WorkspaceRowView {
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        // The second and meta lines stack under the title's line box, so a two-line row keeps a one-line row's room
+        // below its last line (Leo 2026-10-20, `SidebarRowLineSpacingTests`). Stepping them by the title's capital
+        // center instead put the second line about a point lower and ate that room.
         subtitle.isHidden = !hasSubtitle
         subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta

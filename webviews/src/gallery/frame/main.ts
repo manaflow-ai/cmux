@@ -21,6 +21,9 @@ import { installUiFont } from "./uiFont";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
+import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
+import { startBoxTracker } from "../shift";
+import { collectInvariants, type Violation } from "../invariants";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -189,8 +192,64 @@ function markReady(): void {
   );
 }
 
+declare global {
+  interface Window {
+    cmuxGalleryLoadReport?: LoadReport;
+    /** The design specs' geometry rules this stage breaks (invariants.ts); the runner reads it after its screenshot. */
+    cmuxGalleryInvariants?: () => Violation[];
+  }
+}
+window.cmuxGalleryInvariants = () => collectInvariants(document);
+
+/**
+ * Opening the stage, measured like a play step: the browser's layout-shift entries since navigation
+ * and the tracked rows' boxes frame by frame (shift.ts), from before the mount until the play starts.
+ * A surface draws its final layout in its first frame (design/motion-and-polish.md: "No flicker, no
+ * layout shift"); the composer gap that jumps after load or the rail that grows in steps scores here.
+ */
+const loadShifts: Shift[] = [];
+type ShiftEntry = PerformanceEntry & {
+  value: number;
+  sources?: { node?: Node; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
+};
+const noteLoadShifts = (entries: PerformanceEntryList) => {
+  for (const shift of entries as ShiftEntry[]) {
+    const sources = shift.sources ?? [];
+    if (isSubpixelLayoutShift(sources)) continue;
+    loadShifts.push({
+      value: shift.value,
+      sources: sources.map(({ node }) =>
+        node instanceof Element
+          ? `${node.tagName.toLowerCase()}${typeof node.className === "string" && node.className ? `.${node.className.split(" ")[0]}` : ""}`
+          : "#text",
+      ),
+    });
+  }
+};
+const loadObserver = PerformanceObserver.supportedEntryTypes?.includes("layout-shift")
+  ? new PerformanceObserver((list) => noteLoadShifts(list.getEntries()))
+  : undefined;
+loadObserver?.observe({ type: "layout-shift", buffered: true });
+const loadBoxes = startBoxTracker(document, {
+  extra: () => (entry.anchors ?? []).flatMap((target) => resolveTarget(document, target) ?? []),
+});
+
+function finishLoad(): void {
+  if (window.cmuxGalleryLoadReport) return;
+  noteLoadShifts(loadObserver?.takeRecords() ?? []);
+  loadObserver?.disconnect();
+  const boxes = loadBoxes.stop();
+  window.cmuxGalleryLoadReport = {
+    layoutShift: Math.round(loadShifts.reduce((sum, shift) => sum + shift.value, 0) * 1e5) / 1e5,
+    shifts: loadShifts.slice(0, 24),
+    boxShift: boxes.score,
+    boxMoves: boxes.moves,
+  };
+}
+
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
 async function playThenReady(): Promise<void> {
+  finishLoad();
   const variant = entry.variants[variantName];
   const play = variant?.play;
   if (play) {

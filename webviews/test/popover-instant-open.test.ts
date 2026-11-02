@@ -187,6 +187,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 2,
     what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack",
   },
+  "src/agent-session/acpmux/chatSwitch.ts": {
+    count: 1,
+    what: "a chat switch: the transcript's rows, the title and Session Info move in (an opt-in experiment)",
+  },
   "src/agent-session/acpmux/changes/treeMotionDom.ts": { count: 4, what: "the changes tree's rows move and tint" },
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },

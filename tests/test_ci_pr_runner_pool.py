@@ -789,6 +789,17 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.live_owned_free(runners, ("cmux-fleet-linux-x64",)),
                          {"cmux-fleet-linux-x64": 1})
 
+    def test_runners_fails_closed_when_approved_gcp_group_is_unreadable(self):
+        client, _ = self.fake_api({
+            self.REPO_RUNNERS: {"runners": []},
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                             {"id": 24, "name": "cmux-fleet-linux"}]},
+            self.GROUP_RUNNERS: {"runners": []},
+            self.FLEET_GROUP_RUNNERS: 403,
+        })
+        with self.assertRaisesRegex(RuntimeError, "approved org runner group unreadable.*Self-hosted runners: read"):
+            client.runners()
+
     def test_runners_pages_through_a_full_group(self):
         page = [{"id": n, "status": "online", "busy": False, "labels": [{"name": MINI}]} for n in range(100)]
         second = self.GROUP_RUNNERS.replace("&page=1", "&page=2")

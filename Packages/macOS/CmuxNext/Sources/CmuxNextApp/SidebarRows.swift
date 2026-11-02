@@ -16,6 +16,7 @@ import CmuxNextSidebar
 @MainActor
 final class SidebarRows {
     private let model: SidebarModel
+    private let document: @MainActor () -> SidebarDocStore?
     private var live: [SidebarRowSection] = []
     /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
     /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
@@ -40,8 +41,10 @@ final class SidebarRows {
     }
     #endif
 
-    init(model: SidebarModel) {
+    /// `document`: the app's own sidebar document store (nil before it starts).
+    init(model: SidebarModel, document: @escaping @MainActor () -> SidebarDocStore?) {
         self.model = model
+        self.document = document
     }
 
     /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
@@ -58,16 +61,15 @@ final class SidebarRows {
         return visible
     }
 
-    /// The layout window `windowID` draws: `visibleLayout` without the band's
-    /// workspaces another window owns, so a new window starts clean. Only on
-    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
-    /// older owner's index ops count the stored layout; the bridge translates
-    /// visible item indexes back to stored indexes before sending edits.
-    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
-                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
-        guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
-        return visibleLayout(document, showAppStore: showAppStore)
-            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App
+    /// Store only under Preview Features) without the band's workspaces another window owns or its space hides,
+    /// so a new window starts clean. Only on the sidebar document, whose band moves anchor on a drawn neighbour;
+    /// the older owner's index ops count the stored layout; the bridge translates visible item indexes back.
+    static func visibleLayout(_ services: AppServices, window: WindowState) -> SidebarLayoutDocument {
+        let visible = visibleLayout(services.sidebarLayout.document, showAppStore: services.settings?.snapshot.previewFeatures == true)
+        guard services.sidebarDoc.isActive else { return visible }
+        return visible.scopedToWindow(ownedElsewhere: bandHides(window: window.id, profile: window.profileID, machines: services.machines,
+                                                                 registry: services.windows.registry.value))
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
@@ -114,7 +116,7 @@ final class SidebarRows {
     }
 
     /// The live rows are a projection behind the sidebar document (`NewWorkspaceDefaultSlot.layoutCatchingUp`).
-    var layoutCatchingUp: Bool { NewWorkspaceDefaultSlot.layoutCatchingUp(rowsAt: liveShownAt) }
+    var layoutCatchingUp: Bool { NewWorkspaceDefaultSlot.layoutCatchingUp(document(), rowsAt: liveShownAt) }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     func patch(_ changed: [SidebarWorkspace]) {

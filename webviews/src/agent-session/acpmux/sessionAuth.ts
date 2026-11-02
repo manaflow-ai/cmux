@@ -124,6 +124,15 @@ export function useRouteAuthSwitch(apply: (sessionId: string, routeId: string) =
 export function authBlocksSend(auth: SessionAuth | undefined): boolean {
   return auth?.state === "signedOut" || auth?.state === "expired" || auth?.state === "routeAuthNeeded";
 }
+export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
+  return t(
+    auth?.state === "expired" ||
+      auth?.state === "routeAuthNeeded" ||
+      (auth?.state === "signedOut" && auth.source === "turn")
+      ? "turn.signInAgain"
+      : "harness.logIn",
+  );
+}
 export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   if (!auth) return undefined;
   const harness = auth.harness ?? t("picker.model");
@@ -133,7 +142,7 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
       : auth.state === "expired"
         ? t("turn.authExpired")
         : auth.state === "routeAuthNeeded"
-          ? `${t("picker.account")} · ${t("harness.logIn")}`
+          ? `${t("picker.account")} · ${authLoginText(auth, t)}`
           : auth.state === "routeUnreachable"
             ? t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") })
             : auth.state === "peerUnreachable"
@@ -152,7 +161,7 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
 
 export function authChipText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   return authBlocksSend(auth)
-    ? t("harness.logIn")
+    ? authLoginText(auth, t)
     : auth?.state === "routeUnreachable" || auth?.state === "peerUnreachable"
       ? t("picker.unavailable")
       : undefined;
@@ -173,6 +182,23 @@ export async function sessionLogin(
   const command = auth.login?.command;
   if (!command || !canSessionLogin(auth)) return authText(auth);
   await open({ kind: "terminal", text: command, ...(cwd ? { cwd } : {}), run: true });
+}
+
+/// What `/login` runs (Lawrence, via Leo: "in gui, having /resume would be nice, maybe /login as
+/// well"): acpmux's own sign-in for a chat it found signed out (its command keeps the route's
+/// account home); else, for a chat acpmux says is on this Mac (`host: null`, never a missing or
+/// unknown host) with no route, the harness's declared login (`catalog[].auth.login`), so a
+/// signed-in chat can sign in again or switch accounts. A route may name its own account home and
+/// another host signs in there, so neither gets the default login.
+export function slashLogin(
+  auth: SessionAuth | undefined,
+  declared: string | undefined,
+): { kind: "session" } | { kind: "terminal"; command: string } | undefined {
+  if (canSessionLogin(auth)) return { kind: "session" };
+  const command = declared?.trim();
+  if (!command || !auth || auth.host !== null || auth.routeId || auth.login?.kind === "route" || auth.login?.host)
+    return undefined;
+  return { kind: "terminal", command };
 }
 
 export type SessionAuthQuery = { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } };
