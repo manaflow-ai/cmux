@@ -506,7 +506,10 @@ class Launch:
         LaunchServices started (never a CEF helper, nor one that ran before this launch)."""
         if self._pid is None:
             binary = app_binary(self.tag)
-            fresh = [pid for pid in pgrep("^" + re.escape(binary) + "$") if pid not in self.known_pids]
+            # /tmp is /private/tmp: the process may show either spelling (as bundle_root).
+            path = re.escape(binary.removeprefix("/private"))
+            pattern = f"^(/private)?{path}$" if binary.removeprefix("/private").startswith("/tmp/") else f"^{path}$"
+            fresh = [pid for pid in pgrep(pattern) if pid not in self.known_pids]
             self._pid = max(fresh) if fresh else None
         return self._pid
 
@@ -536,9 +539,10 @@ class Launch:
             if remaining <= 0:
                 return False
             # An active launch's FIFO has the bench's own writer: no end of file at a crash, so its pid is checked.
-            ready, _, _ = select.select([self.read_fd], [], [], min(remaining, 0.5) if self.hold_fd is not None else remaining)
+            watching = getattr(self, "hold_fd", None) is not None  # a Launch built without __init__ (tests) has none
+            ready, _, _ = select.select([self.read_fd], [], [], min(remaining, 0.5) if watching else remaining)
             if not ready:
-                if self.hold_fd is not None and time.monotonic() < deadline and self.alive():
+                if watching and time.monotonic() < deadline and self.alive():
                     continue
                 return False
             chunk = os.read(self.read_fd, 65536)
