@@ -5721,9 +5721,11 @@ jobs:
           path: nightly-out
 
       # One nightly-next feed writer at a time across runs (publish-lease.sh), from the first
-      # feed read to the read-back. TTL: this job's whole 180-minute timeout, so a holder's lease
-      # never expires while it can still write; publish-release-notes passes the same TTL, since
-      # a waiter judges expiry by its own. The wait (60 minutes) is added to the timeout.
+      # feed read to the read-back. TTL 15 minutes, renewed every minute by a heartbeat that
+      # dies with the job, so a dead holder blocks the feed one TTL, inside its 30-minute
+      # freshness bound; publish-release-notes passes the same TTL, since a waiter judges
+      # expiry by its own. Max hold: this job's 180-minute timeout. The wait (60 minutes) is
+      # added to the timeout.
       - name: Take the nightly-next publish lease
         id: lease
         if: needs.decide.outputs.track == 'nightly-next'
@@ -5735,7 +5737,9 @@ jobs:
           # Shared with publish-release-notes: notes ordering relies on the same lock.
           LEASE_KEY: nightly-next/locks/publish-nightly-next.json
           LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
-          LEASE_TTL: 10800
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          LEASE_MAX_HOLD: 10800
           LEASE_WAIT: 3600
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh lock
 
@@ -6028,7 +6032,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-readback.sh
 
       - name: Release the nightly-next publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *next-publish-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
@@ -7062,8 +7066,9 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      # The old feed's lease (publish-lease.sh), before its order check reads it. TTL: this
-      # job's whole 150-minute timeout; the wait (60 minutes) is added to the timeout.
+      # The old feed's lease (publish-lease.sh), before its order check reads it. TTL 15
+      # minutes, renewed every minute while the job lives; max hold: this job's 150-minute
+      # timeout. The wait (60 minutes) is added to the timeout.
       - name: Take the old feed's publish lease
         id: lease
         if: env.SIGN_SKIP == 'false'
@@ -7074,7 +7079,9 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           LEASE_KEY: nightly-next/locks/legacy-identity-publish.json
           LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
-          LEASE_TTL: 9000
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          LEASE_MAX_HOLD: 9000
           LEASE_WAIT: 3600
         run: bash scripts/ci/nightly-steps/publish-lease.sh lock
 
@@ -7224,7 +7231,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/legacy-identity-readback.sh
 
       - name: Release the old feed's publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *legacy-publish-lease
         run: bash scripts/ci/nightly-steps/publish-lease.sh unlock
 
@@ -7808,7 +7815,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
       - name: Release the nightly-next publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *next-publish-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
