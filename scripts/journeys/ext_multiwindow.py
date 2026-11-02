@@ -143,7 +143,7 @@ def read_state(j, cache=None):
         side = sides.get(wid) or {}
         items = [i for i in side.get("items") or [] if isinstance(i, dict)]
         rows = [r for r in side.get("rows") or [] if isinstance(r, dict) and r.get("in_list", True) and not r.get("suppressed")]
-        home_item = next((i for i in items if i.get("ref_kind") == "built_in" and i.get("ref") == "home"), None)
+        home_item = next((i for i in items if is_home_item(i)), None)
         ws = workspaces.get(w.get("selected") or "")
         page = w.get("shown_page")
         tw = topo_windows.get(wid) or {}
@@ -286,13 +286,20 @@ def step_remember_windows(j, step):
     return {"windows": [compact(s) for s in state.values()]}
 
 
+def is_home_item(item):
+    """The sidebar's Home item: the built-in `home` (feat) or the app item `cmux/home` (the dogfood line f350103 lists
+    Home among the app items: debug.sidebar_rows ref_kind "app", ref "cmux/home")."""
+    return isinstance(item, dict) and ((item.get("ref_kind") == "built_in" and item.get("ref") == "home")
+                                       or (item.get("ref_kind") == "app" and item.get("ref") == "cmux/home"))
+
+
 def sidebar_target(j, wid, step):
     report = j.app.rpc("debug.sidebar_rows") or {}
     side = next((w for w in report.get("windows") or [] if isinstance(w, dict) and w.get("window") == wid), None)
     if side is None:
         raise D.StepError(f"debug.sidebar_rows has no sidebar for window {wid}")
     if step.get("home"):
-        item = next((i for i in side.get("items") or [] if i.get("ref_kind") == "built_in" and i.get("ref") == "home"), None)
+        item = next((i for i in side.get("items") or [] if is_home_item(i)), None)
         if not item or not item.get("window_frame"):
             raise D.StepError(f"window {wid}'s sidebar shows no Home item: "
                               f"{[(i.get('ref_kind'), i.get('ref'), bool(i.get('window_frame'))) for i in side.get('items') or []]}")
