@@ -390,6 +390,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             guard tab.kind == .browser else { return false }
             let tabProfile = services.browserProfiles.profileID(ofTab: tab)
             guard tabProfile == (profile ?? BrowserProfileRecord.defaultID) else { return false }
+            let tabEngine = tab.browserEngine ?? BrowserEngineTag.webkit.rawValue
+            guard tabEngine == engine else { return false }
             let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
             return shown.map { SidebarBridge.samePage($0, url) } == true
         }) else { return false }
