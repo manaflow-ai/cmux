@@ -1474,6 +1474,33 @@ mod endpoint_tests {
         }
     }
 
+    #[test]
+    fn acpmuxs_own_disallowed_tools_pass_and_other_tool_args_do_not() {
+        let ok = |argv: &[&str]| {
+            claude_args(bound(None).endpoint.as_ref(), &profile(argv, &[]), vec![]).is_ok()
+        };
+        // `acpmux new --prompt-file` / `--report-to` from a peer, and a chat with a server off.
+        assert!(ok(&["claude", "--disallowedTools", "AskUserQuestion"]));
+        assert!(ok(&[
+            "claude",
+            "--disallowedTools",
+            "AskUserQuestion",
+            "--disallowedTools",
+            "mcp__claude_ai_Gmail"
+        ]));
+        for argv in [
+            &["claude", "--disallowedTools"][..],
+            &["claude", "--disallowedTools", "Bash(rm:*)"],
+            &["claude", "--disallowedTools", "--settings"],
+            &["claude", "--disallowedTools=AskUserQuestion"],
+            &["claude", "--disallowed-tools", "AskUserQuestion"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--allowedTools", "Bash"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--dangerously-skip-permissions"],
+        ] {
+            assert!(!ok(argv), "{argv:?}");
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_refuses_loader_profile_env() {
