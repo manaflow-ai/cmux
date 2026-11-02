@@ -1019,8 +1019,8 @@ def launch_stalls(tag, spawned_at=None):
     stalls = [{"ms": round(record.get("duration_ms", 0), 1), "cpu_ms": round(record.get("cpu_ms", 0), 1),
                **({"at_ms": round(record["start_uptime_ns"] / 1e6 - spawned_at * 1000, 1)}
                   if spawned_at is not None and "start_uptime_ns" in record else {}),
-               "frames": [f for f in record.get("frames", []) if "cmux" in f or "CmuxNext" in f][:8]
-               or record.get("frames", [])[:8]}
+               # REOPEN-F7 scratch: the whole stack, innermost first (AppKit, QuartzCore and CoreText frames too).
+               "frames": record.get("frames", [])[:60]}
               for record in hangs.get("records", [])]
     return sorted(stalls, key=lambda stall: -stall["ms"])
 
