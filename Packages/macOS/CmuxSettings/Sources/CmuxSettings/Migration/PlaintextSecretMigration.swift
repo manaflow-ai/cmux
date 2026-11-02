@@ -150,6 +150,8 @@ public enum PlaintextSecretMigration {
                 to: writeURL,
                 expected: data,
                 isTargetCurrent: {
+                    // The closure must be @Sendable and FileManager isn't, so this
+                    // uses .default, as the publisher itself does.
                     JSONConfigStore.resolvedWriteURL(for: configURL, fileManager: .default) == writeURL
                 }
             )

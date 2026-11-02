@@ -36,6 +36,16 @@ struct JSONConfigWriteLock: Sendable {
         try JSONConfigWriteLock(blockingTarget: target, waits: false)
     }
 
+    /// Opens (creating if needed) the `<target>.cmux-write.lock` sidecar and
+    /// takes an exclusive `flock` on it.
+    ///
+    /// - Parameters:
+    ///   - target: The config file the lock guards; the sidecar sits beside it.
+    ///   - waits: When `true`, blocks the calling thread until the lock is
+    ///     granted, so only call it off the actor (see ``acquire(target:)``).
+    ///     When `false`, throws `EWOULDBLOCK` at once if another writer holds it.
+    /// - Throws: A `POSIXError` if the sidecar can't be opened, isn't a regular
+    ///   file owned by this user with one link, or the lock isn't granted.
     private init(blockingTarget target: URL, waits: Bool = true) throws {
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(),
