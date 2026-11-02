@@ -33,6 +33,9 @@
    ]
   },
   {
+   "do": "switch_adopt_shown"
+  },
+  {
    "do": "expect",
    "title": "the shown marker workspace prints WARMCOST-MARK in the daemon, the app and on screen",
    "timeout": 10,

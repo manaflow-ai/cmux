@@ -852,8 +852,9 @@ def step_switch_warmbusy(j, step):
                "warm_terminal_capacity": info.get("warm_terminal_capacity"),
                "app_cpu_pct": round(100.0 * (b[0] - a[0]) / 1e9 / window, 2) if a and b else None,
                "app_wakeups_per_s": round((b[1] - a[1]) / window, 1) if a and b else None,
-               "wakeup_ledger": json.dumps(ledger, default=str)[:1500]}
+               "wakeup_ledger": json.dumps(ledger, default=str)[:6000]}
         print("WARMBUSY " + json.dumps({k: v for k, v in row.items() if k != "wakeup_ledger"}), flush=True)
+        print("WARMBUSY-LEDGER %d %s" % (made, row["wakeup_ledger"]), flush=True)  # the owners by name (video/ is not pulled back on a fail)
         return row
 
     rows, made = [], 0
