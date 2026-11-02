@@ -30,16 +30,21 @@ enum TabCloseGuard {
         let ids = Set(tabs.map(\.id))
         asking.formUnion(ids)
         reading.formUnion(ids)
-        // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
-        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window)
         // The tabs leave now, their terminals alive: only the daemon's read below ends a process (SL-3; lead, #31875).
-        let hidden = parts.isEmpty || !parts.allSatisfy({ $0.pane.daemon === daemon && !empties($0.pane, closing: $0.ids) }) ? nil
-            : HiddenTabClose.hide(parts.flatMap { part in part.ids.compactMap { part.pane.tab($0)?.surface } }, in: daemon.store, panes: parts.map { part in
-                let pane = part.pane, selected = pane.stripModel.selectedID
-                return { restored in pane.apply(pane.snapshot()); if restored, let selected { pane.select(selected) } }
-            })
+        // A page that decides its own close (beforeunload) is never hidden: it runs its decision after the read, in place.
+        let decides = services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
+        let hides = !parts.isEmpty && parts.allSatisfy { part in part.pane.daemon === daemon && !empties(part.pane, closing: part.ids)
+            && !part.ids.contains { decides(part.pane, $0) } }
+        // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
+        // Opened while the closing tab still has the focus; with the hide, every key of the window is the close's.
+        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window, hides: hides)
+        let hidden = !hides ? nil : HiddenTabClose.hide(parts.flatMap { part in part.ids.compactMap { part.pane.tab($0)?.surface } }, in: daemon.store,
+                                                        panes: parts.map { part in
+            let pane = part.pane, selected = pane.stripModel.selectedID
+            return { restored in pane.apply(pane.snapshot()); if restored, let selected { pane.applySelection(selected) } }
+        })
         Task { @MainActor in
-            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
+            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services, confirmed: hidden != nil)
             reading.subtract(ids)
             guard let prompt else {
                 asking.subtract(ids)
@@ -126,10 +131,12 @@ enum TabCloseGuard {
 
     /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
     /// agent or a foreground program asks), plus each terminal it asked and its answer.
-    static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
-                                 services: AppServices) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
+    /// `confirmed`: a terminal that gives no answer asks (``DestructiveConfirmation/confirmedPrograms(bySurface:on:)``).
+    static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices,
+                                 confirmed: Bool = false) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
-        let asked = reads.warnTab ? await DestructiveConfirmation.runningPrograms(bySurface: reads.others, on: daemon) : [:]
+        let read = confirmed ? DestructiveConfirmation.confirmedPrograms : DestructiveConfirmation.runningPrograms
+        let asked = reads.warnTab ? await read(reads.others, daemon) : [:]
         return (question(tabs, reads, asked), asked)
     }
 

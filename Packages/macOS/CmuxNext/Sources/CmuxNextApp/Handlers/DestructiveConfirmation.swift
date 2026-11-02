@@ -126,23 +126,13 @@ enum DestructiveConfirmation {
     /// The same for `tabs` (their live terminals only).
     static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] { await runningPrograms(bySurface: tabs, on: daemon).programNames }
 
-    /// The same, per asked terminal: each live terminal's foreground program,
-    /// or nil when it runs none (or did not answer). One gesture asks once and
-    /// passes this on (a close's question, then its undo toast decision).
-    static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
-        let surfaces = tabs.filter { $0.kind == .pty && !$0.dead }.map(\.surface)
-        guard let connection = daemon.connection, !surfaces.isEmpty else { return [:] }
-        await daemon.closeReadStarts() // a test may hold the read here (debug.close.hold, DEBUG and bench builds)
-        return await withTaskGroup(of: (SurfaceID, String?).self) { group in
-            for surface in surfaces {
-                group.addTask {
-                    (surface, await connection.readProcessInfo(surface, timeout: .seconds(1))?.runningProgram)
-                }
-            }
-            var programs: RunningPrograms = [:]
-            for await (surface, program) in group { programs[surface] = .some(program) }
-            return programs
-        }
+    /// The same, per asked terminal (``DaemonService/runningPrograms(of:unanswered:)``).
+    static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms { await daemon.runningPrograms(of: tabs) }
+
+    /// Its foreground program for each terminal, a terminal that gave no answer counted as running its title: only a
+    /// confirmed "no program" closes it without the question (lead, #31875).
+    static func confirmedPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
+        await daemon.runningPrograms(of: tabs, unanswered: \.displayTitle)
     }
 
     /// The targeted (or focused tab's) open tab group's tabs and their

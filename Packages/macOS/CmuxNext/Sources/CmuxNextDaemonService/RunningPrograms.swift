@@ -27,3 +27,28 @@ public enum CloseWarning: Equatable, Sendable {
         return nil
     }
 }
+
+extension DaemonService {
+    /// Each live terminal of `tabs`' foreground program, or nil when it runs none: one bounded read (1 s) per terminal,
+    /// concurrent. One gesture asks once and passes this on (a close's question, then its undo toast decision).
+    /// `unanswered`: what a terminal that gave no answer (or every terminal, with no connection) counts as running;
+    /// nil counts it as running none.
+    @MainActor public func runningPrograms(of tabs: [TabModel], unanswered: (@MainActor (TabModel) -> String)? = nil) async -> RunningPrograms {
+        let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
+        guard let connection, !terminals.isEmpty else {
+            return Dictionary(uniqueKeysWithValues: terminals.map { ($0.surface, unanswered.map { pick in .some(pick($0)) } ?? .some(nil)) })
+                .filter { _ in unanswered != nil }
+        }
+        await closeReadStarts() // a test may hold the read here (debug.close.hold, DEBUG and bench builds)
+        let fallback = Dictionary(uniqueKeysWithValues: terminals.map { ($0.surface, unanswered?($0)) })
+        return await withTaskGroup(of: (SurfaceID, String?).self) { group in
+            for tab in terminals {
+                let surface = tab.surface, otherwise = fallback[surface] ?? nil
+                group.addTask { (surface, await connection.readProcessInfo(surface, timeout: .seconds(1)).map(\.runningProgram) ?? otherwise) }
+            }
+            var programs: RunningPrograms = [:]
+            for await (surface, program) in group { programs[surface] = .some(program) }
+            return programs
+        }
+    }
+}

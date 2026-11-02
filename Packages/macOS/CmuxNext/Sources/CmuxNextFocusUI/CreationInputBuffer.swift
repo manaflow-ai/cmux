@@ -82,12 +82,18 @@ public final class CreationInputBuffer {
 
     /// Opens a pending close of tabs `closing` (the focused terminal's first, on `machine`): keys typed while the focus
     /// names one of them are its own.
-    public func openClose(closing: [String], machine: String?) -> Ticket {
+    /// `takesEveryKey`: the close took its tabs out of the strip while it reads (the focus moved to a neighbour the
+    /// person did not pick): every key typed in the window until it answers is the close's, whatever has the focus.
+    public func openClose(closing: [String], machine: String?, takesEveryKey: Bool = false) -> Ticket {
         let ticket = open(generation: 0)
         closingTabs[ticket.id] = closing
         laneMachines[ticket.id] = machine
+        if takesEveryKey { everyKeyCloses.insert(ticket.id) }
         return ticket
     }
+
+    /// Closes that take every key of the window while they read (``openClose(closing:machine:takesEveryKey:)``).
+    private var everyKeyCloses: Set<Int> = []
 
     /// Whether a close of this hold still waits for its answer and closes `tab`.
     public func isClosing(tab: String) -> Bool { closingTabs.values.contains { $0.contains(tab) } }
@@ -99,6 +105,7 @@ public final class CreationInputBuffer {
     /// While another close still waits for its answer (two quick Cmd-Ws), the keys become that close's, in order.
     public func settleClose(_ ticket: Ticket, parked: ParkedClose? = nil, keysTo tab: String?, machine: String?) {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return }
+        everyKeyCloses.remove(ticket.id)
         if let parked { events.insert(contentsOf: parked.events.map { ($0, ticket.id) }, at: 0) }
         if let next = closingTabs.keys.max() {
             events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
@@ -113,6 +120,7 @@ public final class CreationInputBuffer {
     /// so the question's own keys are never held), in typing order, and the close waits for nothing more here.
     public func parkClose(_ ticket: Ticket) -> ParkedClose? {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return nil }
+        everyKeyCloses.remove(ticket.id)
         let parked = events.filter { $0.creation == ticket.id }.map(\.event)
         events.removeAll { $0.creation == ticket.id }
         resolve(ticket, awaitsFocus: false)
@@ -136,6 +144,7 @@ public final class CreationInputBuffer {
     /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
     /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
     public func lane(focusedTab: String?) -> Int? {
+        if let close = everyKeyCloses.filter({ closingTabs[$0] != nil }).max() { return close }
         guard let focusedTab else { return nil }
         if let close = closingTabs.filter({ $0.value.contains(focusedTab) }).map(\.key).max() { return close }
         return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
