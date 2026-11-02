@@ -122,7 +122,10 @@ def cua_call(tool, args, timeout=30):
     before/after screenshots (0.5-2.6 s per action while a film runs) do not apply to it. Returns (sent wall, done
     wall, answer)."""
     sent = time.time()
-    done = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=timeout)
+    try:
+        done = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise D.StepError(f"cua-driver call {tool} ran past {timeout} s")
     return sent, time.time(), ((done.stdout or "") + (done.stderr or ""))[-300:]
 
 
@@ -456,6 +459,11 @@ def exact_state(j):
         if term:
             by_tab[tab.get("id")] = term
             by_pane.setdefault(pane.get("id"), []).append(term)
+    # A pane whose program draws all the time (a TUI) has no fixed screen to compare: read the screens again.
+    time.sleep(0.3)
+    again = {t["pane"]: t["text"] for t in _visible_terminals(j)}
+    for t in terms:
+        t["live"] = again.get(t["pane"]) != t["text"]
     for t in terms:
         # The pane's SHOWN tab's terminal; a pane with one terminal tab when the tab id is not in the topology.
         only = by_pane.get(t["pane"]) or []
@@ -470,7 +478,7 @@ def exact_state(j):
         "server_windows": [{k: w.get(k) for k in ("order", "number", "x", "y", "w", "h")} for w in main_windows(server)],
         "helper_windows": len(server) - len(main_windows(server)),
         "topology": _topology_shape(topo),
-        "visible_terminals": [{k: t[k] for k in ("window", "pane", "terminal", "workspace", "focused", "grid", "shown_tab")}
+        "visible_terminals": [{k: t[k] for k in ("window", "pane", "terminal", "workspace", "focused", "grid", "shown_tab", "live")}
                               for t in terms],
         "screens": {t["pane"]: t["text"] for t in terms},
         "history": {t["pane"]: _history(j, t["terminal"]) for t in terms if t.get("terminal")},
@@ -533,6 +541,8 @@ def state_differences(before, after):
         for key in ("frame_x", "frame_y", "frame_width", "frame_height", "cell_width", "cell_height"):
             if bg.get(key) != ag.get(key):
                 out.append(f"pane {pane[-8:]} {key} {bg.get(key)} -> {ag.get(key)}")
+        if b.get("live") or a.get("live"):
+            continue  # a live program (its screen changes by itself): screen and scrollback not compared
         if _screen_lines(before["screens"].get(pane)) != _screen_lines(after["screens"].get(pane)):
             out.append(f"pane {pane[-8:]} screen text differs")
         bh, ah = before["history"].get(pane) or {}, after["history"].get(pane) or {}
@@ -693,7 +703,7 @@ def _reopen(j, record, env):
     return pid
 
 
-def _type_markers(j, cua, pid, before, rects, record):
+def _type_markers(j, cua, keys, pid, before, rects, record):
     """A real HID marker key into the focused terminal as soon as the reopened app has a window, then a click and
     the key into each other visible terminal, each with its wall time and the cell it should echo in."""
     marks = []
@@ -707,11 +717,8 @@ def _type_markers(j, cua, pid, before, rects, record):
         record["markers_error"] = "the reopened app showed no window"
         return marks
     record["window_listed_wall"] = time.time()
-    # The app's main window (its helper windows are layer 0 too, a few points wide): the largest of the new pid.
-    server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == pid])
-    main = max(server, key=lambda w: w["w"] * w["h"]) if server else None
-    wid = int(main["number"]) if main else _wid(windows[0])
-    record["marker_window"] = main
+    main = None
+    wid = _wid(windows[0])
     terms = before["visible_terminals"]
     order = [t for t in terms if t["focused"]] + [t for t in terms if not t["focused"]]
     for index, t in enumerate(order):
@@ -720,6 +727,13 @@ def _type_markers(j, cua, pid, before, rects, record):
             continue
         cell = cursor_cell(before["screens"].get(t["pane"]), rect)
         mark = {"pane": t["pane"], "focused_before": t["focused"], "cell": cell}
+        if index > 0 and main is None:
+            # The app's main window (its helper windows are layer 0 too, a few points wide): the largest of the new
+            # pid; looked up only now, after the focused pane's key (that key needs no click).
+            server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == pid])
+            main = max(server, key=lambda w: w["w"] * w["h"]) if server else {"x": 0, "y": 0, "number": wid}
+            wid = int(main.get("number") or wid)
+            record["marker_window"] = main
         if index > 0:
             # A click in the pane's lower half, on its text area (window points from the window's top-left).
             sx, sy = rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] * 0.6
@@ -729,17 +743,18 @@ def _type_markers(j, cua, pid, before, rects, record):
                 post_click(sx, sy)
                 mark["click_path"] = "CGEventPost HID"
             else:
-                _s, _d, mark["click_answer"] = cua_call("click", {"pid": pid, "window_id": wid, "x": sx - origin["x"],
-                                                                  "y": sy - origin["y"], "delivery_mode": "foreground"})
-                mark["click_path"] = "cua call click (own session, foreground HID)"
+                scale = float((record.get("screen") or {}).get("scale") or 1)
+                keys.tool("click", {"scope": "desktop", "x": sx * scale, "y": sy * scale}, check=False)
+                mark["click_path"] = "cua click, desktop scope (second session, no recording)"
             mark["click_done_wall"] = time.time()
         if record.get("can_post_events"):
             mark["key_sent_wall"], mark["key_done_wall"] = post_key()
             mark["key_path"] = "CGEventPost HID"
         else:
-            mark["key_sent_wall"], mark["key_done_wall"], mark["key_answer"] = cua_call(
-                "press_key", {"pid": pid, "window_id": wid, "key": MARKER_KEY, "delivery_mode": "foreground"})
-            mark["key_path"] = "cua call press_key (own session, foreground HID)"
+            mark["key_sent_wall"] = time.time()
+            keys.tool("press_key", {"scope": "desktop", "key": MARKER_KEY}, check=False)
+            mark["key_done_wall"] = time.time()
+            mark["key_path"] = "cua press_key, desktop scope (second session, no recording)"
         marks.append(mark)
     return marks
 
@@ -748,7 +763,10 @@ def _clean_markers(j, before, marks):
     """Removes the marker characters (Ctrl-U to each shell through the daemon) and gives focus back to the pane
     that had it, so the next cycle starts from the same state; returns the errors (recorded, never hidden)."""
     errors = []
+    marked = {m["pane"] for m in marks}
     for t in before["visible_terminals"]:
+        if t["pane"] not in marked:
+            continue  # only the panes that got a marker key (never a key into a running TUI)
         if not t.get("terminal"):
             errors.append(f"pane {t['pane'][-8:]}: no daemon terminal to clean")
             continue
@@ -810,6 +828,7 @@ def step_reopen_video(j, step):
         shutil.rmtree(movie_dir, ignore_errors=True)
         movie_dir.mkdir(parents=True, exist_ok=True)
         cua = Cua()
+        keys = Cua()  # a second session for the marker keys and clicks: no recording, no per-action screenshots
         try:
             # The pointer away from the sync points before the film starts.
             away = (float(screen.get("w") or 1920) - 620, 11)
@@ -836,16 +855,22 @@ def step_reopen_video(j, step):
             time.sleep(0.3)
             _end(j, cua, how, record)
             pid = _reopen(j, record, env)
-            marks = _type_markers(j, cua, pid, before, rects, record) if step.get("type_keys", True) else []
+            marks = _type_markers(j, cua, keys, pid, before, rects, record) if step.get("type_keys", True) else []
             record["markers"] = marks
             time.sleep(TAIL_SECONDS)
             cua.tool("stop_recording", {}, check=False, timeout=60)
             record["record_stopped_wall"] = time.time()
         finally:
+            keys.close()
             cua.close()
         settled = _settle(j)
         record["settled"] = settled
         record["pid_matches"] = record.get("new_pid") == j.app.pid
+        try:
+            # The app's own input journal (what reached it and when, in its own clock): the marker keys' arrival.
+            record["journal"] = (j.app.rpc("debug.journal", {"last": 60}, timeout=10) or {}).get("entries")
+        except (D.StepError, OSError, ValueError) as error:
+            record["journal"] = {"error": str(error)[-200:]}
         try:
             timings = j.app.rpc("debug.timings", timeout=10) or {}
         except (D.StepError, OSError, ValueError):
@@ -863,10 +888,11 @@ def step_reopen_video(j, step):
         record["after"] = after
         record["after_pane_rects"] = pane_rects(after)
         # Where each marker key went: the screens after hold one more "x" after the prompt per key received.
+        trailing = lambda line: len(line.rstrip()) - len(line.rstrip().rstrip(MARKER_KEY))
         for mark in record.get("markers") or []:
             b = (before["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
             a = (after["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
-            mark["received"] = len(a.rstrip()) - len(b.rstrip())
+            mark["received"] = trailing(a) - trailing(b)
         # The marker keys are in the screens after; judged by the video. Exactness compares the state without them.
         record["clean_errors"] = _clean_markers(j, before, record.get("markers") or [])
         cleaned = exact_state(j)
@@ -899,14 +925,19 @@ def step_heavy_profile(j, step):
             "--workspaces", str(step.get("workspaces", 40)), "--tabs", str(step.get("tabs", 200)),
             "--visible", str(step.get("visible", 12)), "--duration", str(step.get("duration", 900)),
             "--app-socket", j.app.sock, "--home", j.app.home, "--cli", j.app.cli, "--out", str(out)]
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=float(step.get("timeout", 180)))
     j.heavy_manifest = out / "heavy.json"
-    if done.returncode not in (0, 1):
-        raise D.StepError(f"heavy_profile build exited {done.returncode}: {(done.stderr or done.stdout)[-400:]}")
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=float(step.get("timeout", 180)))
+    except subprocess.TimeoutExpired:
+        raise D.StepError(f"heavy_profile build ran past {step.get('timeout', 180)} s")
     try:
         manifest = json.loads(j.heavy_manifest.read_text())
     except (OSError, ValueError):
         manifest = {}
+    if done.returncode != 0 or not (manifest.get("check") or {}).get("ok", done.returncode == 0):
+        # A profile not fully built (heavy_profile exit 1: fewer items than planned) gives no HEAVY number.
+        raise D.NotRun(f"set-up: the HEAVY profile was not fully built (exit {done.returncode}, check "
+                       f"{json.dumps(manifest.get('check'))[:300]}): {(done.stderr or done.stdout)[-300:]}")
     return {"exit": done.returncode, "check": manifest.get("check"), "refusals": len(manifest.get("refusals") or []),
             "tail": (done.stdout or "")[-300:]}
 

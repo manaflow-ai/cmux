@@ -80,8 +80,8 @@ def shifted_share(frame, ref, sl, mask, reach=6):
     best = 1.0
     y, x = sl
     h, w = frame.shape
-    for dy in range(-reach, reach + 1, 2):
-        for dx in range(-reach, reach + 1, 2):
+    for dy in range(-reach, reach + 1):
+        for dx in range(-reach, reach + 1):
             ys, xs = slice(y.start + dy, y.stop + dy), slice(x.start + dx, x.stop + dx)
             if ys.start < 0 or xs.start < 0 or ys.stop > h or xs.stop > w:
                 continue
@@ -205,7 +205,9 @@ def judge_cycle(record, movie, frames_out=None):
            if record.get("main_wall") and record.get("process_start_wall") else None,
            "open_to_process_ms": round((record["process_start_wall"] - record["open_wall"]) * 1000, 1)
            if record.get("process_start_wall") and record.get("open_wall") else None,
-           "differences": record.get("differences") or [], "refresh_ms": round(refresh_ms, 3)}
+           "differences": record.get("differences") or [], "refresh_ms": round(refresh_ms, 3),
+           "pid_matches": record.get("pid_matches"), "settled": record.get("settled"),
+           "markers_error": record.get("markers_error"), "clean_errors": record.get("clean_errors")}
     if not (to_film and main_wall and frames):
         out["error"] = "no film clock or no main()"
         return out
@@ -311,7 +313,9 @@ def judge_cycle(record, movie, frames_out=None):
                         and float(np.abs(f[c].astype(np.int16) - ref[c].astype(np.int16)).mean()) > ECHO_LEVEL):
                     echo = p
                     break
-        panes[pane].update(key_sent_ms=ms_of(k0), key_path=m.get("key_path"), received=m.get("received"), echo_ms=ms_of(echo) if echo is not None else None,
+        key_s = (m.get("key_done_wall") or m["key_sent_wall"]) - m["key_sent_wall"]
+        panes[pane].update(key_sent_ms=ms_of(k0), key_path=m.get("key_path"), received=m.get("received"),
+                           key_call_ms=round(key_s * 1000, 1), key_precise=key_s <= 0.05, echo_ms=ms_of(echo) if echo is not None else None,
                            key_to_echo_ms=round((echo - k0) * 1000, 1) if echo is not None else None,
                            focused_before=m.get("focused_before"))
     out["panes"] = panes
@@ -388,7 +392,9 @@ def verdict(row):
     worst = row.get("all_content_ms")
     if worst is not None and worst > CONTENT_TARGET_MS:
         fails.append(f"every visible terminal's last content at {worst} ms after main() > {CONTENT_TARGET_MS:.0f} ms")
-    precise = all((p.get("key_path") or "").startswith("CGEventPost") for p in panes.values() if p.get("key_sent_ms") is not None)
+    # A key whose call returned within 50 ms has a known time (CGEventPost, or CuaDriver's desktop-scope key in a
+    # session that does not record); a slower call's key time is unknown, so its echo is not judged.
+    precise = all(p.get("key_precise") for p in panes.values() if p.get("key_sent_ms") is not None)
     echo = row.get("all_echo_ms")
     for pane, p in sorted(panes.items()):
         if p.get("received") is not None and p["received"] != 1:
@@ -397,6 +403,14 @@ def verdict(row):
         fails.append("a marker key typed into a visible terminal never echoed on film (a lost key)")
     elif precise and echo is not None and echo > INTERACTIVE_TARGET_MS:
         fails.append(f"every visible terminal echoed its key at {echo} ms after main() > {INTERACTIVE_TARGET_MS:.0f} ms")
+    for key, why in (("pid_matches", "the measured process is not the app that answered after the reopen"),
+                     ("settled", "the visible terminals never all went live after the reopen")):
+        if row.get(key) is False:
+            fails.append(why)
+    if row.get("markers_error"):
+        fails.append(f"markers: {row['markers_error']}")
+    for error in row.get("clean_errors") or []:
+        fails.append(f"cleanup after the cycle failed (the next cycle starts from another state): {error}")
     for difference in row.get("differences") or []:
         fails.append(f"not restored exactly: {difference}")
     return fails

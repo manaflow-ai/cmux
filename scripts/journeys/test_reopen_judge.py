@@ -95,9 +95,9 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(J.verdict(self.row(a={"content_ms": 200.0}, b={"content_ms": 200.0})), [])
 
     def test_lost_key_fails_only_with_a_precise_key(self):
-        precise = {"content_ms": 200.0, "key_sent_ms": 210.0, "key_path": "CGEventPost HID"}
+        precise = {"content_ms": 200.0, "key_sent_ms": 210.0, "key_path": "CGEventPost HID", "key_precise": True}
         self.assertTrue(any("never echoed" in f for f in J.verdict(self.row(a=precise))))
-        cua = dict(precise, key_path="cua press_key (foreground HID)")
+        cua = dict(precise, key_path="cua press_key (foreground HID)", key_precise=False)
         self.assertEqual(J.verdict(self.row(a=cua)), [])
 
 
