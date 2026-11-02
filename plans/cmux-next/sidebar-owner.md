@@ -9,6 +9,16 @@
   the setting and is no longer DEV-only. Regression: `SidebarPrototypeTogglesSettingTests`,
   `SidebarPrototypeStoreCardsTests`, `SidebarCompactListMenuTests`.
 
+- 2026-11-01: the workspace hover preview's tab rows say where they run and carry real facts. Leo, verbatim: "local
+  or nonlocal is probably useful to see in the hover previews" and "these are not informative enough nor look very
+  good. there's no symbols, not much metadata, nothing. we can do stuff". Each agent chat and terminal row names its
+  machine on its second line ("This Mac", "Cloud", or the machine's name, from the sidebar's machine section; a remote
+  terminal names its own session); agent rows add their model, terminals their running command, pages their path
+  (host and path, or the path alone when the title is the host) and the site's icon when the record names none. No
+  part repeats the title or another part, and a row with no fact shows its title alone (no "Tab" under "New Tab").
+  Gallery "Tab rows" compares machine on every line (chosen), only another machine named, the machine in the trailing
+  column, and the old line. Regression: `WorkspaceTabHoverCardRichRowsTests`.
+
 - 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
   them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
   see the # of associated subagents and whatnot would be a lot more useful / like the details aren't even very useful

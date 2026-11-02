@@ -205,6 +205,9 @@ public struct SidebarMapping {
                                   lastActivity: lastActivity([tab]))
                 // Its chat's running subagents and commands, which the tab row counts.
                 (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
+                // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
+                if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }
                 return listed
             },
             muted: muted,
@@ -470,6 +473,42 @@ public struct SidebarMapping {
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title
+    }
+
+    /// The hover card tab row's facts beyond its folder and state, from the tab's own records.
+    static func listedFacts(_ listed: inout SidebarTab, of tab: TabModel, process: String?, turns: AgentTurnStateStore = .shared) {
+        if tab.kind == .browser { listed.path = pagePath(tab.url) }
+        listed.model = tab.agentSession.flatMap(turns.detail(for:))?.model.flatMap { $0.isEmpty ? nil : $0 }
+        if commandStart(tab) != nil { listed.command = process }
+        if let remote = tab.remote, !remote.sessionName.isEmpty { listed.machine = remote.sessionName }
+    }
+
+    /// A page's path for the hover card's tab rows ("/manaflow-ai/cmux/pull/12"), without its query or
+    /// fragment; nil for a root or blank page.
+    static func pagePath(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), components.host?.isEmpty == false else { return nil }
+        var path = components.path
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path.isEmpty || path == "/" ? nil : path
+    }
+
+    /// The site's own icon address ("https://github.com/favicon.ico") for a page whose record names no
+    /// favicon (a restored tab never loaded); nil for a page that is not http(s).
+    public static func siteFavicon(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = components.host, !host.isEmpty else { return nil }
+        var site = URLComponents()
+        site.scheme = scheme
+        site.host = host
+        site.port = components.port
+        site.path = "/favicon.ico"
+        return site.string
+    }
+
+    /// A page's favicon address: the one its record names, else the site's own (`siteFavicon`), so a restored
+    /// page that never loaded shows its site and not a bare globe (Leo 2026-11-01: "there's no symbols").
+    public static func favicon(_ recorded: String?, page url: String?) -> String? {
+        recorded.flatMap { $0.isEmpty ? nil : $0 } ?? siteFavicon(url)
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.

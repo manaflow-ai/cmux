@@ -22,6 +22,8 @@ extension Strings {
     }
     static var hoverCardKindBrowser: String { String(localized: "sidebar.hoverCard.tab.kind.browser", defaultValue: "Browser", bundle: .module) }
     static var hoverCardKindAgentChat: String { String(localized: "sidebar.hoverCard.tab.kind.agentChat", defaultValue: "Agent chat", bundle: .module) }
+    /// Where a tab of this Mac runs, in the hover card's tab rows.
+    static var hoverCardThisMac: String { String(localized: "sidebar.hoverCard.tab.thisMac", defaultValue: "This Mac", bundle: .module) }
     static var hoverCardKindTab: String { String(localized: "sidebar.hoverCard.tab.kind.tab", defaultValue: "Tab", bundle: .module) }
     /// The tab list's kind groups (a gallery variant).
     static var hoverCardGroupTerminals: String { String(localized: "sidebar.hoverCard.tab.group.terminals", defaultValue: "Terminals", bundle: .module) }

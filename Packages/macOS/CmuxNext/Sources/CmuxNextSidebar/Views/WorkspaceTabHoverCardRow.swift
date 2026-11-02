@@ -61,7 +61,7 @@ final class WorkspaceTabHoverCardRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(_ tab: SidebarTab, now: Date) {
+    func configure(_ tab: SidebarTab, now: Date, machine: SidebarMachine? = nil) {
         let sameTab = currentTabID == tab.id
         currentTabID = tab.id
         if !sameTab {
@@ -73,11 +73,13 @@ final class WorkspaceTabHoverCardRow: NSView {
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
             ?? NSImage.icon(tab.kind.icon, size: side)
-        let line = WorkspaceTabHoverCardLine(tab, style: style, now: now)
+        let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)
         self.line = line
         let shownTitle = WorkspaceTabHoverCardLine.title(tab)
         title.stringValue = shownTitle
         detail.stringValue = line.detail
+        // A tab with no fact worth a line shows its title alone, centered (no "Tab" under "New Tab").
+        detail.isHidden = line.detail.isEmpty
         trailingLabel.stringValue = line.trailing ?? ""
         trailingLabel.isHidden = line.trailing == nil
         state = tab.state
@@ -86,7 +88,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         // its progress shows as loading and this surface always shows an arc.
         activity.configure(tab.state.isWorking ? .busy(progress: tab.state.progress) : tab.state, style: .arc)
         unreadDot.isHidden = !tab.isUnread || tab.state.isVisible
-        let words = [shownTitle, line.detail, line.trailing, tab.isUnread ? Strings.unreadDot : nil]
+        let words = [shownTitle, line.detail.isEmpty ? nil : line.detail, line.trailing, tab.isUnread ? Strings.unreadDot : nil]
         setAccessibilityLabel(words.compactMap { $0 }.joined(separator: ", "))
         reportedLine = [shownTitle, line.detail, line.trailing].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         applyColors()
@@ -123,7 +125,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         // Frame sizes (`naturalSize`): a label's intrinsic size leaves out its 2 pt side padding.
         let titleSize = title.naturalSize
         let titlePad = title.alignmentRectInsets.left, detailPad = detail.alignmentRectInsets.left
-        let titleTop = style.twoLines
+        let titleTop = style.twoLines && !detail.isHidden
             ? ((bounds.height - titleSize.height - detail.naturalSize.height) / 2).rounded()
             : ((bounds.height - titleSize.height) / 2).rounded()
         // The middle of the title's capitals: the icon, the status mark and the trailing text center on it.

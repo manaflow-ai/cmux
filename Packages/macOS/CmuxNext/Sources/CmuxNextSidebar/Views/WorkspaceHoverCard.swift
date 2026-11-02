@@ -156,7 +156,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
-        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs)
+        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
         body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self else { return }
@@ -609,8 +609,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
-    func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date()) {
-        tabList.configure(title: title, tabs: tabs, now: now)
+    func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
+        tabList.configure(title: title, tabs: tabs, now: now, machine: machine)
         summaryRow.isHidden = style.header != .summary || tabs.isEmpty
         let running = tabs.filter { $0.state.isWorking || $0.state.isLoading }.count
         let unread = tabs.filter(\.isUnread).count
