@@ -341,7 +341,13 @@ mod tests {
 
     #[test]
     fn instructions_state_the_machine_and_its_lifetime() {
-        for fact in ["Linux virtual machine", "until the machine is deleted", "push work", "no repository", "add_repo"] {
+        for fact in [
+            "Linux virtual machine",
+            "until the machine is deleted",
+            "push work",
+            "no repository",
+            "add_repo",
+        ] {
             assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
         }
     }
