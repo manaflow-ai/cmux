@@ -17,10 +17,13 @@ struct WorkspacePages: ViewModifier {
             .navigationDestination(item: Binding(get: { source.route }, set: { source.route = $0 })) { route in
                 page(route)
             }
-            // Command Palette… (page menu, Cmd-Shift-P, Cmd-K): the picked row runs once it is gone.
-            .sheet(item: Binding(get: { source.palette }, set: { source.palette = $0 }), onDismiss: { source.paletteDismissed() }) { scope in
+            // Command Palette… (page menu, Cmd-Shift-P, Cmd-K). The picked row runs when the sheet's
+            // content has disappeared: run from `onDismiss`, a row that opens another workspace's
+            // page left the phone on this one (rig run, verify/parity/pq_palette.py searchtabs).
+            .sheet(item: Binding(get: { source.palette }, set: { source.palette = $0 })) { scope in
                 CommandPaletteSheet(source: source, scope: scope)
                     .presentationDetents([.large])
+                    .onDisappear { source.paletteDismissed() }
             }
             .background { PaletteKeys(source: source) }
             .confirmationDialog("Fork Conversation", isPresented: Binding(

@@ -1593,7 +1593,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The command palette's sheet, and which list it opened on (nil: closed).
     public var palette: PaletteScope?
-    /// The palette row picked: it runs once the sheet is gone (its `onDismiss`), so a row
+    /// The palette row picked: it runs once the sheet is gone (its content's `onDisappear`), so a row
     /// that pushes a page or opens a dialog never races the sheet's dismissal.
     @ObservationIgnored var pendingPaletteRun: (@MainActor () -> Void)?
 

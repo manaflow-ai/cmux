@@ -17,9 +17,9 @@ public enum PaletteScope: String, Hashable, Identifiable, Sendable {
 /// One palette row.
 public struct PaletteCommand: Identifiable {
     public enum Section: Int, Comparable, Sendable {
+        case actions
         /// New Tab from Text and Open Link: what the typed text opens.
         case text
-        case actions
         case tabs
         public static func < (lhs: Section, rhs: Section) -> Bool { lhs.rawValue < rhs.rawValue }
     }
@@ -45,7 +45,7 @@ public struct PaletteCommand: Identifiable {
 /// The command palette (the Mac's Command Palette…, `WindowActionCatalog` and `CmuxNextPalette`):
 /// the rows are the page menu's and card menu's own items for the tab on screen, the + menu's
 /// new-tab options and the workspace-wide jumps, so every phone action is searchable and none is
-/// listed twice. Typed text adds New Tab from Text and Open Link; a query also finds tabs in
+/// listed twice. Typed text adds New Tab from Text and Open Link after the matching actions; a query also finds tabs in
 /// every workspace (Search Tabs).
 extension WorkspaceTabsSource {
     /// Opens the palette (the page menu's Command Palette…, Cmd-Shift-P, Cmd-K).
@@ -62,7 +62,7 @@ extension WorkspaceTabsSource {
         palette = nil
     }
 
-    /// The sheet is gone: runs the picked row, if any.
+    /// The sheet is gone (its content disappeared): runs the picked row, if any.
     public func paletteDismissed() {
         let run = pendingPaletteRun
         pendingPaletteRun = nil

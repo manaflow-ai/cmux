@@ -18,8 +18,8 @@ struct CommandPaletteSheet: View {
         let rows = visibleRows
         NavigationStack {
             List {
-                section(PaletteCommand.Section.text, WorkspaceTabsSource.newTabFromTextTitle, rows)
-                section(.actions, "Actions", rows)
+                section(PaletteCommand.Section.actions, "Actions", rows)
+                section(.text, WorkspaceTabsSource.newTabFromTextTitle, rows)
                 section(.tabs, scope == .tabs ? "Tabs" : "Tabs in All Workspaces", rows)
             }
             .listStyle(.insetGrouped)
@@ -59,14 +59,14 @@ struct CommandPaletteSheet: View {
         .accessibilityIdentifier("palette")
     }
 
-    /// Text rows, then the matching actions, then tabs (every tab in Search Tabs; matches
-    /// only once something is typed in the full palette).
+    /// The matching actions, then what the typed text opens, then tabs (every tab in Search
+    /// Tabs; matches only once something is typed in the full palette). Return runs the first.
     private var visibleRows: [PaletteCommand] {
         let text = scope == .actions ? source.paletteText(query) : []
         let matched = actions.filter { $0.matches(query) }
         let tabs = scope == .tabs || !query.trimmingCharacters(in: .whitespaces).isEmpty
             ? source.paletteTabs(matching: query.trimmingCharacters(in: .whitespaces), limit: scope == .tabs ? 200 : 30) : []
-        return text + matched + tabs
+        return matched + text + tabs
     }
 
     @ViewBuilder
