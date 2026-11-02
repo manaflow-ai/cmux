@@ -185,7 +185,7 @@ final class TabContentCache {
     /// The surface for a daemon terminal tab, created (attached) on demand
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
-        let validity = Self.terminalValidity(tab, daemon: daemon)
+        let validity = daemon.terminalViewValidity(of: tab)
         // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
         if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
@@ -193,9 +193,10 @@ final class TabContentCache {
         }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
+        let identity = daemon.terminalIdentity(of: tab), carried = terminals[tab.id]?.session.carriedFrame(for: identity)
         if let stale = terminals.removeValue(forKey: tab.id) {
-            // Daemon restarted or the tab's surface changed: the pane
-            // presenting the old view lets it go before it closes.
+            // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go
+            // before it closes; a new view of the same terminal shows the old one's frame until it draws.
             if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
             applyLifecycle(lifecycle.send(.removed(tab.id)))
             pendingMounts[tab.id] = nil
@@ -210,6 +211,7 @@ final class TabContentCache {
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
+        session.showsTerminal(identity, carrying: carried)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
