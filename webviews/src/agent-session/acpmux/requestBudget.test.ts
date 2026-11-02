@@ -5,15 +5,7 @@
 // (`REQUEST_WORK_LIMIT`); a request the page stopped waiting for keeps its slot until it is answered.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  BUSY_MAX_MS,
-  busyDelay,
-  countsAgainstBudget,
-  RequestBudget,
-  retriesWhenBusy,
-  skipsQueue,
-  WORK_LIMIT,
-} from "./requestBudget";
+import { BUSY_MAX_MS, busyDelay, countsAgainstBudget, RequestBudget, WORK_LIMIT, waitsForSlot } from "./requestBudget";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -34,7 +26,8 @@ afterAll(() => {
 });
 
 const DAEMON_LIMIT = 64;
-const PROBE = "_acpmux/storm_probe";
+/// A read: the requests that wait for a slot.
+const PROBE = "_acpmux/events";
 /// A click-authorized answer: the native host passes it only on a fresh gesture.
 const ANSWER = "_acpmux/permission_respond";
 
@@ -229,48 +222,35 @@ test("a waiting request whose send throws fails alone and frees its slot", async
   }
 });
 
-test("click-authorized methods count but never wait, and are never retried after a busy refusal", () => {
+test("only reads wait for a slot; a write, a click's answer or a Stop goes at once, counted, and never again", () => {
   const budget = new RequestBudget(1);
   const sent: string[] = [];
-  budget.admit(1, PROBE, () => sent.push("probe"));
+  budget.admit(1, PROBE, () => sent.push("read"));
   budget.admit(2, PROBE, () => sent.push("waits"));
-  budget.admit(3, ANSWER, () => sent.push("answer"));
-  expect(sent).toEqual(["probe", "answer"]);
-  expect(budget.inFlight).toBe(2);
-  expect(retriesWhenBusy(ANSWER)).toBe(false);
-  expect(retriesWhenBusy("_acpmux/permission_group_respond")).toBe(false);
-  expect(retriesWhenBusy(PROBE)).toBe(true);
-});
-
-test("a Stop or Revoke goes past a full budget at once, and still goes again after a busy refusal", () => {
-  const budget = new RequestBudget(1);
-  const sent: string[] = [];
-  budget.admit(1, PROBE, () => sent.push("probe"));
-  budget.admit(2, PROBE, () => sent.push("waits"));
-  for (const method of [
-    "_acpmux/permission_chat_revoke",
-    "_acpmux/kill",
-    "_acpmux/subagent_stop",
-    "_acpmux/queue_decline",
-  ]) {
-    expect(skipsQueue(method)).toBe(true);
-    expect(retriesWhenBusy(method)).toBe(true);
-    budget.admit(3, method, () => sent.push(method));
+  const others = [ANSWER, "_acpmux/bookmark_set", "_acpmux/permission_chat_revoke", "_acpmux/kill", "acp.session.fork"];
+  for (const [index, method] of others.entries()) {
+    expect(waitsForSlot(method)).toBe(false);
+    budget.admit(3 + index, method, () => sent.push(method));
   }
-  expect(sent).toEqual([
-    "probe",
-    "_acpmux/permission_chat_revoke",
-    "_acpmux/kill",
-    "_acpmux/subagent_stop",
-    "_acpmux/queue_decline",
-  ]);
-  expect(skipsQueue(PROBE)).toBe(false);
+  expect(sent).toEqual(["read", ...others]);
+  expect(budget.inFlight).toBe(1 + others.length);
+  expect(waitsForSlot(PROBE)).toBe(true);
+  expect(waitsForSlot("git.status")).toBe(true);
 });
 
-test("a deny spends no click, so it goes again after a busy refusal; an allow never does", () => {
-  expect(retriesWhenBusy("acp.trust.set", { level: "untrusted" })).toBe(true);
-  expect(retriesWhenBusy("acp.trust.set", { level: "trusted" })).toBe(false);
-  expect(retriesWhenBusy("_acpmux/permission_group_respond", { decision: "deny" })).toBe(true);
-  expect(retriesWhenBusy("_acpmux/permission_group_respond", { decision: "allow" })).toBe(false);
-  expect(retriesWhenBusy(ANSWER, { optionId: "reject" })).toBe(false);
+test("a write refused as busy is never sent again, so a later write is not undone", async () => {
+  // A bookmark refused as busy, then its removal answered: sending the bookmark again would put it back.
+  const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 30, answers: [] };
+  const { client, call } = await connectBusyDaemon(daemon);
+  try {
+    const refusal = await call(ANSWER, { permissionId: "p1", optionId: "allow" }).then(
+      () => undefined,
+      (error: { reason?: string }) => error,
+    );
+    expect(refusal?.reason).toBe("connection.busy");
+    await new Promise((resolve) => setTimeout(resolve, BUSY_MAX_MS / 8));
+    expect(daemon.answers).toHaveLength(1);
+  } finally {
+    client.close?.();
+  }
 });

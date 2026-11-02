@@ -3,9 +3,10 @@
 // replies come slowly (a chat on a loaded peer) kept sending, and a request it stopped waiting for
 // still held the daemon's slot until its answer came: the next reads were refused and the pane drew
 // "connection request limit reached". This budget is the page's copy of the daemon's count. A work
-// request goes out only while fewer than WORK_LIMIT are unanswered, the rest wait in order, and one
+// read goes out only while fewer than WORK_LIMIT are unanswered, the rest wait in order, and one
 // the page gave up on counts until its late answer arrives, as it does on the daemon. A busy reply
-// that still comes (a count that drifted) sends the request again later, never at once.
+// to a read that still comes (a count that drifted) sends it again later, never at once. Writes and
+// controls go out at once as before, and count.
 
 /// Methods the daemon does not count (`request_uses_work_budget`); they go out at once.
 const UNCOUNTED = new Set([
@@ -26,64 +27,83 @@ export const BUSY_MAX_MS = 4_000;
 /// Refusals one request takes before its caller sees the busy error.
 export const BUSY_TRIES = 6;
 
-/// Methods the native host lets through only on the person's fresh click
-/// (`AcpmuxPaneMethods.gestureRules`). That grant lasts moments and is spent when the frame passes,
-/// so one of these never waits for a slot and never goes again after a busy refusal: it counts, but
-/// goes out at once, and a refusal reaches the card that offers its own retry.
-const ON_GESTURE = new Set([
-  "session/prompt",
-  "_acpmux/btw",
-  "session/set_mode",
-  "session/set_config_option",
-  "acp.trust.set",
-  "_acpmux/harness_enable",
-  "_acpmux/permission_respond",
-  "_acpmux/permission_group_respond",
-  "_acpmux/secret_submit",
-  "_acpmux/agent_pair_resume",
-  "_acpmux/app_reply",
-  "_acpmux/queue_approve",
-  "_acpmux/agent_login/start",
-  "_acpmux/agent_login/api_key",
-]);
-
-/// Controls that stop, revoke or decline: the person's Stop or Revoke must take effect now, never
-/// behind slow reads (a revoked chat would keep its allowance meanwhile). They count and go at once
-/// like `session/cancel`; with no grant to spend, a busy refusal sends them again.
-const STOPS = new Set([
-  "session/close",
-  "_acpmux/detach",
-  "_acpmux/detach_parent",
-  "_acpmux/kill",
-  "_acpmux/process/kill",
-  "_acpmux/bg/stop",
-  "_acpmux/subagent_stop",
-  "_acpmux/subsession/stop",
-  "_acpmux/queue_decline",
-  "_acpmux/permission_chat_revoke",
-  "_acpmux/pair_revoke",
-  "_acpmux/file_put_cancel",
-  "_acpmux/transfer_abort",
-  "_acpmux/agent_login/cancel",
-  "_acpmux/chats_window_close",
+/// The reads that wait for a slot and go again after a busy refusal: side-effect free, so a late
+/// or repeated one changes nothing, and they are what floods a connection (a slow peer's chat list,
+/// transcript pages, git status). Every other request goes out at once and is never sent again, as
+/// it did before the budget: a write's order matters (a bookmark then its removal), and the host's
+/// grant for a click or a scope lasts moments and is spent when the frame passes. It still counts.
+const READS = new Set([
+  "session/list",
+  "acp.trust.get",
+  "catalog.get",
+  "trigger/chat.status",
+  "git.status",
+  "git.diff",
+  "git.checkpoint.diff",
+  "_acpmux/status",
+  "_acpmux/info",
+  "_acpmux/stats",
+  "_acpmux/sessions",
+  "_acpmux/events",
+  "_acpmux/history",
+  "_acpmux/attachment",
+  "_acpmux/session_files",
+  "_acpmux/native_history",
+  "_acpmux/subagent_transcript",
+  "_acpmux/subsession/get",
+  "_acpmux/subsession/list",
+  "_acpmux/workflows",
+  "_acpmux/bookmark_get",
+  "_acpmux/send_status",
+  "_acpmux/process/list",
+  "_acpmux/process/tail",
+  "_acpmux/bg/list",
+  "_acpmux/bg/output",
+  "_acpmux/watch_ls",
+  "_acpmux/queue_get",
+  "_acpmux/draft_get",
+  "_acpmux/composers",
+  "_acpmux/file_put_status",
+  "_acpmux/briefs",
+  "_acpmux/tasks",
+  "_acpmux/permission_groups",
+  "_acpmux/approvers",
+  "_acpmux/mac_approvers",
+  "_acpmux/chats",
+  "_acpmux/chats_search",
+  "_acpmux/chat_roots",
+  "_acpmux/chat_settings",
+  "_acpmux/chat_transcript",
+  "_acpmux/chat_projects",
+  "_acpmux/handoff_get",
+  "_acpmux/harnesses",
+  "_acpmux/harness/icon",
+  "_acpmux/harness/health",
+  "_acpmux/registry",
+  "_acpmux/defaults",
+  "_acpmux/presets",
+  "_acpmux/models",
+  "_acpmux/directories",
+  "_acpmux/route/list",
+  "_acpmux/route/show",
+  "_acpmux/web_modes",
+  "_acpmux/schema",
+  "_acpmux/protocol",
+  "_acpmux/peers",
+  "_acpmux/peer_status",
+  "_acpmux/host_health",
+  "_acpmux/pair_list",
+  "_acpmux/machine_consent_get",
+  "_acpmux/tailnet/state",
 ]);
 
 export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
 }
 
-/// Whether `method` goes out at once whatever the count (the daemon's 64 leaves it room).
-export function skipsQueue(method: string): boolean {
-  return ON_GESTURE.has(method) || STOPS.has(method);
-}
-
-/// Whether a busy refusal of a request may send it again: never one whose frame spends the person's
-/// click. A trust that distrusts and a group deny need no click, as on the host (`needsGesture`); a
-/// single permission answer's option is the host's to judge, so it never goes again.
-export function retriesWhenBusy(method: string, params: Record<string, unknown> = {}): boolean {
-  if (method === "acp.trust.set") return params.level === "untrusted" || params.level === "unknown";
-  if (method === "_acpmux/permission_group_respond") return params.decision === "deny";
-  return !ON_GESTURE.has(method);
+/// Whether `method` waits for a slot and goes again after a busy refusal: reads only (`READS`).
+export function waitsForSlot(method: string): boolean {
+  return READS.has(method);
 }
 
 /// The wait before try `attempt` (1-based) of a refused request: exponential, with full jitter so
@@ -132,11 +152,11 @@ export class RequestBudget {
     return this.unanswered.has(id);
   }
 
-  /// Sends request `id` now, or once a slot frees when `limit` are unanswered. One the person's
-  /// click authorized, or a Stop or Revoke, goes now whatever the count (`skipsQueue`).
+  /// Sends request `id` now, or once a slot frees when `limit` are unanswered. Only a read waits;
+  /// any other request goes now whatever the count (the daemon's 64 leaves it room) and counts.
   admit(id: number | string, method: string, send: () => void): void {
     if (!countsAgainstBudget(method)) return send();
-    if (skipsQueue(method)) return this.start(id, send);
+    if (!waitsForSlot(method)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }

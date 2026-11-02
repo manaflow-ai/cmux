@@ -92,7 +92,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
-import { BUSY_TRIES, busyDelay, RequestBudget, retriesWhenBusy } from "./requestBudget";
+import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
@@ -3937,13 +3937,13 @@ export class AcpmuxDirectClient {
         request?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     };
-    const result = this.expectReply(id, method, deadline, retriesWhenBusy(method, params) ? send : undefined);
+    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
     this.budget.admit(id, method, send);
     return result;
   }
 
   /// `send` puts the request on the wire again after a busy refusal; without one (a request the
-  /// native host sends, or one a click authorized) a busy refusal fails it like any other.
+  /// native host sends, or any but a read) a busy refusal fails it like any other.
   private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = deadline
