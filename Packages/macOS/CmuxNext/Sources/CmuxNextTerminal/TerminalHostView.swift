@@ -73,6 +73,20 @@ public final class TerminalHostView: NSView {
         }
     }
 
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(topOverlay, positioned: .above, relativeTo: banner)
+            }
+            needsLayout = true
+        }
+    }
+
     /// The accessory's height, 0 while there is none or it is hidden.
     private var accessoryHeight: CGFloat { accessoryHeight(forHostHeight: bounds.height) }
 
@@ -331,6 +345,11 @@ public final class TerminalHostView: NSView {
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.
