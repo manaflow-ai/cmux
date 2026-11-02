@@ -38,6 +38,7 @@
         "CmuxNextCodeRouter",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [
