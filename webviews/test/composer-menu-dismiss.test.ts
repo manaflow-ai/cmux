@@ -173,13 +173,13 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    * A popup that is closing remains mounted while its opacity transition runs.  Waiting for every
    * animation in the document made this assertion depend on WebKit's animation bookkeeping under
    * load (and could include a stale, already non-interactive popup).  The state that matters for
-   * the pointer checks is the live popup and its geometry; closing popups are filtered explicitly.
+   * the pointer checks is the live popup and its rendered geometry; closing popups are filtered
+   * explicitly.
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
     const pairs = names.map((name) => [name, chip(name)] as const);
-    try {
-      await page.waitForFunction(
-        ([pairs, want]) => {
+    await page.waitForFunction(
+      ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
             const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
@@ -203,14 +203,28 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         )
           return false;
         const popupFor = (button: HTMLElement) => {
+          const rendered = (popup: HTMLElement) => {
+            if (popup.hasAttribute("data-ending-style")) return false;
+            const box = popup.getBoundingClientRect();
+            const style = getComputedStyle(popup);
+            return (
+              box.width > 0 &&
+              box.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none" &&
+              Number.parseFloat(style.opacity) > 0 &&
+              style.pointerEvents !== "none"
+            );
+          };
           const controls = button.getAttribute("aria-controls");
           const controlled = controls ? document.getElementById(controls) : null;
           const controlledPopup = controlled?.closest<HTMLElement>(".ui-popup");
-          if (controlledPopup && !controlledPopup.hasAttribute("data-ending-style")) return controlledPopup;
+          if (controlledPopup && rendered(controlledPopup)) return controlledPopup;
           return livePopups.find(
             (popup) =>
-              popup.getAttribute("aria-label") === button.getAttribute("aria-label") ||
-              (button.id && popup.getAttribute("aria-labelledby") === button.id),
+              rendered(popup) &&
+              (popup.getAttribute("aria-label") === button.getAttribute("aria-label") ||
+                (button.id && popup.getAttribute("aria-labelledby") === button.id)),
           );
         };
         // The trigger's expanded state and its own mounted live popup are the semantic contract.
@@ -225,44 +239,22 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           );
           if (!button || !popupFor(button)) return false;
         }
-        if (want.length === 0 && pairs.some(([, selector]) => {
-          const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
-            const box = candidate.getBoundingClientRect();
-            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
-          });
-          return button && popupFor(button);
-        })) return false;
+        if (
+          want.length === 0 &&
+          pairs.some(([, selector]) => {
+            const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+              const box = candidate.getBoundingClientRect();
+              return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+            });
+            return button && popupFor(button);
+          })
+        )
+          return false;
         return true;
       },
-        [pairs, want] as const,
-        { timeout: 5_000 },
-      );
-    } catch (error) {
-      const state = await page.evaluate((pairs) => ({
-        triggers: pairs.map(([name, selector]) => {
-          const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
-            const box = candidate.getBoundingClientRect();
-            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
-          });
-          return {
-            name,
-            expanded: button?.getAttribute("aria-expanded"),
-            controls: button?.getAttribute("aria-controls"),
-          };
-        }),
-        popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => ({
-          ending: popup.hasAttribute("data-ending-style"),
-          label: popup.getAttribute("aria-label"),
-          labelledBy: popup.getAttribute("aria-labelledby"),
-          id: popup.id,
-          role: popup.getAttribute("role"),
-          pointerEvents: getComputedStyle(popup).pointerEvents,
-          opacity: getComputedStyle(popup).opacity,
-          height: popup.getBoundingClientRect().height,
-        })),
-      }), pairs);
-      throw new Error(`${String(error)}; settle state: ${JSON.stringify({ want, ...state })}`);
-    }
+      [pairs, want] as const,
+      { timeout: 5_000 },
+    );
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
