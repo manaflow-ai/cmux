@@ -27,9 +27,10 @@ fn node(n: u64, parent: &str, kind: &str, index: u64) -> Value {
     node
 }
 
-/// 100,000 nodes: ten folders of 9,000 bookmarks, one wide folder of 9,925,
-/// and a chain of 64 nested folders (the depth limit) under Other.
-fn listing() -> Vec<Value> {
+/// Ten folders of 9,000 bookmarks, one wide folder of `wide`, and a chain
+/// of 64 nested folders (the depth limit) under Other: 100,000 nodes with
+/// `wide` 9,925.
+fn listing(wide: u64) -> Vec<Value> {
     let mut nodes = Vec::with_capacity(100_000);
     let mut next = 1_000_000u64;
     for folder in 0..10u64 {
@@ -40,7 +41,7 @@ fn listing() -> Vec<Value> {
         }
     }
     nodes.push(node(100, "bar", "folder", 10));
-    for i in 0..9_925 {
+    for i in 0..wide {
         next += 1;
         nodes.push(node(next, &id(100), "url", i));
     }
@@ -83,7 +84,7 @@ fn apply(mirror: &mut Mirror, key: &str, op: Value) -> (Duration, Value) {
 #[test]
 fn bookmark_mirror_at_100k_bookmarks() {
     const N: u64 = 100;
-    let nodes = listing();
+    let nodes = listing(9_925);
     assert_eq!(nodes.len(), 100_000);
     let load_input =
         serde_json::to_vec(&json!({"browser_profile_id": PROFILE, "bookmarks": nodes})).unwrap();
@@ -100,6 +101,13 @@ fn bookmark_mirror_at_100k_bookmarks() {
         assert!(!bytes.is_empty());
     }
     report += &summary("load (echo path, 100,000 nodes)", loads);
+
+    // The edits run on 99,800 nodes, so the 200 creates fill the profile to its
+    // 100,000-node limit instead of being refused by it.
+    let edit_input =
+        serde_json::to_vec(&json!({"browser_profile_id": PROFILE, "bookmarks": listing(9_725)}))
+            .unwrap();
+    assert_eq!(mirror.call("load", &edit_input)["tree"].as_array().map(Vec::len), Some(99_800));
 
     let mut renames = Vec::new();
     let mut creates = Vec::new();
@@ -143,7 +151,7 @@ fn bookmark_mirror_at_100k_bookmarks() {
         deep.push(took);
     }
     report += &summary("rename (1 node)", renames);
-    report += &summary("create at index 0 of 9,925", creates);
+    report += &summary("create at index 0 of ~9,725", creates);
     report += &summary("move in one parent (to the end)", same_parent);
     report += &summary("move across folders (to 4,500)", across);
     report += &summary("create at depth 64 (in the 63rd folder)", deep);

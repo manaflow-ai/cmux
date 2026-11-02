@@ -34,17 +34,6 @@ struct ReadModel {
 }
 
 impl ReadModel {
-    fn reset(&mut self, tree: &[Bookmark]) {
-        self.nodes.clear();
-        self.children.clear();
-        let mut sorted = tree.to_vec();
-        sorted.sort_by_key(|node| node.index);
-        for node in sorted {
-            self.children.entry(node.parent.clone()).or_default().push(node.id.clone());
-            self.nodes.insert(node.id.clone(), node);
-        }
-    }
-
     fn apply(&mut self, delta: &Delta) {
         for step in &delta.order {
             match step {
