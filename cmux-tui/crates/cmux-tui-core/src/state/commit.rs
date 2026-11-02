@@ -50,7 +50,11 @@ impl Mux {
                 operation,
                 fingerprint,
                 expected_revision,
-                |transaction| apply(transaction, &state),
+                |transaction| {
+                    let changes = apply(transaction, &state);
+                    self.run_state_commit_after_apply_hook();
+                    changes
+                },
             )?;
             if !commit.replayed {
                 state.resource_revision = commit.revision;
