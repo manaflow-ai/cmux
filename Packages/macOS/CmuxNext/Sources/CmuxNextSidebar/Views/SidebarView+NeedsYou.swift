@@ -24,7 +24,8 @@ extension SidebarView {
 
     func refreshNeedsYou() {
         let before = needsYouTray.preferredHeight
-        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: SidebarSessionTree.shared.drawn))
+        let tree = SidebarNeedsYou.trayTree(SidebarSessionTree.shared.drawn, sessionTree: DesignSettings.shared.sidebarSections.sessionTree)
+        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: tree))
         if needsYouTray.preferredHeight != before { needsLayout = true }
     }
 
