@@ -166,6 +166,16 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         if (open.join("\n") !== want.join("\n")) return false;
         const popups = [...document.querySelectorAll<HTMLElement>(".ui-popup")];
         const livePopups = popups.filter((popup) => !popup.hasAttribute("data-ending-style"));
+        // A closing popup is visually gone at opacity 0, but it stays mounted with its hit target
+        // until Base UI finishes the close transition.  Do not let the next press race that
+        // transition: the state is settled only when an ending popup no longer intercepts input.
+        if (
+          popups.some(
+            (popup) =>
+              popup.hasAttribute("data-ending-style") && getComputedStyle(popup).pointerEvents !== "none",
+          )
+        )
+          return false;
         if (want.length === 0 ? livePopups.length > 0 : livePopups.length === 0) return false;
         for (const name of want) {
           const button = [...document.querySelectorAll<HTMLElement>(pairs.find(([label]) => label === name)![1])].find((candidate) => {
