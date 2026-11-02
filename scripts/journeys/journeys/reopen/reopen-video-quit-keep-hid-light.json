@@ -1,0 +1,112 @@
+{
+ "id": "reopen-video-quit-keep-hid-light",
+ "priority": "P1",
+ "title": "REOPEN VIDEO, light profile: a real Cmd-Q (Keep Sessions), then reopen; the display filmed from before the end to every visible terminal's typed key echoed",
+ "why": "Lawrence 2026-11-02 via cmux-ad: 'killing + reopening cmux must be super fast, and have video evidence of all terminals restoring super fast'. Targets from main(): every visible terminal's last content on screen within 300 ms, interactive within 500 ms; windows and all workspaces back exactly (positions, sizes, focus), every visible terminal with its scrollback. reopen_judge.py reads the video.",
+ "source": "REOPEN VIDEO (STATUS 4269, 4276)",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "require_whole_host",
+   "title": "a real key and the display film need a whole-host lease"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "main"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'rv-${nonce}-%g' 1 400",
+   "enter": true,
+   "mark": "lines"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: 400 lines (scrollback)",
+   "since": "lines",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "rv-${nonce}-400"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "right"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the split answers",
+   "since": "right",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "seed_workspaces",
+   "count": 2,
+   "prefix": "rv-${nonce}-ws"
+  },
+  {
+   "do": "reopen_video",
+   "count": 5,
+   "how": "quit-keep-hid",
+   "title": "filmed: a real Cmd-Q (Keep Sessions) and reopen, 5 cycles"
+  },
+  {
+   "do": "require_drawable",
+   "title": "the window is on screen (frame checks)"
+  },
+  {
+   "do": "expect",
+   "title": "after the cycles: the split's text is back",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    },
+    {
+     "app_text_line": "right-${nonce}-42"
+    },
+    {
+     "frame_text": "right-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "close_seeded",
+   "prefix": "rv-${nonce}-ws"
+  }
+ ]
+}

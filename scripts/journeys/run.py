@@ -55,7 +55,7 @@ LEASE_SECONDS = 540
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
-                         r"|restore-trace(?:-\d+)?\.json|speed\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
+                         r"|restore-trace(?:-\d+)?\.json|speed\.json|reopen-\d+\.(?:json|mp4)|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
