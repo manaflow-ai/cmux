@@ -162,6 +162,15 @@ class GrantOnly(unittest.TestCase):
             self.assertEqual(fake.requests, [])
 
 
+    def test_an_empty_grant_only_never_falls_through_to_provisioning(self):
+        env = {"NEXT_PUBLIC_STACK_PROJECT_ID": provision.STAGING_PROJECT_ID, "STACK_SECRET_SERVER_KEY": "k",
+               "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "c"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(provision, "provision") as rotate, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(provision.main(["--grant-only", ""]), 1)
+        rotate.assert_not_called()
+
+
 class Guards(unittest.TestCase):
     def test_another_stack_project_is_refused_before_any_request(self):
         fake = FakeStack()

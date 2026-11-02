@@ -223,7 +223,7 @@ def main(argv=None):
     try:
         stack = Stack(os.environ.get("NEXT_PUBLIC_STACK_PROJECT_ID", ""), os.environ.get("STACK_SECRET_SERVER_KEY", ""),
                       os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""))
-        if args.grant_only:
+        if args.grant_only is not None:
             grant_only(stack, args.grant_only.strip().lower())
         else:
             provision(stack, args.out)
