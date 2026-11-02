@@ -81,7 +81,7 @@ extension Workspace {
     }
 
     /// Waits until the shell in `panel` reports its prompt, the pane loses `panel`, or
-    /// `timeout` passes.
+    /// `timeout` passes on `clock`.
     ///
     /// A respawn clears the pane's `panelShellActivityStates` entry, and a report is admitted
     /// only from the current terminal generation, so `.promptIdle` there means this shell got
@@ -92,7 +92,8 @@ extension Workspace {
     func waitForClaudeAccountSwitchShellPrompt(
         panelId: UUID,
         panel: TerminalPanel,
-        timeout: Duration
+        timeout: Duration,
+        clock: any Clock<Duration> = ContinuousClock()
     ) async -> ClaudeAccountSwitchShellReadiness {
         let (changes, continuation) = AsyncStream.makeStream(
             of: Void.self,
@@ -100,7 +101,7 @@ extension Workspace {
         )
         // Genuine deadline: a shell that never reports a prompt must not hold the switch.
         let deadline = Task {
-            try? await ContinuousClock().sleep(for: timeout)
+            try? await clock.sleep(for: timeout)
             continuation.finish()
         }
         defer {

@@ -392201,6 +392201,72 @@
             "state": "translated",
             "value": "Claude 帳號：%@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude račun: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Claude: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនី Claude៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto Claude: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta do Claude: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись Claude: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชี Claude: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hesabı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис Claude: %@"
+          }
         }
       }
     },
@@ -670692,6 +670758,72 @@
             "state": "translated",
             "value": "此終端機正在切換 Claude 帳號。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj terminal već mijenja Claude račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminal er allerede ved at skifte Claude-konto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo terminale sta già cambiando account Claude."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់នេះកំពុងប្ដូរគណនី Claude រួចហើយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalen bytter allerede Claude-konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten terminal już przełącza konto Claude."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal já está trocando de conta do Claude."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот терминал уже переключает учётную запись Claude."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลนี้กำลังสลับบัญชี Claude อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminal zaten Claude hesabını değiştiriyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей термінал уже перемикає обліковий запис Claude."
+          }
         }
       }
     },
@@ -670750,6 +670882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法切換 Claude 帳號"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće promijeniti Claude račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke skifte Claude-konto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare account Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរគណនី Claude បានទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke bytte Claude-konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przełączyć konta Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trocar a conta do Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сменить учётную запись Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสลับบัญชี Claude ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Hesabı Değiştirilemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити обліковий запис Claude"
           }
         }
       }
@@ -670810,6 +671008,72 @@
             "state": "translated",
             "value": "cmux 找不到此 Claude 對話的工作目錄。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pronaći radni direktorij ovog Claude razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke finde arbejdsmappen for denne Claude-samtale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a trovare la directory di lavoro di questa conversazione Claude."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចរកឃើញថតការងាររបស់ការសន្ទនា Claude នេះបានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fant ikke arbeidskatalogen for denne Claude-samtalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł znaleźć katalogu roboczego tej rozmowy z Claude."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu encontrar o diretório de trabalho desta conversa do Claude."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось найти рабочий каталог этого разговора Claude."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่พบไดเร็กทอรีการทำงานของการสนทนา Claude นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu Claude konuşmasının çalışma dizinini bulamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося знайти робочий каталог цієї розмови Claude."
+          }
         }
       }
     },
@@ -670868,6 +671132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 在此終端機中找不到可繼續的 Claude 對話。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije pronašao Claude razgovor koji bi se mogao nastaviti u ovom terminalu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke finde en Claude-samtale at fortsætte i denne terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha trovato alcuna conversazione Claude da continuare in questo terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux រកមិនឃើញការសន្ទនា Claude ដែលអាចបន្តនៅក្នុងទែមីណាល់នេះទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fant ingen Claude-samtale å fortsette i denne terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie znalazł w tym terminalu rozmowy z Claude, którą można kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não encontrou nenhuma conversa do Claude para continuar neste terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не нашёл в этом терминале разговор Claude, который можно продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่พบการสนทนา Claude ที่จะดำเนินการต่อในเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu terminalde devam ettirilecek bir Claude konuşması bulamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не знайшов у цьому терміналі розмову Claude, яку можна продовжити."
           }
         }
       }
@@ -670928,6 +671258,72 @@
             "state": "translated",
             "value": "此終端機未執行 Claude Code。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom terminalu ne radi Claude Code."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminal kører ikke Claude Code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo terminale non è in esecuzione Claude Code."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់នេះមិនកំពុងដំណើរការ Claude Code ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalen kjører ikke Claude Code."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym terminalu nie działa Claude Code."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal não está executando o Claude Code."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом терминале не запущен Claude Code."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลนี้ไม่ได้เรียกใช้ Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminalde Claude Code çalışmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому терміналі не запущено Claude Code."
+          }
         }
       }
     },
@@ -670986,6 +671382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法在其他電腦上執行的終端機中切換 Claude 帳號。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude računi se ne mogu mijenjati u terminalu koji radi na drugoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konti kan ikke skiftes i en terminal, der kører på en anden maskine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è possibile cambiare account Claude in un terminale in esecuzione su un'altra macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរគណនី Claude នៅក្នុងទែមីណាល់ដែលដំណើរការលើម៉ាស៊ីនផ្សេងបានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-kontoer kan ikke byttes i en terminal som kjører på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przełączać kont Claude w terminalu działającym na innej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível trocar contas do Claude em um terminal executado em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нельзя сменить учётную запись Claude в терминале, который работает на другой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสลับบัญชี Claude ในเทอร์มินัลที่ทำงานบนเครื่องอื่นได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir makinede çalışan bir terminalde Claude hesapları değiştirilemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не можна змінити обліковий запис Claude у терміналі, який працює на іншій машині."
           }
         }
       }
@@ -671046,6 +671508,72 @@
             "state": "translated",
             "value": "cmux 無法重新啟動終端機，因此終端機維持不變。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao ponovo pokrenuti terminal, pa je ostao nepromijenjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke genstarte terminalen, så den blev ikke ændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a riavviare il terminale, quindi non è stato modificato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្ដើមទែមីណាល់ឡើងវិញបានទេ ដូច្នេះវាមិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte terminalen på nytt, så den ble ikke endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł ponownie uruchomić terminala, więc pozostał on bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu reiniciar o terminal, então ele não foi alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось перезапустить терминал, поэтому он оставлен без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เริ่มเทอร์มินัลใหม่ไม่ได้ เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminali yeniden başlatamadı, bu yüzden terminal değiştirilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося перезапустити термінал, тому він залишився без змін."
+          }
         }
       }
     },
@@ -671104,6 +671632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 無法自動繼續對話。若要在此終端機中繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao automatski nastaviti razgovor. Da ga nastavite u ovom terminalu, odaberite „Upiši naredbu za nastavak“ ili pokrenite:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke genoptage samtalen automatisk. Vælg »Indtast genoptagelseskommando« eller kør følgende for at fortsætte den i denne terminal:\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a riprendere automaticamente la conversazione. Per continuarla in questo terminale, scegli «Digita il comando di ripresa» oppure esegui:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបន្តការសន្ទនាដោយស្វ័យប្រវត្តិបានទេ។ ដើម្បីបន្តវានៅក្នុងទែមីណាល់នេះ សូមជ្រើសរើស «វាយពាក្យបញ្ជាបន្ត» ឬដំណើរការ៖\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke gjenoppta samtalen automatisk. For å fortsette den i denne terminalen, velg «Skriv inn gjenopptakskommandoen» eller kjør:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł automatycznie wznowić rozmowy. Aby ją kontynuować w tym terminalu, wybierz „Wpisz polecenie wznowienia” lub uruchom:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu retomar a conversa automaticamente. Para continuá-la neste terminal, escolha “Digitar comando de retomada” ou execute:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось автоматически возобновить разговор. Чтобы продолжить его в этом терминале, выберите «Ввести команду возобновления» или выполните:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ดำเนินการสนทนาต่อโดยอัตโนมัติไม่ได้ หากต้องการดำเนินการต่อในเทอร์มินัลนี้ ให้เลือก \"พิมพ์คำสั่งดำเนินการต่อ\" หรือเรียกใช้:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konuşmayı otomatik olarak sürdüremedi. Bu terminalde devam etmek için \"Devam Komutunu Yaz\" seçeneğini seçin veya şunu çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося автоматично відновити розмову. Щоб продовжити її в цьому терміналі, виберіть «Ввести команду відновлення» або виконайте:\n\n%@"
           }
         }
       }
@@ -671164,6 +671758,72 @@
             "state": "translated",
             "value": "已切換到 %@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebačeno na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skiftet til %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passato a %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានប្ដូរទៅ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Byttet til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełączono na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocado para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключено на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไปยัง %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hesabına geçildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнено на %@"
+          }
         }
       }
     },
@@ -671222,6 +671882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "此終端機已在使用 %@ 帳號。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj terminal već koristi račun %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminal bruger allerede kontoen %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo terminale usa già l'account %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់នេះកំពុងប្រើគណនី %@ រួចហើយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalen bruker allerede kontoen %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten terminal już używa konta %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal já usa a conta %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот терминал уже использует учётную запись %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลนี้ใช้บัญชี %@ อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminal zaten %@ hesabını kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей термінал уже використовує обліковий запис %@."
           }
         }
       }
@@ -671282,6 +672008,72 @@
             "state": "translated",
             "value": "cmux 無法將對話複製到 %@ 帳號，因此終端機維持不變。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kopirati razgovor na račun %@, pa je terminal ostao nepromijenjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere samtalen til kontoen %@, så terminalen blev ikke ændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a copiare la conversazione nell'account %@, quindi il terminale non è stato modificato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចម្លងការសន្ទនាទៅគណនី %@ បានទេ ដូច្នេះទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere samtalen til kontoen %@, så terminalen ble ikke endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł skopiować rozmowy na konto %@, więc terminal pozostał bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu copiar a conversa para a conta %@, então o terminal não foi alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось скопировать разговор в учётную запись %@, поэтому терминал оставлен без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux คัดลอกการสนทนาไปยังบัญชี %@ ไม่ได้ เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konuşmayı %@ hesabına kopyalayamadı, bu yüzden terminal değiştirilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося скопіювати розмову до облікового запису %@, тому термінал залишився без змін."
+          }
         }
       }
     },
@@ -671340,6 +672132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有名為 %@ 的已註冊 Claude 帳號。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan Claude račun s imenom %@ nije registrovan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen registreret Claude-konto med navnet %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è registrato alcun account Claude con il nome %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានគណនី Claude ឈ្មោះ %@ ដែលបានចុះឈ្មោះទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Claude-konto med navnet %@ er registrert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zarejestrowano konta Claude o nazwie %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma conta do Claude chamada %@ está registrada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись Claude с именем %@ не зарегистрирована."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีบัญชี Claude ชื่อ %@ ที่ลงทะเบียนไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ adında kayıtlı bir Claude hesabı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис Claude з назвою %@ не зареєстровано."
           }
         }
       }
@@ -671400,6 +672258,72 @@
             "state": "translated",
             "value": "切換"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути"
+          }
         }
       }
     },
@@ -671458,6 +672382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "要停止目前的回應並切換到 %@ 嗎？"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustaviti trenutni odgovor i prebaciti na %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du stoppe det aktuelle svar og skifte til %@?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompere la risposta in corso e passare a %@?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ការឆ្លើយបច្ចុប្បន្ន ហើយប្ដូរទៅ %@?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du stoppe det gjeldende svaret og bytte til %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymać bieżącą odpowiedź i przełączyć na %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interromper a resposta atual e trocar para %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить текущий ответ и переключиться на %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดการตอบปัจจุบันและสลับไปยัง %@ หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli yanıt durdurulup %@ hesabına geçilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити поточну відповідь і перемкнутися на %@?"
           }
         }
       }
@@ -671518,6 +672508,72 @@
             "state": "translated",
             "value": "切換 Claude 帳號：%@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni Claude račun: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift Claude-konto: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account Claude: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរគណនី Claude៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt Claude-konto: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz konto Claude: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar conta do Claude: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить учётную запись Claude: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Hesabını Değiştir: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити обліковий запис Claude: %@"
+          }
         }
       }
     },
@@ -671577,6 +672633,72 @@
             "state": "translated",
             "value": "切換 Claude 帳號"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni Claude račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift Claude-konto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរគណនី Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt Claude-konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz konto Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar conta do Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить учётную запись Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Hesabını Değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити обліковий запис Claude"
+          }
         }
       }
     },
@@ -671586,55 +672708,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+            "value": "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
+            "value": "أُغلقت الطرفية أو نُقلت أو أُعيد تشغيلها قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
+            "value": "Das Terminal wurde geschlossen, verschoben oder neu gestartet, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
+            "value": "La terminal se cerró, se movió o se reinició antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
+            "value": "Le terminal a été fermé, déplacé ou redémarré avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+            "value": "cmux が会話を再開する前に、ターミナルが閉じられたか、移動されたか、再起動されました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫히거나 이동되거나 다시 시작되었습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令：\n\n%@"
+            "value": "终端在 cmux 继续对话前已关闭、移动或重新启动。如需继续，请在终端中运行此命令：\n\n%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令：\n\n%@"
+            "value": "終端機在 cmux 繼續對話前就已關閉、移動或重新啟動。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je zatvoren, premješten ili ponovo pokrenut prije nego što je cmux mogao nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen blev lukket, flyttet eller genstartet, før cmux kunne genoptage samtalen. Kør denne kommando i en terminal for at fortsætte den:\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è stato chiuso, spostato o riavviato prima che cmux potesse riprendere la conversazione. Per continuarla, esegui questo comando in un terminale:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ត្រូវបានបិទ ផ្លាស់ទី ឬចាប់ផ្ដើមឡើងវិញ មុនពេល cmux អាចបន្តការសន្ទនាបាន។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen ble lukket, flyttet eller startet på nytt før cmux kunne gjenoppta samtalen. For å fortsette den, kjør denne kommandoen i en terminal:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal został zamknięty, przeniesiony lub uruchomiony ponownie, zanim cmux mógł wznowić rozmowę. Aby ją kontynuować, uruchom to polecenie w terminalu:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal foi fechado, movido ou reiniciado antes que o cmux pudesse retomar a conversa. Para continuá-la, execute este comando em um terminal:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал был закрыт, перемещён или перезапущен до того, как cmux смог возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลถูกปิด ย้าย หรือเริ่มใหม่ก่อนที่ cmux จะดำเนินการสนทนาต่อได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal, cmux konuşmayı sürdüremeden önce kapatıldı, taşındı veya yeniden başlatıldı. Devam etmek için bu komutu bir terminalde çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал було закрито, переміщено або перезапущено, перш ніж cmux зміг відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:\n\n%@"
           }
         }
       }
@@ -671695,6 +672883,72 @@
             "state": "translated",
             "value": "輸入繼續指令"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upiši naredbu za nastavak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indtast genoptagelseskommando"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digita il comando di ripresa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាយពាក្យបញ្ជាបន្ត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn gjenopptakskommandoen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz polecenie wznowienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitar comando de retomada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ввести команду возобновления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์คำสั่งดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devam Komutunu Yaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ввести команду відновлення"
+          }
         }
       }
     },
@@ -671754,6 +673008,72 @@
             "state": "translated",
             "value": "沒有可切換的終端機：請在 cmux 終端機中執行，或傳入 --surface。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema terminala za prebacivanje: pokrenite ovo unutar cmux terminala ili navedite --surface."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal at skifte: kør dette i en cmux-terminal, eller angiv --surface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun terminale da cambiare: esegui questo comando in un terminale cmux oppure passa --surface."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានទែមីណាល់សម្រាប់ប្ដូរទេ៖ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់ cmux ឬបញ្ជូន --surface។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal å bytte: kjør dette i en cmux-terminal, eller angi --surface."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak terminala do przełączenia: uruchom to w terminalu cmux lub podaj --surface."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum terminal para trocar: execute isto dentro de um terminal do cmux ou passe --surface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет терминала для переключения: запустите это в терминале cmux или укажите --surface."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเทอร์มินัลให้สลับ: เรียกใช้คำสั่งนี้ภายในเทอร์มินัล cmux หรือระบุ --surface"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirilecek terminal yok: bunu bir cmux terminalinde çalıştırın veya --surface belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає термінала для перемикання: запустіть це в терміналі cmux або вкажіть --surface."
+          }
         }
       }
     },
@@ -671763,55 +673083,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
+            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace. --workspace only scopes --surface and can't be used alone."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
+            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace. يقتصر --workspace على تحديد نطاق --surface ولا يمكن استخدامه وحده."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: prikazuje registrovane Claude Code račune (agents.claudeAccounts u cmux.json, plus zadani račun ~/.claude). Radi i kada cmux nije pokrenut.\n\nswitch <name>: premješta Claude terminal na taj račun i tamo nastavlja isti razgovor. Terminal se ponovo pokreće pod tim računom, a cmux upisuje komandu za nastavak. Prebacuje terminal iz kojeg je komanda pozvana, osim ako --surface navodi drugi. Uz --force prebacuje i dok Claude odgovara, čime se odgovor zaustavlja.\n\n<surface> je UUID, referenca poput surface:3 ili indeks uz --workspace. --workspace samo sužava --surface i ne može se koristiti sam."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: viser de registrerede Claude Code-konti (agents.claudeAccounts i cmux.json plus standardkontoen ~/.claude). Virker, uden at cmux kører.\n\nswitch <name>: flytter en Claude-terminal til den konto og fortsætter den samme samtale der. Terminalen genstarter under kontoen, og cmux indtaster kommandoen til at genoptage. Skifter den terminal, der kørte kommandoen, medmindre --surface angiver en anden. Med --force skiftes der også, mens Claude svarer, hvilket stopper svaret.\n\n<surface> er et UUID, en reference som surface:3 eller et indeks sammen med --workspace. --workspace afgrænser kun --surface og kan ikke bruges alene."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
+            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace. --workspace grenzt nur --surface ein und kann nicht allein verwendet werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
+            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace. --workspace solo delimita --surface y no puede usarse por sí solo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
+            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace. --workspace ne fait que préciser --surface et ne peut pas être utilisé seul."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia il terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
+            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。--workspace は --surface の対象を絞り込むだけで、単独では使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: បង្ហាញគណនី Claude Code ដែលបានចុះឈ្មោះ (agents.claudeAccounts ក្នុង cmux.json រួមទាំងគណនីលំនាំដើម ~/.claude)។ ដំណើរការបាន ទោះបី cmux មិនកំពុងដំណើរការក៏ដោយ។\n\nswitch <name>: ផ្លាស់ទីទែមីណាល់ Claude ទៅគណនីនោះ ហើយបន្តការសន្ទនាដដែលនៅទីនោះ។ ទែមីណាល់ចាប់ផ្ដើមឡើងវិញក្រោមគណនីនោះ ហើយ cmux វាយពាក្យបញ្ជាសម្រាប់បន្ត។ វាប្ដូរទែមីណាល់ដែលដំណើរការពាក្យបញ្ជានេះ លុះត្រាតែ --surface បញ្ជាក់ទែមីណាល់ផ្សេង។ --force ប្ដូរផងដែរ ខណៈ Claude កំពុងឆ្លើយ ដែលធ្វើឱ្យការឆ្លើយនោះឈប់។\n\n<surface> គឺជា UUID ឯកសារយោងដូចជា surface:3 ឬលិបិក្រមជាមួយ --workspace។ --workspace គ្រាន់តែកំណត់វិសាលភាពរបស់ --surface ហើយមិនអាចប្រើតែឯងបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
+            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다. --workspace는 --surface의 범위만 지정하며 단독으로 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: viser de registrerte Claude Code-kontoene (agents.claudeAccounts i cmux.json, pluss standardkontoen ~/.claude). Fungerer uten at cmux kjører.\n\nswitch <name>: flytter en Claude-terminal til den kontoen og fortsetter den samme samtalen der. Terminalen starter på nytt under kontoen, og cmux skriver inn kommandoen for å gjenoppta. Bytter terminalen som kjørte kommandoen, med mindre --surface angir en annen. Med --force byttes det også mens Claude svarer, noe som stopper svaret.\n\n<surface> er en UUID, en referanse som surface:3 eller en indeks sammen med --workspace. --workspace avgrenser bare --surface og kan ikke brukes alene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: wyświetla zarejestrowane konta Claude Code (agents.claudeAccounts w cmux.json oraz domyślne konto ~/.claude). Działa bez uruchomionego cmux.\n\nswitch <name>: przenosi terminal Claude na to konto i kontynuuje tam tę samą rozmowę. Terminal uruchamia się ponownie na tym koncie, a cmux wpisuje polecenie wznowienia. Przełącza terminal, z którego wywołano polecenie, chyba że --surface wskazuje inny. Z --force przełącza także wtedy, gdy Claude odpowiada, co przerywa odpowiedź.\n\n<surface> to UUID, odwołanie w rodzaju surface:3 lub indeks razem z --workspace. --workspace jedynie zawęża --surface i nie może być używane samodzielnie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca o terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: показывает зарегистрированные учётные записи Claude Code (agents.claudeAccounts в cmux.json, а также учётную запись по умолчанию ~/.claude). Работает без запущенного cmux.\n\nswitch <name>: переносит терминал Claude в эту учётную запись и продолжает там тот же разговор. Терминал перезапускается под этой учётной записью, и cmux вводит команду возобновления. Переключает терминал, из которого вызвана команда, если --surface не указывает другой. С --force переключение происходит и во время ответа Claude, при этом ответ останавливается.\n\n<surface> — это UUID, ссылка вида surface:3 или индекс вместе с --workspace. --workspace только уточняет --surface и не может использоваться отдельно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: แสดงบัญชี Claude Code ที่ลงทะเบียนไว้ (agents.claudeAccounts ใน cmux.json รวมถึงบัญชีเริ่มต้น ~/.claude) ใช้งานได้แม้ cmux ไม่ได้ทำงานอยู่\n\nswitch <name>: ย้ายเทอร์มินัล Claude ไปยังบัญชีนั้นและสนทนาเดิมต่อที่นั่น เทอร์มินัลจะเริ่มใหม่ภายใต้บัญชีนั้น และ cmux จะพิมพ์คำสั่งสำหรับทำต่อให้ คำสั่งนี้จะสลับเทอร์มินัลที่เรียกใช้ เว้นแต่ --surface จะระบุเทอร์มินัลอื่น --force จะสลับแม้ในขณะที่ Claude กำลังตอบ ซึ่งจะหยุดการตอบนั้น\n\n<surface> คือ UUID, การอ้างอิงอย่าง surface:3 หรือดัชนีที่ใช้ร่วมกับ --workspace ทั้งนี้ --workspace ใช้เพียงจำกัดขอบเขตของ --surface และใช้ตามลำพังไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: kayıtlı Claude Code hesaplarını gösterir (cmux.json içindeki agents.claudeAccounts ve varsayılan ~/.claude hesabı). cmux çalışmıyorken de çalışır.\n\nswitch <name>: bir Claude terminalini o hesaba taşır ve aynı konuşmayı orada sürdürür. Terminal o hesapla yeniden başlar ve cmux devam etme komutunu yazar. --surface başka bir terminal belirtmedikçe komutu çalıştıran terminali değiştirir. --force, Claude yanıt verirken de geçiş yapar ve yanıtı durdurur.\n\n<surface> bir UUID, surface:3 gibi bir referans ya da --workspace ile birlikte bir dizindir. --workspace yalnızca --surface kapsamını belirler ve tek başına kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: показує зареєстровані облікові записи Claude Code (agents.claudeAccounts у cmux.json, а також типовий обліковий запис ~/.claude). Працює без запущеного cmux.\n\nswitch <name>: переносить термінал Claude до цього облікового запису й продовжує там ту саму розмову. Термінал перезапускається під цим обліковим записом, і cmux вводить команду відновлення. Перемикає термінал, з якого викликано команду, якщо --surface не вказує інший. З --force перемикання відбувається й тоді, коли Claude відповідає; відповідь при цьому зупиняється.\n\n<surface> — це UUID, посилання на кшталт surface:3 або індекс разом із --workspace. --workspace лише уточнює --surface і не може використовуватися окремо."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
+            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。--workspace 仅用于限定 --surface 的范围，不能单独使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
+            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。--workspace 僅用於限定 --surface 的範圍，不能單獨使用。"
           }
         }
       }
@@ -671872,6 +673258,72 @@
             "state": "translated",
             "value": "（預設）"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(zadani)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(standard)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(predefinito)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(លំនាំដើម)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(standard)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(domyślne)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(padrão)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(по умолчанию)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(ค่าเริ่มต้น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(varsayılan)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(типовий)"
+          }
         }
       }
     },
@@ -671931,6 +673383,72 @@
             "state": "translated",
             "value": "cmux 無法自動繼續對話。若要繼續，請在該終端機中執行此指令："
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao automatski nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u tom terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke genoptage samtalen automatisk. Kør denne kommando i den terminal for at fortsætte den:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a riprendere automaticamente la conversazione. Per continuarla, esegui questo comando in quel terminale:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបន្តការសន្ទនាដោយស្វ័យប្រវត្តិបានទេ។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់នោះ៖"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke gjenoppta samtalen automatisk. For å fortsette den, kjør denne kommandoen i den terminalen:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł automatycznie wznowić rozmowy. Aby ją kontynuować, uruchom to polecenie w tamtym terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu retomar a conversa automaticamente. Para continuá-la, execute este comando naquele terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось автоматически возобновить разговор. Чтобы продолжить его, выполните эту команду в том терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ดำเนินการสนทนาต่อโดยอัตโนมัติไม่ได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัลนั้น:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konuşmayı otomatik olarak sürdüremedi. Devam etmek için bu komutu o terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося автоматично відновити розмову. Щоб продовжити її, виконайте цю команду в тому терміналі:"
+          }
         }
       }
     },
@@ -671940,55 +673458,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+            "value": "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
+            "value": "أُغلقت الطرفية أو نُقلت أو أُعيد تشغيلها قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
+            "value": "Das Terminal wurde geschlossen, verschoben oder neu gestartet, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
+            "value": "La terminal se cerró, se movió o se reinició antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
+            "value": "Le terminal a été fermé, déplacé ou redémarré avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:"
+            "value": "cmux が会話を再開する前に、ターミナルが閉じられたか、移動されたか、再起動されました。続けるには、ターミナルで次のコマンドを実行してください:"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫히거나 이동되거나 다시 시작되었습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令："
+            "value": "终端在 cmux 继续对话前已关闭、移动或重新启动。如需继续，请在终端中运行此命令："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令："
+            "value": "終端機在 cmux 繼續對話前就已關閉、移動或重新啟動。若要繼續，請在終端機中執行此指令："
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je zatvoren, premješten ili ponovo pokrenut prije nego što je cmux mogao nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen blev lukket, flyttet eller genstartet, før cmux kunne genoptage samtalen. Kør denne kommando i en terminal for at fortsætte den:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è stato chiuso, spostato o riavviato prima che cmux potesse riprendere la conversazione. Per continuarla, esegui questo comando in un terminale:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ត្រូវបានបិទ ផ្លាស់ទី ឬចាប់ផ្ដើមឡើងវិញ មុនពេល cmux អាចបន្តការសន្ទនាបាន។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen ble lukket, flyttet eller startet på nytt før cmux kunne gjenoppta samtalen. For å fortsette den, kjør denne kommandoen i en terminal:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal został zamknięty, przeniesiony lub uruchomiony ponownie, zanim cmux mógł wznowić rozmowę. Aby ją kontynuować, uruchom to polecenie w terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal foi fechado, movido ou reiniciado antes que o cmux pudesse retomar a conversa. Para continuá-la, execute este comando em um terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал был закрыт, перемещён или перезапущен до того, как cmux смог возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลถูกปิด ย้าย หรือเริ่มใหม่ก่อนที่ cmux จะดำเนินการสนทนาต่อได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal, cmux konuşmayı sürdüremeden önce kapatıldı, taşındı veya yeniden başlatıldı. Devam etmek için bu komutu bir terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал було закрито, переміщено або перезапущено, перш ніж cmux зміг відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:"
           }
         }
       }
@@ -672049,6 +673633,72 @@
             "state": "translated",
             "value": "OK 已將 %1$@ 從 %2$@ 切換到 %3$@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ prebačen s %2$@ na %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ skiftet fra %2$@ til %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ passato da %2$@ a %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK បានប្ដូរ %1$@ ពី %2$@ ទៅ %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ byttet fra %2$@ til %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK przełączono %1$@ z %2$@ na %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ trocado de %2$@ para %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ переключён с %2$@ на %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK สลับ %1$@ จาก %2$@ เป็น %3$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@, %2$@ hesabından %3$@ hesabına geçirildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ перемкнено з %2$@ на %3$@"
+          }
         }
       }
     },
@@ -672058,55 +673708,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux claude-account [list] [--json]\n      cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux claude-account [list] [--json]\n      cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux claude-account [list] [--json]\n        cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux claude-account [list] [--json]\n               cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux claude-account [list] [--json]\n          cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux claude-account [list] [--json]\n              cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
           }
         }
       }
@@ -672167,6 +673883,72 @@
             "state": "translated",
             "value": "Claude 正在此終端機中回應。請加上 force 重試，以停止回應並切換。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude upravo odgovara u ovom terminalu. Pokušajte ponovo s force da zaustavite odgovor i prebacite račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude svarer i denne terminal. Prøv igen med force for at stoppe svaret og skifte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude sta rispondendo in questo terminale. Riprova con force per interrompere la risposta e cambiare account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude កំពុងឆ្លើយនៅក្នុងទែមីណាល់នេះ។ សូមព្យាយាមម្ដងទៀតជាមួយ force ដើម្បីបញ្ឈប់ការឆ្លើយ ហើយប្ដូរ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude svarer i denne terminalen. Prøv på nytt med force for å stoppe svaret og bytte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude odpowiada w tym terminalu. Spróbuj ponownie z force, aby zatrzymać odpowiedź i przełączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude está respondendo neste terminal. Tente novamente com force para interromper a resposta e trocar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude отвечает в этом терминале. Повторите попытку с force, чтобы остановить ответ и переключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude กำลังตอบอยู่ในเทอร์มินัลนี้ ลองอีกครั้งพร้อม force เพื่อหยุดการตอบและสลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude bu terminalde yanıt veriyor. Yanıtı durdurup geçiş yapmak için force ile yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude відповідає в цьому терміналі. Повторіть спробу з force, щоб зупинити відповідь і перемкнутися."
+          }
         }
       }
     },
@@ -672225,6 +674007,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "缺少 account 或其無效"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account nedostaje ili je nevažeći"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account mangler eller er ugyldig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account mancante o non valido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account បាត់ ឬមិនត្រឹមត្រូវ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account mangler eller er ugyldig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak lub nieprawidłowy account"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account ausente ou inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account отсутствует или недействителен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มี account หรือไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account eksik veya geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account відсутній або недійсний"
           }
         }
       }
@@ -672285,6 +674133,72 @@
             "state": "translated",
             "value": "force 必須是 true 或 false"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force mora biti true ili false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force skal være true eller false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force deve essere true o false"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force ត្រូវតែជា true ឬ false"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force må være true eller false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force musi mieć wartość true lub false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force deve ser true ou false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force должен быть true или false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force ต้องเป็น true หรือ false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force true veya false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force має бути true або false"
+          }
         }
       }
     },
@@ -672343,6 +674257,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 無法自動繼續對話。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao automatski nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke genoptage samtalen automatisk. Kør denne kommando i terminalen for at fortsætte den:\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a riprendere automaticamente la conversazione. Per continuarla, esegui questo comando nel terminale:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបន្តការសន្ទនាដោយស្វ័យប្រវត្តិបានទេ។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke gjenoppta samtalen automatisk. For å fortsette den, kjør denne kommandoen i terminalen:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł automatycznie wznowić rozmowy. Aby ją kontynuować, uruchom to polecenie w terminalu:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu retomar a conversa automaticamente. Para continuá-la, execute este comando no terminal:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось автоматически возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ดำเนินการสนทนาต่อโดยอัตโนมัติไม่ได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konuşmayı otomatik olarak sürdüremedi. Devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося автоматично відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:\n\n%@"
           }
         }
       }
@@ -672403,6 +674383,72 @@
             "state": "translated",
             "value": "已切換 Claude 帳號"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude račun promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto skiftet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Claude cambiato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានប្ដូរគណនី Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto byttet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełączono konto Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta do Claude trocada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись Claude переключена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hesabı değiştirildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис Claude перемкнено"
+          }
         }
       }
     },
@@ -672461,6 +674507,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "缺少 surface_id"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id nedostaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id mangler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id mancante"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id បាត់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mangler surface_id"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak surface_id"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id ausente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отсутствует surface_id"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มี surface_id"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id eksik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відсутній surface_id"
           }
         }
       }
@@ -672521,6 +674633,72 @@
             "state": "translated",
             "value": "cmux 在此對話中找不到任何可在其他帳號繼續的訊息。如果你還沒傳送訊息，請先傳送一則訊息再切換。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije pronašao nijednu poruku u ovom razgovoru koja bi se mogla nastaviti na drugom računu. Ako još niste poslali poruku, pošaljite je, a zatim prebacite račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke finde nogen beskeder i denne samtale at fortsætte på en anden konto. Hvis du ikke har sendt en endnu, så send en besked, og skift derefter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha trovato alcun messaggio in questa conversazione da continuare su un altro account. Se non ne hai ancora inviato uno, invia un messaggio e poi cambia account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux រកមិនឃើញសារណាមួយក្នុងការសន្ទនានេះ ដើម្បីបន្តនៅលើគណនីផ្សេងទេ។ ប្រសិនបើអ្នកមិនទាន់បានផ្ញើសារទេ សូមផ្ញើសារមួយ រួចប្ដូរ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fant ingen meldinger i denne samtalen å fortsette på en annen konto. Hvis du ikke har sendt en ennå, send en melding og bytt deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie znalazł w tej rozmowie żadnych wiadomości, które można kontynuować na innym koncie. Jeśli nie wysłano jeszcze żadnej wiadomości, wyślij ją, a następnie przełącz konto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não encontrou nenhuma mensagem nesta conversa para continuar em outra conta. Se você ainda não enviou nenhuma, envie uma mensagem e depois troque de conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не нашёл в этом разговоре сообщений, которые можно продолжить в другой учётной записи. Если вы ещё не отправили сообщение, отправьте его, а затем переключитесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่พบข้อความใดในการสนทนานี้ที่จะดำเนินการต่อในบัญชีอื่น หากคุณยังไม่ได้ส่งข้อความ ให้ส่งข้อความก่อน แล้วจึงสลับบัญชี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu konuşmada başka bir hesapta devam ettirilecek mesaj bulamadı. Henüz mesaj göndermediyseniz bir mesaj gönderin, ardından hesap değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не знайшов у цій розмові повідомлень, які можна продовжити в іншому обліковому записі. Якщо ви ще не надіслали повідомлення, надішліть його, а потім перемкніться."
+          }
         }
       }
     },
@@ -672579,6 +674757,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "此對話已在兩個帳號中各自繼續，較新的副本在 %@。cmux 無法合併兩份副本，因此終端機維持不變。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor je nastavljen odvojeno na oba računa, a novija kopija je na %@. cmux ne može spojiti dvije kopije, pa je terminal ostao nepromijenjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtale er fortsat separat på begge konti, og den nyeste kopi ligger på %@. cmux kan ikke flette de to kopier, så terminalen blev ikke ændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa conversazione è stata continuata separatamente su entrambi gli account e la copia più recente si trova su %@. cmux non può unire le due copie, quindi il terminale non è stato modificato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសន្ទនានេះត្រូវបានបន្តដាច់ដោយឡែកពីគ្នានៅលើគណនីទាំងពីរ ហើយច្បាប់ចម្លងថ្មីជាងនៅលើ %@។ cmux មិនអាចបញ្ចូលច្បាប់ចម្លងទាំងពីរចូលគ្នាបានទេ ដូច្នេះទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtalen ble fortsatt separat på begge kontoene, og den nyeste kopien ligger på %@. cmux kan ikke slå sammen de to kopiene, så terminalen ble ikke endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta rozmowa była kontynuowana osobno na obu kontach, a nowsza kopia znajduje się na koncie %@. cmux nie może scalić obu kopii, więc terminal pozostał bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversa foi continuada separadamente nas duas contas, e a cópia mais recente está em %@. O cmux não consegue mesclar as duas cópias, então o terminal não foi alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот разговор продолжался отдельно в обеих учётных записях, и более новая копия находится в %@. cmux не может объединить две копии, поэтому терминал оставлен без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสนทนานี้ถูกดำเนินการต่อแยกกันในทั้งสองบัญชี และสำเนาที่ใหม่กว่าอยู่ใน %@ cmux ไม่สามารถรวมสำเนาทั้งสองได้ เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu konuşma iki hesapta ayrı ayrı sürdürüldü ve daha yeni kopya %@ hesabında. cmux iki kopyayı birleştiremediği için terminal değiştirilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю розмову продовжували окремо в обох облікових записах, і новіша копія є в %@. cmux не може об’єднати дві копії, тому термінал залишився без змін."
           }
         }
       }
@@ -672639,6 +674883,72 @@
             "state": "translated",
             "value": "先前的 Claude 仍在執行，因此 cmux 沒有繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在那個終端機中執行此命令："
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prethodni Claude još radi, pa cmux nije nastavio razgovor: odvijao bi se na dva mjesta. Kada se taj Claude zatvori, pokrenite ovu naredbu u tom terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude kører stadig, så cmux genoptog ikke samtalen: den ville køre to steder. Kør denne kommando i den terminal, når den Claude er afsluttet:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Claude precedente è ancora in esecuzione, quindi cmux non ha ripreso la conversazione: verrebbe eseguita in due posti. Quando quel Claude sarà chiuso, esegui questo comando in quel terminale:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude មុននៅតែកំពុងដំណើរការ ដូច្នេះ cmux មិនបានបន្តការសន្ទនាទេ៖ បើបន្ត ការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ នៅពេល Claude នោះបានបិទហើយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់នោះ៖"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude kjører fortsatt, så cmux gjenopptok ikke samtalen: den ville da kjørt to steder. Når den Claude er avsluttet, kjør denne kommandoen i den terminalen:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poprzedni Claude nadal działa, więc cmux nie wznowił rozmowy: działałaby w dwóch miejscach. Gdy ten Claude zakończy działanie, uruchom to polecenie w tamtym terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude anterior ainda está em execução, então o cmux não retomou a conversa: ela ficaria em execução em dois lugares. Quando esse Claude tiver sido encerrado, execute este comando naquele terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущий Claude всё ещё работает, поэтому cmux не возобновил разговор: он шёл бы в двух местах. Когда этот Claude завершится, выполните эту команду в том терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ตัวก่อนหน้ายังทำงานอยู่ cmux จึงไม่ได้ดำเนินการสนทนาต่อ: ไม่เช่นนั้นการสนทนาจะทำงานอยู่สองที่ เมื่อ Claude ตัวนั้นปิดแล้ว ให้เรียกใช้คำสั่งนี้ในเทอร์มินัลนั้น:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Claude hâlâ çalışıyor, bu yüzden cmux konuşmayı sürdürmedi: konuşma iki yerde çalışırdı. O Claude kapandıktan sonra bu komutu o terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній Claude досі працює, тому cmux не відновив розмову: вона виконувалася б у двох місцях. Коли цей Claude завершить роботу, виконайте цю команду в тому терміналі:"
+          }
         }
       }
     },
@@ -672698,6 +675008,72 @@
             "state": "translated",
             "value": "此終端機中的 Claude 在 tmux 或 screen 內執行，或已與終端機分離，因此重新啟動終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude u ovom terminalu radi unutar tmux ili screen, ili odvojeno od terminala, pa ga ponovno pokretanje terminala ne bi zaustavilo i razgovor bi se odvijao na dva mjesta. Terminal je ostao nepromijenjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude i denne terminal kører i tmux eller screen eller frakoblet terminalen, så en genstart af terminalen ville ikke stoppe den, og samtalen ville køre to steder. Terminalen blev ikke ændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo terminale Claude è in esecuzione dentro tmux o screen, oppure scollegato dal terminale, quindi riavviare il terminale non lo fermerebbe e la conversazione verrebbe eseguita in due posti. Il terminale non è stato modificato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ក្នុងទែមីណាល់នេះដំណើរការនៅក្នុង tmux ឬ screen ឬដាច់ចេញពីទែមីណាល់ ដូច្នេះការចាប់ផ្ដើមទែមីណាល់ឡើងវិញនឹងមិនបញ្ឈប់វាទេ ហើយការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ ទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude i denne terminalen kjører i tmux eller screen, eller frakoblet terminalen, så en omstart av terminalen ville ikke stoppe den, og samtalen ville kjørt to steder. Terminalen ble ikke endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude w tym terminalu działa wewnątrz tmux lub screen albo jest odłączony od terminala, więc ponowne uruchomienie terminala by go nie zatrzymało, a rozmowa działałaby w dwóch miejscach. Terminal pozostał bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude neste terminal está em execução dentro do tmux ou do screen, ou desanexado do terminal, então reiniciar o terminal não o interromperia e a conversa ficaria em execução em dois lugares. O terminal não foi alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude в этом терминале работает внутри tmux или screen либо отсоединён от терминала, поэтому перезапуск терминала не остановил бы его, и разговор шёл бы в двух местах. Терминал оставлен без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ในเทอร์มินัลนี้ทำงานอยู่ภายใน tmux หรือ screen หรือแยกออกจากเทอร์มินัล การเริ่มเทอร์มินัลใหม่จึงจะไม่หยุด Claude และการสนทนาจะทำงานอยู่สองที่ เทอร์มินัลไม่ถูกเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminaldeki Claude, tmux veya screen içinde ya da terminalden ayrılmış olarak çalışıyor; bu yüzden terminali yeniden başlatmak onu durdurmaz ve konuşma iki yerde çalışırdı. Terminal değiştirilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude у цьому терміналі працює всередині tmux або screen чи від’єднано від термінала, тому перезапуск термінала не зупинив би його, і розмова виконувалася б у двох місцях. Термінал залишився без змін."
+          }
         }
       }
     },
@@ -672756,6 +675132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "先前的 Claude（處理程序 %1$@）仍在執行，因此 cmux 沒有在這裡繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在此終端機中執行此命令：\n\n%2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prethodni Claude (proces %1$@) još radi, pa cmux ovdje nije nastavio razgovor: odvijao bi se na dva mjesta. Kada se taj Claude zatvori, pokrenite ovu naredbu u ovom terminalu:\n\n%2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude (proces %1$@) kører stadig, så cmux genoptog ikke samtalen her: den ville køre to steder. Kør denne kommando i denne terminal, når den Claude er afsluttet:\n\n%2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Claude precedente (processo %1$@) è ancora in esecuzione, quindi cmux non ha ripreso qui la conversazione: verrebbe eseguita in due posti. Quando quel Claude sarà chiuso, esegui questo comando in questo terminale:\n\n%2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude មុន (ដំណើរការលេខ %1$@) នៅតែកំពុងដំណើរការ ដូច្នេះ cmux មិនបានបន្តការសន្ទនានៅទីនេះទេ៖ បើបន្ត ការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ នៅពេល Claude នោះបានបិទហើយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់នេះ៖\n\n%2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude (prosess %1$@) kjører fortsatt, så cmux gjenopptok ikke samtalen her: den ville da kjørt to steder. Når den Claude er avsluttet, kjør denne kommandoen i denne terminalen:\n\n%2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poprzedni Claude (proces %1$@) nadal działa, więc cmux nie wznowił tutaj rozmowy: działałaby w dwóch miejscach. Gdy ten Claude zakończy działanie, uruchom to polecenie w tym terminalu:\n\n%2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude anterior (processo %1$@) ainda está em execução, então o cmux não retomou a conversa aqui: ela ficaria em execução em dois lugares. Quando esse Claude tiver sido encerrado, execute este comando neste terminal:\n\n%2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущий Claude (процесс %1$@) всё ещё работает, поэтому cmux не возобновил разговор здесь: он шёл бы в двух местах. Когда этот Claude завершится, выполните эту команду в этом терминале:\n\n%2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ตัวก่อนหน้า (กระบวนการ %1$@) ยังทำงานอยู่ cmux จึงไม่ได้ดำเนินการสนทนาต่อที่นี่: ไม่เช่นนั้นการสนทนาจะทำงานอยู่สองที่ เมื่อ Claude ตัวนั้นปิดแล้ว ให้เรียกใช้คำสั่งนี้ในเทอร์มินัลนี้:\n\n%2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Claude (işlem %1$@) hâlâ çalışıyor, bu yüzden cmux konuşmayı burada sürdürmedi: konuşma iki yerde çalışırdı. O Claude kapandıktan sonra bu komutu bu terminalde çalıştırın:\n\n%2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній Claude (процес %1$@) досі працює, тому cmux не відновив розмову тут: вона виконувалася б у двох місцях. Коли цей Claude завершить роботу, виконайте цю команду в цьому терміналі:\n\n%2$@"
           }
         }
       }
@@ -677071,6 +679513,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 等待期間 Kiro 全域勾點檔案已變更。未進行任何變更；請再次執行命令。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountSwitch.transcriptResyncFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، شغّل هذا الأمر في الطرفية:\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, pokrenite ovu naredbu u terminalu:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Kør denne kommando i terminalen for at fortsætte fra denne kopi alligevel:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl im Terminal aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, ejecuta este comando en la terminal:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans le terminal :\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, esegui questo comando nel terminale:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, kjør denne kommandoen i terminalen:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, uruchom to polecenie w terminalu:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, execute este comando no terminal:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выполните эту команду в терминале:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виконайте цю команду в терміналі:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请在终端中运行此命令：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.transcriptResyncFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't copy the conversation's latest messages to the new account, so it didn't resume the conversation: the copy there may be missing them. To continue from that copy anyway, run this command in that terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى الحساب الجديد، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هناك هذه الرسائل. للمتابعة من تلك النسخة على أي حال، شغّل هذا الأمر في تلك الطرفية:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kopirati najnovije poruke razgovora na novi račun, pa nije nastavio razgovor: kopiji tamo one možda nedostaju. Da ipak nastavite od te kopije, pokrenite ovu naredbu u tom terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til den nye konto, så samtalen blev ikke genoptaget: kopien der mangler dem muligvis. Kør denne kommando i den terminal for at fortsætte fra den kopi alligevel:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in das neue Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie dort fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl in diesem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a la cuenta nueva, así que no la reanudó: es posible que falten en la copia de esa cuenta. Para continuar igualmente desde esa copia, ejecuta este comando en esa terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans le nouveau compte ; il n'a donc pas repris la conversation, car la copie de ce compte risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans ce terminal :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione nel nuovo account, quindi non l'ha ripresa: la copia lì potrebbe non contenerli. Per continuare comunque da quella copia, esegui questo comando in quel terminale:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話の最新メッセージを新しいアカウントにコピーできなかったため、会話を再開しませんでした。そちらのコピーにはそれらが含まれていない可能性があります。それでもそのコピーから続けるには、そのターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីថ្មីបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនោះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនោះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់នោះ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화의 최신 메시지를 새 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 그쪽 사본에는 해당 메시지가 없을 수 있습니다. 그래도 그 사본에서 계속하려면 해당 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til den nye kontoen, så samtalen ble ikke gjenopptatt: kopien der kan mangle dem. For å fortsette fra den kopien likevel, kjør denne kommandoen i den terminalen:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na nowe konto, więc jej nie wznowił: w tamtej kopii może ich brakować. Aby mimo to kontynuować od tamtej kopii, uruchom to polecenie w tamtym terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para a nova conta, então não a retomou: a cópia lá pode não ter essas mensagens. Para continuar a partir dessa cópia mesmo assim, execute este comando naquele terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось скопировать последние сообщения разговора в новую учётную запись, поэтому разговор не возобновлён: в копии там их может не быть. Чтобы всё равно продолжить с той копии, выполните эту команду в том терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีใหม่ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นั่นอาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานั้นอยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัลนั้น:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, konuşmanın en son mesajlarını yeni hesaba kopyalayamadığı için konuşmayı sürdürmedi: oradaki kopyada bu mesajlar eksik olabilir. Yine de o kopyadan devam etmek için bu komutu o terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося скопіювати останні повідомлення розмови в новий обліковий запис, тому розмову не відновлено: у копії там їх може не бути. Щоб усе одно продовжити з тієї копії, виконайте цю команду в тому терміналі:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将对话的最新消息复制到新账户，因此没有继续对话：那里的副本可能缺少这些消息。如仍要从该副本继续，请在该终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將對話的最新訊息複製到新帳號，因此沒有繼續對話：那裡的副本可能缺少這些訊息。若仍要從該副本繼續，請在該終端機中執行此指令："
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.transcriptResyncFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, choose Type Resume Command, or run:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، اختر «كتابة أمر الاستئناف» أو شغّل:\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, odaberite „Upiši naredbu za nastavak“ ili pokrenite:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Vælg »Indtast genoptagelseskommando« eller kør følgende for at fortsætte fra denne kopi alligevel:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, wählen Sie „Fortsetzungsbefehl eingeben“ oder führen Sie Folgendes aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, elige «Escribir comando de reanudación» o ejecuta:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, choisissez « Saisir la commande de reprise » ou exécutez :\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, scegli «Digita il comando di ripresa» oppure esegui:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、「再開コマンドを入力」を選択するか、次を実行してください:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមជ្រើសរើស «វាយពាក្យបញ្ជាបន្ត» ឬដំណើរការ៖\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 '재개 명령 입력'을 선택하거나 다음을 실행하세요:\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, velg «Skriv inn gjenopptakskommandoen» eller kjør:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, wybierz „Wpisz polecenie wznowienia” lub uruchom:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, escolha “Digitar comando de retomada” ou execute:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выберите «Ввести команду возобновления» или выполните:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เลือก \"พิมพ์คำสั่งดำเนินการต่อ\" หรือเรียกใช้:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için \"Devam Komutunu Yaz\" seçeneğini seçin veya şunu çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виберіть «Ввести команду відновлення» або виконайте:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请选择“输入继续命令”，或运行：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
           }
         }
       }

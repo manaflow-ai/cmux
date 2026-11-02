@@ -33,8 +33,8 @@ public enum ClaudeAccountSwitchRefusal: Error, Equatable, Sendable {
 
 extension ClaudeAccountSwitchRefusal {
     /// The refusal a failed transcript preflight means, or `nil` when the failure says nothing
-    /// about the conversation (an unusable session id, or an I/O error) and the switch reports
-    /// the transcript as unavailable instead.
+    /// about the conversation (an unusable session id, copies in different transcript layouts,
+    /// or an I/O error) and the switch reports the transcript as unavailable instead.
     ///
     /// - Parameters:
     ///   - error: What ``ClaudeTranscriptAccountSync/sync(_:)`` threw.
@@ -46,7 +46,7 @@ extension ClaudeAccountSwitchRefusal {
             self = .noConversationYet
         case .diverged(let targetIsNewer)?:
             self = .transcriptDiverged(newerAccount: targetIsNewer ? targetAccountName : sourceAccountName)
-        case .invalidSessionID?, nil:
+        case .invalidSessionID?, .layoutMismatch?, nil:
             return nil
         }
     }

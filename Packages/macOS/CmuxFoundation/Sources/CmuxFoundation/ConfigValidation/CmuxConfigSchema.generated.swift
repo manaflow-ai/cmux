@@ -443,7 +443,22 @@ enum CmuxEmbeddedConfigSchema {
                 "pattern": "^(/|~/)",
                 "description": "Absolute path, or a path starting with ~/, of the account's CLAUDE_CONFIG_DIR, for example ~/.claude-work."
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": ["name"],
+                  "properties": {
+                    "name": { "const": "default" }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "configDir": { "pattern": "^(~|/.*)/\\.claude/?$" }
+                  }
+                }
+              }
+            ]
           }
         },
         "launchers": {

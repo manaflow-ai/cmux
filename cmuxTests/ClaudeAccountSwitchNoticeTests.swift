@@ -106,6 +106,44 @@ struct ClaudeAccountSwitchNoticeTests {
         #expect(notice.title.contains(ClaudeAccountRegistry.defaultAccountName))
     }
 
+    /// The re-sync after the old Claude quit failed, so the target's copy may miss its last
+    /// lines. cmux typed nothing; the notice hands over the command and may type it on request,
+    /// since nothing else runs the session.
+    @Test
+    func switchWhoseTranscriptResyncFailedOffersTheCommandWithoutTypingIt() throws {
+        let built = try makeManualResume(paneWasReplaced: false)
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: built.command,
+            typedInput: built.typedInput,
+            reason: .transcriptResyncFailed
+        )
+        let plan = try makePlan(to: ClaudeAccountRegistry.defaultAccountName, from: "\(home)/.claude-work")
+
+        let notice = try #require(ClaudeAccountSwitchNotice(
+            result: .switchedWithoutResume(plan, .copied, manualResume),
+            requestedAccountName: ClaudeAccountRegistry.defaultAccountName
+        ))
+        let resumeManuallyNotice = ClaudeAccountSwitchNotice.resumeManually(
+            accountName: ClaudeAccountRegistry.defaultAccountName,
+            command: built.command,
+            paneClosed: false
+        )
+
+        #expect(notice == .transcriptResyncFailed(
+            accountName: ClaudeAccountRegistry.defaultAccountName,
+            command: built.command
+        ))
+        #expect(!manualResume.paneWasReplaced)
+        #expect(notice.offersTypingResumeCommand)
+        #expect(!notice.reportsFailure)
+        #expect(notice.title.contains(ClaudeAccountRegistry.defaultAccountName))
+        #expect(notice.message.contains(built.command))
+        #expect(notice.message != resumeManuallyNotice.message)
+        // A notification has no Type Resume Command button, so its text differs from the alert's.
+        #expect(notice.notificationMessage.contains(built.command))
+        #expect(notice.notificationMessage != notice.message)
+    }
+
     @Test
     func everyFailureMapsToItsOwnMessage() {
         let results: [ClaudeAccountSwitchResult] = [

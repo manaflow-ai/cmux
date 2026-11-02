@@ -65,6 +65,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((request["params"] as? [String: Any])?["force"] as? Bool, true)
     }
 
+    /// A transcript re-sync that failed gets its own explanation, not the generic "couldn't resume"
+    /// one, so the user knows the copy on the new account may be missing the last messages.
+    func testClaudeAccountSwitchExplainsAFailedTranscriptResync() throws {
+        let resumeCommand = "cd /tmp/project && CLAUDE_CONFIG_DIR=/tmp/.claude-work claude --resume s1"
+        func output(notResumedReason: String, name: String) throws -> String {
+            let surfaceId = UUID().uuidString
+            let result = try runClaudeAccountCLI(
+                name: name,
+                arguments: ["claude-account", "switch", "work", "--surface", surfaceId],
+                callerSurfaceId: nil,
+                respond: { method, id in
+                    method == "claude_account.switch"
+                        ? self.v2Response(id: id, ok: true, result: [
+                            "surface_id": surfaceId, "session_id": "s1", "from": "default", "to": "work",
+                            "transcript": "copied", "resumed": false, "resume_command": resumeCommand,
+                            "pane_closed": false, "not_resumed_reason": notResumedReason,
+                        ])
+                        : nil
+                }
+            )
+            XCTAssertEqual(result.process.status, 0, result.process.stderr)
+            XCTAssertTrue(result.process.stdout.contains(resumeCommand), result.process.stdout)
+            return result.process.stdout.replacingOccurrences(of: surfaceId, with: "<surface>")
+        }
+
+        let resyncFailed = try output(notResumedReason: "transcript_resync_failed", name: "claude-account-resync")
+        let noPrompt = try output(notResumedReason: "no_prompt", name: "claude-account-noprompt")
+
+        XCTAssertNotEqual(resyncFailed, noPrompt)
+    }
+
     /// The app's refusal already says how to force the switch; the CLI relays it once and adds
     /// no second hint.
     func testClaudeAccountSwitchWhileClaudeRespondsRelaysTheAppsForceHintOnce() throws {

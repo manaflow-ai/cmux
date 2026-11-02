@@ -8,7 +8,7 @@ extension CMUXCLI {
     static var claudeAccountUsage: String {
         String(
             localized: "cli.claudeAccount.usage",
-            defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+            defaultValue: "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--surface <id|ref|index> [--workspace <id|ref|index>]] [--force] [--json]"
         )
     }
 
@@ -18,7 +18,7 @@ extension CMUXCLI {
 
         switch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.
 
-        <surface> is a UUID, a ref like surface:3, or an index with --workspace.
+        <surface> is a UUID, a ref like surface:3, or an index with --workspace. --workspace only scopes --surface and can't be used alone.
         """)
     }
 
@@ -137,15 +137,21 @@ extension CMUXCLI {
             return
         }
         let explanation: String
-        if response["not_resumed_reason"] as? String == "previous_claude_running" {
+        let notResumedReason = response["not_resumed_reason"] as? String
+        if notResumedReason == "previous_claude_running" {
             explanation = String(
                 localized: "cli.claudeAccount.previousClaudeStillRunning",
                 defaultValue: "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:"
             )
+        } else if notResumedReason == "transcript_resync_failed" {
+            explanation = String(
+                localized: "cli.claudeAccount.transcriptResyncFailed",
+                defaultValue: "cmux couldn't copy the conversation's latest messages to the new account, so it didn't resume the conversation: the copy there may be missing them. To continue from that copy anyway, run this command in that terminal:"
+            )
         } else if response["pane_closed"] as? Bool == true {
             explanation = String(
                 localized: "cli.claudeAccount.resumeManuallyPaneClosed",
-                defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+                defaultValue: "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:"
             )
         } else {
             explanation = String(

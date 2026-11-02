@@ -193,6 +193,51 @@ import Testing
         #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == further)
     }
 
+    /// The target keeps the session in the nested layout while the source uses the flat one.
+    /// Copying the source's sidecar would replace the target's `s1/` tree, nested transcript and
+    /// all, so the sync refuses and touches neither copy.
+    @Test func refusesWhenOnlyTheTargetHasTheNestedLayout() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let src = try seedSource(root: root, cwd: "/p")
+        let targetNested = "\(targetProject(root))/s1/messages/s1.jsonl"
+        try fm.createDirectory(
+            atPath: (targetNested as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        let continued = Self.conversation + Self.userLine("target only")
+        try continued.write(toFile: targetNested, atomically: true, encoding: .utf8)
+
+        let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .layoutMismatch)
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
+                == nil)
+        #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == continued)
+        #expect(!fm.fileExists(atPath: "\(targetProject(root))/s1.jsonl"))
+        #expect(!fm.fileExists(atPath: "\(targetProject(root))/s1/subagents"))
+        #expect(try String(contentsOfFile: src, encoding: .utf8) == Self.conversation)
+    }
+
+    /// The source keeps the session in the nested layout while the target has a flat copy: a
+    /// copy beside it would leave the account with two transcripts of one session.
+    @Test func refusesWhenOnlyTheTargetHasTheFlatLayout() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let sourceNested = "\(root)/src/projects/\(slug("/p"))/s1/messages/s1.jsonl"
+        try fm.createDirectory(
+            atPath: (sourceNested as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        try Self.conversation.write(toFile: sourceNested, atomically: true, encoding: .utf8)
+        let targetFlat = "\(targetProject(root))/s1.jsonl"
+        try fm.createDirectory(atPath: targetProject(root), withIntermediateDirectories: true)
+        let continued = Self.conversation + Self.userLine("target only")
+        try continued.write(toFile: targetFlat, atomically: true, encoding: .utf8)
+
+        let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .layoutMismatch)
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
+                == nil)
+        #expect(try String(contentsOfFile: targetFlat, encoding: .utf8) == continued)
+        #expect(!fm.fileExists(atPath: "\(targetProject(root))/s1"))
+    }
+
     @Test func syncsTranscriptForCwdWithSpacesAndUnicode() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
         let cwd = "/tmp/my proj/한글"

@@ -8,7 +8,7 @@ extension SidebarWorkspaceSnapshotFactory {
         guard !labels.isEmpty else { return nil }
         let joined = labels.joined(separator: ", ")
         return SidebarStatusEntry(
-            key: "claude_account",
+            key: claudeAccountRowKey,
             value: String(
                 localized: "sidebar.claudeAccount.row",
                 defaultValue: "Claude account: \(joined)"
@@ -19,7 +19,8 @@ extension SidebarWorkspaceSnapshotFactory {
     }
 
     /// `rows` plus the account row when `appendsAccount`. Compact mode shows it in the
-    /// status glyph tooltip instead, so it adds nothing there.
+    /// status glyph tooltip instead, so it adds nothing there. The row reflects the panes, so it
+    /// replaces a status entry another caller set under the same key rather than showing twice.
     func rowsIncludingClaudeAccount(
         _ rows: [SidebarStatusEntry],
         appendsAccount: Bool,
@@ -28,19 +29,46 @@ extension SidebarWorkspaceSnapshotFactory {
         guard appendsAccount,
               let row = Self.claudeAccountRow(labels: claudeAccountLabels(orderedPanelIds: orderedPanelIds))
         else { return rows }
-        return rows + [row]
+        return rows.filter { $0.key != row.key } + [row]
     }
 
-    /// Unique non-default Claude account labels of the workspace's live
-    /// agents, in panel order. Claude agents only, from `CLAUDE_CONFIG_DIR`.
+    /// Unique non-default Claude account labels of the workspace's panes, in panel order, from
+    /// `CLAUDE_CONFIG_DIR`. A pane cmux switched to another account names that account (its
+    /// `claudeAccountEnvironment`): the label is the pane's account (spec D9), and the index
+    /// learns it only once the resumed Claude starts, or never when no resume ran. Every other
+    /// pane names the account of its live Claude agent in the index.
     func claudeAccountLabels(orderedPanelIds: [UUID]) -> [String] {
-        guard let index = SharedLiveAgentIndex.shared.index else { return [] }
+        Self.claudeAccountLabels(workspace: workspace, orderedPanelIds: orderedPanelIds)
+    }
+
+    /// Whether `shownEntries`, a cached row's metadata entries (`nil` without a cached row), show
+    /// another Claude account row than `workspace`'s panes give now. A full index reload asks this
+    /// instead of rebuilding every row: it reads only each pane's account record and index entry.
+    @MainActor
+    static func claudeAccountRowIsStale(workspace: Workspace, shownEntries: [SidebarStatusEntry]?) -> Bool {
+        guard let shownEntries else { return true }
+        let current = claudeAccountRow(labels: claudeAccountLabels(
+            workspace: workspace,
+            orderedPanelIds: workspace.sidebarOrderedPanelIds()
+        ))
+        return shownEntries.first { $0.key == claudeAccountRowKey }?.value != current?.value
+    }
+
+    /// The status key of the Claude account row.
+    static let claudeAccountRowKey = "claude_account"
+
+    /// `claudeAccountLabels(orderedPanelIds:)` for `workspace`.
+    static func claudeAccountLabels(workspace: Workspace, orderedPanelIds: [UUID]) -> [String] {
+        let index = SharedLiveAgentIndex.shared.index
         let agents: [(kind: RestorableAgentKind, environment: [String: String]?)] = orderedPanelIds.compactMap { panelId in
-            index.entry(workspaceId: workspace.id, panelId: panelId).map {
+            if let account = workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment {
+                return (kind: .claude, environment: account.accountEnvironment)
+            }
+            return index?.entry(workspaceId: workspace.id, panelId: panelId).map {
                 (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
             }
         }
-        return Self.claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
+        return claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
     }
 
     static func claudeAccountLabels(
@@ -48,11 +76,13 @@ extension SidebarWorkspaceSnapshotFactory {
         homeDirectory: String
     ) -> [String] {
         var labels: [String] = []
+        // Emitted labels, so a workspace with many panes dedupes in one pass, in panel order.
+        var emitted: Set<String> = []
         for agent in agents where agent.kind == .claude {
             guard let label = SidebarAgentProfileLabel.label(
                 configDirectory: agent.environment?["CLAUDE_CONFIG_DIR"],
                 homeDirectory: homeDirectory
-            ), label != SidebarAgentProfileLabel.routedProxyLabel, !labels.contains(label) else { continue }
+            ), label != SidebarAgentProfileLabel.routedProxyLabel, emitted.insert(label).inserted else { continue }
             labels.append(label)
         }
         return labels

@@ -116,11 +116,13 @@ extension Workspace {
     /// is refused there with ``ClaudeAccountSwitchRefusal/noConversationYet``, and copies that went
     /// on under both accounts with ``ClaudeAccountSwitchRefusal/transcriptDiverged(newerAccount:)``.
     /// A Claude the pane's restart would not stop (inside tmux or screen, or detached) is refused
-    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``. The surface then respawns with the
+    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude that started in the
+    /// pane while the transcript was copied with ``ClaudeAccountSwitchRefusal/noClaudeSession``.
+    /// The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
-    /// old Claude is still running, returns
+    /// old Claude is still running or the second transcript sync failed, returns
     /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
@@ -178,7 +180,9 @@ extension Workspace {
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
         // Checked before the transcript is copied, so a refused switch changes nothing.
-        guard claudeAccountSwitchAgentsOwnedByPane(panelId) != nil else { return .agentNotOwnedByPane }
+        guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
+            return .agentNotOwnedByPane
+        }
 
         let sync = ClaudeTranscriptAccountSync()
         let request = ClaudeTranscriptAccountSyncRequest(
@@ -205,7 +209,15 @@ extension Workspace {
         }
 
         // Checked again with the agents recorded now: they may have changed during the copy.
-        guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId) else { return .agentNotOwnedByPane }
+        guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
+            return .agentNotOwnedByPane
+        }
+        // A Claude that started in the pane during the copy is not the session planned above, and
+        // the restart would kill it to resume the old one. Compared by process generation: the
+        // index learns the new session only at its SessionStart.
+        guard replacedAgents.startedProcesses(since: agentsBeforeCopy).isEmpty else {
+            return .refused(.noClaudeSession)
+        }
         // No await from here to the restart, so what the user did meanwhile is seen.
         if let paneIsFree, !paneIsFree() { return .paneInUse }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
@@ -230,19 +242,22 @@ extension Workspace {
         // The old Claude can append transcript lines until it dies; copy them before resuming.
         await Self.waitForReplacedClaudeProcessesToExit(replacedAgents.processes)
         let stillRunning = replacedAgents.stillRunning
-        let outcome = await resyncClaudeAccountSwitchTranscript(sync, request, preflight: preflight)
-        // A Claude that outlived the wait still owns the session: never start a second one.
-        guard stillRunning.isEmpty else {
+        let resync = await resyncClaudeAccountSwitchTranscript(sync, request)
+        let outcome = resync.map { preflight == .alreadyCurrent ? $0 : preflight } ?? preflight
+        // A Claude that outlived the wait still owns the session: never start a second one. A
+        // failed re-sync may leave the target without that Claude's last lines: resuming would
+        // silently continue an older copy, so the user decides.
+        if let reason = ClaudeAccountSwitchManualResume.Reason.withholdingResume(
+            stillRunningProcessIDs: stillRunning.map(\.pid),
+            transcriptResynced: resync != nil
+        ) {
 #if DEBUG
-            cmuxDebugLog(
-                "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) resume=skipped " +
-                    "previousClaudeStillRunning=\(stillRunning.map(\.pid))"
-            )
+            cmuxDebugLog("claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) resume=skipped reason=\(reason)")
 #endif
             return .switchedWithoutResume(plan, outcome, ClaudeAccountSwitchManualResume(
                 command: resumeCommand,
                 typedInput: resumeInput,
-                reason: .previousClaudeStillRunning(processIDs: stillRunning.map(\.pid))
+                reason: reason
             ))
         }
         let delivery = await deliverClaudeAccountSwitchResumeInput(
@@ -267,31 +282,38 @@ extension Workspace {
     }
 
     /// Syncs the transcript again once the old Claude is gone, so lines it wrote after the
-    /// preflight reach the target. A failed re-sync keeps the preflight copy, which is still
-    /// resumable but may miss those last lines; it is logged, not reported.
+    /// preflight reach the target. `nil` when the re-sync failed: the target keeps the preflight
+    /// copy, which may miss those last lines.
     private func resyncClaudeAccountSwitchTranscript(
         _ sync: ClaudeTranscriptAccountSync,
-        _ request: ClaudeTranscriptAccountSyncRequest,
-        preflight: ClaudeTranscriptAccountSyncOutcome
-    ) async -> ClaudeTranscriptAccountSyncOutcome {
+        _ request: ClaudeTranscriptAccountSyncRequest
+    ) async -> ClaudeTranscriptAccountSyncOutcome? {
         do {
-            let resync = try await sync.sync(request)
-            return preflight == .alreadyCurrent ? resync : preflight
+            return try await sync.sync(request)
         } catch {
 #if DEBUG
-            cmuxDebugLog("claudeAccount.switch resync.failed session=\(request.sessionID.prefix(8)) error=\(error)")
+            // The error's type only: its description can carry transcript paths.
+            cmuxDebugLog("claudeAccount.switch resync.failed errorType=\(type(of: error))")
 #endif
-            return preflight
+            return nil
         }
     }
 
     /// The pane's recorded agent processes, or `nil` when restarting the pane would not stop one
     /// that is still running (see ``ClaudeAccountSwitchReplacedAgents/ownership(paneTTYDevice:)``).
+    /// When no recorded process is running, the live owner the agent index names for `sessionID`
+    /// is checked instead, so a Claude whose pid never reached the pane is not waved through.
     @MainActor
-    private func claudeAccountSwitchAgentsOwnedByPane(_ panelId: UUID) -> ClaudeAccountSwitchReplacedAgents? {
+    private func claudeAccountSwitchAgentsOwnedByPane(
+        _ panelId: UUID,
+        sessionID: String
+    ) -> ClaudeAccountSwitchReplacedAgents? {
         let agents = ClaudeAccountSwitchReplacedAgents(
             processes: (agentPIDKeysByPanelId[panelId] ?? []).compactMap { agentPIDProcessIdentitiesByKey[$0] }
-        )
+        ).fallingBack(toLiveSessionOwner: SharedLiveAgentIndex.shared.index?.liveSessionOwner(
+            kind: RestorableAgentKind.claude.rawValue,
+            sessionID: sessionID
+        )?.processIdentity)
         let ownership = agents.ownership(
             paneTTYDevice: terminalPanel(for: panelId)?.surface.controllingTTYDeviceIdentifier
         )

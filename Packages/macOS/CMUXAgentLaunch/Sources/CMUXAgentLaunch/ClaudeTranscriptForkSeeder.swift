@@ -103,7 +103,9 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         return nil
     }
 
-    private static func transcriptLocation(
+    /// The session's transcript in `projectPath`, flat (`<sid>.jsonl`) or nested
+    /// (`<sid>/messages/<sid>.jsonl`), the flat one first.
+    static func transcriptLocation(
         projectPath: String, sessionID: String, fileManager: FileManager
     ) -> TranscriptLocation? {
         let candidates = [

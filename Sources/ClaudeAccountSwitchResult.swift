@@ -7,7 +7,8 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case switched(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
     /// The pane respawned on the target account and the transcript is there, but the resume
     /// command was never typed: the pane was closed or replaced, its new shell did not report a
-    /// prompt in time, or the replaced Claude was still running. The pane may sit at a bare
+    /// prompt in time, the replaced Claude was still running, or the transcript could not be
+    /// copied again after that Claude quit. The pane may sit at a bare
     /// shell, so callers hand the user the built resume command from the
     /// ``ClaudeAccountSwitchManualResume``, whose `reason` says which.
     case switchedWithoutResume(

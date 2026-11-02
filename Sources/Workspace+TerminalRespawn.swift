@@ -18,7 +18,9 @@ extension Workspace {
     /// workspace's own is treated as inherited workspace env and follows the current workspace (#5995).
     /// Those overrides last only as long as this process. The account keys a Claude account switch set
     /// also live in the panel's `claudeAccountEnvironment`, which the replacement panel inherits and
-    /// the session snapshot persists, so a restore after an app relaunch replays them too.
+    /// the session snapshot persists. Every respawn applies that record again against the current
+    /// workspace env (keys the call sets or removes win), and a restore after an app relaunch
+    /// replays it the same way.
     /// An SSH-owned surface or a `nativeReservation` respawn cannot carry an env change, so it
     /// returns `nil` when one is given instead of dropping it.
     @discardableResult
@@ -84,6 +86,17 @@ extension Workspace {
         // re-records the seeded env for the replacement panel against the current
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
+        // A pane switched to another Claude account keeps it: the switch's record is applied again
+        // against the current workspace env, as a relaunch restore does, since a move or a
+        // workspace env change can supply a key the switch cleared. Keys this call sets or removes
+        // win; a switch passes the new account itself.
+        let accountEnvironment = claudeAccountSurfaceEnvironment(oldPanel.claudeAccountEnvironment)
+        let accountOverrides = (accountEnvironment?.overrides ?? [:]).filter {
+            environmentOverrides[$0.key] == nil && !removingEnvironmentKeys.contains($0.key)
+        }
+        let removedKeys = removingEnvironmentKeys.union(
+            (accountEnvironment?.removedKeys ?? []).subtracting(environmentOverrides.keys)
+        )
         // The welcome banner key is one-shot: a respawned shell must not reprint it.
         // Removed keys leave both inherited channels before the workspace re-fold.
         // Caller overrides ride this channel, not additionalEnvironment, because the
@@ -91,12 +104,13 @@ extension Workspace {
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
             .filter {
                 oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey
-                    && !removingEnvironmentKeys.contains($0.key)
+                    && !removedKeys.contains($0.key)
             }
+            .merging(accountOverrides) { _, account in account }
             .merging(environmentOverrides) { _, override in override }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter {
-                oldSeededWorkspaceEnvironment[$0.key] != $0.value && !removingEnvironmentKeys.contains($0.key)
+                oldSeededWorkspaceEnvironment[$0.key] != $0.value && !removedKeys.contains($0.key)
             }
         )
         let effectiveReplayFileURL = replayFileURL ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)

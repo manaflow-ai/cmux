@@ -31,68 +31,81 @@ struct WorkspaceClaudeAccountSwitchTests {
         #expect(workspace.currentClaudeAccount(panelId: panelId) == nil)
     }
 
-    @Test
+    /// The deadline runs on a manual clock that is never advanced, so only the report can end
+    /// this wait; a report that failed to wake it would hang into the time limit.
+    @Test(.timeLimit(.minutes(1)))
     func resumeWaitEndsWhenTheShellReportsItsPrompt() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
-        let clock = ContinuousClock()
-        let start = clock.now
+        let clock = CloudReadManualClock()
 
         let wait = Task { @MainActor in
             await workspace.waitForClaudeAccountSwitchShellPrompt(
                 panelId: panelId,
                 panel: panel,
-                timeout: .seconds(30)
+                timeout: .seconds(30),
+                clock: clock
             )
         }
-        // Lets the wait arm its observation before the report arrives.
-        await Task.yield()
+        // The deadline sleeps once the wait has armed its observation and suspended.
+        try await waitUntil { clock.pendingSleeperCount == 1 }
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         #expect(await wait.value == .prompt)
-        // The report, not the 30 s deadline, ended the wait.
-        #expect(clock.now - start < .seconds(10))
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func resumeWaitTimesOutWhileTheShellHasNotReportedAPrompt() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
+        let clock = CloudReadManualClock()
         // A blank panel's own model starts at an optimistic `.promptIdle`; only the
         // shell's report may release the input (#5473).
-
-        let readiness = await workspace.waitForClaudeAccountSwitchShellPrompt(
-            panelId: panelId,
-            panel: panel,
-            timeout: .milliseconds(50)
-        )
-
-        #expect(readiness == .timedOut)
-    }
-
-    @Test
-    func resumeWaitStopsAsSoonAsThePaneIsRespawnedAgain() async throws {
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let panel = try #require(workspace.terminalPanel(for: panelId))
-        let clock = ContinuousClock()
-        let start = clock.now
 
         let wait = Task { @MainActor in
             await workspace.waitForClaudeAccountSwitchShellPrompt(
                 panelId: panelId,
                 panel: panel,
-                timeout: .seconds(30)
+                timeout: .seconds(15),
+                clock: clock
             )
         }
-        await Task.yield()
+        try await waitUntil { clock.pendingSleeperCount == 1 }
+        clock.advance(by: .seconds(15))
+
+        #expect(await wait.value == .timedOut)
+    }
+
+    /// As with the prompt report, the deadline never fires, so the respawn alone ends the wait.
+    @Test(.timeLimit(.minutes(1)))
+    func resumeWaitStopsAsSoonAsThePaneIsRespawnedAgain() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        let clock = CloudReadManualClock()
+
+        let wait = Task { @MainActor in
+            await workspace.waitForClaudeAccountSwitchShellPrompt(
+                panelId: panelId,
+                panel: panel,
+                timeout: .seconds(30),
+                clock: clock
+            )
+        }
+        try await waitUntil { clock.pendingSleeperCount == 1 }
         let replacement = try #require(workspace.respawnTerminalSurface(panelId: panelId, command: nil))
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         #expect(replacement !== panel)
         #expect(await wait.value == .replaced)
-        #expect(clock.now - start < .seconds(10))
+    }
+
+    /// Polls a real condition; the deadline bounds only the failure path.
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        try #require(condition(), "the prompt wait never started its deadline")
     }
 }
