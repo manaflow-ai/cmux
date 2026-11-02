@@ -1090,14 +1090,24 @@ impl StartCopy {
             );
         }
         let send = Send::new(&self.key, &self.account);
-        let in_flight = match Ledger::update(ledger, |pins| {
-            pins.copied_chat(&send, &self.machine)
-                .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
-        }) {
-            Ok(Ok(chat)) => return self.cached_chat(chat, probe),
-            Ok(Err(place)) => place,
+        let source = self.copy_source();
+        let first = Ledger::update(ledger, |pins| {
+            (
+                pins.copy_source(&send, &self.machine),
+                pins.copied_chat(&send, &self.machine),
+                pins.copy_place(&send, &self.machine),
+            )
+        });
+        let (previous, finished, in_flight) = match first {
+            Ok(first) => first,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         };
+        if let Some(refusal) = Self::source_refusal(previous, &source) {
+            return refusal;
+        }
+        if let Some(chat) = finished {
+            return self.cached_chat(chat, probe);
+        }
         // The unfinished copy's folder when no live copy holds it, else a new one.
         let resumed = in_flight
             .and_then(|place| Some((Lease::take(ledger, &send, &self.machine, &place)?, place)));
