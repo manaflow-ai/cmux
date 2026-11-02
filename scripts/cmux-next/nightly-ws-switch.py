@@ -68,6 +68,7 @@ class Journey:
         self.sample_lock = threading.Lock()
         self.pings = []
         self.stop = threading.Event()
+        self.watchers = []
 
     # -- the app -----------------------------------------------------------------------------
     def action(self, name, args=None, timeout=60.0):
@@ -89,7 +90,7 @@ class Journey:
             focus, visible = self.shown()
             if focus == target and target in visible:
                 return True
-            time.sleep(0.005)  # measurement harness polling the live app
+            time.sleep(0.02)  # measurement harness polling the live app
         return False
 
     # -- sampling ----------------------------------------------------------------------------
@@ -118,7 +119,9 @@ class Journey:
         def run():
             if not done_event.wait(SLOW_S):
                 self.sample(label)
-        threading.Thread(target=run, daemon=True).start()
+        thread = threading.Thread(target=run, daemon=True)
+        self.watchers.append(thread)
+        thread.start()
 
     def pinger(self):
         while not self.stop.is_set():
@@ -209,31 +212,41 @@ class Journey:
             time.sleep(2.0)  # harness: the printing loops run before the switches
             switches = []
             if len(ids) >= 2:
-                order = [ids[(i * 3 + 1) % len(ids)] for i in range(self.opts.rounds)]
-                for i, target in enumerate(order):
-                    if self.shown()[0] == target:
-                        target = ids[(ids.index(target) + 1) % len(ids)]
-                    switches.append(self.timed_switch(f"goTo {i}", lambda t=target: self.action("goToWorkspace", {"workspace": t}), target))
+                # Every workspace in turn, alternating hops of 1 and 3 so each switch leaves and enters a different one.
+                current, failed_in_row = 0, 0
+                for i in range(self.opts.rounds):
+                    current = (current + (1 if i % 2 == 0 else 3)) % len(ids)
+                    if self.shown()[0] == ids[current]:
+                        current = (current + 1) % len(ids)
+                    target = ids[current]
+                    row = self.timed_switch(f"goTo {i}", lambda t=target: self.action("goToWorkspace", {"workspace": t}), target)
+                    switches.append(row)
+                    failed_in_row = 0 if row["shown"] else failed_in_row + 1
+                    if failed_in_row >= 4:
+                        print("SWITCH 4 switches in a row failed: the app is stuck, stopping the switches", flush=True)
+                        break
                     time.sleep(0.15)
-                for i in range(5):
+                for i in range(5 if failed_in_row < 4 else 0):
                     switches.append(self.timed_switch(f"selectFirst {i}", lambda: self.action("workspace.selectFirst"), None))
                     time.sleep(0.15)
                     switches.append(self.timed_switch(f"selectLast {i}", lambda: self.action("workspace.selectLast"), ids[-1]))
                     time.sleep(0.15)
-                for i in range(5):
+                for i in range(5 if failed_in_row < 4 else 0):
                     switches.append(self.timed_switch(f"nextSidebarTab {i}", lambda: self.action("nextSidebarTab"), None))
                     time.sleep(0.15)
             report["switches"] = switches
             # Type into a prompt workspace (the last one sits at a prompt when WORKSPACES is even).
-            prompt = next((w for i, w in enumerate(ids) if i % 2 == 1 and i != 1), ids[-1] if ids else None)
+            prompt = next((w for i, w in enumerate(ids) if i % 2 == 1 and i != 1), None)
             if prompt:
                 self.action("goToWorkspace", {"workspace": prompt})
                 self.wait_shown(prompt)
                 time.sleep(0.5)
-            report["typing"] = self.typing(root, self.opts.typing)
+            report["typing"] = self.typing(root, self.opts.typing) if prompt else []
         finally:
             self.stop.set()
             pinger.join(timeout=35)
+            for thread in list(self.watchers):
+                thread.join(timeout=70)  # a running sample finishes and records its file
         report["pings_ms"] = self.pings
         report["samples"] = self.samples
         report["summary"] = summarize(report)

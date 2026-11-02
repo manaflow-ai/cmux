@@ -8,7 +8,7 @@
 #   dmg=URL  an https nightly DMG (repeatable; run in the order given)
 # Prints NWS lines per build (the summary) and keeps report.json, app output and sample files in report.tgz.
 set -uo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/nightly-ws-switch"
 rm -rf "$out" && mkdir -p "$out"
 dmgs=() extra=()
