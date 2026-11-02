@@ -42,7 +42,7 @@ public actor ShareInstalls {
     /// The install for `api`, made at its first use; nil, a URL with no https host or one ``accepts`` refuses
     /// is the fallback.
     public func identity(for api: URL?) -> MacInstallIdentity {
-        guard let api, let key = Self.origin(api) else { return fallback }
+        guard let api, accepts(api), let key = Self.origin(api) else { return fallback }
         return byOrigin[key] ?? (closed ? nil : made(for: api)) ?? fallback
     }
 

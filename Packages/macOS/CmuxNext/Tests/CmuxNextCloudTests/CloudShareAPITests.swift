@@ -49,6 +49,7 @@ struct ShareInstallsTests {
         #expect(await installs.identity(for: nil) === fallback)
         #expect(await installs.identity(for: Self.development) === fallback)
         #expect(await installs.identity(for: Self.production) === owner)
+        #expect(await installs.identity(for: URL(string: "https://cmux-api-other.invalid:8443")) === fallback, "no port: one install per host")
         let staging = await installs.identity(for: Self.staging)
         #expect(staging !== fallback && staging !== owner)
         #expect(await installs.identity(for: Self.staging) === staging)
@@ -76,7 +77,7 @@ struct ShareInstallsTests {
         #expect(await installs.identity(for: URL(string: "https://elsewhere.invalid")) === fallback)
         #expect(await installs.identity(for: Self.staging) !== fallback)
         #expect(await installs.identity(for: URL(string: "https://cloud-api.cmux.dev:8443")) === fallback, "another origin of a cmux host")
-        #expect(await installs.identity(for: URL(string: "https://cloud-api-staging.cmux.dev/v1?x=1")) !== fallback, "an API is its origin")
+        #expect(await installs.identity(for: URL(string: "https://cloud-api-staging.cmux.dev/v1?x=1")) === fallback, "only a bare origin")
         let debug = Self.installs(root, owner: owner, fallback: fallback)
         #expect(await debug.identity(for: URL(string: "https://elsewhere.invalid")) !== fallback)
     }
