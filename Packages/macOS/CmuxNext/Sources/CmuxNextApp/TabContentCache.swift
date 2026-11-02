@@ -195,8 +195,7 @@ final class TabContentCache {
                                                      generation: daemon.store.generation)
         let identity = daemon.terminalIdentity(of: tab), carried = terminals[tab.id]?.session.carriedFrame(for: identity)
         if let stale = terminals.removeValue(forKey: tab.id) {
-            // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go
-            // before it closes; a new view of the same terminal shows the old one's frame until it draws.
+            // Daemon restarted or the tab's surface changed: the old pane lets the view go first; a new view of the same terminal shows its frame.
             if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
             applyLifecycle(lifecycle.send(.removed(tab.id)))
             pendingMounts[tab.id] = nil
