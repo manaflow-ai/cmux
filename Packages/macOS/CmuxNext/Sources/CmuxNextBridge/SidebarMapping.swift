@@ -292,7 +292,7 @@ public struct SidebarMapping {
     /// The tab the row stands for: the selected tab of the workspace's most recently focused pane;
     /// nil for a workspace with no tabs (the face rules, `SidebarFaceFFI`).
     public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], pick: \.front)
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .front, pick: \.front)
     }
 
     /// The tab a browser front tab yields its row's name to (a PR opened in a split,
@@ -300,7 +300,7 @@ public struct SidebarMapping {
     /// focused pane that shows a chat or terminal; nil while every pane shows a page. A Home, page or
     /// app tab gives no name (`WorkspaceAutoNameReader.front`), so it is passed over too.
     public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], pick: \.work)
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .work, pick: \.work)
     }
 
     /// The one tab a workspace's row and window titlebar both read their name and icon from: the
@@ -308,22 +308,25 @@ public struct SidebarMapping {
     /// moving to a page beside a chat leaves both the chat's.
     public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
                         newTabPages: Set<String> = []) -> TabModel? {
-        faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages, pick: \.face)
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages, level: .face, pick: \.face)
     }
 
-    /// The tab of `workspace` the face rules pick at `pick`.
+    /// The tab of `workspace` the face rules pick at `pick`. `level` encodes only what that rule reads, so an
+    /// observing caller (the auto-namer, a window's titlebar) is not woken by a tab's progress, notification or
+    /// agent report (O(changed), not every tab event of every workspace).
     private func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?, newTabPages: Set<String>,
-                         pick: KeyPath<CmuxSidebarFaceRow, UInt32>) -> TabModel? {
-        guard let facts = rules.face(workspace, local: true, status: nil, showsUnread: true, newTabPages: newTabPages,
-                                     newTabTitled: false, listTitles: [], selectedTab: selectedTab, branded: { $0.agentBrand != nil }),
+                         level: SidebarFaceFFI.Level, pick: KeyPath<CmuxSidebarFaceRow, UInt32>) -> TabModel? {
+        guard let facts = rules.face(workspace, level: level, local: true, status: nil, showsUnread: true, newTabPages: newTabPages,
+                                     newTabTitled: false, listTitles: [], selectedTab: selectedTab, branded: { _ in false }),
               let index = facts.index(facts.row[keyPath: pick]) else { return nil }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         return tabs.indices.contains(index) ? tabs[index] : nil
     }
 
-    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
+    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id): the label tab's chat,
+    /// so with an idle shell in front, the chat the row is named for.
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], pick: \.chat)
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .face, pick: \.chat)
     }
 
     /// The face rules' row kind code (0 terminal, 1 browser, 2 harness) as the sidebar draws it.

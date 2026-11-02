@@ -19,6 +19,8 @@ extension SidebarMapping {
     /// daemon's title from the press.
     /// The rule runs in Rust (cmux-layout-reducer `sidebar_face::default_workspace_name`).
     public static func defaultWorkspaceName(existing: [String], reserved: [String]) -> String {
+        // The call fails only without a Rust handle (out of memory at launch): a create then still gets a
+        // name, and the daemon renumbers nothing it already listed.
         SidebarFaceFFI.shared.defaultWorkspaceName(existing: existing, reserved: reserved)
             ?? defaultNamePrefix + String(existing.count + reserved.count + 1)
     }

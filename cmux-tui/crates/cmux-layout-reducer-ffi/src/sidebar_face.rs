@@ -494,7 +494,8 @@ impl Faces {
         let decoded = strings.map(|strings| (required(strings, path), required(strings, home)));
         let ok = match decoded {
             Some((Ok(path), Ok(home))) => {
-                self.name = rules::abbreviate(path, home).into_owned();
+                self.name.clear();
+                self.name.push_str(&rules::abbreviate(path, home));
                 true
             }
             _ => {
