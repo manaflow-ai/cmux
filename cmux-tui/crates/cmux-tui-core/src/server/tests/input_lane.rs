@@ -77,7 +77,7 @@ fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
 /// Records what a test terminal's PTY is sent.
 struct InputRecorder(mpsc::Sender<Vec<u8>>);
 
-impl std::io::Write for InputRecorder {
+impl Write for InputRecorder {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.send(bytes.to_vec()).unwrap();
         Ok(bytes.len())
@@ -108,12 +108,9 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
     // dead yet (its host stops after the new one is in), so only the routing says it no longer owns the id.
     let removed = mux.remove_surface_runtime_for_test(old.id).expect("the placement had a runtime");
     assert!(Arc::ptr_eq(&removed, &old));
-    let respawned = crate::Surface::spawn_for_test(
-        old.id,
-        crate::SurfaceOptions::default(),
-        Arc::downgrade(&mux),
-    )
-    .unwrap();
+    let respawned =
+        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .unwrap();
     let (new_sent, new_input) = mpsc::channel();
     respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
     mux.insert_surface_runtime_for_test(respawned.clone());

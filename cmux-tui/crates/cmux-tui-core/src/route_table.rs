@@ -49,6 +49,14 @@ impl<K: Eq + Hash, V> RouteTable<K, V> {
         route_changed();
         self.0.remove(key)
     }
+
+    /// Room for `additional` more entries (a mutation plan reserves before it commits); routes nothing.
+    pub fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), std::collections::TryReserveError> {
+        self.0.try_reserve(additional)
+    }
 }
 
 impl<K, V> Deref for RouteTable<K, V> {
