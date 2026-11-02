@@ -160,6 +160,21 @@ extension CMUXCLI {
             telemetry.breadcrumb(difficulty == current ? "claude-hook.difficulty.unchanged" : "claude-hook.difficulty.damped")
             return
         }
+        // Checked again after the call: another session may have taken the pane
+        // meanwhile (`/clear` starts one), and this one's verdict must not set the
+        // workspace it now runs in. No turn id: this session's own next prompt
+        // during the call does not void its rating.
+        guard shouldApplyClaudeHookVisibleMutation(
+            sessionStore: sessionStore,
+            sessionId: sessionId,
+            turnId: nil,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            telemetry: telemetry
+        ) else {
+            telemetry.breadcrumb("claude-hook.difficulty.stale-after-rating")
+            return
+        }
         guard (try? client.sendV2(
             method: "session_priority.set",
             params: ["workspace_id": workspaceId, "difficulty": send.rawValue, "source": "auto"]
