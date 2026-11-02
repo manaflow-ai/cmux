@@ -1196,6 +1196,7 @@ const TURN_GAP = 0;
 /// floating bottom stack (the running tray, else the composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
 /// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
 /// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+/// settled-spacing: rest-gap (schemas/layout-grid/settled-spacing.json)
 export const REST_GAP = 56;
 /// What the room under the last row adds over a floating stack to the last row's turn gap. The
 /// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
