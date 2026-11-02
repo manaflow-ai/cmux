@@ -15422,7 +15422,7 @@ struct VerticalTabsSidebar: View, Equatable {
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
             isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
             hasManualCustomColor: workspaceSnapshot.hasManualCustomColor,
-            sessionPriorityMenu: SessionPriorityMenuState(workspace: tab)
+            sessionPriorityMenu: workspaceSnapshot.sessionPriorityMenu
         )
         return result
     }

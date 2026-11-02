@@ -220,7 +220,8 @@ struct SidebarWorkspaceSnapshotFactory {
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
             compactStatusGlyph: compactStatusGlyph,
-            hostTitleSuffix: hostTitleSuffix
+            hostTitleSuffix: hostTitleSuffix,
+            sessionPriorityMenu: SessionPriorityMenuState(workspace: workspace)
         )
     }
 
