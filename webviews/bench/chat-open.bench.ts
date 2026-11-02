@@ -388,9 +388,26 @@ try {
       const key = `${frame.functionName || "(anon)"} ${where}`;
       self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
     });
+    // By script (or native, program, garbage collector) and by elapsed window: where the boot goes.
+    const byFile = new Map<string, number>();
+    const byWindow = new Map<string, number>();
+    let clock = 0;
+    profile.samples.forEach((id, index) => {
+      clock += (profile.timeDeltas[index] ?? 0) / 1000;
+      const frame = byId.get(id)!.callFrame;
+      const file = frame.url.split("/").slice(-1)[0] || frame.functionName || "(native)";
+      byFile.set(file, (byFile.get(file) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+      if (frame.functionName === "(idle)") return;
+      const bucket = `${Math.floor(clock / 25) * 25} ms`;
+      byWindow.set(bucket, (byWindow.get(bucket) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+    });
+    console.log("profile by script (ms):");
+    for (const [key, ms] of [...byFile].sort((a, b) => b[1] - a[1]).slice(0, 15)) console.log(`${ms.toFixed(1)}\t${key}`);
+    console.log("busy per 25 ms window from profile start (ms):");
+    console.log([...byWindow].map(([key, ms]) => `${key}: ${ms.toFixed(0)}`).join(", "));
     const total = [...self.values()].reduce((a, b) => a + b, 0);
     console.log(`profile: ${total.toFixed(0)} ms sampled; top self time (ms)`);
-    for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${ms.toFixed(1)}\t${key}`);
+    for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 45)) console.log(`${ms.toFixed(1)}\t${key}`);
     await page.close();
   }
   // ARMS=off,compact: the thread rail's layout per arm (compact is the default), interleaved in
