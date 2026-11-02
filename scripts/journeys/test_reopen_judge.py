@@ -53,7 +53,9 @@ def frame(t, flash=False):
             f[rect["y"]:rect["y"] + p.shape[0], rect["x"]:rect["x"] + p.shape[1]] = p
         f[CELL_A["y"]:CELL_A["y"] + 16, CELL_A["x"]:CELL_A["x"] + 24] = 20   # an empty prompt cell
     if t >= ECHO_AT:
-        f[CELL_A["y"] + 3:CELL_A["y"] + 13, CELL_A["x"] + 1:CELL_A["x"] + 7] = 240
+        for d in range(8):   # an "x": two diagonals
+            f[CELL_A["y"] + 4 + d, CELL_A["x"] + 1 + (d * 6) // 8] = 240
+            f[CELL_A["y"] + 4 + d, CELL_A["x"] + 6 - (d * 6) // 8] = 240
     return f
 
 

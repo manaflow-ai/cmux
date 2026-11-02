@@ -247,6 +247,80 @@ def front_pid():
     return int(found.group(1)) if found else None
 
 
+# ---- CoreGraphics: the pointer jump (clock sync) and, where this process may post events, the HID key ----------
+
+class CGPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+
+_CG = None
+
+
+def _cg():
+    global _CG
+    if _CG is None:
+        cg = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        cg.CGWarpMouseCursorPosition.argtypes = [CGPoint]
+        cg.CGWarpMouseCursorPosition.restype = ctypes.c_int32
+        cg.CGEventCreate.argtypes = [ctypes.c_void_p]
+        cg.CGEventCreate.restype = ctypes.c_void_p
+        cg.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+        cg.CGEventGetLocation.restype = CGPoint
+        cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+        cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+        cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        cg.CGEventPost.restype = None
+        cg.CFRelease.argtypes = [ctypes.c_void_p]
+        cg.CGPreflightPostEventAccess.restype = ctypes.c_bool
+        _CG = cg
+    return _CG
+
+
+def cursor_at():
+    cg = _cg()
+    ev = cg.CGEventCreate(None)
+    if not ev:
+        return None
+    loc = cg.CGEventGetLocation(ev)
+    cg.CFRelease(ev)
+    return (loc.x, loc.y)
+
+
+def warp(x, y):
+    """Moves the real pointer at once (CGWarpMouseCursorPosition: no event, no animation); True when the pointer is
+    there after."""
+    try:
+        err = _cg().CGWarpMouseCursorPosition(CGPoint(x, y))
+        at = cursor_at()
+    except (OSError, AttributeError):
+        return False
+    return err == 0 and at is not None and abs(at[0] - x) < 1.5 and abs(at[1] - y) < 1.5
+
+
+def can_post_events():
+    try:
+        return bool(_cg().CGPreflightPostEventAccess())
+    except (OSError, AttributeError):
+        return False
+
+
+KEYCODE_X = 7  # kVK_ANSI_X
+
+
+def post_key(keycode=KEYCODE_X):
+    """A HID key down and up (kCGHIDEventTap); returns the wall times around the down."""
+    cg = _cg()
+    down = cg.CGEventCreateKeyboardEvent(None, keycode, True)
+    up = cg.CGEventCreateKeyboardEvent(None, keycode, False)
+    before = time.time()
+    cg.CGEventPost(0, down)
+    after = time.time()
+    cg.CGEventPost(0, up)
+    cg.CFRelease(down)
+    cg.CFRelease(up)
+    return before, after
+
+
 # ---- the exact state a reopen must give back -------------------------------------------------------------------
 
 def _visible_terminals(j):
@@ -297,11 +371,25 @@ def _history(j, term, limit=60):
     return {"total": int(answer.get("start") or 0) + len(texts), "tail": [t.rstrip() for t in texts[-12:]]}
 
 
+def main_windows(server):
+    """The app's real windows on the window server (wider and taller than 100 points), front to back; the app also
+    has small helper windows (a few points wide, at the pane edges) that are not compared one by one."""
+    return [w for w in server if (w.get("w") or 0) > 100 and (w.get("h") or 0) > 100 and abs(w.get("x") or 0) < 50000]
+
+
 def exact_state(j):
     """What a reopen must give back, read through the socket, the daemon CLI and the window server."""
     windows = j.app.rpc("debug.windows", timeout=15) or {}
     server = [w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == j.app.pid]
     terms = _visible_terminals(j)
+    topo = j.topology()
+    # debug.surfaces' terminal_id is the view's; the daemon's terminal id is the topology's (pane -> shown tab).
+    daemon_of = {}
+    for _ws, pane, tab, term in j.places(topo):
+        if term and (pane.get("selected_tab") in (None, tab.get("id")) or pane.get("id") not in daemon_of):
+            daemon_of[pane.get("id")] = term
+    for t in terms:
+        t["terminal"] = daemon_of.get(t["pane"]) or t.get("terminal")
     state = {
         "app_pid": j.app.pid,
         "windows": [{"id": w.get("id"), "selected": w.get("selected"), "workspaces": w.get("workspaces"),
@@ -309,8 +397,9 @@ def exact_state(j):
                      "full_screen": w.get("full_screen"), "display": w.get("display"), "visible": w.get("visible")}
                     for w in windows.get("windows", []) if w.get("open", True)],
         "recency": windows.get("recency"),
-        "server_windows": [{k: w.get(k) for k in ("order", "number", "x", "y", "w", "h")} for w in server],
-        "topology": _topology_shape(j.topology()),
+        "server_windows": [{k: w.get(k) for k in ("order", "number", "x", "y", "w", "h")} for w in main_windows(server)],
+        "helper_windows": len(server) - len(main_windows(server)),
+        "topology": _topology_shape(topo),
         "visible_terminals": [{k: t[k] for k in ("window", "pane", "terminal", "workspace", "focused", "grid", "shown_tab")}
                               for t in terms],
         "screens": {t["pane"]: t["text"] for t in terms},
@@ -327,6 +416,8 @@ def state_differences(before, after):
     """Every way AFTER is not BEFORE: window frames and order, selection, workspaces, panes, focus, the visible
     terminals' screens and scrollback. Empty when the reopen gave everything back exactly."""
     out = []
+    if before.get("helper_windows") != after.get("helper_windows"):
+        out.append(f"small helper windows {before.get('helper_windows')} -> {after.get('helper_windows')}")
     if len(before["server_windows"]) != len(after["server_windows"]):
         out.append(f"window count {len(before['server_windows'])} -> {len(after['server_windows'])}")
     for i, (b, a) in enumerate(zip(before["server_windows"], after["server_windows"])):
@@ -398,7 +489,7 @@ def pane_rects(state):
         g = t.get("grid") or {}
         if not g or not server:
             continue
-        host = server[0]
+        host = max(server, key=lambda w: w["w"] * w["h"])
         for w in server:
             if g.get("frame_x", 0) + g.get("frame_width", 0) <= w["w"] + 1 and g.get("frame_y", 0) + g.get("frame_height", 0) <= w["h"] + 1:
                 host = w
@@ -413,15 +504,22 @@ def pane_rects(state):
 
 def cursor_cell(text, rect):
     """The cell the next typed character lands in, in screen points: after the prompt on the last line with text
-    (the journeys' shells sit at the neutral prompt)."""
+    (the journeys' shells sit at the neutral prompt). debug.surfaces gives logical lines; a line longer than the
+    pane's columns takes more rows, as the terminal wraps it."""
     lines = (text or "").split("\n")
     while lines and not lines[-1].strip():
         lines.pop()
     if not lines or not rect.get("cell_w"):
         return None
-    row, col = len(lines) - 1, len(lines[-1].rstrip()) + (1 if lines[-1].endswith(" ") else 0)
-    return {"row": row, "col": col, "x": rect["origin_x"] + col * rect["cell_w"], "y": rect["origin_y"] + row * rect["cell_h"],
-            "w": rect["cell_w"], "h": rect["cell_h"]}
+    pad = max(0.0, rect.get("origin_x", rect["x"]) - rect["x"])
+    cols = max(1, int((rect["w"] - 2 * pad) // rect["cell_w"]))
+    rows = [max(1, -(-len(line.rstrip("\n")) // cols)) for line in lines]
+    last = lines[-1]
+    col = len(last.rstrip()) + (1 if last.endswith(" ") else 0)
+    row = sum(rows[:-1]) + col // cols
+    col = col % cols
+    return {"row": row, "col": col, "cols": cols, "x": rect["origin_x"] + col * rect["cell_w"],
+            "y": rect["origin_y"] + row * rect["cell_h"], "w": rect["cell_w"], "h": rect["cell_h"]}
 
 
 # ---- one cycle -------------------------------------------------------------------------------------------------
@@ -511,9 +609,16 @@ def _reopen(j, record, env):
     record["new_pid"] = pid
     record["process_start_wall"] = process_start(pid)
     end = time.monotonic() + FRONT_TIMEOUT
-    while time.monotonic() < end and front_pid() != pid:
-        time.sleep(0.01)
-    record["front_wall"] = time.time() if front_pid() == pid else None
+    prev = time.time()
+    while time.monotonic() < end:
+        now_wall = time.time()
+        if front_pid() == pid:
+            record["front_prev_wall"], record["front_wall"] = prev, now_wall
+            break
+        prev = now_wall
+        time.sleep(0.005)
+    else:
+        record["front_wall"] = None
     return pid
 
 
@@ -542,14 +647,19 @@ def _type_markers(j, cua, pid, before, rects, record):
         mark = {"pane": t["pane"], "focused_before": t["focused"], "cell": cell}
         if index > 0:
             # A click in the pane's lower half, on its text area (window points from the window's top-left).
-            server = before["server_windows"][0] if before["server_windows"] else {"x": 0, "y": 0}
+            server = max(before["server_windows"], key=lambda w: w["w"] * w["h"]) if before["server_windows"] else {"x": 0, "y": 0}
             cx, cy = rect["x"] + rect["w"] / 2 - server["x"], rect["y"] + rect["h"] * 0.6 - server["y"]
             mark["click_sent_wall"] = time.time()
             cua.tool("click", {"pid": pid, "window_id": wid, "x": cx, "y": cy}, check=False)
             mark["click_done_wall"] = time.time()
-        mark["key_sent_wall"] = time.time()
-        cua.tool("press_key", {"pid": pid, "window_id": wid, "key": MARKER_KEY, "delivery_mode": "foreground"}, check=False)
-        mark["key_done_wall"] = time.time()
+        if record.get("can_post_events"):
+            mark["key_sent_wall"], mark["key_done_wall"] = post_key()
+            mark["key_path"] = "CGEventPost HID"
+        else:
+            mark["key_sent_wall"] = time.time()
+            cua.tool("press_key", {"pid": pid, "window_id": wid, "key": MARKER_KEY, "delivery_mode": "foreground"}, check=False)
+            mark["key_done_wall"] = time.time()
+            mark["key_path"] = "cua press_key (foreground HID)"
         marks.append(mark)
     return marks
 
@@ -607,7 +717,7 @@ def step_reopen_video(j, step):
     screen = _jxa_json(SCREEN_JXA, {})
     rows = []
     for index in range(1, count + 1):
-        record = {"cycle": index, "how": how, "screen": screen, "old_pid": j.app.pid}
+        record = {"cycle": index, "how": how, "screen": screen, "old_pid": j.app.pid, "can_post_events": can_post_events()}
         env = j.app.launch_env()
         before = exact_state(j)
         record["before"] = before
@@ -619,7 +729,11 @@ def step_reopen_video(j, step):
         cua = Cua()
         try:
             # The pointer away from the sync points before the film starts.
-            cua.tool("move_cursor", {"x": float(screen.get("w") or 1920) - 620, "y": 11, "scope": "desktop"}, check=False)
+            away = (float(screen.get("w") or 1920) - 620, 11)
+            use_warp = warp(*away)
+            record["sync_method"] = "CGWarpMouseCursorPosition" if use_warp else "cua move_cursor"
+            if not use_warp:
+                cua.tool("move_cursor", {"x": away[0], "y": away[1], "scope": "desktop"}, check=False)
             cua.tool("start_recording", {"output_dir": str(movie_dir), "record_video": True})
             record["record_started_wall"] = time.time()
             time.sleep(LEAD_SECONDS)
@@ -629,7 +743,10 @@ def step_reopen_video(j, step):
             w = float(screen.get("w") or 1920)
             for x in (w - 460, w - 360, w - 260, w - 160):
                 before_move = time.time()
-                cua.tool("move_cursor", {"x": x, "y": 11, "scope": "desktop"}, check=False)
+                if use_warp:
+                    warp(x, 11)
+                else:
+                    cua.tool("move_cursor", {"x": x, "y": 11, "scope": "desktop"}, check=False)
                 sync.append({"x": x, "y": 11, "sent_wall": before_move, "done_wall": time.time()})
                 time.sleep(0.25)
             record["sync"] = sync

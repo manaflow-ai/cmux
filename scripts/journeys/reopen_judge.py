@@ -81,6 +81,18 @@ def changed_share(a, b, mask=None):
     return float(d.mean()) if d.size else 1.0
 
 
+def is_glyph(frame, cell, scale, bg):
+    """Whether CELL shows a character (the echoed marker): part of its inner area is ink. An empty cell (or a
+    cursor blinked off) has almost none, a block cursor nearly all, a hollow cursor only its border (outside the
+    inner area)."""
+    inner = box({"x": cell["x"] + 1.5, "y": cell["y"] + 2, "w": cell["w"] - 3, "h": cell["h"] - 4}, scale, frame.shape)
+    part = frame[inner]
+    if not part.size:
+        return False
+    ink = float((np.abs(part.astype(np.int16) - bg) > DIFF).mean())
+    return 0.06 <= ink <= 0.7
+
+
 def clock_offset(frames, record, scale):
     """The film's offset to the wall clock from the cursor jumps: wall = record_started_wall + pts + offset."""
     start = record.get("record_started_wall")
@@ -113,14 +125,38 @@ def clock_offset(frames, record, scale):
         lows.append(move["sent_wall"] - start - frames[hit][0])
         highs.append(move["done_wall"] - start - frames[hit - 1][0])
         seen.append(hit)
+    # The front-app switch: when the reopened app became the front app (lsappinfo polled between front_prev_wall
+    # and front_wall), the menu bar's app menus (its left part) change on film.
+    if record.get("front_wall") and record.get("process_start_wall"):
+        fprev = record.get("front_prev_wall") or record["front_wall"] - 0.05
+        menu = (slice(0, int(24 * scale)), slice(0, int(700 * scale)))
+        # The old app's own end also changes the menu bar (to the Finder's), seconds earlier when pre-main is long:
+        # look only from shortly before the front poll saw the switch (the film's offset is well under 0.4 s).
+        p0 = fprev - start - 0.4
+        for k in range(1, len(frames)):
+            if frames[k][0] < p0:
+                continue
+            a, b = frames[k - 1][1][menu], frames[k][1][menu]
+            if float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > 1.0:
+                # Drawn at or after the switch, and the frame before was still the old menu bar.
+                lows.append(fprev - start - frames[k][0])
+                highs.append(record["front_wall"] + 0.034 - start - frames[k - 1][0])
+                seen.append(k)
+                break
     if not lows:
-        return None, None, "no cursor jump seen on film (the recorder may hide the pointer)"
+        return None, None, "no cursor jump or front-app switch seen on film"
     lo, hi = max(lows), min(highs)
+    if lo > hi and len(lows) > 1 and record.get("front_wall"):
+        # The cursor events disagree with the front-app switch (a pointer already at a sync point from an earlier
+        # cycle shows its LEAVE as the first change): trust the front-app switch alone.
+        lo, hi = lows[-1], highs[-1]
+        if lo <= hi:
+            return (lo + hi) / 2, (hi - lo) / 2, "front-app switch only (the cursor jumps disagreed)"
     if lo > hi:
         # Inconsistent bounds (a jump drawn late): the widest consistent guess, flagged.
         mid = (lo + hi) / 2
         return mid, abs(lo - hi) / 2, f"sync bounds cross by {round((lo - hi) * 1000, 1)} ms ({len(lows)} jumps)"
-    return (lo + hi) / 2, (hi - lo) / 2, f"{len(lows)} of {len(sync)} jumps seen"
+    return (lo + hi) / 2, (hi - lo) / 2, f"{len(lows)} sync events (cursor jumps and the front-app switch)"
 
 
 def frame_index_at(frames, film_t):
@@ -173,8 +209,15 @@ def judge_cycle(record, movie, frames_out=None):
     ref = frames[frame_index_at(frames, f_end - 0.05)][1]
     base = frames[frame_index_at(frames, max(f_open - 0.01, to_film(record.get("gone_wall") or record["open_wall"]) + 0.1))][1]
     before = record.get("before") or {}
-    windows = before.get("server_windows") or []
+    windows = sorted(before.get("server_windows") or [], key=lambda w: -(w.get("w") or 0) * (w.get("h") or 0))
     rects = record.get("pane_rects") or {}
+    # The marker cells, again from the screen text and the pane's grid (the kit's cursor_cell: wrap aware).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import ext_reopen
+    screens = (before.get("screens") or {})
+    for m in record.get("markers") or []:
+        if m.get("pane") in rects and m.get("pane") in screens:
+            m["cell"] = ext_reopen.cursor_cell(screens[m["pane"]], rects[m["pane"]]) or m.get("cell")
     cells = {m["pane"]: m.get("cell") for m in record.get("markers") or [] if m.get("cell")}
     after_launch = [(i, p, f) for i, (p, f) in enumerate(frames) if p >= to_film(record["process_start_wall"]) - 0.001]
     # (1) the window: the first frame where the window's rect differs from the frame before the reopen.
@@ -190,6 +233,8 @@ def judge_cycle(record, movie, frames_out=None):
     key_times = [to_film(m["key_sent_wall"]) for m in record.get("markers") or [] if m.get("key_sent_wall")]
     first_key = min(key_times) if key_times else None
     panes = {}
+    masks = {}
+    bgs = {}
     for pane, rect in rects.items():
         sl = box(rect, scale, shape, inset=2)
         mask = np.ones((sl[0].stop - sl[0].start, sl[1].stop - sl[1].start), dtype=bool)
@@ -198,42 +243,59 @@ def judge_cycle(record, movie, frames_out=None):
             c = box({"x": cell["x"] - 2, "y": cell["y"] - 2, "w": cell["w"] * 3 + 4, "h": cell["h"] + 4}, scale, shape)
             mask[max(0, c[0].start - sl[0].start):max(0, c[0].stop - sl[0].start),
                  max(0, c[1].start - sl[1].start):max(0, c[1].stop - sl[1].start)] = False
-        first, lost_after, worst = None, [], None
+        masks[pane] = (sl, mask)
+        ref_pane = ref[sl]
+        bg = int(np.bincount(ref_pane.ravel()).argmax())
+        bgs[pane] = bg
+        ref_ink = float((np.abs(ref_pane.astype(np.int16) - bg) > DIFF)[mask].mean())
+        visible, exact, lost_after, worst, inks = None, None, [], None, []
         for i, p, f in after_launch:
-            share = changed_share(f[sl], ref[sl], mask)
-            if first is None:
+            part = f[sl]
+            share = changed_share(part, ref_pane, mask)
+            ink = float((np.abs(part.astype(np.int16) - bg) > DIFF)[mask].mean())
+            if visible is None and ref_ink > 0 and ink >= 0.8 * ref_ink and share < 0.25:
+                visible = p
+            if exact is None:
                 worst = share if worst is None else min(worst, share)
                 if share < MATCH_SHARE:
-                    first = p
+                    exact = p
             elif share >= MATCH_SHARE and (first_key is None or p < first_key):
                 lost_after.append(ms_of(p))
-        panes[pane] = {"content_ms": ms_of(first) if first is not None else None,
-                       "best_share_before_match": round(worst, 4) if worst is not None else None,
-                       "lost_after_shown_ms": lost_after[:6], "lost_after_shown_frames": len(lost_after)}
-    # (3) each marker's echo: its cell changes from the last frame before the end, after its key.
+            if len(inks) < 40:
+                inks.append([ms_of(p), round(ink / ref_ink, 2) if ref_ink else None, round(share, 3)])
+        panes[pane] = {"content_ms": ms_of(visible) if visible is not None else None,
+                       "exact_ms": ms_of(exact) if exact is not None else None,
+                       "ref_ink": round(ref_ink, 4), "best_share_before_match": round(worst, 4) if worst is not None else None,
+                       "lost_after_shown_ms": lost_after[:6], "lost_after_shown_frames": len(lost_after),
+                       "trace": inks}
+    # (3) each marker's echo: after its key and once its pane matches its last content (marker cells masked), the
+    # first frame whose marker cell differs from the last frame before the end.
     for m in record.get("markers") or []:
         cell, pane = m.get("cell"), m.get("pane")
         if not cell or pane not in panes:
             continue
         c = box(cell, scale, shape)
+        sl, mask = masks[pane]
         k0 = to_film(m["key_sent_wall"])
         echo = None
         for i, p, f in after_launch:
-            if p < k0:
+            if p < k0 or changed_share(f[sl], ref[sl], mask) >= MATCH_SHARE:
                 continue
-            if float(np.abs(f[c].astype(np.int16) - ref[c].astype(np.int16)).mean()) > ECHO_LEVEL:
+            if is_glyph(f, cell, scale, bgs[pane]):
                 echo = p
                 break
-        panes[pane].update(key_sent_ms=ms_of(k0), echo_ms=ms_of(echo) if echo is not None else None,
+        panes[pane].update(key_sent_ms=ms_of(k0), key_path=m.get("key_path"), echo_ms=ms_of(echo) if echo is not None else None,
                            key_to_echo_ms=round((echo - k0) * 1000, 1) if echo is not None else None,
                            focused_before=m.get("focused_before"))
     out["panes"] = panes
     contents = [p["content_ms"] for p in panes.values()]
+    exacts = [p["exact_ms"] for p in panes.values()]
+    out["all_exact_ms"] = None if not exacts or None in exacts else max(exacts)
     echoes = [p.get("echo_ms") for p in panes.values()]
     out["all_content_ms"] = None if not contents or None in contents else max(contents)
     out["all_echo_ms"] = None if not echoes or None in echoes else max(echoes)
     out["first_echo_ms"] = min([e for e in echoes if e is not None], default=None)
-    for key in ("window_ms", "all_content_ms", "all_echo_ms", "first_echo_ms"):
+    for key in ("window_ms", "all_content_ms", "all_exact_ms", "all_echo_ms", "first_echo_ms"):
         out[key.replace("_ms", "_refreshes")] = (round(out[key] / refresh_ms, 1) if out.get(key) is not None else None)
     out["app_marks_ms"] = record.get("app_marks_ms")
     if frames_out:
@@ -260,12 +322,14 @@ def pct(values, q):
 
 def summary(rows):
     out = {"cycles": len(rows)}
-    for key in ("window_ms", "all_content_ms", "first_echo_ms", "all_echo_ms", "pre_main_ms"):
+    for key in ("window_ms", "all_content_ms", "all_exact_ms", "first_echo_ms", "all_echo_ms", "pre_main_ms"):
         vals = [r.get(key) for r in rows]
         out[key] = {"p50": pct(vals, 0.5), "p95": pct(vals, 0.95), "max": max([v for v in vals if v is not None], default=None),
                     "missing": sum(1 for v in vals if v is None)}
     out["cycles_with_differences"] = sum(1 for r in rows if r.get("differences"))
     out["flashes"] = sum(p.get("lost_after_shown_frames", 0) for r in rows for p in (r.get("panes") or {}).values())
+    for key in ("window_ms", "all_content_ms", "all_exact_ms", "first_echo_ms", "all_echo_ms"):
+        out[key]["refreshes_p50"] = None if out[key]["p50"] is None else round(out[key]["p50"] / rows[0]["refresh_ms"], 1) if rows else None
     return out
 
 
@@ -287,7 +351,7 @@ def main():
             row["dir"] = str(d)
             rows.append(row)
             print(json.dumps({k: row.get(k) for k in ("dir", "cycle", "window_ms", "all_content_ms", "first_echo_ms",
-                                                      "all_echo_ms", "pre_main_ms", "clock", "differences")}))
+                                                      "all_echo_ms", "all_exact_ms", "pre_main_ms", "clock", "differences")}))
     result = {"rows": rows, "summary": summary([r for r in rows if "error" not in r])}
     print(json.dumps(result["summary"], indent=1))
     if a.json:
