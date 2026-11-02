@@ -154,7 +154,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-        return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey)
+        return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, targetPane: plan.targetPane, cli: cli)
     }
 
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes
@@ -162,21 +162,34 @@ struct CloudStartChat {
     /// there first. The opened tab is kept with its start, so another machine picked before its first send runs
     /// moves it there (+Repick).
     private func open(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
-                      trusted: Bool = false, tabKey: String) async throws -> String {
+                      trusted: Bool = false, tabKey: String, targetPane: String? = nil, cli: CloudMoveCLI) async throws -> String {
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { services.agentTabs.holdsTabs(machine.daemon) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services)
-        let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
+        if let targetPane {
+            _ = try await CloudMachineWorkspace.existing(in: machine.daemon.store, notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title)))
+            guard let found = CloudMachineWorkspace.targetAnchor(targetPane, in: machine.daemon.store) else {
+                throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
+            }
+            anchor = found
+        } else {
+            anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+            if services.cloud.configuration.linkSource == .appServer {
+                guard let pane = anchor.pane.resourceID?.rawValue else {
+                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
+                }
+                _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: Self.accountText(origin.account), machine: machine.machineID, pane: pane))
+            }
+        }
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
             appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
-        if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
-            for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
-        }
+        for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: start, chat: origin.chat, workspace: origin.workspace,
                                                                                         account: origin.account, machineID: machine.machineID)
         await origin.close()
@@ -197,6 +210,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-        return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey)
+        return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey, targetPane: plan.targetPane,
+                              cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout))
     }
 }
