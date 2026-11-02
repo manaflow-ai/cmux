@@ -49,7 +49,7 @@ enum AgentPaneHandshakeReply {
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
-            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
+            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTabForPage {
                 handshake.newTab = newTab
                 handshake.newSession = true
                 if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }

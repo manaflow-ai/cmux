@@ -167,7 +167,8 @@ enum DebugWindowSnapshot {
                     // page, the whole New Tab page) show the window there, as
                     // on screen.
                     let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes))
+                    let clip = WindowImageClip(page.pageWindowClip)
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
                 } catch {
                     pagesFailed += 1
                 }
@@ -176,7 +177,7 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
