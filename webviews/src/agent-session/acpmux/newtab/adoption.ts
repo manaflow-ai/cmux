@@ -112,24 +112,37 @@ export function withHandshakeNewTab(
   };
 }
 
+/// The screen two contexts draw is the same: they differ at most in the input token (each Cmd-T has
+/// its own) and the bar's places (the open tabs, workspaces and actions, which a places event
+/// updates in place). A spare prepared with the tab's context (NewTabSparePool) gets such an adopt.
+export function sameNewTabScreen(a: NewTabHost | undefined, b: NewTabHost): boolean {
+  if (!a) return false;
+  const screen = ({ inputToken: _token, omnibar: _omnibar, ...rest }: NewTabHost) => rest;
+  return JSON.stringify(screen(a)) === JSON.stringify(screen(b));
+}
+
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that
-/// remounts the screen so it starts from the new context.
-export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
+/// remounts the screen so it starts from the new context. An adopt whose context draws the screen
+/// `current()` already shows (``sameNewTabScreen``) takes the token and places in place, with no
+/// remount: the spare's first frame after Cmd-T is its final one (SHORTCUT FRAMES F2: a remount
+/// dropped the sign-in line and the folder's trust card, which came back frames later).
+export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void, current?: () => NewTabHost | undefined): number {
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
     const handle = (event: Event) => {
       const host = newTabHost({ newTab: (event as CustomEvent).detail });
       if (!host) return;
+      const remount = !sameNewTabScreen(current?.(), host);
       // Render the adopted screen inside this event, before WebKit delivers the next key: a
       // render left for later would let typed keys land in the old field and be dropped.
       flushSync(() => {
         onAdopt(host);
-        setGeneration((value) => value + 1);
+        if (remount) setGeneration((value) => value + 1);
       });
     };
     window.addEventListener(NEW_TAB_ADOPT_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);
-  }, [onAdopt]);
+  }, [onAdopt, current]);
   return generation;
 }
 

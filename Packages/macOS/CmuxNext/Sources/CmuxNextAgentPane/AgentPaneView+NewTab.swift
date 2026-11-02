@@ -12,6 +12,13 @@ extension AgentPaneView {
         show(page)
     }
 
+    /// A parked spare takes `page`, the context a Cmd-T would give it, before the key (NewTabSparePool), unless it
+    /// already draws that screen; an untouched New Tab page only. Its adoption then changes no screen.
+    public func prepareNewTab(_ page: AgentPaneNewTab) {
+        guard model.newTab != nil, !model.userTouched, model.newTab?.drawsSameScreen(as: page) != true else { return }
+        adoptNewTab(page)
+    }
+
     /// A chat without a session that is a new tab page after all
     /// (``AgentPaneModel/becomeNewTab(_:)``): the page shows it at once.
     public func becomeNewTab(_ page: AgentPaneNewTab) {

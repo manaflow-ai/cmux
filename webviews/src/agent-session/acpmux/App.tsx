@@ -7823,7 +7823,11 @@ function AcpmuxPane() {
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
     setProjectDraft(named);
   }, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab);
+  // The screen the page shows now: an adopt that draws the same one keeps it mounted (SHORTCUT FRAMES F2).
+  const newTabNow = useRef(newTab);
+  newTabNow.current = newTab;
+  const currentNewTab = useCallback(() => newTabNow.current, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
