@@ -106,8 +106,10 @@ pub fn duration_from_seconds(seconds: f64) -> i64 {
     // Swift's `max(0, seconds)` keeps 0 for NaN (`seconds >= 0` is false).
     let seconds = if seconds >= 0. { seconds } else { 0. };
     let ms = (seconds * 1_000.).round();
-    // `as` saturates a float outside the i64 range (and +inf) to i64::MAX.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "a float to integer `as` saturates: outside the i64 range (and +inf) it is i64::MAX, never UB or a panic"
+    )]
     let ms = ms as i64;
     millis(ms)
 }
