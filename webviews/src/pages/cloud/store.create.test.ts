@@ -81,18 +81,18 @@ describe("Cloud create sheet: snapshot list", () => {
     store.retrySnapshots();
     expect(listCalls(provider)).toBe(before);
 
+    // The first sheet's list answers after it closed: it must not land on the second, whose list failed.
     store.closeCreate();
-    provider.failNext = CloudOps.snapshotList;
     store.openCreate();
     const first = store.getSnapshot().create!.key;
     store.closeCreate();
+    provider.failNext = CloudOps.snapshotList;
     store.openCreate();
     await flush();
     const second = store.getSnapshot().create!;
     expect(second.key).not.toBe(first);
-    // The first sheet's failure did not mark the second.
-    expect(second.snapshotsFailed).toBeUndefined();
-    expect(second.snapshots!.length).toBeGreaterThan(0);
+    expect(second.snapshotsFailed).toBe(true);
+    expect(second.snapshots).toBeUndefined();
     unsubscribe();
   });
 });
