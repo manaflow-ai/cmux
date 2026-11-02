@@ -15,13 +15,25 @@ nonisolated enum CloudCredentialInstaller {
         fi
         """#
 
+    /// The DEV and dogfood creator allowance (``CloudCredentialTransfer/allowsCreatorTeamGuest``): an
+    /// owner or team guest, the caller's ownership answer being checked by the transfer itself. Every
+    /// other check of ``preflight`` stays.
+    static let creatorTeamPreflight = #"""
+        set -eu
+        case "$(cat /etc/cmux/vm-kind 2>/dev/null)" in owner|team) ;; *) exit 1 ;; esac
+        [ -f /etc/cmux/agent-auth.sh ]
+        if [ "$(id -u)" = 0 ]; then install -d -m 700 -o cmux -g cmux /home/cmux/.cmux/credential-transfer; else
+          [ "$(id -un)" = cmux ]; mkdir -p /home/cmux/.cmux/credential-transfer; chmod 700 /home/cmux/.cmux/credential-transfer
+        fi
+        """#
+
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
-    static func command(provider: CloudCredentialTransfer.Provider, payloadPath: String) -> String {
+    static func command(provider: CloudCredentialTransfer.Provider, payloadPath: String, creatorTeamGuest: Bool = false) -> String {
         // Reuse the image's exact own-mode normalization: only its known endpoint/placeholder
         // values are removed. Custom endpoints remain visible to the installer's conflict guard.
         "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n"
-            + "python3 - \(quote(provider.rawValue)) \(quote(payloadPath)) <<'CMUX_CREDENTIAL_INSTALL'\n" + script + "\nCMUX_CREDENTIAL_INSTALL"
+            + "python3 - \(quote(provider.rawValue)) \(quote(payloadPath)) \(creatorTeamGuest ? "owner,team" : "owner") <<'CMUX_CREDENTIAL_INSTALL'\n" + script + "\nCMUX_CREDENTIAL_INSTALL"
     }
 
     /// Tests execute this installer against a scratch HOME/policy directory, then source the real
@@ -29,8 +41,9 @@ nonisolated enum CloudCredentialInstaller {
     static let script = #"""
         import json, os, pathlib, pwd, stat, sys, tempfile
         provider, source = sys.argv[1:3]
+        kinds = set((sys.argv[3] if len(sys.argv) > 3 else 'owner').split(',')) & {'owner', 'team'}
         policy = pathlib.Path('/etc/cmux')
-        if (policy / 'vm-kind').read_text().strip() != 'owner' or not (policy / 'agent-auth.sh').is_file():
+        if (policy / 'vm-kind').read_text().strip() not in kinds or not (policy / 'agent-auth.sh').is_file():
             sys.exit(70)
         user = pwd.getpwnam('cmux')
         home = pathlib.Path(user.pw_dir)

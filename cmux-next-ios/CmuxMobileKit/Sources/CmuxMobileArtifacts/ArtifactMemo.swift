@@ -4,8 +4,9 @@ import Foundation
 /// artifact that moves in the list or is referenced again keeps its value. An edit is new content:
 /// an "Edited" detail is part of the key, so a file the agent changed again gets a new thumbnail. An `NSCache`, so memory
 /// pressure evicts entries. A make runs once per key, shared by every tile asking for it, and is
-/// cancelled when the last of them goes (scrolled away); a cancelled make is not recorded, so the
-/// tile tries again when it returns.
+/// cancelled when the last of them goes (scrolled away). Cancelled or thrown
+/// loads are never cached; a successfully rendered `nil` (nothing to preview)
+/// is a stable answer and can be cached.
 final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
     private final class Entry {
         let value: Value?
@@ -52,7 +53,7 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
         var left = false
     }
 
-    func value(for artifact: TerminalArtifact, make: @escaping @Sendable (TerminalArtifact) async -> Value?) async -> Value? {
+    func value(for artifact: TerminalArtifact, make: @escaping @Sendable (TerminalArtifact) async throws -> Value?) async -> Value? {
         if let cached = cached(artifact) { return cached }
         let key = Self.key(artifact) as String
         let (id, task): (Int, Task<Value?, Never>) = lock.withLock {
@@ -65,9 +66,16 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
             nextID += 1
             let id = nextID
             let task = Task<Value?, Never>(priority: .utility) { [weak self] in
-                let value = await make(artifact)
-                self?.finish(value, key: key, id: id, record: !Task.isCancelled)
-                return value
+                do {
+                    let value = try await make(artifact)
+                    self?.finish(value, key: key, id: id, record: !Task.isCancelled)
+                    return value
+                } catch {
+                    // An offline Mac, permission error or cancelled SwiftUI
+                    // tile is temporary. The next appearance must retry it.
+                    self?.finish(nil, key: key, id: id, record: false)
+                    return nil
+                }
             }
             running[key] = Make(id: id, task: task, waiters: 1)
             return (id, task)
@@ -103,10 +111,12 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
     }
 
     private func finish(_ value: Value?, key: String, id: Int, record: Bool) {
-        guard record else { return }
-        cache.setObject(Entry(value), forKey: key as NSString, cost: cost(value))
         lock.withLock {
-            if running[key]?.id == id { running[key] = nil }
+            // A previous, cancelled make may finish after a new one starts:
+            // it must never replace the newer entry in the shared cache.
+            guard running[key]?.id == id else { return }
+            if record { cache.setObject(Entry(value), forKey: key as NSString, cost: cost(value)) }
+            running[key] = nil
         }
     }
 

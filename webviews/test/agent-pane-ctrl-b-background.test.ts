@@ -6,9 +6,10 @@
 // composer's caret. Which chats offer it is acpmux's word (the summary's `backgroundsWork`), not the
 // harness's name: the model router's `cmux` chat does, a Codex chat and an ACP agent named
 // `claude-acp` never show the hint. A running subagent draws no tool row, and takes Ctrl-B by
-// itself. When nothing moved (acpmux found nothing in the foreground, refused, never answered, or
-// the connection closed), a notice above the composer says so until the next key
-// (conversation/backgroundNotice.ts). The page is the pane's dev entry with its browser host,
+// itself. A notice above the composer says what Ctrl-B did until the next key
+// (conversation/backgroundNotice.ts): the work moved, Claude Code said so but the command still
+// runs in the foreground, or nothing moved (acpmux found nothing in the foreground, refused, never
+// answered, or the connection closed). The page is the pane's dev entry with its browser host,
 // talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -326,7 +327,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.close();
   });
 
-  test("work that moved shows no notice", async () => {
+  test("work that moved says so, and a command still in the foreground a moment later says it stayed", async () => {
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
@@ -334,11 +335,10 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
     await once(() => backgroundAnswers > 0, "answered the background request").catch(() => {});
     expect(backgroundAnswers).toBe(1);
-    // The answer reaches the page and React draws what it earns within two frames.
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))),
-    );
-    expect(await page.locator(".acpmux-background-notice").count()).toBe(0);
+    await noticeText(page, "moved").waitFor({ timeout: 5_000 });
+    // The stand-in daemon says it moved, but its transcript's command never ends: the check after
+    // BACKGROUND_CHECK_MS finds it still running in the foreground.
+    await noticeText(page, "kept").waitFor({ timeout: 5_000 });
     await page.close();
   });
 
