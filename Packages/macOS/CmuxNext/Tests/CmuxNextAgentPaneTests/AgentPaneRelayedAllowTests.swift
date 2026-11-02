@@ -328,6 +328,18 @@ struct AgentPaneRelayedAllowTests {
         let newer = try #require(gestures.reserve(connection: 1, intent: try #require(Self.intent(option: "no", permission: "p1"))))
         #expect(!gestures.redeem(older, connection: 1, method: method, params: frame("p1")))
         #expect(gestures.redeem(newer, connection: 1, method: method, params: frame("p1", option: "no")))
+
+        // Answer tickets stay bounded per connection, the oldest going first.
+        var reserved: [String] = []
+        for index in 0..<(AgentPaneUserGestures.permissionTicketsKept + 2) {
+            gestures.record(click: true)
+            reserved.append(try #require(gestures.reserve(connection: 1, intent: try #require(Self.intent(option: "yes", permission: "q\(index)")))))
+        }
+        #expect(!gestures.redeem(reserved[0], connection: 1, method: method, params: frame("q0")))
+        #expect(!gestures.redeem(reserved[1], connection: 1, method: method, params: frame("q1")))
+        #expect(gestures.redeem(reserved[2], connection: 1, method: method, params: frame("q2")))
+        let last = reserved.count - 1
+        #expect(gestures.redeem(reserved[last], connection: 1, method: method, params: frame("q\(last)")))
     }
 
     /// The same review, through the transport: a ticket the page took for answer B does not let
