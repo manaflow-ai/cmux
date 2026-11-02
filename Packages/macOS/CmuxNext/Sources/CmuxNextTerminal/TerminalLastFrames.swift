@@ -1,15 +1,15 @@
 import Foundation
-/// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past `capacity`.
-/// The bound is the warm set's terminal capacity. Each frame is one full-resolution drawable
-/// (about 20 MB for a full-screen Retina pane), volatile while it waits, so memory pressure
-/// takes its pages first (no policy of ours under pressure). A closed tab's frame is never asked
-/// for again: it ages out under the bound, volatile meanwhile.
+/// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past the bound
+/// (``capacity(warm:)``: the warm capacity plus what 1/32 of physical memory holds). Each frame is
+/// one full-resolution drawable (about 24 MB for a large pane on a 2x display), volatile while it
+/// waits, so memory pressure takes its pages first (no policy of ours under pressure). A closed
+/// tab's frame goes with the tab (`TabContentCache.release`).
 @MainActor
 public struct TerminalLastFrames {
     public init() {}
 
     private var frames: [String: TerminalLastFrame] = [:]
-    /// Keys in eviction order, oldest first (at most `capacity`, 24: O(capacity) edits).
+    /// Keys in eviction order, oldest first (at most ``capacity(warm:)``, 152: O(bound) edits).
     private var order: [String] = []
     /// What each eviction kept and each re-attach showed (`debug.surfaces` last_frames).
     public private(set) var outcomes: [String: Int] = [:]
