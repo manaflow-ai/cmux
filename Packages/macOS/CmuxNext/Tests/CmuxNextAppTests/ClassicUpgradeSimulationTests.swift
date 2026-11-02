@@ -17,7 +17,7 @@ import Testing
 /// Every launch is the Sparkle update relaunch: classic saved seconds ago, on
 /// quit, and removed its launch sentinel. Timing lines start with
 /// `CLASSIC-SIM` for the fleet log.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeSimulationTests {
     /// The first window shows before the migration's work, whatever classic held.
     static let firstWindowBudget: Duration = .seconds(10)

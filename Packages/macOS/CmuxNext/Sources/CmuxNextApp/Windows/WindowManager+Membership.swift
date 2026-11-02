@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -19,7 +20,7 @@ extension WindowManager {
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines) }
+        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines, doc: self.services.sidebarDoc) }
         let changes = registry.apply { registry in
             let changes = body(&registry)
             registry.order(like: live)
@@ -448,7 +449,7 @@ extension WindowManager {
         var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            let ids = Self.orderedIDs(of: daemon, machines: services.machines)
+            let ids = Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc)
             for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
@@ -574,8 +575,9 @@ extension WindowManager {
 
     /// The daemon's workspace ids in sidebar order, then any it lists
     /// outside the sidebar.
-    static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String] {
-        if let personal = PersonalSidebar.orderedIDs(of: daemon, machines: machines) { return personal }
+    /// `doc`: the app's own sidebar document.
+    static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry, doc: SidebarDocument) -> [String] {
+        if let personal = PersonalSidebar.orderedIDs(of: daemon, machines: machines, doc: doc) { return personal }
         let sidebar = daemon.store.sidebarSections.flatMap(\.workspaces).map(\.id)
         let listed = Set(sidebar)
         return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
