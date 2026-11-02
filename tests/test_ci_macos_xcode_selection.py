@@ -183,6 +183,34 @@ def steps(job: str) -> list[tuple[str, str]]:
     return found
 
 
+STEP_ANCHOR = re.compile(r"^      - &([\w-]+)\s*$")
+STEP_ALIAS = re.compile(r"^      - \*([\w-]+)\s*$")
+
+
+def step_anchors(workflow_jobs: dict[str, str]) -> dict[str, str]:
+    """Steps defined as `- &name` (shared with `- *name` elsewhere), keyed by anchor."""
+    found = {}
+    for job in workflow_jobs.values():
+        for _, body in steps(job):
+            match = STEP_ANCHOR.match(body.splitlines()[0])
+            if match:
+                found[match.group(1)] = body
+    return found
+
+
+def expand_step_aliases(job_steps: list[tuple[str, str]], anchors: dict[str, str]) -> list[tuple[str, str]]:
+    """Replace each `- *name` step with the anchored step it runs (#30471 turned steps into aliases)."""
+    expanded = []
+    for step_name, body in job_steps:
+        match = STEP_ALIAS.match(body.splitlines()[0]) if not step_name else None
+        if match and match.group(1) in anchors:
+            body = anchors[match.group(1)]
+            name = re.search(r"^      [- ] name:\s*(.+)$", body, re.M)
+            step_name = name.group(1).strip() if name else ""
+        expanded.append((step_name, body))
+    return expanded
+
+
 def is_macos(job: str) -> bool:
     runs_on = re.search(r"^    runs-on:(.*)$", job, re.M)
     if not runs_on:
@@ -204,6 +232,7 @@ def check_workflow(name: str, text: str) -> list[str]:
     # A job whose steps are a YAML alias (`steps: *name`, a same-run twin) runs the anchored job's steps.
     anchored = {m.group(1): job for job in workflow_jobs.values()
                 for m in [re.search(r"^    steps:\s+&([\w-]+)\s*$", job, re.M)] if m}
+    anchored_steps = step_anchors(workflow_jobs)
     for job_id, job in workflow_jobs.items():
         alias = re.search(r"^    steps:\s+\*([\w-]+)\s*$", job, re.M)
         if alias and alias.group(1) in anchored:
@@ -216,7 +245,7 @@ def check_workflow(name: str, text: str) -> list[str]:
         where = f"{name} job {job_id}"
         if LITERAL_XCODE_PIN.search(job):
             errors.append(f"{where} pins a literal Xcode path; name the pool's Xcode in scripts/ci/xcode-pins.txt")
-        job_steps = steps(job)
+        job_steps = expand_step_aliases(steps(job), anchored_steps)
         select_at = next(
             (i for i, (_, body) in enumerate(job_steps) if SELECTOR in body and BELOW_FLOOR not in body),
             None,
@@ -358,6 +387,18 @@ def check_detects_regressions() -> list[str]:
                 "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
+        ),
+        "selector through a step alias": (
+            base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")
+            + "  twin:\n    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}\n    steps:\n"
+            "      - *select-xcode\n      - run: swift test\n",
+            [],
+        ),
+        "alias to another step is not the selector": (
+            base.replace("      - name: Test\n", "      - &test-step\n        name: Test\n")
+            + "  twin:\n    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}\n    steps:\n"
+            "      - *test-step\n",
+            ["never runs"],
         ),
         "indirect Swift": (
             base.replace("./scripts/select-ci-xcode.sh", "echo skipped").replace(

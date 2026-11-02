@@ -402,12 +402,10 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 base_app=""
 if [[ "$mode" == listperf && -n "$listperf_base" ]]; then
   t0=$SECONDS
-  if ! git cat-file -e "$listperf_base^{commit}" 2>/dev/null; then
-    depth=()
-    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-    git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$listperf_base" ||
-      { echo "error: could not fetch base $listperf_base" >&2; exit 1; }
-  fi
+  # A fleet step's checkout has no origin: the base comes the way the step's own commit
+  # does (glaeda's mirror, the host reference, else GitHub by URL; cmux#31442).
+  bash scripts/ci/ios-sim-fetch-commit.sh "$listperf_base" ||
+    { echo "error: could not fetch base $listperf_base" >&2; exit 1; }
   base_src="$work/base-src"
   for f in "${listperf_rig[@]:0:1}"; do
     git cat-file -e "$listperf_base:$f" 2>/dev/null ||

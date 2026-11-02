@@ -3,7 +3,7 @@
 // whole line gets highlighted and it's not obvious that clicking on this will be a new thing"), in
 // a real layout (test/browser/session-chip.harness.tsx): on a received message's line and on a
 // sent message's row, the chip's centre is the row icon's centre, it has real padding around its
-// name, it reads as a way to another chat (its own tint, an open cue), and pointing at it lights the chip alone:
+// name, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
 // the line's background and text keep their tone. design/chat-transcript.md "Session link chip".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -76,7 +76,6 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       const line = document.querySelector<HTMLElement>(row.line)!;
       const icon = document.querySelector<Element>(row.icon)!;
       const label = chip.querySelector(".cv-agent-tag__label")!;
-      const cue = chip.querySelector<SVGElement>(".cv-agent-tag__cue");
       const c = chip.getBoundingClientRect();
       const i = icon.getBoundingClientRect();
       const l = label.getBoundingClientRect();
@@ -98,8 +97,8 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         chipWidth: c.width,
         lineWidth: line.getBoundingClientRect().width,
         insetStart: l.left - c.left,
-        insetEnd: c.right - (cue ? cue.getBoundingClientRect().right : l.right),
-        cue: cue ? Number(getComputedStyle(cue).opacity) : -1,
+        insetEnd: c.right - l.right,
+        cue: chip.querySelectorAll("svg").length + (/↗/.test(chip.textContent ?? "") ? 1 : 0),
         labelCut: label.scrollWidth > label.clientWidth + 0.5,
         chipColor: paint(chipStyle.color),
         chipBackground: paint(chipStyle.backgroundColor),
@@ -138,16 +137,17 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);
           // The whole name shows when the line has room for it: never cut beside an empty gap.
           expect(rest.labelCut).toBe(false);
-          // A link: its own colour, apart from the line's words, and the open cue.
+          // A link: its own colour, apart from the line's words, and no arrow glyph (Leo, 2026-11-01:
+          // "nobody asked for that up right arrow").
           expect(rest.chipColor).not.toBe(rest.lineColor);
-          expect(rest.cue).toBeGreaterThan(0);
+          expect(rest.cue).toBe(0);
 
           // Pointing at the chip lights it alone: the line's plate and tone stay as at rest.
           await page.locator(row.chip).hover();
           await capture(page, `${theme}-${kind}-hover-chip`);
           const hover = await measure(page, row);
           expect(hover.chipBackground).not.toBe(rest.chipBackground);
-          expect(hover.cue).toBe(1);
+          expect(hover.cue).toBe(0);
           expect(hover.lineBackground).toBe(rest.lineBackground);
           expect(hover.lineColor).toBe(rest.lineColor);
           expect(hover.preview).toBe(rest.preview);
@@ -255,7 +255,7 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       });
     }
 
-  test("a reply's started-chat chip carries the same open cue", async () => {
+  test("a reply's started-chat chip carries no arrow glyph", async () => {
     const page = await browser.newPage({ viewport: { width: 700, height: 320 }, deviceScaleFactor: 2 });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -263,13 +263,11 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/session-chip.html?theme=dark`);
       const chip = page.locator('[data-chip-row="reply"] .acpmux-started-chip');
       await chip.waitFor();
-      expect(await chip.locator(".acpmux-started-cue").count()).toBe(1);
+      expect(await chip.locator("svg").count()).toBe(0);
+      expect(await chip.textContent()).not.toContain("↗");
       await chip.hover();
       await settled(page);
       await capture(page, "dark-reply-hover-chip");
-      expect(await chip.locator(".acpmux-started-cue").evaluate((cue) => Number(getComputedStyle(cue).opacity))).toBe(
-        1,
-      );
     } finally {
       await page.close();
     }

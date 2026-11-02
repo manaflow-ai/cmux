@@ -134,6 +134,9 @@ button.acpmux-workflow-agent__button:focus-visible {
   justify-content: center;
   width: var(--grid-icon-box);
   height: var(--grid-icon-box);
+  /* The row tops its items (align-items: start), so centre the icon box on the first line, the
+     agent's name, which is a line (1lh) tall rather than an icon box. */
+  margin-top: calc((1lh - var(--grid-icon-box)) / 2);
   color: var(--agent-muted);
 }
 .acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__icon {

@@ -167,7 +167,13 @@ afterEach(() => {
 async function spare(daemon: Daemon) {
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://spare.invalid/", token: "t", newSession: true },
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://spare.invalid/",
+      token: "t",
+      newSession: true,
+    },
     (snapshot) => {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
@@ -197,11 +203,12 @@ test("the adopted New Tab page draws the chat the host kept before its attach an
     historyExhausted: true,
     summary: summary(chat),
   };
-  (dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }).cmuxAcpmuxActions =
-    {
-      "chat.tail.get": async (params: any) => (String(params.sessionId) === chat ? kept : null),
-      "chat.tail": async () => null,
-    };
+  (
+    dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
+    "chat.tail.get": async (params: any) => (String(params.sessionId) === chat ? kept : null),
+    "chat.tail": async () => null,
+  };
   const daemon = new Daemon([chat, "other"]);
   const page = await spare(daemon);
   // The spare is a New Tab page: it opened no chat.

@@ -726,6 +726,32 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
                 yield run, found
 
 
+# A stale base pass (2026-11-02): base_red_excuse.py read only completed base runs, and a base run completes when its
+# slowest job does. Between 09:13Z and 09:23Z every feat-cmux-next run from #31930 on was still running, so the newest
+# completed run was 41418052327 at c47a99fcb9, before #31930 and before cmux#31338's merge-base e3c495d3 (#31931). Its
+# 'cmux-next guards / defaults-snapshot' passed, and the real base red #31930 caused there was refused as the PR's own.
+# So the base window lists runs of every status, and a finished job in a running run is a verdict. And a pass that
+# tested a commit before the PR's merge-base says nothing about the base the PR was built on: a red then waits for a
+# newer verdict (before_merge_base) instead of being called the PR's own.
+
+
+def before_merge_base(repo: str, base: str, sha: str, base_run: dict, github, cache: dict[str, str]) -> str | None:
+    """Why BASE_RUN tested a commit older than the merge-base of SHA with BASE, or None when it did not (or that
+    cannot be told). CACHE holds the merge-base, read once per judge."""
+    if sha not in cache:
+        diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+        cache[sha] = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
+    merge_base, tested = cache[sha], tested_sha(base_run)
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not re.fullmatch(r"[0-9a-f]{40}", tested):
+        return None
+    if tested == merge_base:
+        return None
+    status = github.json(f"repos/{repo}/compare/{merge_base}...{tested}?per_page=1").get("status")
+    if status in ("ahead", "identical"):
+        return None
+    return f"tested {tested[:12]}, which is {status or 'not after'} the merge-base {merge_base[:12]}"
+
+
 def created(run: dict) -> datetime | None:
     try:
         return datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
@@ -874,6 +900,72 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
             f"{'; '.join(sorted(tests))[:400]}")
 
 
+# cmux-next-guards.yml's "cmux-next CI guard group" runs every routed guard step of ci-guards.yml (the workflow guard
+# profile) on the change and again on its base, and fails only on a step red on the change and not on that base
+# (scripts/ci/guards_new_reds.py). Its log names each red step on one plain line, `guard red step (KIND): STEP`: `new`
+# (red on this change), `base` (red on the base too), `flaky`, or `tip` (a push judged at its tip). A pull request's
+# red in it is judged per step, the way the job itself reports "N red on the base too": every step the head calls
+# `new` must be red at the newest base run of the job, whatever that run's conclusion (a push judged against the
+# previous tip lists a red that persists as `base` and stays green). A whole verdict is one with the closing summary
+# line; anything else is refused. Before this the job was not a declared guard job (GUARD_JOBS), so a red in it was
+# never excused, and the base's own reds in it stayed green on every push (18 steps, until #31366).
+GUARD_GROUP_JOB = "cmux-next CI guard group"
+GUARD_GROUP_STEP = "Run the ci guard group and the routed groups"
+GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|tip)\): (.+)$")
+GUARD_SUMMARY = re.compile(r"^\d+ guard steps red (?:on this change|at the tip)\b")
+# run_ci_guards.py's closing line. The red step lines are read only after the last one: a failing step's own output
+# (printed above it) may quote them.
+GUARD_RUN_DONE = re.compile(r"^cmux guards: \d+ steps passed, \d+ failed\b")
+
+
+def guard_red_steps(log: str) -> dict[str, set[str]] | None:
+    """{kind: red steps} from a guard group job's log, or None when it printed no closing summary (cut short)."""
+    lines = test_reds.log_lines(log)
+    skip = test_reds.echoed(lines)
+    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
+    done = whole = False
+    for n, text in enumerate(lines):
+        if n in skip:
+            continue
+        if GUARD_RUN_DONE.match(text):
+            found, done, whole = {kind: set() for kind in found}, True, False
+        elif not done:
+            continue  # a cut-short run's step output may quote verdict lines; none count before the run finished
+        elif match := GUARD_RED_STEP.match(text):
+            found[match.group(1)].add(match.group(2).strip())
+        elif GUARD_SUMMARY.match(text):
+            whole = True
+    return found if whole else None
+
+
+def guard_group(repo: str, base: str, name: str, job: dict, head_log: str, base_run: dict, base_job: dict,
+                github) -> str:
+    """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
+    (the rule above); raises Refused naming the first step that is not."""
+    failed = {step["name"] for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")}
+    if failed != {GUARD_GROUP_STEP}:
+        raise Refused(f"'{name}': failed steps {sorted(failed)}, not only '{GUARD_GROUP_STEP}'; nothing to compare "
+                      "step by step")
+    head = guard_red_steps(head_log)
+    if head is None:
+        raise Refused(f"'{name}': its guard comparison printed no summary (a cut-short run is never a base red)")
+    charged = head["new"] | head["tip"]
+    if not charged:
+        raise Refused(f"'{name}': red, but names no red step of its own; nothing to compare with the base")
+    found = guard_red_steps(github.log(repo, base_job))
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    if found is None:
+        raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
+    red_on_base = set().union(*found.values())
+    if missing := sorted(charged - red_on_base):
+        raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
+                      f"{'; '.join(missing)[:600]}")
+    at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+    return (f"excused '{name}': every red guard step is red on {base} run {base_run['id']}{at} "
+            f"(the newest {base} verdict for it, {base_job.get('conclusion')}) ({url}): {'; '.join(sorted(charged))[:400]}")
+
+
 class Final(Refused):
     """A refusal no older base verdict can lift: it is judged against the newest verdict alone."""
 
@@ -940,6 +1032,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
     job_reads: dict[int, int] = {}
+    merge_bases: dict[str, str] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
@@ -973,7 +1066,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
+            # Every status: a job's verdict is final once the job completes, so a base run still running its slower
+            # jobs already answers for its finished ones (before_merge_base's note).
+            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
                                  f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
@@ -984,10 +1079,17 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)")
+        if name == GUARD_GROUP_JOB:
+            audit.append(guard_group(repo, base, name, job, head_log, base_run, base_job, github))
+            continue
         if base_job.get("conclusion") != "failure":
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github))
             except Refused as why:
+                if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
+                    raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
+                                  f"a pass in run {base_run['id']}, {stale}; re-check once a {base} run at or after "
+                                  "the merge-base has a verdict for it") from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue

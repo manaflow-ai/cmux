@@ -34,9 +34,9 @@ import Testing
                                   }) {}
     }
 
-    @Test func theToggleShipsOffAndOffNeverMakesTheService() {
-        #expect(HostPressureTunables.enabled.defaultValue == false)
-        let store = Self.store(forcing: .critical)
+    @Test func theToggleShipsOnAndOffNeverMakesTheService() {
+        #expect(HostPressureTunables.enabled.defaultValue == true)
+        let store = Self.store(forcing: .critical, enabled: false)
         var made = 0
         let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
         indicator.reconcile()
@@ -224,6 +224,7 @@ import Testing
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
+        _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
         var made: HostPressureService?
         let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),

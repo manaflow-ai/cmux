@@ -63,6 +63,8 @@ use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
+pub(crate) use kitty_budget_state::KittyImageSurfaceExpectation;
+pub(crate) use kitty_budget_state::KittyImageWaveExpectation;
 use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
@@ -211,8 +213,10 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod output_cleanup;
 mod pinned_columns;
 mod pty_reclaim;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -272,6 +276,8 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+#[cfg(test)]
+pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -506,6 +512,9 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// The registry's id and generation, fixed when it opened: read without
+    /// its lock, which durable commits hold.
+    registry_identity: (String, String),
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -586,6 +595,8 @@ pub struct Mux {
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -680,6 +691,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
+    output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
     /// published journal event marks it.
     journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
@@ -724,6 +737,10 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
     startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
+    /// Turns of first respawn attempts (mux/terminal_respawn.rs): after a
+    /// kill of everything the visible workspace's terminals go first, and at
+    /// most `available_parallelism` replay their seeds at once.
+    respawn_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their
@@ -960,23 +977,6 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
-    }
-
     #[track_caller]
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
@@ -1058,6 +1058,7 @@ impl Drop for Mux {
         {
             maintenance.stop();
         }
+        self.stop_output_cleanup();
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

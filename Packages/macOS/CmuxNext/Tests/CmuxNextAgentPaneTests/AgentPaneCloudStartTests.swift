@@ -274,4 +274,20 @@ struct AgentPaneCloudStartTests {
         #expect(await model.respond(to: request)["ok"] as? Bool == true)
         #expect(seen == [AgentPaneCloudRepick(machine: "m_zesty", name: nil)])
     }
+
+    /// A repick finds the picked machine by its id, else by the name acpmux lists it under (title or
+    /// slug, any case), and never guesses between two of the same name.
+    @Test func aRepickFindsThePickedMachineByIdOrByName() {
+        let machines: [(id: String, title: String, slug: String?)] = [
+            (id: "m_sr2", title: "sr2-tunnel-probe", slug: nil),
+            (id: "m_zesty", title: "Zesty Indigo Lemur", slug: "zesty-indigo-lemur"),
+            (id: "m_a", title: "twin", slug: nil), (id: "m_b", title: "twin", slug: nil),
+        ]
+        #expect(AgentPaneCloudRepick(machine: "m_zesty", name: nil).machineID(in: machines) == "m_zesty")
+        #expect(AgentPaneCloudRepick(machine: "m_gone", name: nil).machineID(in: machines) == nil)
+        #expect(AgentPaneCloudRepick(machine: nil, name: "zesty-indigo-lemur").machineID(in: machines) == "m_zesty")
+        #expect(AgentPaneCloudRepick(machine: nil, name: "SR2-tunnel-probe").machineID(in: machines) == "m_sr2")
+        #expect(AgentPaneCloudRepick(machine: nil, name: "twin").machineID(in: machines) == nil)
+        #expect(AgentPaneCloudRepick(machine: nil, name: "nobody").machineID(in: machines) == nil)
+    }
 }

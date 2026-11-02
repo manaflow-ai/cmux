@@ -53,7 +53,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
@@ -497,7 +497,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private func refreshSyncedDrag() {
         guard let page = syncedDragHostings.first else { return }
         var hostings = [page]
-        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self {
+        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self, !host.isHidden {
             hostings.append(host.layerHosting)
         }
         for hosting in syncedDragHostings where !hostings.contains(where: { $0 === hosting }) {

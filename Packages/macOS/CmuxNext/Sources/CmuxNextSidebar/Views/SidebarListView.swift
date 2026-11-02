@@ -238,6 +238,10 @@ final class SidebarListView: NSView {
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
     private var pointerMonitor: Any?
+    var onPointerKeyDown: ((NSEvent) -> Void)?
+    /// Each left press and release the monitor sees, and each focus loss: the Priority view ends its own gesture.
+    var onPointerEvent: ((NSEvent) -> Void)?
+    var onPointerFocusLost: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -310,9 +314,10 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
-        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        // Onto the row's hover card: rows hold still until the pointer leaves the card too.
+        releaseHeldModelChangeIfPointerLeft()
     }
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
     /// scrolled under a possibly still pointer (no point: the coordinator's

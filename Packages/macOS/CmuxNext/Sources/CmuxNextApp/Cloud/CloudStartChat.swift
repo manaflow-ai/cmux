@@ -64,19 +64,19 @@ struct CloudStartChat {
     }
 
     /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`):
-    /// Cloud off by policy, not signed in, or the Cloud app server's link, whose machines serve one
-    /// connection (the app's own) and so take no folder copy (``CloudMove``'s `linkUnsupported`):
-    /// refused before any machine is created for it. Not behind Labs (Leo, 2026-10-30: "that seems
-    /// dumb. i dont like putting so much stuff in labs"): the person picked Cloud for this send.
+    /// Cloud off by policy, or not signed in. Either link takes the start: the Cloud app server's
+    /// carrier socket serves each connection as its own dial of the machine's daemon, so the copy's
+    /// CLI gets a connection beside the app's (``CloudMove/connected(_:_:)``). Not behind Labs (Leo,
+    /// 2026-10-30: "that seems dumb. i dont like putting so much stuff in labs"): the person picked
+    /// Cloud for this send.
     static func refusal(_ services: AppServices) -> String? {
         refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud,
-                signedIn: services.cloud.isSignedIn, appServerLink: services.cloud.configuration.linkSource == .appServer)
+                signedIn: services.cloud.isSignedIn)
     }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool, appServerLink: Bool = false) -> String? {
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
         if cloudDisabled { return "cloud_disabled" }
-        guard signedIn else { return "not_signed_in" }
-        return appServerLink ? "unavailable" : nil
+        return signedIn ? nil : "not_signed_in"
     }
 
     /// Whether `path` is an existing folder, read off the main thread.
@@ -123,7 +123,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
         // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
-        async let loginPassed = passHarnessLogin(start, machine: machine)
+        async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -154,7 +154,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-        return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey)
+        return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, targetPane: plan.targetPane, cli: cli)
     }
 
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes
@@ -162,24 +162,36 @@ struct CloudStartChat {
     /// there first. The opened tab is kept with its start, so another machine picked before its first send runs
     /// moves it there (+Repick).
     private func open(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
-                      trusted: Bool = false, tabKey: String) async throws -> String {
+                      trusted: Bool = false, tabKey: String, targetPane: String? = nil, cli: CloudMoveCLI) async throws -> String {
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { services.agentTabs.holdsTabs(machine.daemon) },
-            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services)
-        let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
+        if let targetPane {
+            _ = try await CloudMachineWorkspace.existing(in: machine.daemon.store, notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title)))
+            guard let found = CloudMachineWorkspace.targetAnchor(targetPane, in: machine.daemon.store) else {
+                throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
+            }
+            anchor = found
+        } else {
+            anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+            if services.cloud.configuration.linkSource == .appServer {
+                guard let pane = anchor.pane.resourceID?.rawValue else {
+                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
+                }
+                _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: Self.accountText(origin.account), machine: machine.machineID, pane: pane))
+            }
+        }
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
             appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
-        if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
-            for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
-        }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = Started(start: start, chat: origin.chat, workspace: origin.workspace, account: origin.account,
-                                           machineID: machine.machineID)
+        for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
+        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: start, chat: origin.chat, workspace: origin.workspace,
+                                                                                        account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title
     }
@@ -194,10 +206,11 @@ struct CloudStartChat {
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The harness login before the first prompt, as for a chat with a project (+Login).
-        _ = await passHarnessLogin(start, machine: machine)
+        _ = await passHarnessLogin(harness: start.harness, machine: machine)
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-        return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey)
+        return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey, targetPane: plan.targetPane,
+                              cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout))
     }
 }

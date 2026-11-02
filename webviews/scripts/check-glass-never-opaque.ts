@@ -501,7 +501,6 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
   ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
-  ["pages/shared/pageBase.css .page-menu", "the shared page menu paints the solid popup surface, not .ui-glass"],
   ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
   [

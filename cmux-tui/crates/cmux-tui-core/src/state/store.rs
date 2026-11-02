@@ -380,6 +380,68 @@ pub(crate) fn mark_workspace_ephemeral(
          ON CONFLICT(workspace_id) DO UPDATE SET ephemeral = 1",
         [workspace_id],
     )?;
+    note_ephemeral(workspace_id);
+    Ok(())
+}
+
+/// Every workspace this process marked or found ephemeral, by public id
+/// (never reused). A remote device's event filter judges a closed incognito
+/// workspace's late events by it, after the workspace left the registry
+/// (server/incognito_remote.rs, #31210). A rolled-back mark leaves an id no
+/// workspace has.
+static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that workspace `workspace_id` is ephemeral.
+pub(crate) fn note_ephemeral(workspace_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether workspace `workspace_id` was ever ephemeral in this process.
+pub(crate) fn was_ephemeral(workspace_id: &str) -> bool {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().contains(workspace_id)
+}
+
+/// Saved tab and screen groups this process saw saved from, or synced with,
+/// a group of an ephemeral workspace, by saved id (random, never reused).
+/// Their records keep that workspace's titles, directories and URLs, so a
+/// remote device never lists or reopens them (#31210), even once the
+/// workspace closed.
+static NOTED_INCOGNITO_SAVED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that saved group `saved_id` holds an incognito workspace's group.
+pub(crate) fn note_incognito_saved(saved_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().insert(saved_id.to_string());
+}
+
+/// Every saved group noted by [`note_incognito_saved`].
+pub(crate) fn incognito_saved() -> Vec<String> {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().iter().cloned().collect()
+}
+
+/// Note saved tab group `saved_id` when pane `pane_id` (public id), whose
+/// strip holds the group it was written from, is in an ephemeral workspace.
+pub(crate) fn note_saved_from_pane(
+    connection: &Connection,
+    pane_id: &str,
+    saved_id: &str,
+) -> anyhow::Result<()> {
+    let incognito: i64 = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_panes AS p
+           JOIN resource_screens AS s ON s.public_id = p.screen_id
+           JOIN workspace_state AS w ON w.workspace_id = s.workspace_id
+           WHERE p.public_id = ?1 AND w.ephemeral = 1)",
+        [pane_id],
+        |row| row.get(0),
+    )?;
+    if incognito != 0 {
+        note_incognito_saved(saved_id);
+    }
     Ok(())
 }
 

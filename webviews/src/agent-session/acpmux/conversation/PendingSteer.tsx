@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
@@ -23,6 +23,12 @@ import { TurnActionsContext, type TakeBack } from "./turnActions";
 /// The X stays beside it, as does one that failed on the way (an RPC error, attachments not read):
 /// acpmux also refuses for a moment right after the steer is sent, before it has registered it
 /// (it prepares the steer's large images first), and a later click takes the steer back then.
+/// While several of the person's steers wait, the row of the newest (snapshot `newestOwnSteer`):
+/// only it offers Send now. Send now stops the agent's current step and the agent then reads every
+/// waiting steer, so a Send now under each read as if each were held in a queue (Leo, 2026-11-01:
+/// "why are ALL of these send now???? aren't these steers???"). Undefined (one waits): its own.
+export const NewestSteerContext = createContext<string | undefined>(undefined);
+
 export function PendingSteer({
   row,
   send,
@@ -34,6 +40,7 @@ export function PendingSteer({
 }) {
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
+  const newest = useContext(NewestSteerContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
   const [sentNow, setSentNow] = useState(false);
@@ -43,10 +50,11 @@ export function PendingSteer({
   if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
   if (!promptId) return null;
   const busy = sending;
+  const offersSendNow = newest === undefined || newest === row.id;
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {promptId && (
+        {promptId && offersSendNow && (
           <button
             type="button"
             className="cv-user__send-now"

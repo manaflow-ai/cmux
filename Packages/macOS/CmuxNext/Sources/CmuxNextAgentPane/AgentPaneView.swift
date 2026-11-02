@@ -60,9 +60,11 @@ public final class AgentPaneView: NSView {
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: ChromeLabel?
+    var otherInstallNotice: AgentPaneNotice?
+    /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
+    var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
-    var remoteApprovalsNotice: NSStackView?
+    var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -318,6 +320,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
+        installSessionInfo()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -393,6 +396,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             sessionStatusObservation?.cancel()
+            model.sessionInfo.hostObservation?.cancel()
         }
     }
 
@@ -405,6 +409,7 @@ public final class AgentPaneView: NSView {
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
         if let page { page.frame = shown } else { webView.frame = shown }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layoutSessionInfo()
         redraw.laidOut(self)
     }
 
@@ -451,6 +456,11 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
+        model.sessionInfo.hostObservation?.cancel()
+        model.sessionInfo.hostObservation = nil
+        model.sessionInfo.onChange = nil
+        model.sessionInfo.update(nil)
+        applySessionInfo()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
@@ -562,7 +572,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
+        themeSessionInfo(tokens)
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

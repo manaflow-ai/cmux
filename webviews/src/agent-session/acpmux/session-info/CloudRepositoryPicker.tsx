@@ -81,6 +81,7 @@ function errorCode(error: unknown): string | undefined {
 export function CloudRepositoryPicker({
   session,
   anchor,
+  point,
   open,
   onOpenChange,
   onAttached,
@@ -88,6 +89,8 @@ export function CloudRepositoryPicker({
 }: {
   session: string;
   anchor: RefObject<HTMLElement | null>;
+  /// A native Session Info row's box, in the same page coordinates as a web anchor.
+  point?: UiAnchor;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAttached: (repo: AttachedCloudRepo) => void;
@@ -165,7 +168,7 @@ export function CloudRepositoryPicker({
     <Popover
       open={open}
       onOpenChange={onOpenChange}
-      anchor={anchor.current as UiAnchor}
+      anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
       initialFocus={search}
@@ -197,6 +200,7 @@ export function CloudRepositoryPicker({
                 <button
                   type="button"
                   className="acpmux-cloud-repository-option"
+                  data-action="repository-option"
                   disabled={Boolean(attaching)}
                   onClick={() => attach(repo)}
                 >

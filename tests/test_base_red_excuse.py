@@ -52,13 +52,19 @@ class FakeGitHub:
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            # The base runs here test the merge-base itself unless a test says otherwise (before_merge_base).
+            return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
+        if f"/compare/{BASE_SHA}..." in route:
+            # Any other base commit a test names is newer than that merge-base.
+            return {"status": "ahead"}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
-            # The dispatch fallback lists every status (deferred_first_runs); the window only completed runs.
-            assert "branch=feat-cmux-next" in route and ("status=completed" in route
-                                                         or "event=workflow_dispatch" in route), route
+            # Both list every status: the dispatch fallback for deferred_first_runs, the window because a finished
+            # job in a running base run is already a verdict.
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
@@ -1180,6 +1186,55 @@ jobs:
 """
 
 
+NEW_BASE_SHA = "d" * 40
+
+
+class StaleBasePass(unittest.TestCase):
+    """cmux#31338 at 222ab6e3 (2026-11-02): 'cmux-next guards / defaults-snapshot' was red on feat-cmux-next from
+    #31930 on, but every base run from #31930 on was still running its slower jobs, so the newest completed run was
+    41418052327 at c47a99fcb9, before #31930 and before the PR's merge-base. Its pass refused the real base red."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        # The old completed run passed; the newest run, at the merge-base's successor, still runs but its job failed.
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.jobs[3] = failed_job(3, 30, NEW_BASE_SHA)
+        self.gh.logs[3] = self.gh.logs[1]
+        self.gh.base_runs = [{"id": 30, "event": "push", "head_branch": "feat-cmux-next", "status": "in_progress",
+                              "conclusion": None, "head_sha": NEW_BASE_SHA},
+                             {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                              "conclusion": "success", "head_sha": BASE_SHA}]
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_a_finished_job_in_a_running_base_run_is_the_newest_verdict(self):
+        self.assertIn("run 30", self.judge())
+
+    def test_a_pass_before_the_merge_base_waits_for_a_newer_verdict(self):
+        # The running run's job has not finished: the only verdict is the old pass, before the merge-base.
+        self.gh.jobs[3].update(status="in_progress", conclusion=None)
+        merge_base = NEW_BASE_SHA
+        json = self.gh.json
+
+        def answer(route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{HEAD}" in route:
+                return {"merge_base_commit": {"sha": merge_base}, "files": []}
+            if f"/compare/{merge_base}...{BASE_SHA}" in route:
+                return {"status": "behind"}
+            return json(route, paginate=paginate)
+
+        self.gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet: "
+                                    "the newest, a pass in run 20, tested bbbbbbbbbbbb, which is behind"):
+            self.judge()
+
+    def test_a_pass_at_or_after_the_merge_base_still_blocks(self):
+        self.gh.jobs[3].update(status="in_progress", conclusion=None)
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge()
+
+
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
@@ -1725,8 +1780,11 @@ class FixedOnBase(unittest.TestCase):
             self.judge(github)
 
     def test_a_base_pass_not_after_the_merge_base_is_not_excused(self):
-        for status in ("identical", "behind", "diverged"):
-            with self.subTest(status=status), self.assertRaisesRegex(excuse.Refused, "not after the merge-base"):
+        # A pass at the merge-base itself proves no fix; one before it is no base verdict for this PR yet.
+        for status, said in (("identical", "not after the merge-base"),
+                             ("behind", "no feat-cmux-next verdict at or after this PR's merge-base yet"),
+                             ("diverged", "no feat-cmux-next verdict at or after this PR's merge-base yet")):
+            with self.subTest(status=status), self.assertRaisesRegex(excuse.Refused, said):
                 self.judge(FixedOnBaseGitHub(status=status))
 
     def test_a_crash_is_never_fixed_on_base(self):
@@ -1763,7 +1821,8 @@ class FixedOnBase(unittest.TestCase):
         github.jobs[2]["conclusion"] = "success"
         with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
-        self.assertFalse([route for route in github.routes if "/compare/" in route])
+        # Only the merge-base itself is read (before_merge_base, one file), never the PR's diff.
+        self.assertFalse([route for route in github.routes if "/compare/" in route and "per_page=1" not in route])
 
     def test_a_guard_test_line_printed_by_another_job_is_never_fixed_on_base(self):
         github = FixedOnBaseGitHub()
@@ -1822,6 +1881,108 @@ class FixedOnBase(unittest.TestCase):
     def test_a_pytest_id_names_its_file(self):
         self.assertEqual(excuse.guard_test_file("tests/test_x.py::Case::test_y", []), "tests/test_x.py")
         self.assertIsNone(excuse.guard_test_file("web/test_x.py::test_y", []))
+
+
+GUARD_GROUP = excuse.GUARD_GROUP_JOB
+GUARD_STEP = excuse.GUARD_GROUP_STEP
+
+
+def guard_group_log(*lines):
+    """A guard group job's log: run_ci_guards.py's head run, then guards_new_reds.py's verdict."""
+    return log(GUARD_GROUP, GUARD_STEP, "cmux guards: 270 steps passed, 2 failed, 0 skipped (Linux only) in 150.0s",
+               *lines)
+
+
+class GuardGroupGitHub(FakeGitHub):
+    """A pull request's red guard group job (run 10) and the newest feat-cmux-next push run of it (run 20)."""
+
+    def __init__(self, head_lines, base_lines, base_conclusion="success"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=GUARD_GROUP, step=GUARD_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=GUARD_GROUP, step=GUARD_STEP),
+                             conclusion=base_conclusion)}
+        if base_conclusion == "success":
+            self.jobs[2]["steps"][-1]["conclusion"] = "success"
+        self.logs = {1: guard_group_log(*head_lines), 2: guard_group_log(*base_lines)}
+        self.base_runs[1]["conclusion"] = base_conclusion
+
+
+class GuardGroupPerStep(unittest.TestCase):
+    """cmux-next-guards.yml's guard group fails only on a step red on the change and not on its base; its red was
+    never excused (not a declared guard job), and the base's own reds in it stayed green on every push (18 steps,
+    until #31366). A pull request's red step is excused only when the newest base run of the job lists it red."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_step_red_on_the_base_push_judged_at_its_tip_is_excused(self):
+        github = GuardGroupGitHub(
+            ["##[error]Validate fleet rule lints", "guard red step (new): Validate fleet rule lints",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["##[error]Validate fleet rule lints", "guard red step (tip): Validate fleet rule lints",
+             "guard red step (tip): Lint every workflow", "2 guard steps red at the tip"],
+            base_conclusion="failure")
+        text = self.judge(github)
+        self.assertIn(f"excused '{GUARD_GROUP}'", text)
+        self.assertIn("run 20", text)
+        self.assertIn("Validate fleet rule lints", text)
+
+    def test_a_step_a_green_base_push_lists_as_red_on_its_base_is_excused(self):
+        # A push judged against the previous tip stays green while a red persists, and lists it as `base`.
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (base): Lint every workflow",
+             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed"])
+        self.assertIn(f"excused '{GUARD_GROUP}'", self.judge(github))
+
+    def test_a_new_red_step_is_not_excused(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Validate fleet rule lints", "guard red step (new): Validate the PR design spec check",
+             "2 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (tip): Validate fleet rule lints", "1 guard steps red at the tip"],
+            base_conclusion="failure")
+        with self.assertRaisesRegex(excuse.Refused, "Validate the PR design spec check"):
+            self.judge(github)
+
+    def test_a_step_only_quoted_in_a_failing_steps_output_is_no_base_evidence(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["0 guard steps red at the tip"], base_conclusion="success")
+        github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "AssertionError: guard red step (tip): Lint every workflow",
+                             "guard red step (tip): Lint every workflow",
+                             "cmux guards: 272 steps passed, 0 failed, 0 skipped (Linux only) in 150.0s",
+                             "0 guard steps red at the tip")
+        with self.assertRaisesRegex(excuse.Refused, "not on feat-cmux-next run 20"):
+            self.judge(github)
+
+    def test_a_base_run_with_no_summary_is_refused(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (base): Lint every workflow"])
+        with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
+    def test_a_base_run_cut_short_before_its_guards_finished_is_refused(self):
+        # Verdict lines quoted by a failing step's output, with no run_ci_guards.py closing line, prove nothing.
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"], [])
+        github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "guard red step (base): Lint every workflow",
+                             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed")
+        with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
+    def test_a_red_outside_the_guard_comparison_is_refused(self):
+        github = GuardGroupGitHub(["guard red step (new): Lint every workflow",
+                                   "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+                                  ["guard red step (base): Lint every workflow",
+                                   "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed"])
+        github.jobs[1]["steps"][1]["conclusion"] = "failure"
+        with self.assertRaisesRegex(excuse.Refused, "not only"):
+            self.judge(github)
 
 
 class Script(unittest.TestCase):

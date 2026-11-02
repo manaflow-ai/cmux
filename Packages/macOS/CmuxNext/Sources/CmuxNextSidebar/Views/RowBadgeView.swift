@@ -26,15 +26,24 @@ final class RowBadgeView: NSView {
     private(set) var look = Look.corner
     /// The glyph's side: the static glyphs' 10 pt box, so their 1x pixel art draws as drawn.
     static let glyphSide: CGFloat = 10
-    /// Leo 2026-11-01: "a bigger red warn symbol", like ChatGPT. The 14 pt box draws
-    /// the default info ring at about 13 pt; its existing cell and center stay fixed.
-    static let errorGlyphSide: CGFloat = 14
+    /// Every mark but a dot (the spinner, the red warning, the orange needs-you marks) draws in one
+    /// 14 pt box centered in its cell, so the marks read at one size on one column. Leo 2026-11-01:
+    /// "a bigger red warn symbol", like ChatGPT (the 14 pt box draws the info ring at about 13 pt),
+    /// then "and every icon is still fucking small". The cell, its center and the row's spacing
+    /// stay fixed; dots keep their own tokens (the blue unread dot is `SidebarStyle.unreadDotSize`).
+    static let markSide: CGFloat = 14
     static let ringWidth: CGFloat = 1.5
     /// The unscaled dot artwork (non-unread statuses keep this size).
     static let dotSide: CGFloat = 6
     /// The artwork occupies only part of its glyph box. Measure that share once, so fitting
     /// the unread mark to its token changes neither the shared art nor the row's cell geometry.
     private static let dotArtShare = StaticStatusGlyph.dot.path(in: CGRect(x: 0, y: 0, width: 1, height: 1)).boundingBoxOfPath.width
+
+    /// A dot glyph keeps the 10 pt box its dot tokens are measured in; every other mark takes `markSide`.
+    private static func isDot(_ glyph: StatusIndicatorView) -> Bool {
+        let drawn = glyph.indicator.plan.glyph
+        return drawn == .mark(.vector(.dot)) || drawn == .dot
+    }
 
     private func unreadFrame(_ frame: CGRect, for glyph: StatusIndicatorView) -> CGRect {
         guard glyph.state == .success, glyph.indicator.plan.glyph == .mark(.vector(.dot)) else { return frame }
@@ -126,7 +135,7 @@ final class RowBadgeView: NSView {
         for index in glyphs.indices {
             // Whole points: the cell, so the glyph inside it, sits on the pixel grid.
             let cell = CGRect(x: CGFloat(index) * step, y: ((bounds.height - cellSide) / 2).rounded(), width: cellSide, height: cellSide)
-            let side = glyphs[index].state == .error ? Self.errorGlyphSide : Self.glyphSide
+            let side = Self.isDot(glyphs[index]) ? Self.glyphSide : Self.markSide
             let center = CGPoint(x: cell.midX, y: cell.midY)
             let glyph = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             // Earlier items stack in front: each cell covers the one after it.

@@ -131,6 +131,22 @@ class RoutingTableTests(unittest.TestCase):
             baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
             for change, error in (({}, False), ({"environment": "release"}, True),
                                   ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  # ci.yml's router: the routing environment off pull requests, none on them.
+                                  ({"environment": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"}, False),
+                                  ({"environment": "${{ github.event_name != 'pull_request' && 'release' || '' }}"}, True),
+                                  ({"environment": "${{ vars.ROUTING_ENVIRONMENT }}"}, True),
+                                  ({"runs-on": route.replace("16vcpu", "8vcpu")}, False),
+                                  ({"runs-on": route.replace("16vcpu", "4vcpu")}, True),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu")}, False),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.OTHER && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu")}, True),
+                                  # ci.yml's router: the fork pull request branch, then hosted, then the ephemeral mirror.
+                                  ({"runs-on": route.replace("'ubuntu-24.04' || github.run_attempt", "'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt").replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, False),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"glaeda-std\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
+                                  # A secretless job may retry on the reconciled pool.
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux")}, False),
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux"),
+                                    "env": {"KEY": "${{ secrets.GLAEDA_ROUTE_APP_KEY }}"}}, True),
                                   ({"env": {"KEY": "${{ secrets.CMUX_RELEASE_APP_KEY }}"}}, True),
                                   ({"steps": [{"run": "codesign app"}]}, True),
                                   ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04'", "'macos-26'")}, True),
@@ -146,7 +162,7 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(len(allowed), 0 if error else 1)
                     if not error:
                         number = int(allowed[0].rsplit(":", 1)[1])
-                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + route)
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + {**baseline, **change}["runs-on"])
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 

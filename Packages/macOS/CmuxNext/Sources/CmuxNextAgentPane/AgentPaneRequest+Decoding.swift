@@ -159,6 +159,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.noticeAction":
+            // A native notice's button (AgentPaneNotice): its id, nothing else.
+            if let id = params?["id"] as? String, Set((params ?? [:]).keys) == ["id"] {
+                self = .paneNoticeAction(id: id)
+            } else {
+                self = .unsupported(method)
+            }
         case "tips.state":
             // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {
@@ -212,6 +219,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "account.add":
+            self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
             // A harness id (profile file name), never a command.
             if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
@@ -419,6 +428,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.sessionInfo":
+            let info = params?["info"]
+            if info == nil || info is NSNull { self = .sessionInfo(nil) }
+            else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
+            else { self = .unsupported(method) }
+        case "pane.copyText":
+            if let text = params?["text"] as? String { self = .copyText(text) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
@@ -449,7 +466,7 @@ extension AgentPaneRequest {
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256, let place = AgentPaneAskPlace(params?["where"]) { self = .asksOpen(id, place) } else { self = .unsupported(method) }
         case "chat.asks.answer":
             if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":

@@ -120,11 +120,13 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
+        self.stop_output_cleanup();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -301,6 +303,7 @@ impl Mux {
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

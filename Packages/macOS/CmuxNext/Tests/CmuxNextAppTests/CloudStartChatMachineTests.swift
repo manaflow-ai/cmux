@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+@testable import CmuxNextDaemon
 import Foundation
 import Observation
 import Testing
@@ -12,6 +13,22 @@ import Testing
 @MainActor
 struct CloudStartChatMachineTests {
     private static let me = "user-leo"
+
+    @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
+        let store = DaemonStore()
+        func tree(_ reordered: Bool) -> DaemonTree {
+            let target = PaneSnapshot(id: PaneID(rawValue: reordered ? 9 : 1), resourceID: ResourceID(rawValue: "pane_target"))
+            let other = PaneSnapshot(id: 1, resourceID: ResourceID(rawValue: "pane_other"))
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(target.id), panes: reordered ? [other, target] : [target])
+            return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "ws-key"), name: "chat", screens: [screen])])
+        }
+        store.apply(snapshot: tree(false))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
+        store.apply(snapshot: tree(true))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_missing", in: store) == nil)
+        #expect(CloudMachineWorkspace.targetAnchor("pane:1", in: store) == nil)
+    }
 
     /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
     /// machines in the store until the new list lands. A send is kept under the account it was sent
@@ -217,25 +234,5 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
-        // The Cloud app server's link takes no folder copy: refused before a machine is created.
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
-    }
-
-    /// A repick finds the picked machine by its id, else by the name acpmux lists it under (title or
-    /// slug, any case), and never guesses between two of the same name.
-    @Test func aRepickFindsThePickedMachineByIdOrByName() {
-        let machines: [(id: String, title: String, slug: String?)] = [
-            (id: "m_sr2", title: "sr2-tunnel-probe", slug: nil),
-            (id: "m_zesty", title: "Zesty Indigo Lemur", slug: "zesty-indigo-lemur"),
-            (id: "m_a", title: "twin", slug: nil), (id: "m_b", title: "twin", slug: nil),
-        ]
-        #expect(CloudStartChat.machineID(for: .init(machine: "m_zesty", name: nil), in: machines) == "m_zesty")
-        #expect(CloudStartChat.machineID(for: .init(machine: "m_gone", name: nil), in: machines) == nil)
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "zesty-indigo-lemur"), in: machines) == "m_zesty")
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "SR2-tunnel-probe"), in: machines) == "m_sr2")
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "twin"), in: machines) == nil)
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "nobody"), in: machines) == nil)
     }
 }
-

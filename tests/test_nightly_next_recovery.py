@@ -660,6 +660,8 @@ class RecheckTests(unittest.TestCase):
         recheck = names.index("Recheck the recovered build against both feeds")
         self.assertEqual(steps[recheck].get("id"), "recheck")
         for later in steps[recheck + 1:]:
+            if later.get("name") == "Release the nightly-next publish lease":
+                continue  # releases the lease taken before the recheck, whatever the recheck found
             self.assertIn("steps.recheck.outputs.already_published != 'true'", later.get("if", ""), later.get("name"))
 
     def test_an_already_published_build_republishes_no_deltas(self):
@@ -680,9 +682,16 @@ class RecheckTests(unittest.TestCase):
                 self.assertTrue(job_runs(name, outcome, outputs))
 
     def test_the_recheck_holds_the_release_tag_publication_lock(self):
-        lock = workflow()["jobs"]["publish-nightly"]["concurrency"]
-        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}")
+        # Classic and RC: the release tag's shared group. nightly-next: a group of its own run, and
+        # the R2 lease taken before the recheck (a shared group cancelled a waiting publish).
+        job = workflow()["jobs"]["publish-nightly"]
+        lock = job["concurrency"]
+        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}"
+                         "${{ needs.decide.outputs.track == 'nightly-next' && format('-run-{0}', github.run_id) || '' }}")
         self.assertFalse(lock["cancel-in-progress"])
+        names = [s.get("name") for s in job["steps"]]
+        self.assertLess(names.index("Take the nightly-next publish lease"),
+                        names.index("Recheck the recovered build against both feeds"))
 
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:

@@ -69,10 +69,12 @@
 }
 
 /* A session's status line (SessionStatusLine), on a started chat's row and its hover card: the
-   status first, its glyph and word in its colour, then `· repo #N` in the dim colour. */
+   status first, its glyph and word in its colour, then `· repo #N` in the dim colour, and every
+   other pull request the chat opened on its own (`· repo #M`), wrapping onto more lines rather
+   than folding into a "+N" count. Its items start at the top so the status stays on the first line. */
 .acpmux-session-status-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
   overflow: hidden;
@@ -90,9 +92,14 @@
 }
 .acpmux-session-status-pr {
   display: inline-flex;
+  flex-wrap: wrap;
   min-width: 0;
-  gap: 4px;
+  gap: 0 4px;
   font-variant-numeric: tabular-nums;
+}
+.acpmux-session-status-pr-other::before {
+  content: "·";
+  margin-inline-end: 4px;
 }
 .acpmux-session-status + .acpmux-session-status-pr::before {
   content: "·";
@@ -147,16 +154,6 @@
   cursor: default;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
-}
-/* Its open cue (↗), as every session link chip's (AgentTag.css): quiet, then lit with the chip. */
-.acpmux-started-cue {
-  margin-inline-start: 2px;
-  vertical-align: -1px;
-  opacity: 0.6;
-}
-.acpmux-started-chip:is(:hover, :focus-visible) .acpmux-started-cue,
-.acpmux-started-chip:is(:has([data-popup-open]), :focus-visible) .acpmux-started-cue {
-  opacity: 1;
 }
 .acpmux-started-chip:hover {
   background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);

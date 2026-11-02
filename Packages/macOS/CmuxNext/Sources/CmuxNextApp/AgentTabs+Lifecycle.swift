@@ -249,22 +249,16 @@ extension AgentTabStore {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
-            NewTabSparePool.traceSpare(.refused, note: Self.spareRefusal(spare.model))
+            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
             return false
         }
-        NewTabSparePool.traceSpare(.adopted)
+        AgentPaneSpareOutcome.adopted.trace()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key)
         return true
-    }
-
-    /// Why `model` refused to become an existing chat (``AgentPaneModel/adoptSpareSession(_:)``), for the open's trace.
-    static func spareRefusal(_ model: AgentPaneModel) -> String {
-        model.sessionId != nil ? "has a session" : model.newTab == nil ? "no new tab page" : !model.hasHandshake ? "no handshake"
-            : model.userTouched ? "touched by \(model.touchedBy ?? "?")" : model.remoteChat ? "remote chat" : model.neverPooled ? "never pooled" : "?"
     }
 
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat

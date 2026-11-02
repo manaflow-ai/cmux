@@ -17,9 +17,9 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
             // machine connects it (a live link stays as it is), as `user`
-            // only for the user's own gesture. A paused machine resumes first.
+            // only for the user's own gesture, which waits for it. A paused machine resumes first.
             run("open machine", context) {
-                try await attached(session, invocation)
+                try await attached(session, invocation, waitsForLink: true)
                 show(try await firstWorkspace(on: session, context), context)
             }
         }

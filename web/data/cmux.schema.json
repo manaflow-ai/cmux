@@ -1480,6 +1480,24 @@
           "descriptionKey": "schemaDescriptions.notifications.agentIdleReminder",
           "description": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
+        "agentIdleTimers": {
+          "x-cmux-scopes": ["global"],
+          "type": "object",
+          "default": {},
+          "description": "One-shot cache-TTL reminders keyed by agent family. Each value is an array of {afterSeconds, id} objects.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["afterSeconds", "id"],
+              "properties": {
+                "afterSeconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+                "id": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
         "sound": {
           "x-cmux-scopes": ["global"],
           "type": "string",

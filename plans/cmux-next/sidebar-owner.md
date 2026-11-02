@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
+  Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
+  New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours
+  keep their appearance. This supersedes the automatic group palette from #22651 and the grey fallback
+  from #32156. Regression: `GroupNoChosenColorTests`; surface spec: `design/tabs.md`.
+
+- 2026-11-02: the Priority view's machine tag takes the machine's identity colour, `MachineColor(name:)`, not its own
+  hash into the group palette (#32081, carrying Leo's handoff of 2026-10-21: "When #22763 merges, replace that body
+  with `MachineColor(name: machine).color`"). The tag text now matches the machine's colour elsewhere and follows the
+  person's `appearance.machineColors` picks; This Mac's rows still carry no tag. Workspace-row machine marks are
+  unchanged (neutral `Palette.textTertiary`, #29833).
+
 - 2026-11-01: Leo's three sidebar prototypes are App Store toggles that work in every build. Leo (2026-10-21):
   "not even, like, plugins. They're just f***ing toggles in the app store area". Workspaces as Tabs
   (`sidebar.workspacesAsTabs`), Chrome-Style Groups (`sidebar.chromeGroups`) and Workspaces Side by Side
@@ -8,6 +20,16 @@
   Debug tunable), so no look changes until someone turns one on. The sidebar view menu's Compact Workspace List writes
   the setting and is no longer DEV-only. Regression: `SidebarPrototypeTogglesSettingTests`,
   `SidebarPrototypeStoreCardsTests`, `SidebarCompactListMenuTests`.
+
+- 2026-11-01: the workspace hover preview's tab rows say where they run and carry real facts. Leo, verbatim: "local
+  or nonlocal is probably useful to see in the hover previews" and "these are not informative enough nor look very
+  good. there's no symbols, not much metadata, nothing. we can do stuff". Each agent chat and terminal row names its
+  machine on its second line ("This Mac", "Cloud", or the machine's name, from the sidebar's machine section; a remote
+  terminal names its own session); agent rows add their model, terminals their running command, pages their path
+  (host and path, or the path alone when the title is the host) and the site's icon when the record names none. No
+  part repeats the title or another part, and a row with no fact shows its title alone (no "Tab" under "New Tab").
+  Gallery "Tab rows" compares machine on every line (chosen), only another machine named, the machine in the trailing
+  column, and the old line. Regression: `WorkspaceTabHoverCardRichRowsTests`.
 
 - 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
   them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
@@ -250,6 +272,13 @@ their members' text column while the existing rail and edge geometry stays uncha
 marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
 alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
 
+Two-line rows (2026-11-02, fix forward of #27598): the title still centers on its capitals, but the
+second and meta lines stack under the title's line box again, and a collapsed two-line row's icon and
+trailing marks center on the whole row (only an expanded row puts them on the title's line). Leo
+2026-10-14: "wait that's not centered? why is it superscript?" (`SidebarStatusGlyphCenterTests`); Leo
+2026-10-20 on one- and two-line rows' spacing (`SidebarRowLineSpacingTests`). Takes back only those two
+side effects of 2ea3aa86e3f; the grid columns stay.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
@@ -278,6 +307,13 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## Rename field on a whole pixel (2026-11-02)
+
+User 2026-10-31: "double click to rename workspaces must not have layout shift". Since #27598 a title can
+sit on a fractional y (centered on its capitals); the in-place rename field now snaps its top to a backing
+pixel after aligning to the title's pen, so AppKit's whole-pixel field editor no longer draws the text a
+point off the title. Regression: `SidebarRenameInPlaceTests`.
 
 ## Last workspace close keeps its group (2026-11-01)
 
@@ -1011,3 +1047,12 @@ An empty group now keeps only its header at rest. The header's existing + appear
   visible and clickable left of the end action, with overflow on the next free shared slot.
   Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
   and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
+
+## Each space owns its pins and groups (2026-10-29)
+
+- Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
+
+## Reviewed behavior-only commits
+
+The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
+0075119003a, 19aed8cb69b, 876f8cdf5fc, 0137a6a9787, fda89c002c8, d8104ae97a6, 5218136c15f, db179b9bc0f.

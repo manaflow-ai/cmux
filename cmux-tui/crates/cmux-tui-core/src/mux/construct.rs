@@ -81,14 +81,15 @@ impl Mux {
         state_root: &Path,
     ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState::default(),
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState::default(),
+                false,
+            )
+        })
     }
 
     pub fn open_persistent_provider_managed(
@@ -98,19 +99,20 @@ impl Mux {
         authority: ProviderWorkspaceAuthority,
     ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: None,
-                authority_generation: 1,
-                authority: Some(authority),
-            },
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState {
+                    managed: true,
+                    mux_generation: None,
+                    authority_generation: 1,
+                    authority: Some(copy_authority(&authority)?),
+                },
+                false,
+            )
+        })
     }
 
     pub fn open_persistent_provider_managed_pending(
@@ -122,19 +124,20 @@ impl Mux {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: Some(mux_generation.into_boxed_str()),
-                authority_generation: 0,
-                authority: None,
-            },
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState {
+                    managed: true,
+                    mux_generation: Some(mux_generation.clone().into_boxed_str()),
+                    authority_generation: 0,
+                    authority: None,
+                },
+                false,
+            )
+        })
     }
 
     pub(crate) fn from_workspace_registry(
@@ -179,6 +182,8 @@ impl Mux {
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
+        let registry_identity =
+            (registry.registry_id().to_string(), registry.generation().to_string());
         let machine_public_id = registry.machine_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
@@ -205,6 +210,7 @@ impl Mux {
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
+            registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
             state: signaled_mutex::StateMutex::new(state),
@@ -266,6 +272,8 @@ impl Mux {
             resource_mutation_metrics: Mutex::new(None),
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
+            #[cfg(test)]
+            resource_close_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
@@ -343,6 +351,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -367,6 +376,7 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             startup_adoption_gate: Default::default(),
+            respawn_gate: Arc::new(terminal_respawn::respawn_gate()),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
@@ -492,6 +502,9 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
         mux.start_journal_maintenance()?;
+        if let Err(error) = mux.start_output_cleanup() {
+            eprintln!("cmux-tui: output cleanup: not started: {error:#}");
+        }
         crate::state::project_watch::start(&mux);
         timings.lap("journal.maintenance_start");
         *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
@@ -554,4 +567,12 @@ impl Mux {
         validate_mux_generation(mux_generation).unwrap();
         mux
     }
+}
+
+/// A second copy of a provider credential for the retried owner build after
+/// an output cleanup rollback (`WorkspaceRegistry::open_with`).
+fn copy_authority(
+    authority: &ProviderWorkspaceAuthority,
+) -> anyhow::Result<ProviderWorkspaceAuthority> {
+    ProviderWorkspaceAuthority::new(String::from_utf8(authority.expose().to_vec())?)
 }

@@ -201,9 +201,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
-    // Labs team-scoped agent messaging over the mesh relay. The daemon keeps
-    // this capability visible even when the flag is off so clients can explain
-    // the opt-in instead of treating it as an unknown method.
+    // Team-scoped agent messaging over the mesh relay, on wherever a hub is
+    // configured. The daemon keeps this capability visible even when it is off
+    // so clients can explain why instead of treating it as an unknown method.
     Capability {
         id: "team-messaging-v1",
         wire: &[

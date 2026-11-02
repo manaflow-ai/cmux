@@ -38,7 +38,7 @@ public final class ChatOpenTrace {
              setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
              loadingLeave, loadingLeft, holdEnd,
              // Whether the open's tab took the prewarmed page (`AgentTabStore.view(for:)`,
-             // NewTabSparePool.servesChat): adopted it; found none parked; found one not ready (still
+             // AgentPaneSpareReadiness): adopted it; found none parked; found one not ready (still
              // connecting, Low Power Mode, thermal); or the page refused (a person touched it).
              spareAdopted, spareEmpty, spareUnready, spareRefused
 

@@ -56,45 +56,273 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
 /// (`withSkillDollars`), which Codex needs to take it as a skill.
 export const shownName = (command: SlashCommand) => command.name.replace(/^\$(?=.)/, "");
 
-/// The prompt as sent: each `/name` in a command position (the prompt's start, or after a space,
-/// a line break or an attachment, running to the next) that names a `$` skill without its `$` is
-/// written `/$name`, as codex-acp needs. A name a command also has without `$` stays as typed, and
-/// so does every other character. One pass over the text.
-export function withSkillDollars(text: string, commands: readonly SlashCommand[] | undefined): string {
+/// The Codex skills of a command list by the name the prompt shows (`dollar`: `$emil-color` is
+/// `emil-color`), and the names other commands have (`plain`), for the `$` the prompt adds and takes
+/// away. Only names in the list count: a `/$source` or `/$5` someone typed is never taken for one.
+export type SkillCatalog = { dollar: ReadonlySet<string>; plain: ReadonlySet<string> };
+
+export function skillCatalog(commands: readonly SlashCommand[] | undefined): SkillCatalog {
   const dollar = new Set<string>();
   const plain = new Set<string>();
   for (const command of commands ?? [])
     if (command.name.length > 1 && command.name.startsWith("$")) dollar.add(command.name.slice(1));
     else plain.add(command.name);
-  if (!dollar.size || !text.includes("/")) return text;
-  return text.replace(/(^|[\s\uFFFC])\/([^\s\uFFFC]+)(?=[\s\uFFFC]|$)/g, (whole, lead: string, name: string) =>
-    dollar.has(name) && !plain.has(name) ? `${lead}/$${name}` : whole,
+  return { dollar, plain };
+}
+
+const catalogOf = (commands: readonly SlashCommand[] | SkillCatalog | undefined): SkillCatalog =>
+  commands && !Array.isArray(commands) ? (commands as SkillCatalog) : skillCatalog(commands as SlashCommand[]);
+
+// The reading of Markdown code that a prompt's send mapping, its display mapping and its skill
+// highlights share, CommonMark's: the transcript's renderer reads a sent prompt's code with these
+// same functions (Markdown.tsx `commonmark`), so a word is code in all of them or in none.
+
+/// A fenced code block's opening line: up to three spaces, then three or more backticks with an info
+/// string that holds no backtick, or three or more tildes with any. Undefined for any other line.
+export function fenceOpening(line: string): { mark: string; info: string } | undefined {
+  const found = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!found || (found[1]![0] === "`" && found[2]!.includes("`"))) return undefined;
+  return { mark: found[1]!, info: found[2]! };
+}
+
+/// Whether `line` closes a fence opened by `mark`: up to three spaces, then at least as many of the
+/// same character, then only spaces or tabs.
+export function closesFence(line: string, mark: string): boolean {
+  return new RegExp(`^ {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`).test(line);
+}
+
+/// An inline code span (CommonMark): a backtick run, its content, and the next run of exactly as
+/// many backticks. `inner` is the content's start and end.
+export type CodeSpan = { start: number; end: number; inner: [number, number]; run: number };
+
+/// A line that starts a block of its own, which no inline code span crosses (its paragraph ends
+/// there): a blank line, a fence's opening line, a heading, a quote or a list item.
+const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+][ \t]|\d+[.)][ \t])/;
+
+/// Where each line of `text` that ends a paragraph starts (`BLOCK_START`, a blank line, a fence's
+/// opening line), in order: an inline code span never runs over one. One pass.
+export function blockBreaks(text: string): number[] {
+  const breaks: number[] = [];
+  for (let at = 0; at <= text.length;) {
+    const line = lineAt(text, at);
+    const content = text.slice(at, line.end);
+    if (at > 0 && (!content.trim() || BLOCK_START.test(content) || fenceOpening(content))) breaks.push(at);
+    if (line.end >= text.length) break;
+    at = line.next;
+  }
+  return breaks;
+}
+
+/// Whether a paragraph break (`blockBreaks`) starts a line in `from...to` (`to` included: a closing
+/// run that opens such a line starts a block, not the span's end).
+function breaksBetween(breaks: readonly number[], from: number, to: number): boolean {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (breaks[middle]! <= from) low = middle + 1;
+    else high = middle;
+  }
+  return low < breaks.length && breaks[low]! <= to;
+}
+
+/// The code span that opens at `at` (a backtick run's first backtick), or undefined when the run is
+/// literal: no closing run of its length before its paragraph ends (`breaks`, `blockBreaks`).
+/// `unclosed` remembers run lengths with no closer after `at` at all, so a text is never searched
+/// twice for one.
+export function codeSpanAt(
+  text: string,
+  at: number,
+  unclosed: Set<number>,
+  breaks: readonly number[] = [],
+): CodeSpan | undefined {
+  let open = at;
+  while (text[open] === "`") open++;
+  const run = open - at;
+  if (unclosed.has(run)) return undefined;
+  for (let from = open; ;) {
+    const next = text.indexOf("`".repeat(run), from);
+    if (next < 0) {
+      unclosed.add(run);
+      return undefined;
+    }
+    if (breaksBetween(breaks, open, next)) return undefined;
+    let stop = next;
+    while (text[stop] === "`") stop++;
+    if (stop - next === run && text[next - 1] !== "`") return { start: at, end: stop, inner: [open, next], run };
+    from = stop;
+  }
+}
+
+/// The inline code spans of `text`, in order.
+export function codeSpans(text: string): CodeSpan[] {
+  const spans: CodeSpan[] = [];
+  if (!text.includes("`")) return spans;
+  const unclosed = new Set<number>();
+  const breaks = blockBreaks(text);
+  for (let at = 0; at < text.length;) {
+    if (text[at] !== "`") {
+      at++;
+      continue;
+    }
+    const span = codeSpanAt(text, at, unclosed, breaks);
+    if (span) {
+      spans.push(span);
+      at = span.end;
+    } else while (text[at] === "`") at++;
+  }
+  return spans;
+}
+
+/// A `/word` of a prompt in a command position: where it starts and ends in the text, the word
+/// without its `/`, and whether it sits in Markdown code.
+export type CommandWord = { start: number; end: number; word: string; code: boolean };
+
+/// A `/word` inside a stretch of code, for `commandWords`' `inCode`.
+const CODE_WORD = /(^|[\s\uFFFC`])\/([^\s\uFFFC`]+)(?=[\s\uFFFC`]|$)/g;
+
+/// Where the line starting at `at` ends (before its `\n`, `\r\n` or `\r`), and where the next starts.
+function lineAt(text: string, at: number): { end: number; next: number } {
+  let end = at;
+  while (end < text.length && text[end] !== "\n" && text[end] !== "\r") end++;
+  const next = text[end] === "\r" && text[end + 1] === "\n" ? end + 2 : end + 1;
+  return { end, next };
+}
+
+/// The `/word`s of `text` in a command position (the text's start, or after a space, a line break
+/// or an attachment, running to the next), in order. Code (`fenceOpening` to `closesFence` or the
+/// end, lines broken by `\n`, `\r\n` or `\r`; `codeSpanAt` spans) is never read; its words come only
+/// with `inCode` (`code` true).
+export function commandWords(text: string, inCode = false): CommandWord[] {
+  const words: CommandWord[] = [];
+  if (!text.includes("/")) return words;
+  const codeWords = (from: number, to: number) => {
+    if (!inCode || to <= from) return;
+    for (const found of text.slice(from, to).matchAll(CODE_WORD)) {
+      const start = from + found.index! + found[1]!.length;
+      words.push({ start, end: start + found[2]!.length + 1, word: found[2]!, code: true });
+    }
+  };
+  const unclosed = new Set<number>();
+  const breaks = text.includes("`") ? blockBreaks(text) : [];
+  const length = text.length;
+  let at = 0;
+  while (at < length) {
+    const char = text[at]!;
+    const lineStart = at === 0 || text[at - 1] === "\n" || text[at - 1] === "\r";
+    if (lineStart && (char === " " || char === "`" || char === "~")) {
+      const line = lineAt(text, at);
+      const fence = fenceOpening(text.slice(at, line.end));
+      if (fence) {
+        let body = line.next;
+        let close = body;
+        while (close < length) {
+          const next = lineAt(text, close);
+          if (closesFence(text.slice(close, next.end), fence.mark)) break;
+          close = next.next;
+        }
+        codeWords(Math.min(body, length), Math.min(close, length));
+        at = close < length ? lineAt(text, close).end : length;
+        continue;
+      }
+    }
+    if (char === "`") {
+      const span = codeSpanAt(text, at, unclosed, breaks);
+      if (span) {
+        codeWords(span.inner[0], span.inner[1]);
+        at = span.end;
+      } else while (text[at] === "`") at++;
+      continue;
+    }
+    if (char === "/" && (at === 0 || isSlashBoundary(text[at - 1]))) {
+      let end = at + 1;
+      while (end < length && !isSlashBoundary(text[end]) && text[end] !== "`") end++;
+      if (end > at + 1 && (end === length || isSlashBoundary(text[end])))
+        words.push({ start: at, end, word: text.slice(at + 1, end), code: false });
+      at = end;
+      continue;
+    }
+    at++;
+  }
+  return words;
+}
+
+/// `text` with each `/word` outside code (`commandWords`) that `visit` rewrites replaced, the rest
+/// as it is.
+function mapCommandWords(text: string, visit: (word: string, start: number) => string | undefined): string {
+  let out = "";
+  let copied = 0;
+  for (const { start, end, word } of commandWords(text)) {
+    const written = visit(word, start);
+    if (written === undefined) continue;
+    out += text.slice(copied, start) + written;
+    copied = end;
+  }
+  return copied ? out + text.slice(copied) : text;
+}
+
+/// Where `text`'s first word starts, as send reads the prompt: past spaces, line breaks and the
+/// attachments placed in it (U+FFFC, an id, U+FFFC), which send takes out.
+function promptStart(text: string): number {
+  let at = 0;
+  while (at < text.length) {
+    if (/\s/.test(text[at]!)) at++;
+    else if (text[at] === "\uFFFC" && text.indexOf("\uFFFC", at + 1) > at) at = text.indexOf("\uFFFC", at + 1) + 1;
+    else break;
+  }
+  return at;
+}
+
+/// The prompt as sent: each `/name` in a command position outside code that names a Codex skill
+/// without its `$` is written `/$name`, as codex-acp needs. Only the prompt's first word can be
+/// another command's: where a command also has the name without `$`, that word is the command's
+/// unless the person picked the skill in this draft (`picked`, by shown name). Further on, only a
+/// skill is read, so it always gets its `$`. Every other character stays.
+export function withSkillDollars(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+  picked?: ReadonlySet<string>,
+): string {
+  const catalog = catalogOf(commands);
+  if (!catalog.dollar.size) return text;
+  const start = text.includes("/") ? promptStart(text) : 0;
+  return mapCommandWords(text, (name, at) =>
+    catalog.dollar.has(name) && (at !== start || !catalog.plain.has(name) || picked?.has(name))
+      ? `/$${name}`
+      : undefined,
   );
 }
 
-/// A `/$name` token (a Codex skill as sent) in a command position, or a code span or code block,
-/// which is kept as it is. A skill-like name is lowercase letters, digits and `-_.:`, so `$HOME`
-/// and `$5` never match.
-const SENT_SKILL =
-  /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)|(^|[\s\uFFFC])\/\$([a-z0-9][a-z0-9_.:-]*)(?=[\s\uFFFC]|$)/g;
-
-/// A sent prompt as the person reads it: each `/$name` a Codex skill went as reads `/name`, as it
-/// was typed (`withSkillDollars` wrote the `$`). For display, copy and putting the prompt back in a
-/// field only; the stored and sent text keep the `$`. One pass; code spans and blocks are kept.
-export function withoutSkillDollars(text: string): string {
+/// A sent prompt as the person reads it: each `/$name` outside code that names a Codex skill of the
+/// list reads `/name`, as it was typed (`withSkillDollars` wrote the `$`). For display, copy and
+/// putting the prompt back in a field only; the stored and sent text keep the `$`.
+export function withoutSkillDollars(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+): string {
   if (!text.includes("/$")) return text;
-  return text.replace(SENT_SKILL, (whole, code: string | undefined, lead: string, name: string) =>
-    code !== undefined ? whole : `${lead}/${name}`,
+  const catalog = catalogOf(commands);
+  if (!catalog.dollar.size) return text;
+  return mapCommandWords(text, (word) =>
+    word.startsWith("$") && catalog.dollar.has(word.slice(1)) ? `/${word.slice(1)}` : undefined,
   );
 }
 
-/// The `$` skills a sent prompt names (`/$name`), as commands `withSkillDollars` writes back: a prompt
-/// put in an editor without its `$` (`withoutSkillDollars`) goes out with it again.
-export function skillDollarsOf(text: string): SlashCommand[] {
-  if (!text.includes("/$")) return [];
-  const names = new Set<string>();
-  for (const found of text.matchAll(SENT_SKILL)) if (found[1] === undefined && found[3]) names.add(found[3]);
-  return [...names].map((name) => ({ name: `$${name}`, description: "", source: "skill" }));
+/// The Codex skills a sent prompt names as `/$name` (outside code, in the list), by shown name: put
+/// back in an editor without its `$`, the prompt goes out with them again even where a command
+/// shares the name (`withSkillDollars` `picked`).
+export function pickedSkillsOf(
+  text: string,
+  commands: readonly SlashCommand[] | SkillCatalog | undefined,
+): Set<string> {
+  const picked = new Set<string>();
+  if (!text.includes("/$")) return picked;
+  const catalog = catalogOf(commands);
+  mapCommandWords(text, (word) => {
+    if (word.startsWith("$") && catalog.dollar.has(word.slice(1))) picked.add(word.slice(1));
+    return undefined;
+  });
+  return picked;
 }
 
 /// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
@@ -157,23 +385,55 @@ export const goesAsText = (command: SlashCommand) => command.source === "skill" 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
 /// mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
-  return matchCommands(trigger.leading ? [...commands] : commands.filter(goesAsText), trigger.query);
+  return trigger.leading
+    ? matchCommands([...commands], trigger.query)
+    : matchCommands(commands.filter(goesAsText), trigger.query, false);
+}
+
+/// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
+/// `/`): when the row was chosen with the arrows (`arrowed`), or when the typed word begins the row's
+/// name, unless it is that name in full and the command takes no arguments (Return then sends it).
+/// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
+/// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
+export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+  if (!match) return false;
+  const name = shownName(match.command);
+  const typed = query.replace(/^\$/, "");
+  if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
+  return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
-export type SlashNames = { leading: ReadonlySet<string>; anywhere: ReadonlySet<string> };
+/// `descriptions`: each skill's and prompt's description by name, which its word shows on hover.
+export type SlashNames = {
+  leading: ReadonlySet<string>;
+  anywhere: ReadonlySet<string>;
+  descriptions?: ReadonlyMap<string, string>;
+};
 
 export function slashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
   const list = commands ?? [];
   // A `$` skill by the name the prompt shows (`/emil-color`) and by its own (`/$emil-color`).
   const names = (each: readonly SlashCommand[]) => each.flatMap((command) => [command.name, shownName(command)]);
-  return { leading: new Set(names(list)), anywhere: new Set(names(list.filter(goesAsText))) };
+  const descriptions = new Map<string, string>();
+  for (const command of list.filter(goesAsText)) {
+    const description = command.description.trim();
+    if (!description) continue;
+    descriptions.set(command.name, description);
+    descriptions.set(shownName(command), description);
+  }
+  return { leading: new Set(names(list)), anywhere: new Set(names(list.filter(goesAsText))), descriptions };
 }
 
 /// `slashNames` kept while the list's names and kinds are the same: a chat's snapshot rebuilds its
 /// list on every update, and the prompt recolours only when the names change.
 export function useSlashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
-  const key = (commands ?? []).map((command) => `${goesAsText(command) ? "a" : "c"}${command.name}`).join("\n");
+  const key = (commands ?? [])
+    .map(
+      (command) =>
+        `${goesAsText(command) ? "a" : "c"}${command.name}\u0000${goesAsText(command) ? command.description : ""}`,
+    )
+    .join("\n");
   const kept = useRef<{ key: string; names: SlashNames }>(undefined);
   if (kept.current?.key !== key) kept.current = { key, names: slashNames(commands) };
   return kept.current.names;
@@ -220,17 +480,20 @@ export function slashTokens(
 /// inside the name, then any in-order subsequence; ties keep the agent's order. Names are read as
 /// the menu shows them (`shownName`, a Codex skill without its `$`), and the ranges index that name;
 /// a `$` typed first is skipped too.
-export function matchCommands(commands: SlashCommand[], query: string): SlashMatch[] {
+/// The name typed in full ranks first (`/emil` lists `emil` above `emil-color`). `scattered` false
+/// leaves out the in-order subsequences: mid-prompt, `/dev` or `/s` is far more often a path or a
+/// word than a command spelled in scattered letters.
+export function matchCommands(commands: SlashCommand[], query: string, scattered = true): SlashMatch[] {
   const needle = query.replace(/^\$/, "").toLowerCase();
   const scored: { match: SlashMatch; score: number; index: number }[] = [];
   commands.forEach((command, index) => {
     const name = shownName(command).toLowerCase();
     if (!needle) return scored.push({ match: { command, ranges: [] }, score: 0, index });
     if (name.startsWith(needle))
-      return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: 0, index });
+      return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: name === needle ? -1 : 0, index });
     const word = wordStart(name, needle);
     if (word >= 0) return scored.push({ match: { command, ranges: [[word, word + needle.length]] }, score: 1, index });
-    const ranges = subsequence(name, needle);
+    const ranges = scattered ? subsequence(name, needle) : undefined;
     if (ranges) scored.push({ match: { command, ranges }, score: 2, index });
   });
   return scored.sort((a, b) => a.score - b.score || a.index - b.index).map((entry) => entry.match);

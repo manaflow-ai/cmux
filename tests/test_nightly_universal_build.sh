@@ -266,7 +266,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' \&\& 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' \&\& 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -1402,7 +1402,8 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
+  "needs.legacy-signer-dmg.outputs.signed_ok != 'true'" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
@@ -1487,10 +1488,10 @@ if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || grep -Ev '^[[:space:]]*
   exit 1
 fi
 for expected in \
-  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner]" \
-  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
+  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
-  "group: nightly-next-legacy-identity-publish" \
+  "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
   "needs.publish-nightly.outputs.refused != 'true'" \
   "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \

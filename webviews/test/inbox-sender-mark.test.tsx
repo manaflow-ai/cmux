@@ -166,3 +166,21 @@ test("two sessions with one name are two senders: the group head draws the messa
   });
   expect(marks(".cv-inbox__head > .cv-tool__icon")).toEqual(["neutral"]);
 });
+
+// Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But even if they're
+// from another machine, what's going on here?" A sender on another machine names it on the line;
+// this Mac's chats name none.
+test("a sender on another machine names that machine after its name; this Mac's names none", async () => {
+  sessions.push(entry({ sessionId: "s-far", name: "review-lane", harness: "codex", host: "studio-mac" }));
+  const machine = () => host.querySelector(".cv-received__sender .cv-received__host")?.textContent ?? null;
+  try {
+    await render({ threads: [thread("review-lane", { fromSession: "s-far" })] });
+    expect(machine()).toBe("studio-mac");
+    act(() => root?.unmount());
+    root = undefined;
+    await render({ threads: [thread("grid-lane", { fromSession: "s-claude" })] });
+    expect(machine()).toBeNull();
+  } finally {
+    sessions.pop();
+  }
+});
