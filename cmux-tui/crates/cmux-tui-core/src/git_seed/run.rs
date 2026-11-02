@@ -336,6 +336,35 @@ impl Seed {
         Ok(())
     }
 
+    /// The last accepted seed excludes ignored files. A new full seed may
+    /// add a tracked path where an ignored file already exists; forced
+    /// checkout/read-tree would silently replace that file. Compare only
+    /// added paths in the incoming HEAD and WORK trees so ordinary ignored
+    /// build caches are retained without scanning their contents.
+    fn check_new_paths_before_reseed(&self) -> Result<(), Failed> {
+        let changed = |why: &str| failed("seed.machine_changed", why);
+        for (previous, incoming) in [
+            ("refs/cmux-seed/head", self.params.head.as_str()),
+            ("refs/cmux-seed/work", self.params.work.as_str()),
+        ] {
+            let added = self.git(&[
+                "diff-tree", "-r", "-z", "--no-renames", "--name-only",
+                "--diff-filter=A", previous, incoming,
+            ])
+            .map_err(|failure| changed(&failure.message()))?;
+            for raw in added.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+                let path = std::str::from_utf8(raw)
+                    .map_err(|_| changed("the new seed adds a non-UTF8 path; retry in a new folder"))?;
+                if std::fs::symlink_metadata(self.folder.join(path)).is_ok() {
+                    return Err(changed(
+                        "the new seed would overwrite an existing untracked or ignored Cloud file",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A delta seed builds on this folder's last seed or last export
     /// ([`super::export`], which the Mac merged back): same remote, its WORK
     /// is `since`, and nothing changed on the machine since (HEAD, the index
@@ -506,6 +535,9 @@ impl Seed {
         self.recheck()?;
         if self.reseeding_existing {
             self.check_existing_seed()?;
+            // Existing ignored files remain untouched unless the incoming Git
+            // trees claim their paths. Catch those collisions before --force.
+            self.check_new_paths_before_reseed()?;
         }
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
