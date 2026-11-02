@@ -89,6 +89,13 @@ await requireBrowserLane("background-tasks-workflow-side-tab.test.ts", async () 
       const onTop = await page.locator(".acpmux-bg").evaluate((panel) => {
         const box = panel.getBoundingClientRect();
         const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        const chain: string[] = [];
+        for (let el: Element | null = hit; el && chain.length < 8; el = el.parentElement)
+          chain.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 80)} z=${getComputedStyle(el).zIndex} pos=${getComputedStyle(el).position}`);
+        const r = (e: Element | null) => (e ? JSON.stringify(e.getBoundingClientRect()) : "none");
+        console.log("PROBE panel", r(panel), "pos", getComputedStyle(panel).position, "z", getComputedStyle(panel).zIndex);
+        console.log("PROBE hit chain\n  " + chain.join("\n  "));
+        console.log("PROBE shell children", [...(panel.parentElement?.children ?? [])].map((c) => `${String(c.className).slice(0, 60)} ${r(c)} z=${getComputedStyle(c).zIndex}`).join("\n  "));
         return Boolean(hit && panel.contains(hit));
       });
       expect(onTop).toBe(true);
