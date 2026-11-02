@@ -4,7 +4,6 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import type { ViteDevServer } from "vite";
-import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -67,15 +66,18 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".cv-footnotes").waitFor({ state: "attached" });
           // The play opened a tool output: outside a transcript its fold keeps the clicked line in place
-          // by moving the scroller until the fold and FOLD_SETTLE_MS are over (useAnchoredCollapse.ts
-          // keepHeader), which would put back a scroll made sooner. The stage can be ready before that
-          // when nothing else is still drawing (the edit's placeholder holds its height, #27650).
-          await page.waitForFunction(() =>
-            [...document.querySelectorAll(".cv-fold")].every((fold) => fold.getAnimations().length === 0),
+          // by moving the scroller until the fold and its settle are over (useAnchoredCollapse.ts
+          // keepHeader), which puts back a scroll made sooner. The stage can be ready inside that
+          // window (the edit's placeholder holds its height, #27650), so the diagram is scrolled to
+          // again on each frame until it is on screen and has drawn.
+          await page.waitForFunction(
+            () => {
+              document.querySelector(".cv-diagram")?.scrollIntoView({ block: "nearest" });
+              return Boolean(document.querySelector(".cv-diagram__error"));
+            },
+            null,
+            { polling: "raf" },
           );
-          await page.waitForTimeout(FOLD_SETTLE_MS + 50);
-          await page.locator(".cv-diagram").scrollIntoViewIfNeeded();
-          await page.locator(".cv-diagram__error").waitFor();
           const diffLine = page.locator(".cv-edit-diff__body [data-line]").first();
           await diffLine.waitFor({ state: "attached" });
           const defaultDiff = await diffLine.evaluate((node) => ({
