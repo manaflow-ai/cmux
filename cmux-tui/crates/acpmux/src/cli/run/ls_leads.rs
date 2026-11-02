@@ -26,9 +26,11 @@ fn reports_to(row: &Value) -> Option<(&str, &str)> {
     (!to.is_empty() && to != id).then_some((peer, to))
 }
 
+/// Live and on the lists: not archived, and not a side chat or an aside's throwaway copy (as
+/// the app's `sessionEntry` reads `side`).
 fn listed(row: &Value) -> bool {
     let tagged = |tag: &str| row.get("tags").and_then(|t| t.get(tag)).is_some();
-    is_live(row) && !tagged("archived")
+    is_live(row) && !["archived", "side", "aside"].iter().any(|tag| tagged(tag))
 }
 
 fn name(row: &Value) -> &str {
@@ -131,7 +133,7 @@ mod tests {
         leaders(rows)
             .iter()
             .map(|l| {
-                let reports = l["reports"].as_array().unwrap();
+                let reports = l.get("reports").and_then(Value::as_array).unwrap();
                 (
                     name(l).to_owned(),
                     reports.iter().map(|r| r.as_str().unwrap().to_owned()).collect(),
@@ -164,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_lanes_and_closed_or_archived_leaders_do_not_count() {
+    fn closed_archived_and_side_chats_do_not_count() {
         let rows = [
             row("gone", json!({"status": "closed"})),
             row("x", json!({"tags": {TAG: "gone"}})),
@@ -173,6 +175,9 @@ mod tests {
             row("shelved", json!({"tags": {"archived": "1"}})),
             row("y", json!({"tags": {TAG: "shelved"}})),
             row("self", json!({"tags": {TAG: "self"}})),
+            row("btw", json!({"tags": {"side": "owner"}})),
+            row("z", json!({"tags": {TAG: "btw"}})),
+            row("copy", json!({"tags": {TAG: "owner", "aside": "owner"}})),
         ];
         assert!(names(&rows).is_empty());
         assert!(render(&[]).starts_with("no leaders"));
