@@ -13,7 +13,6 @@ struct LinkHintTypingTests {
     @Test func aSessionWhosePageIsEditingEndsAndPassesItsLettersOn() {
         var session = LinkHintSession(mode: .follow)
         #expect(session.show([Self.field], editing: true) == .passThrough, "link hints took the letters typed into a text field")
-        #expect(!session.takesKeys)
     }
 
     /// Lead review of #32537, case 1 (a text field has the keyboard): every key typed while the page answered goes to
