@@ -17,6 +17,10 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 /// host socket (`HostConsentServer`), whose peer is checked per connection
 /// by audit token; a `machine_consent` line here is ignored.
 ///
+/// The Computer Use mode is not a control line: it comes from the
+/// environment the host started the helper with (`ComputerUseConfiguration`),
+/// and a `configure` field never changes it.
+///
 /// host -> helper:
 ///   {"type":"configure","socket":PATH,"host_socket":PATH,"host_secret":HEX,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
@@ -28,31 +32,45 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 public final class HelperController: Sendable {
     private let input: Int32
     private let output: Int32
-    private let tools: any ToolInvoking
+    private let sessions: any AgentSessionProviding
     private let inspector: any PeerInspecting
     private let onExit: @Sendable (Int32) -> Void
     private let requestPermission: @Sendable (HelperPermission) async -> Bool
     /// Machine consent, asked of the host over the host socket; nil means no
     /// host answers and every call that needs consent is refused.
     private let consent: HostConsentChannel?
+    /// App approvals, asked of the host over the same host socket; nil
+    /// when the mode never asks.
+    private let approvals: AppApprovalBroker?
     private let hostCheck: any HostCodeChecking
     public let admission = AdmissionState()
     private let servers = OSAllocatedUnfairLock<(HelperSocketServer, HostConsentServer?)?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
 
-    public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
+    public convenience init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
+                            inspector: any PeerInspecting = KernelPeerInspector(),
+                            requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
+                            consent: HostConsentChannel? = nil,
+                            hostCheck: any HostCodeChecking = CmuxAppCodeCheck(),
+                            onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
+        self.init(input: input, output: output, sessions: SharedToolSessions(tools: tools), inspector: inspector,
+                  requestPermission: requestPermission, consent: consent, hostCheck: hostCheck, onExit: onExit)
+    }
+
+    public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, sessions: any AgentSessionProviding,
                 inspector: any PeerInspecting = KernelPeerInspector(),
                 requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
-                consent: HostConsentChannel? = nil,
+                consent: HostConsentChannel? = nil, approvals: AppApprovalBroker? = nil,
                 hostCheck: any HostCodeChecking = CmuxAppCodeCheck(),
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
         self.input = input
         self.output = output
-        self.tools = tools
+        self.sessions = sessions
         self.inspector = inspector
         self.onExit = onExit
         self.requestPermission = requestPermission
         self.consent = consent
+        self.approvals = approvals
         self.hostCheck = hostCheck
     }
 
@@ -130,13 +148,14 @@ public final class HelperController: Sendable {
         admission.configure(AdmissionConfig(helperUID: geteuid(), acpmuxCDHashes: hashes,
                                             acpmuxRequirement: message["acpmux_requirement"] as? String,
                                             acpmuxDaemons: [], secret: secret))
-        let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector, tools: tools,
-                                              consent: consent ?? UnavailableConsent())
+        let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector,
+                                              sessions: sessions, consent: consent ?? UnavailableConsent())
         // No host server without both: every consent check then refuses with host_unverified.
         let hostPath = (message["host_socket"] as? String).flatMap { $0.hasPrefix("/") && $0 != path ? $0 : nil }
         let hostSecret = (message["host_secret"] as? String).flatMap(HelperWire.unhex).flatMap { $0.count >= 16 ? $0 : nil }
         let hostServer: HostConsentServer? = if let hostPath, let hostSecret, let consent {
-            HostConsentServer(path: hostPath, secret: hostSecret, channel: consent, check: hostCheck)
+            HostConsentServer(path: hostPath, secret: hostSecret, channel: consent, approvals: approvals,
+                              check: hostCheck)
         } else {
             nil
         }

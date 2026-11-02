@@ -7,7 +7,26 @@ struct CuaTargetGuard: Sendable {
     let policy: CuaTargetPolicy
     let resolver: any CuaTargetResolving
 
+    /// A checked call: the arguments to send and every app it targets, as
+    /// resolved here (pid, window or bundle id; never the agent's words).
+    struct Checked: Sendable {
+        let arguments: Data
+        /// Distinct by bundle id, in the order the call names them.
+        let targets: [CuaTargetIdentity]
+    }
+
     func check(name: String, arguments: Data) async throws -> Data {
+        try await resolve(name: name, arguments: arguments).arguments
+    }
+
+    /// Checks the call like `check`, and returns the apps it resolved.
+    func resolve(name: String, arguments: Data) async throws -> Checked {
+        let log = TargetLog()
+        let checked = try await check(name: name, arguments: arguments, log: log)
+        return Checked(arguments: checked, targets: log.apps)
+    }
+
+    private func check(name: String, arguments: Data, log: TargetLog) async throws -> Data {
         guard var object = try JSONSerialization.jsonObject(with: arguments) as? [String: Any] else {
             throw ToolError("Computer use arguments must be a JSON object.")
         }
@@ -19,15 +38,15 @@ struct CuaTargetGuard: Sendable {
         // `window` names loosely (substring), which this guard cannot repeat
         // exactly, so a batch must name its windows by pid and window_id.
         if Self.batchTools.contains(name) {
-            try await checkBatch(object)
+            try await checkBatch(object, log: log)
             return arguments
         }
-        try await checkTargets(in: object, name: name)
+        try await checkTargets(in: object, name: name, log: log)
         for key in name == "launch_app" ? ["name", "app_name"] : ["app_name"] {
             if let value = object[key], !(value is NSNull) {
                 guard let reference = value as? String, !reference.isEmpty else { throw unresolved(key) }
                 let app = await resolver.app(named: reference)
-                try check(app, reference: reference)
+                try check(app, reference: reference, log: log)
                 if name == "launch_app", !(object["bundle_id"] is String), let app {
                     // LaunchServices must open the bundle we checked, rather than
                     // resolving the display name a second time inside the driver.
@@ -52,7 +71,7 @@ struct CuaTargetGuard: Sendable {
 
     /// Checks the pid, window, bundle id and element token targets of one
     /// argument object. `name` is the tool, or nil for an object nested in a batch.
-    private func checkTargets(in object: [String: Any], name: String?) async throws {
+    private func checkTargets(in object: [String: Any], name: String?, log: TargetLog) async throws {
         let object = try targetFields(in: object, name: name)
         let hasPID = object["pid"].map { !($0 is NSNull) } ?? false
         let hasWindowID = object["window_id"].map { !($0 is NSNull) } ?? false
@@ -60,19 +79,19 @@ struct CuaTargetGuard: Sendable {
             guard let pid = integer(value), pid > 0, let nativePID = Int32(exactly: pid) else {
                 throw unresolved("pid")
             }
-            try check(await resolver.app(forPID: nativePID), reference: "pid \(pid)")
+            try check(await resolver.app(forPID: nativePID), reference: "pid \(pid)", log: log)
         }
         if let value = object["window_id"], !(value is NSNull) {
             guard let id = integer(value), id > 0, let nativeID = UInt32(exactly: id) else {
                 throw unresolved("window_id")
             }
-            try check(await resolver.app(forWindowID: nativeID), reference: "window \(id)")
+            try check(await resolver.app(forWindowID: nativeID), reference: "window \(id)", log: log)
         }
         for key in ["bundle_id", "app_bundle_id"] {
             if let value = object[key], !(value is NSNull) {
                 guard let bundle = value as? String, !bundle.isEmpty else { throw unresolved(key) }
-                try check(CuaTargetIdentity(bundleID: bundle, name: bundle), reference: bundle)
-                try check(await resolver.app(forBundleID: bundle), reference: bundle)
+                try check(CuaTargetIdentity(bundleID: bundle, name: bundle), reference: bundle, log: nil)
+                try check(await resolver.app(forBundleID: bundle), reference: bundle, log: log)
             }
         }
         // A desktop input has an implicit, changing target. Require an explicit
@@ -148,7 +167,7 @@ struct CuaTargetGuard: Sendable {
         return .module
     }
 
-    private func checkBatch(_ object: [String: Any]) async throws {
+    private func checkBatch(_ object: [String: Any], log: TargetLog) async throws {
         let defaults = object.filter { ["pid", "window_id"].contains($0.key) }
         func walk(_ value: Any, depth: Int) async throws {
             guard depth < 16 else { throw ToolError("Computer use batch arguments are nested too deeply.") }
@@ -170,13 +189,13 @@ struct CuaTargetGuard: Sendable {
                 }) {
                     fields.merge(defaults) { _, inherited in inherited }
                 }
-                try await checkTargets(in: fields, name: nil)
+                try await checkTargets(in: fields, name: nil, log: log)
                 for (key, nested) in object where key != "app_name" {
                     try await walk(nested, depth: depth + 1)
                 }
                 if let reference = object["app_name"], !(reference is NSNull) {
                     guard let reference = reference as? String, !reference.isEmpty else { throw unresolved("app_name") }
-                    try check(await resolver.app(named: reference), reference: reference)
+                    try check(await resolver.app(named: reference), reference: reference, log: log)
                 }
             } else if let array = value as? [Any] {
                 for nested in array { try await walk(nested, depth: depth + 1) }
@@ -185,10 +204,23 @@ struct CuaTargetGuard: Sendable {
         try await walk(object, depth: 0)
     }
 
-    private func check(_ app: CuaTargetIdentity?, reference: String) throws {
+    /// Refuses an unresolved or never-allowed app; records an allowed one in `log`.
+    private func check(_ app: CuaTargetIdentity?, reference: String, log: TargetLog?) throws {
         guard let app else { throw unresolved(reference) }
         guard policy.allows(bundleID: app.bundleID, appName: app.name) else {
             throw ToolError("Computer use is not allowed to use \(app.name) for safety reasons.")
+        }
+        log?.record(app)
+    }
+
+    /// The apps one check resolved. Each check runs its awaits in sequence,
+    /// so the log is never written concurrently.
+    final class TargetLog {
+        private(set) var apps: [CuaTargetIdentity] = []
+
+        func record(_ app: CuaTargetIdentity) {
+            guard !apps.contains(where: { $0.bundleID.lowercased() == app.bundleID.lowercased() }) else { return }
+            apps.append(app)
         }
     }
 

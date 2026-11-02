@@ -16,21 +16,16 @@ public struct ComputerUseWorker: Sendable {
     public func run(bundleIdentifier: String) -> Never {
         // Before any thread starts and before the driver loads.
         HelperEnvironment(helperBundleID: bundleIdentifier).apply()
-        let consent = HostConsentChannel()
-        let tools: any ToolInvoking
-        let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"
-        do {
-            tools = try CuaDriverRuntime(
-                libraryPath: libraryPath,
-                allowedTargetBundleIDs: ProcessInfo.processInfo.environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] ?? "",
-                hostBundleID: bundleIdentifier,
-                gate: ConsentGate(authority: consent)
-            )
-        } catch {
-            FileHandle.standardError.write(Data("cmux-remote computer-use: \(error)\n".utf8))
-            tools = UnavailableTools(reason: String(describing: error))
-        }
-        let controller = HelperController(tools: tools, consent: consent)
+        // The mode comes from the environment the host set (docs/computer-use-approvals.md, "Modes").
+        let environment = ProcessInfo.processInfo.environment
+        let stack = ComputerUseStack(
+            libraryPath: (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib",
+            environment: environment,
+            allowedTargetBundleIDs: environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] ?? "",
+            hostBundleID: bundleIdentifier,
+            log: { FileHandle.standardError.write(Data("cmux-remote computer-use: \($0)\n".utf8)) }
+        )
+        let controller = stack.controller()
         controller.start()
         CFRunLoopRun()
         exit(0)

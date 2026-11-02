@@ -19,21 +19,25 @@ private let hostLogger = Logger(subsystem: "com.cmuxterm.cua", category: "host")
 ///   helper -> app: {"type":"machine_consent","id":N}
 ///   app -> helper: {"type":"machine_consent","id":N,"ok":BOOL,"result":{...}}
 ///   helper -> app: {"type":"consent_refused","surface":S,"tool":T}
-/// Nothing on the control pipe (stdin) can answer a consent question.
+/// and the app approval lines of `AppApprovalBroker` (`app_approval`,
+/// `app_approval_cancel`, `approved_apps`, `revoke`).
+/// Nothing on the control pipe (stdin) can answer a consent or approval question.
 public final class HostConsentServer: Sendable {
     public let path: String
     private let channel: HostConsentChannel
+    private let approvals: AppApprovalBroker?
     private let check: any HostCodeChecking
     /// From `configure`; the server exists only after it, so no connection
     /// is ever served without a secret to compare.
     private let secret: Data
     private let listener = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
-    public init(path: String, secret: Data, channel: HostConsentChannel,
+    public init(path: String, secret: Data, channel: HostConsentChannel, approvals: AppApprovalBroker? = nil,
                 check: any HostCodeChecking = CmuxAppCodeCheck()) {
         self.path = path
         self.secret = secret
         self.channel = channel
+        self.approvals = approvals
         self.check = check
     }
 
@@ -76,10 +80,12 @@ public final class HostConsentServer: Sendable {
             return refuse("the peer did not present this launch's host secret")
         }
         let link = channel.attach { line in connection.write(line) }
+        let approvalLink = approvals?.attach { line in connection.write(line) }
         connection.write(HelperWire.line(["ok": true]))
         reading: while true {
             for line in lines {
                 guard let message = HelperWire.object(line) else { break reading }
+                if let approvalLink, approvals?.receive(message, link: approvalLink) == true { continue }
                 guard message["type"] as? String == "machine_consent", let id = message["id"] as? Int else { continue }
                 let result = message["ok"] as? Bool == true ? message["result"].map { HelperWire.json($0) } : nil
                 channel.receive(id: id, result: result, link: link)
@@ -91,6 +97,7 @@ public final class HostConsentServer: Sendable {
             lines = more
         }
         channel.detach(link)
+        if let approvalLink { approvals?.detach(approvalLink) }
         connection.close()
     }
 

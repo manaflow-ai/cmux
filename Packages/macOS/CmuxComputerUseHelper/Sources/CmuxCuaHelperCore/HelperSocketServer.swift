@@ -13,11 +13,18 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// byte; a refused peer gets one
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
 /// An admitted peer sends `{"secret":"<hex>"}` first and gets
-/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1"]}`, then requests:
+/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1","app-approvals-v1"]}`, then requests:
+///   {"id":0,"method":"session/hello","params":{"agent":S,"workspace":S,"client":S}}
 ///   {"id":N,"method":"tools/list"}
 ///   {"id":N,"method":"machine/consent"}
 ///   {"id":N,"method":"tools/call","name":"click","arguments":{...}}
 /// and gets `{"id":N,"ok":true,"result":...}` or `{"id":N,"ok":false,"error":"..."}`.
+/// Each admitted connection is one agent session (`AgentSessionProviding`):
+/// opened at admission (a failure refuses the peer with
+/// `session_unavailable`) and closed with the connection. `session/hello`
+/// sets the session's display labels only. No request field selects a
+/// session or a mode. A call refused for an app approval carries
+/// `"code":"approval_timeout"|"approval_denied"|"approval_unavailable"`.
 /// `machine/consent` answers `{consentRequired, consent: {screen, control}}`
 /// from `consent`, fresh on every request; the request's other fields are
 /// ignored. A call refused for consent also carries
@@ -28,18 +35,27 @@ public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
     private let inspector: any PeerInspecting
-    private let tools: any ToolInvoking
+    private let sessions: any AgentSessionProviding
     private let consent: any MachineConsentAuthority
     private let listener = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
-    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking,
-                consent: any MachineConsentAuthority = UnavailableConsent()) {
+    public convenience init(path: String, admission: AdmissionState, inspector: any PeerInspecting,
+                            tools: any ToolInvoking, consent: any MachineConsentAuthority = UnavailableConsent()) {
+        self.init(path: path, admission: admission, inspector: inspector, sessions: SharedToolSessions(tools: tools),
+                  consent: consent)
+    }
+
+    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting,
+                sessions: any AgentSessionProviding, consent: any MachineConsentAuthority = UnavailableConsent()) {
         self.path = path
         self.admission = admission
         self.inspector = inspector
-        self.tools = tools
+        self.sessions = sessions
         self.consent = consent
     }
+
+    /// Advertised in the admission reply: calls pass per-session app approvals.
+    public static let approvalsCapability = "app-approvals-v1"
 
     public enum StartError: Error, Equatable {
         case directoryNotPrivate(String)
@@ -146,32 +162,39 @@ public final class HelperSocketServer: Sendable {
         }
         guard let config else { return connection.refuse(.notConfigured) }
         var buffer = HelperWire.LineBuffer()
-        var admitted = false
+        var session: (any AgentSessionServing)?
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             let count = read(client, &bytes, bytes.count)
             if count <= 0 { break }
             guard let lines = buffer.append(Data(bytes[0..<count])) else { break }
             for line in lines {
-                if !admitted {
+                guard let session else {
                     let secret = (HelperWire.object(line)?["secret"] as? String).flatMap(HelperWire.unhex)
                     if let refusal = AdmissionPolicy.checkSecret(secret, config: config) {
                         socketLogger.notice("refused peer pid=\(facts?.stamp.pid ?? -1, privacy: .public) reason=\(refusal.rawValue, privacy: .public)")
                         return connection.refuse(refusal)
                     }
-                    admitted = true
+                    do {
+                        session = try sessions.openSession()
+                    } catch {
+                        socketLogger.error("no session for an admitted peer: \(String(describing: error), privacy: .public)")
+                        connection.write(HelperWire.line(["ok": false, "error": "refused", "reason": "session_unavailable"]))
+                        return connection.close()
+                    }
                     connection.write(Self.admittedReply)
                     continue
                 }
-                handle(line, connection: connection)
+                handle(line, connection: connection, session: session)
             }
         }
+        session?.close()
         connection.close()
     }
 
     /// The reply to a peer that presented the secret.
     static let admittedReply = HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion,
-                                                "capabilities": [ConsentGate.capability]])
+                                                "capabilities": [ConsentGate.capability, approvalsCapability]])
 
     /// The connected peer's effective uid, from the kernel.
     static func peerUID(_ descriptor: Int32) -> uid_t? {
@@ -180,7 +203,7 @@ public final class HelperSocketServer: Sendable {
         return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
-    private func handle(_ line: Data, connection: Connection) {
+    private func handle(_ line: Data, connection: Connection, session: any AgentSessionServing) {
         guard let request = HelperWire.object(line) else {
             return connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
         }
@@ -188,17 +211,23 @@ public final class HelperSocketServer: Sendable {
         let method = request["method"] as? String ?? ""
         let name = request["name"] as? String
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
-        let tools = self.tools
+        let sessions = self.sessions
         let consent = self.consent
+        let params = request["params"] as? [String: Any] ?? [:]
+        if method == "session/hello" {
+            // Labels only, applied in order before any later call on this connection.
+            session.hello(SessionLabels(hello: params))
+            return connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": Data("{}".utf8)]))
+        }
         Task.detached {
             do {
                 let result: Data
                 switch method {
-                case "tools/list": result = try await tools.listTools()
+                case "tools/list": result = try await sessions.listTools()
                 case "machine/consent": result = await consent.current().wire
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
-                    result = try await tools.invoke(name: name, arguments: arguments)
+                    result = try await session.invoke(name: name, arguments: arguments)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
@@ -207,6 +236,9 @@ public final class HelperSocketServer: Sendable {
                                              "code": ConsentRefusal.code, "surface": refusal.surface.rawValue]
                 if let reason = refusal.reason { fields["reason"] = reason.rawValue }
                 connection.write(HelperWire.line(fields, raw: ["id": id]))
+            } catch let refusal as AppApprovalRefusal {
+                connection.write(HelperWire.line(["ok": false, "error": refusal.description,
+                                                  "code": refusal.code.rawValue], raw: ["id": id]))
             } catch {
                 connection.write(HelperWire.line(["ok": false, "error": String(describing: error)],
                                                  raw: ["id": id]))
