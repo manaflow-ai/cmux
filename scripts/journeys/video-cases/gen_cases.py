@@ -267,8 +267,9 @@ case("window-resize-12", "Live-resize the window with 12 panes: the corner 300 x
       kit_drag({"window_edge": "bottom-right"}, [300, 150], 600, "out", "window corner out")])
 # 11. 1 pane against 12 panes: the same split in a 1-pane and in a 12-pane layout.
 case("split-1pane", "Cmd-D in a single pane", lambda h: [], [kit_key("d", ["cmd"], "split", "Cmd-D")], variants=ALL)
-case("split-12pane", "Cmd-D in one of 12 panes (3 columns x 4 rows)", lambda h: columns(3, h, rows=4),
-     [{"do": "use_pane", "pane": "p5", "click": True}, kit_key("d", ["cmd"], "split", "Cmd-D")], variants=ALL)
+# A 384 pt pane has no room for a split right (2 x 192 < layout.minimumPaneWidth 200, run 9): split down instead.
+case("split-12pane", "Shift-Cmd-D in one of 12 panes (3 columns x 4 rows)", lambda h: columns(3, h, rows=4),
+     [{"do": "use_pane", "pane": "p5", "click": True}, kit_key("d", ["cmd", "shift"], "split", "Shift-Cmd-D")], variants=ALL)
 
 
 def main():

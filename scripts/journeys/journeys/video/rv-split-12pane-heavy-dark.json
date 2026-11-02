@@ -1,7 +1,7 @@
 {
  "id": "rv-split-12pane-heavy-dark",
  "priority": "P1",
- "title": "Cmd-D in one of 12 panes (3 columns x 4 rows) (heavy load, dark)",
+ "title": "Shift-Cmd-D in one of 12 panes (3 columns x 4 rows) (heavy load, dark)",
  "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
  "source": "RESIZE VIDEOS suite (handoff/resize-videos/FINDINGS.md)",
  "budget_seconds": 240,
@@ -487,10 +487,11 @@
    "do": "hid_key",
    "key": "d",
    "modifiers": [
-    "cmd"
+    "cmd",
+    "shift"
    ],
    "mark": "split",
-   "title": "Cmd-D"
+   "title": "Shift-Cmd-D"
   },
   {
    "do": "video_stop",
