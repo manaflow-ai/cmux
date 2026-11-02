@@ -339,7 +339,9 @@ public struct SidebarMapping {
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id): the label tab's chat,
     /// so with an idle shell in front, the chat the row is named for.
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .face, pick: \.chat)
+        // RED PROOF ONLY: the base's pick, the front tab's chat, else the first chat.
+        if let front = frontTab(workspace, selectedTab: selectedTab), front.agentSession != nil { return front }
+        return workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession != nil }
     }
 
     /// The face rules' row kind code (0 terminal, 1 browser, 2 harness) as the sidebar draws it.
