@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4142821761901",
+  "notes": "notes/4142821761901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32115,
+      "title": "fix(webviews): trust-never-hides-asks test iterates its waiter Set directly (vp lint no-useless-spread)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32098,
+      "title": "fix(focus): a new workspace's keys during a surface hold go to its terminal; a held line for the focused terminal is never lost",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32090,
+      "title": "test(updater): no live release push in UpdateStagedYieldsToNewerTests; wait for the probe's own deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32086,
+      "title": "cmux-next tests: window-cleanup trait on the suites that open windows (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30283,
+      "title": "ci(nightly): prefer reserved mini for secret-free signing checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32063,
+      "title": "arch-ratchet: one exception per file in plans/cmux-next/arch-exceptions/, so two PRs that each add one never conflict",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32100,
+      "title": "ci(nightly): prove the browser-data import beside the unsigned-app upload, not on prepare's critical path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32091,
+      "title": "test(git_seed): the registry-token secret test runs on APFS (macOS base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32065,
+      "title": "cmux-tui tests: share chat's one action.run is checked on the path the CLI takes (base red from #30550)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31922,
+      "title": "Rust migration B1 step A: the scroll reducer in Rust (cmux_scroll_* C ABI), no Swift change",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32064,
+      "title": "acpmux tests: socket_owner runs hermetic (base red from #31593)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32013,
+      "title": "fix(browser): no Chromium picture of a hidden, closing or quitting page (dogfood P0 #1 app half)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32117,
+      "title": "sidebar owner note: Priority machine tag uses MachineColor (#32081)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
