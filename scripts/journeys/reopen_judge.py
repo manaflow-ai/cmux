@@ -333,11 +333,49 @@ def summary(rows):
     return out
 
 
+CONTENT_TARGET_MS = 300.0
+INTERACTIVE_TARGET_MS = 500.0
+
+
+def verdict(row):
+    """The film's verdict on one cycle (REOPEN VIDEO rules, lead 2026-11-02 01:05Z: every metric per visible pane,
+    the reopen number is the max over them): a list of failures, empty when the cycle is clean."""
+    fails = []
+    if row.get("error"):
+        return [row["error"]]
+    panes = row.get("panes") or {}
+    window = row.get("window_ms")
+    if window is None:
+        fails.append("no window frame on film after the launch")
+    for pane, p in sorted(panes.items()):
+        name = pane[-8:]
+        if p.get("content_ms") is None:
+            fails.append(f"pane {name}: never back to its last content on film")
+            continue
+        if window is not None and p["content_ms"] > window + 1.0:
+            fails.append(f"pane {name}: not in the first window frame ({window} ms): its last content only at {p['content_ms']} ms")
+        if p.get("lost_after_shown_frames"):
+            fails.append(f"pane {name}: its content went away again after it showed ({p['lost_after_shown_ms'][:3]} ms)")
+    worst = row.get("all_content_ms")
+    if worst is not None and worst > CONTENT_TARGET_MS:
+        fails.append(f"every visible terminal's last content at {worst} ms after main() > {CONTENT_TARGET_MS:.0f} ms")
+    precise = all((p.get("key_path") or "").startswith("CGEventPost") for p in panes.values() if p.get("key_sent_ms") is not None)
+    echo = row.get("all_echo_ms")
+    if precise and echo is None and any(p.get("key_sent_ms") is not None for p in panes.values()):
+        fails.append("a marker key typed into a visible terminal never echoed on film (a lost key)")
+    elif precise and echo is not None and echo > INTERACTIVE_TARGET_MS:
+        fails.append(f"every visible terminal echoed its key at {echo} ms after main() > {INTERACTIVE_TARGET_MS:.0f} ms")
+    for difference in row.get("differences") or []:
+        fails.append(f"not restored exactly: {difference}")
+    return fails
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("dirs", nargs="+", type=Path)
     ap.add_argument("--json", type=Path)
     ap.add_argument("--frames", action="store_true", help="write the key frames as PNG beside each film")
+    ap.add_argument("--verdict", action="store_true", help="PASS/FAIL per cycle (exit 1 when any cycle fails)")
     a = ap.parse_args()
     rows = []
     for d in a.dirs:
@@ -353,9 +391,19 @@ def main():
             print(json.dumps({k: row.get(k) for k in ("dir", "cycle", "window_ms", "all_content_ms", "first_echo_ms",
                                                       "all_echo_ms", "all_exact_ms", "pre_main_ms", "clock", "differences")}))
     result = {"rows": rows, "summary": summary([r for r in rows if "error" not in r])}
+    failed = 0
+    if a.verdict:
+        for row in rows:
+            fails = verdict(row)
+            row["verdict"] = "FAIL" if fails else "PASS"
+            row["failures"] = fails
+            failed += bool(fails)
+            print(f"{row['verdict']} {row.get('dir')} cycle {row.get('cycle')}" + "".join(f"\n  - {f}" for f in fails))
     print(json.dumps(result["summary"], indent=1))
     if a.json:
         a.json.write_text(json.dumps(result, indent=1) + "\n")
+    if a.verdict and failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

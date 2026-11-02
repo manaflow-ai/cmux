@@ -80,6 +80,27 @@ def record():
             "differences": [], "app_marks_ms": {}, "movie": "reopen-1.mp4"}
 
 
+class VerdictTest(unittest.TestCase):
+    def row(self, **panes):
+        base = {"window_ms": 200.0, "all_content_ms": max(p["content_ms"] for p in panes.values()), "all_echo_ms": None,
+                "differences": [], "panes": panes}
+        return base
+
+    def test_pane_not_in_first_window_frame_fails(self):
+        fails = J.verdict(self.row(a={"content_ms": 200.0}, b={"content_ms": 400.0}))
+        self.assertTrue(any("not in the first window frame" in f for f in fails), fails)
+        self.assertTrue(any("> 300 ms" in f for f in fails), fails)
+
+    def test_clean_cycle_passes(self):
+        self.assertEqual(J.verdict(self.row(a={"content_ms": 200.0}, b={"content_ms": 200.0})), [])
+
+    def test_lost_key_fails_only_with_a_precise_key(self):
+        precise = {"content_ms": 200.0, "key_sent_ms": 210.0, "key_path": "CGEventPost HID"}
+        self.assertTrue(any("never echoed" in f for f in J.verdict(self.row(a=precise))))
+        cua = dict(precise, key_path="cua press_key (foreground HID)")
+        self.assertEqual(J.verdict(self.row(a=cua)), [])
+
+
 class JudgeTest(unittest.TestCase):
     def judge(self, flash=False):
         with tempfile.TemporaryDirectory() as tmp:
