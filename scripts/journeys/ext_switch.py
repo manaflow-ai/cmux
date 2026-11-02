@@ -247,7 +247,17 @@ def _shows(j, ws, name):
         # A script's new workspace shows only when no text input has the person's keyboard (the Home composer
         # on the dogfood line has it at launch): show it as `cmux workspace ID focus` does (set-up, not under test).
         j.app.cmux("workspace", ws.get("id"), "focus")
-        how = _wait(held, 30, "workspace %s did not show" % name)
+        try:
+            how = _wait(held, 30, "workspace %s did not show" % name)
+        except D.StepError as error:
+            # Evidence for the set-up failure: a picture of the window, the focused pane and the workspace list.
+            facts = {"focused": next((p for p in j.app.panes() if p.get("focused")), None),
+                     "workspaces": [(w.get("id"), w.get("name")) for w in _workspaces(j)][-12:]}
+            try:
+                j.app.snapshot(j.out / "diag-setupfail.png")
+            except (D.StepError, OSError) as shot:
+                facts["snapshot_error"] = str(shot)[-200:]
+            raise D.StepError("%s; %s" % (error, json.dumps(facts, default=str)[:1500]))
     j.switch_id_match = getattr(j, "switch_id_match", set()) | {how}
     return how
 
