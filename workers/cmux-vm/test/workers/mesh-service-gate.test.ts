@@ -11,6 +11,7 @@ import { deviceRequestBody, enrollBody, makeInstallKey } from "../support/mesh-s
 
 const SERVICE = "cloud-platform-dev";
 const TEAM = "team_personal_new";
+const EnrolledDeviceResponse = Schema.Struct({ device: Schema.Struct({ id: Schema.String }) });
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 let h: Harness | undefined;
 afterEach(async () => { await h?.dispose(); h = undefined; });
@@ -81,7 +82,7 @@ it("admits the tenant's user and an installed device after a listed service make
     body: await enrollBody(install, mesh, { name: "personal-device", wgPublicKey: btoa("a".repeat(32)) }),
   });
   expect(enrolled.status).toBe(201);
-  const enrolledBody = (await enrolled.json()) as { device: { id: string } };
+  const enrolledBody = Schema.decodeUnknownSync(EnrolledDeviceResponse)(await enrolled.json());
   const signed = await harness.request(`/v1/devices/${enrolledBody.device.id}/signed/overlay-policy`, {}, {
     method: "POST",
     body: await deviceRequestBody(install, enrolledBody.device.id, "overlay-policy"),
