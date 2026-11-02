@@ -25,14 +25,16 @@ pub fn snap_target(release_offset: f64, velocity: f64, snaps: &[f64]) -> f64 {
     else {
         return release_offset;
     };
-    if velocity > FLING_THRESHOLD && best <= release_offset + 0.5 {
-        if let Some(&next) = snaps.iter().find(|&&snap| snap > release_offset + 0.5) {
-            best = next;
-        }
-    } else if velocity < -FLING_THRESHOLD && best >= release_offset - 0.5 {
-        if let Some(&previous) = snaps.iter().rev().find(|&&snap| snap < release_offset - 0.5) {
-            best = previous;
-        }
+    if velocity > FLING_THRESHOLD
+        && best <= release_offset + 0.5
+        && let Some(&next) = snaps.iter().find(|&&snap| snap > release_offset + 0.5)
+    {
+        best = next;
+    } else if velocity < -FLING_THRESHOLD
+        && best >= release_offset - 0.5
+        && let Some(&previous) = snaps.iter().rev().find(|&&snap| snap < release_offset - 0.5)
+    {
+        best = previous;
     }
     best
 }
