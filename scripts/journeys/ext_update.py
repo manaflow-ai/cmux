@@ -29,6 +29,12 @@ def install(driver):
 def step_update_relaunch(j, step):
     app, old = j.app, j.app.pid
     record = {"old_pid": old}
+    # The lease's launch variables (HOME, TMPDIR, CMUX_*), read from the running process NOW: step_relaunch reads
+    # them from the old pid, which is gone after the updater's relaunch, and would reopen the app on the mini's own
+    # home and socket (review must-fix 1 at 9e4af2272ba).
+    env = app.launch_env()
+    if not env.get("HOME"):
+        raise D.NotRun(f"update_relaunch: no launch variables read from pid {old}: {sorted(env)}")
     if step.get("stage", True):
         try:
             record["simulate"] = app.rpc("debug.updater", {"action": "simulate"}, timeout=10)
@@ -46,7 +52,11 @@ def step_update_relaunch(j, step):
     if app.alive(old):
         raise D.StepError(f"update_relaunch: pid {old} still runs 30 s after debug.updater relaunch: {json.dumps(record)[:300]}")
     record["ended_after_s"] = round(D.now() - t, 3)
-    reopened = j.step_relaunch({"how": "quit", "mark": step.get("mark")})
+    app.launch_env = lambda: dict(env)  # this instance only; the reopen uses the variables read before the end
+    try:
+        reopened = j.step_relaunch({"how": "quit", "mark": step.get("mark")})
+    finally:
+        del app.launch_env
     return dict(record, reopen=reopened, path="debug.updater relaunch (updaterWillRelaunchApplication + terminate)")
 
 

@@ -110,16 +110,16 @@ def judge(frames, times, keys, refresh_hz=120.0, thresh=24, max_band_px=96):
     ext = [reach(j) if before <= j <= end else 0 for j in range(len(frames))]
     tail = [ext[j] for j in range(before, end + 1) if times[j] >= t_end - 0.25] or [ext[end]]
     r_end = max(tail)
-    # Plateaus: values the reach holds for at least 2 frames, in time order; their positive steps.
-    plateaus, run_v, run_n = [], None, 0
+    # Plateaus: values the reach holds for at least 1.5 refreshes, in time order. Measured by time, not by frames:
+    # the kit's movie keeps only changed frames (an idle refresh has no movie frame), so a still line between two
+    # keys is ONE movie frame (review must-fix 2 at 9e4af2272ba).
+    plateaus, run_v, run_t = [], None, None
     for j in range(before, end + 1):
-        if ext[j] == run_v:
-            run_n += 1
-        else:
-            if run_v is not None and run_n >= 2:
+        if ext[j] != run_v:
+            if run_v is not None and times[j] - run_t >= 1.5 * period:
                 plateaus.append(run_v)
-            run_v, run_n = ext[j], 1
-    if run_v is not None and run_n >= 2:
+            run_v, run_t = ext[j], times[j]
+    if run_v is not None and times[end] + period - run_t >= 1.5 * period:
         plateaus.append(run_v)
     steps = [b - a for a, b in zip(plateaus, plateaus[1:]) if b > a]
     if not steps:
@@ -216,6 +216,12 @@ def self_test():
     # 5. the same with a block cursor and keys 0.27 s apart (a pause not near a blink period)
     out = judge(*_synthetic(12, 3, cursor="block", caret_blink=0.004, gap=0.27))
     assert all(g == 3 for g in refr(out)), refr(out)
+    # 6. the movie keeps only frames that differ from the one before (idle refreshes are not in it): same results
+    for late, cursor in ((1, "block"), (3, "block"), (3, "caret")):
+        frames, times, keys = _synthetic(20, late, cursor=cursor)
+        keep = [0] + [j for j in range(1, len(frames)) if (frames[j] != frames[j - 1]).any()]
+        out = judge(frames[keep], [times[j] for j in keep], keys)
+        assert "keys" in out and all(g == late for g in refr(out)), (late, cursor, out.get("error"), refr(out) if "keys" in out else None)
     print("self-test OK", json.dumps(out["summary"]))
 
 
