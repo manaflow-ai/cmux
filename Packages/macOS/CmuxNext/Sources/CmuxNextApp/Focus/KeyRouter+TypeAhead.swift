@@ -37,7 +37,7 @@ extension KeyRouter {
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content else { return nil }
         let focus = controller.focus.state
-        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
+        guard focus.resolved.mayHavePrimaryInput, let pane = focus.resolved.pane,
               let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return nil }
         return (focus: focus, input: target)
     }

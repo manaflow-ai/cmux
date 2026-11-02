@@ -5,6 +5,7 @@ import CmuxNextChiefMemory
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFocus
 import CmuxNextHome
 import CmuxNextHomeEngine
 import Observation
@@ -434,7 +435,7 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if window != nil { focusPrimaryInput(unasked: true) }
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
@@ -464,12 +465,19 @@ final class TopHomePageView: NSView {
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
-    func focusPrimaryInput() {
+    /// `unasked`: only while no view and, in a pane, no other focus target has the keyboard (QA v2.2.2 bug 1).
+    func focusPrimaryInput(unasked: Bool = false) {
+        let allowed: @MainActor () -> Bool = { [weak self] in
+            guard unasked else { return true }
+            guard let self, let window, window.firstResponder === window || window.firstResponder == nil else { return false }
+            guard let controller = window.windowController as? WindowController, case .content(let pane) = FocusResponderClassifier.classify(self, in: controller) else { return true }
+            return controller.focus.currentState().allowsUnaskedKeyboard(inContentOf: pane)
+        }
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget, allowed() { window?.makeFirstResponder(target) }
             return
         }
-        host?.takeKeyboardOnOpen()
+        host?.takeKeyboardOnOpen(while: allowed)
     }
 
     // MARK: New Message

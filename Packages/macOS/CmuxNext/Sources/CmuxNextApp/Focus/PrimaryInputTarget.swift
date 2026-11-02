@@ -118,12 +118,4 @@ extension KeyRouter {
     nonisolated private static func isTypedScalar(_ scalar: Unicode.Scalar) -> Bool {
         scalar.value >= 0x20 && scalar.value != 0x7F && !(0xF700...0xF8FF).contains(scalar.value)
     }
-
-    /// Surfaces that may declare a primary input.
-    nonisolated static func mayHavePrimaryInput(_ resolved: FocusState.Resolved) -> Bool {
-        switch resolved {
-        case .conversation, .agentPage, .page: true
-        default: false
-        }
-    }
 }

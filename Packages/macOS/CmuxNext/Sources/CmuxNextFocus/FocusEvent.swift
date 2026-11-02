@@ -69,7 +69,8 @@ public nonisolated enum FocusEvent: Hashable, Sendable, Codable {
     case sidebarVisibility(hidden: Bool)
     /// The pane this window's record saved for `workspace` (relaunch): the
     /// pane that workspace focuses when it first shows, unless focus there
-    /// already moved.
+    /// already moved. For the workspace the window already shows it takes the
+    /// focus while no user intent happened in the window (generation 0).
     case restoredPane(String, workspace: String)
 }
 
