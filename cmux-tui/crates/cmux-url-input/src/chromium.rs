@@ -100,7 +100,7 @@ pub fn chromium_page_route(url: &str) -> Option<ChromiumPageRoute> {
     let host = parts.host?;
     let path = parts.path;
     if let Some((_, address)) = CMUX_PAGES.iter().find(|(page_host, _)| *page_host == host) {
-        return Some(ChromiumPageRoute::CmuxPage(*address));
+        return Some(ChromiumPageRoute::CmuxPage(address));
     }
     if host == "password-manager"
         || (host == "settings" && (path == "/passwords" || path.starts_with("/passwords/")))
