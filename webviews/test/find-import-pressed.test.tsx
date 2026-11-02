@@ -71,7 +71,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
               expect(await button.getAttribute("data-press-active")).toBe("true");
             await page.mouse.up();
             const restored = await paint(button);
-            expect(await button.getAttribute("style")).toBe("");
+            expect((await button.getAttribute("style")) ?? "").toBe("");
             expect(await button.getAttribute("data-press-active")).toBeNull();
             expect(restored).toEqual(hovered);
           } finally {
