@@ -83,7 +83,7 @@ def tier_split(tiers, a_ns, b_ns):
     return [round(rb[1 + i] - ra[1 + i], 2) for i in range(n)]
 
 
-def add_tiers(item, tiers, t0_s, t_key, t_first):
+def add_tiers(item, tiers, t0_s, t_key, t_first, refresh_ms=8.333):
     """start_tier: the tier with the most main-thread CPU in the first 4 ms after the key (from 2 ms before its journal
     stamp); key_turn_cpu_ms: CPU per tier from the key to the first moving tick."""
     if not tiers or len(tiers.get("rows") or []) < 2:
@@ -95,8 +95,10 @@ def add_tiers(item, tiers, t0_s, t_key, t_first):
     names = [str(x)[:1] for x in tiers["levels"]]
     first4 = tier_split(tiers, a, ns(t_key + 4))
     item["start_tier"] = names[max(range(len(first4)), key=lambda i: first4[i])] if sum(first4) > 0.05 else "idle"
+    # The first moving tick can come before the journal stamp (JOURNAL_MARGIN_MS), so the key turn's CPU is read over at
+    # least one refresh after the key.
     if t_first is not None:
-        item["key_turn_cpu_ms"] = dict(zip(names, tier_split(tiers, a, ns(t_first))))
+        item["key_turn_cpu_ms"] = dict(zip(names, tier_split(tiers, a, ns(max(t_first, t_key + refresh_ms)))))
 
 
 def key_downs(events, t0_s):
@@ -279,7 +281,7 @@ def judge(base):
             after = [p for t, p in series if t > t_last]
             item["tail_ms"] = round(landed_at - t_last, 1) if landed_at else None
             item["travel_after_last_key_pt"] = round(abs(p1 - after[0]) if after else 0, 2)
-        add_tiers(item, tiers, float(trace["t0_s"]), t_key, first[0] if first else None)
+        add_tiers(item, tiers, float(trace["t0_s"]), t_key, first[0] if first else None, refresh)
         faults = []
         if item["motion_frames"] <= 1:
             faults.append("snap (no animation)")
