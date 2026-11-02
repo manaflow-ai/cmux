@@ -462,14 +462,19 @@ class Launch:
         """Quits the app only; the daemon keeps running (keep sessions). The marks the quit writes (`quit.*`, each
         terminal's frame save) are read until the app closes the pipe, into `quit_marks`, never into `marks`."""
         launched = set(self.marks)
+        deadline = time.monotonic() + 20  # one limit for the quit, as stop(timeout=20) had
         try:
             os.kill(self.process.pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
         self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
         os.close(self.read_fd)
-        if not wait_exit([self.process.pid], 20):
-            stop([self.process.pid], timeout=5)
+        if not wait_exit([self.process.pid], max(0.0, deadline - time.monotonic())):
+            try:
+                os.kill(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            wait_exit([self.process.pid], 5)
         self.process.wait()
         self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
         for name in self.quit_marks:
@@ -991,8 +996,9 @@ def one_run(tag, mode, timeout, profile=None):
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
-        launch.terminals = launch_terminals(tag)
-        launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
+        if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
+            launch.terminals = launch_terminals(tag)
+            launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -1028,9 +1034,9 @@ def launch_terminals(tag):
     """The launch's visible terminals (debug.timings `launch_terminals`): by tab key, when each asked for its saved
     frame, when it showed (`frame_shown_ms`) or why it did not (`missed`: no_frame, size, scale, live), and the max."""
     errors = []
-    for _ in range(5):
+    for _ in range(3):
         try:
-            reply = app_client(tag, timeout=5).call("debug.timings")
+            reply = app_client(tag, timeout=2).call("debug.timings")
             result = reply.get("result")
             if isinstance(result, dict) and "launch_terminals" in result:
                 return {"panes": result["launch_terminals"], "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
