@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "build": "4137540636601",
+  "notes": "notes/4137540636601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30771,
+      "title": "fix(acpmux): stop reconnecting upload waits when a peer is removed (SW-03)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30693,
+      "title": "fix(agents): use acpmux turn state for visible chat tabs and qualified waits (SW-10)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30734,
+      "title": "fix(browser): refuse non-HTTP(S) URLs in cookie operations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30695,
+      "title": "fix(mux-host): reject malformed initial session-list inventory (SW-03)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30705,
+      "title": "fix(mux-host): fail incomplete event paging on stalled cursor (SW-03)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30709,
+      "title": "fix(breadcrumbs): preserve macOS context-click without changing folders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30704,
+      "title": "chore(prototypes): remove retired SettingsShellLab (-354 lines)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31616,
+      "title": "cmux NEXT: a click on a subagent or started chat opens it on the chat's right, never in another workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30757,
+      "title": "fix(profiles): keep deleted browser IDs reserved through engine cleanup (SW-08)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31516,
+      "title": "Revert \"cmux NEXT: Cmd-= / Cmd-- grow the Chief chat's text, not its bubble column (#29870)\"",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31590,
+      "title": "base red: the restart's guest-kind line comes from the credential transfer (app_lines +5, #29962)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30702,
+      "title": "fix(history): prevent stale native menu picks from acting on replaced rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31597,
+      "title": "fix(chief): make session inventory callable and page 300 agents safely (W2-08, carries #30784)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31529,
+      "title": "acpmux: cache serialized closed summaries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31603,
+      "title": "journeys tui-kit: the sigwinch test reads the pty while it resizes; pace line names the step's class",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31609,
+      "title": "Transcript: a reply footer's buttons come first, its time on hover; the last reply's buttons show at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30798,
+      "title": "feat(next): Pin an artifact preview across chat switches (W2-17)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31617,
+      "title": "ignore released daemon lock files during image bake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30793,
+      "title": "fix(ios): preserve notification preferences during cold background replies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30718,
+      "title": "fix(ios): retry artifact thumbnails after transient Mac failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30703,
+      "title": "fix(ios): register for APNs after permission changes in iOS Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30781,
+      "title": "fix(ios): keep older-chat history retryable after empty continuation (SW-03)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31592,
+      "title": "fix(next screens): a root layout pass keeps a screen switch's slide going",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31517,
+      "title": "cmux NEXT: Use an API key on a chat here whose built-in Claude Code or Codex is not signed in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30712,
+      "title": "perf(acpmux): track only live process slots for idle census (SW-11)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31512,
+      "title": "Sidebar hover previews stay while the pointer is over them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31585,
+      "title": "test(sidebar): gutter, chip edge and favicon gap follow #27598's grid columns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30713,
+      "title": "fix(agent-pane): follow empty bounded session-list continuations (SW-03)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31496,
+      "title": "test: Session Info's floating/pushing switch runs where Overlay floats (#31423)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31581,
+      "title": "glass: the blur under a see-through popover is all or nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30742,
+      "title": "fix(automations): hide unavailable controls instead of offering inert buttons (W2-06)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30698,
+      "title": "fix(next sidebar): reject cyclic daemon parent links across local and remote chats (SW-04)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31598,
+      "title": "devbox: a team machine runs Claude on its creator's transferred login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30694,
+      "title": "fix(picker): preserve secondary and Control-click gestures in folder rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31583,
+      "title": "base red: backgroundNotice test drives its timer, no fixed waits (#31520)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31580,
+      "title": "fix(next motion): the first frame of an animation from rest steps one display refresh, not two",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30717,
+      "title": "test(home Cloud): verify 300 same-time Chief reports remain paginable (SW-04)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31472,
+      "title": "base red: the Background tasks column paints over a pushed Session Info sliding in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31487,
+      "title": "acpmux: a child's turn cards stop when you talk to it, its tag goes, or it is detached; new --no-parent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30747,
+      "title": "fix(vnc): atomically fence frame and status publication to session (W2-12, #30144)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31600,
+      "title": "ci(cmux-next): the landing DEV compile never overflows to Blacksmith macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31587,
+      "title": "fix(sidebar): a two-line row keeps its marks on the row's middle and its line rhythm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31586,
+      "title": "fix(sidebar): the rename field lands on a whole pixel, so its text stays on the title's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31582,
+      "title": "cmux NEXT composer: a dragged attachment rides the pointer, the others slide out of its way",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31507,
+      "title": "journeys: seeded TUI load kit and heavy profile for layout-animation videos",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31366,
+      "title": "base red: CI guard profile fails on base content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31509,
+      "title": "fix cloud image daemon status timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31567,
+      "title": "test(next): SSH recovery gallery root fits the dialog it captures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31566,
+      "title": "test(next): Don't Show Again test waits for the settings snapshot, not only cmux.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31565,
+      "title": "test(next): WebKit gesture-free tests wait for the loaded page's title",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31564,
+      "title": "test(next): the multi-view split drop test lets the sidebar's observation repaint the fills",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31571,
+      "title": "test(home): quarantine only the invite dialog's 50 ms wall-clock budget",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31568,
+      "title": "test(updater): a staged NIGHTLY's probe test waits for the probe's own deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31563,
+      "title": "test(sidebar): open-deadline checks bound the reload instead of the host's speed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31572,
+      "title": "test(hibernation): quarantine theWokenPageKeepsItsPictureUntilItPaints",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31574,
+      "title": "base red: the process-group test's leader ignores TERM after it forks the descendant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31560,
+      "title": "test(next): the gallery theme loader reads Ghostty's bundled themes too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26741,
+      "title": "[launch-polish] Add native human setup guide",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
