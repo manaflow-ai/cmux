@@ -5,7 +5,8 @@
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the
 //! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent. With a cmux sign-in it also saves,
+//! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -41,6 +42,8 @@ keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
+#[path = "acpmux_mcp_artifacts.rs"]
+pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
 #[path = "acpmux_mcp_send.rs"]
@@ -50,6 +53,16 @@ fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+    }
+    all
+}
+
+/// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
+/// sign-in for them (`artifacts::advertised`).
+fn tools_with_artifacts(artifacts: bool) -> Value {
+    let mut all = tools();
+    if artifacts && let Some(list) = all.as_array_mut() {
+        list.extend(artifacts::definitions());
     }
     all
 }
@@ -150,14 +163,27 @@ fn base_tools() -> Value {
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
+    // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
+    let artifacts = artifacts::from_config();
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
-        tools(),
+        tools_with_artifacts(artifacts.is_some()),
         Some(BG_STEER.to_owned()),
-        |daemon, session, params| async move {
+        move |daemon, session, params| {
+            let artifacts = artifacts.clone();
+            async move {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            if artifacts::TOOLS.contains(&name) {
+                return match (&artifacts, args.is_object()) {
+                    (_, false) => error_result("arguments must be an object".to_owned()),
+                    (Some(client), true) => artifacts::call(client, name, &args).await,
+                    (None, true) => error_result(
+                        "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
+                    ),
+                };
+            }
             if bg::TOOLS.contains(&name) {
                 return bg::call(&daemon, &session, name, &args).await;
             }
@@ -165,6 +191,7 @@ pub async fn run() -> Result<()> {
                 return inbox_tool(&daemon, &session, name, &args).await;
             }
             call(&daemon, &params).await
+            }
         },
     )
     .await

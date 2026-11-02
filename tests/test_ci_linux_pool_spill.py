@@ -154,6 +154,17 @@ class SampleLoad(unittest.TestCase):
         self.assertEqual(load[FOUR]["queued"], 2)
         self.assertIsNone(spill.sample_load(Client(self.RUNS, self.JOBS, fail={"runs"}), now=NOW))
 
+    def test_runs_too_young_to_have_waited_are_not_sampled(self):
+        # 2026-11-02 07:13Z: the 60 newest runs were minutes old, so 84 queued 4 vCPU jobs read 0 waited.
+        young = [{"id": 100 + i, "status": "in_progress", "created_at": ago(1)} for i in range(spill.MAX_RUNS)]
+        old = {"id": 1, "status": "in_progress", "created_at": ago(30)}
+        jobs = {1: [{"status": "queued", "labels": [FOUR], "created_at": ago(30)}] * 20}
+        jobs.update({run["id"]: [{"status": "queued", "labels": [FOUR], "created_at": ago(1)}] for run in young})
+        client = Client(young + [old], jobs)
+        load = spill.sample_load(client, now=NOW)
+        self.assertEqual(load[FOUR], {"queued": 20, "running": 0, "waited": 20})
+        self.assertEqual(client.calls, 3)
+
     def test_a_full_page_of_jobs_is_an_incomplete_sample(self):
         # Review of #31884: 100 completed jobs could hide queued ones on the next page.
         jobs = {1: [{"status": "completed", "labels": [FOUR], "created_at": ago(5)}] * spill.JOB_PAGE}
@@ -161,7 +172,7 @@ class SampleLoad(unittest.TestCase):
         self.assertFalse(load[spill.COMPLETE])
 
     def test_the_sample_is_bounded(self):
-        runs = [{"id": i, "status": "in_progress", "created_at": ago(1)} for i in range(500)]
+        runs = [{"id": i, "status": "in_progress", "created_at": ago(10)} for i in range(500)]
         client = Client(runs, {})
         self.assertFalse(spill.sample_load(client, now=NOW)[spill.COMPLETE])
         self.assertEqual(client.calls, 2 + spill.MAX_RUNS)
