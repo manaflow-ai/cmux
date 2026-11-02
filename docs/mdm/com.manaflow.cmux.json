@@ -3578,6 +3578,12 @@
       "title" : "Let Your Phone Use This Mac",
       "type" : "boolean"
     },
+    "phone.cloudDesktop" : {
+      "default" : false,
+      "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
+      "title" : "Show Your Cloud Machine's Screen on Your Phone",
+      "type" : "boolean"
+    },
     "phone.cloudReplica" : {
       "default" : false,
       "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",

@@ -39,6 +39,10 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the view's
+    /// grid is held (drawn as the reflow preview) and goes to the PTY once, when the drag lands.
+    var isFollowingResizeGesture = false
+
     /// Reports the grid the pane's layout spring will land at, now (``TerminalGridPolicy/finalSized(_:)``),
     /// unless the owner already has it.
     func reportFinalGrid(_ grid: TerminalGridSize) {
@@ -87,6 +91,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
+    /// A frame another view shows now (``giveAway(_:)``): never made volatile here again.
+    private var givenAwayFrame: IOSurface?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
@@ -229,6 +235,9 @@ public final class TerminalSurfaceView: NSView {
         isShown = shown
         observeWindow(shown)
         if !shown { linkPointer.exited() }
+        // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
+        // its next shown size reports as any other, never held for a drag that is gone.
+        if window == nil { isFollowingResizeGesture = false }
         if shown {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
@@ -400,7 +409,7 @@ public final class TerminalSurfaceView: NSView {
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every
         // display frame: the surface draws each size (the reflow preview), and the grid goes to the
         // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
-        let report = geometry.viewSized(desired, force: forceReport, holding: !forceReport && isInPaneMotion)
+        let report = geometry.viewSized(desired, force: forceReport, holding: !forceReport && (isInPaneMotion || isFollowingResizeGesture))
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
         // A held grid is reported when the spring lands: the preview draws it meanwhile.
@@ -483,7 +492,7 @@ public final class TerminalSurfaceView: NSView {
     /// purged one leaves the layer empty until Ghostty's next frame, as before.
     private func holdPresentedFrame(volatile: Bool) {
         if volatile {
-            volatileFrame = presentedFrame
+            volatileFrame = presentedFrame === givenAwayFrame ? nil : presentedFrame
             volatileFrame?.makeVolatile()
         } else if let frame = volatileFrame {
             volatileFrame = nil
@@ -508,6 +517,13 @@ public final class TerminalSurfaceView: NSView {
 
     func endFrameRead(_ frame: IOSurface) {
         if frame === volatileFrame { frame.makeVolatile() }
+    }
+
+    /// `frame` is shown by another view from now on (a replacement session's carried frame): this
+    /// surface, paused or closed, must not mark it volatile under that view.
+    func giveAway(_ frame: IOSurface) {
+        givenAwayFrame = frame
+        if volatileFrame === frame { volatileFrame = nil }
     }
 
     // MARK: Focus
