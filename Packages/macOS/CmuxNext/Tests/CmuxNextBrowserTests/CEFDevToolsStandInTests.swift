@@ -70,6 +70,19 @@ import Testing
         #expect(!tab.devToolsController.reservesRoom, "the stand-in rolled back")
     }
 
+    /// Re-review FIX at 55ed84f60a8: a scripted open aimed at a parked (hidden) tab must still open, at once, as
+    /// before the stand-in existed; the stand-in is only for the shown tab.
+    @Test func anOpenOnAParkedTabGoesAtOnce() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.bottom))
+        tab.container.isHidden = true  // parked: another tab of the pane shows
+        tab.performDevTools(.show)
+        #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"])
+        #expect(!tab.devToolsController.standIn)
+    }
+
     /// A stale ask never runs: console's stand-in, cancelled by the toggle, then a new stand-in by the toggle sends
     /// exactly one command, the new one.
     @Test func onlyTheNewestStandInsCommandIsSent() async throws {
