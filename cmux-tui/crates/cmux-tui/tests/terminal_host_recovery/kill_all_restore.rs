@@ -493,6 +493,8 @@ fn kill_all_restore_time_of_12_terminals() {
     harness
         .extra_env
         .push(("CMUX_TUI_SCRATCH_RESPAWN_TRACE".into(), trace_path.display().to_string()));
+    let spans_path = harness.dir.join("spans.jsonl");
+    harness.extra_env.push(("CMUX_TUI_DEBUG_SPANS".into(), spans_path.display().to_string()));
     harness.restart();
     let home = harness.dir.clone();
     let mut terminals = Vec::new();
@@ -554,7 +556,13 @@ fn kill_all_restore_time_of_12_terminals() {
         }
     }
     restored_ms.sort_unstable();
-    let trace = fs::read_to_string(&trace_path).unwrap_or_default();
+    let trace = fs::read_to_string(&trace_path).unwrap_or_default()
+        + &fs::read_to_string(&spans_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("\"host\""))
+            .map(|l| format!("SPANS {l}\n"))
+            .collect::<String>();
     panic!(
         "kill-all-restore-time: {} TRACE-BEGIN\n{}TRACE-END",
         serde_json::json!({"terminals": TERMINALS, "visible_ms": visible_ms, "restored_ms": restored_ms}),
