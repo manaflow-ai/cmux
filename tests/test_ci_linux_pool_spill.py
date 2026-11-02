@@ -154,6 +154,12 @@ class SampleLoad(unittest.TestCase):
         self.assertEqual(load[FOUR]["queued"], 2)
         self.assertIsNone(spill.sample_load(Client(self.RUNS, self.JOBS, fail={"runs"}), now=NOW))
 
+    def test_a_full_page_of_jobs_is_an_incomplete_sample(self):
+        # Review of #31884: 100 completed jobs could hide queued ones on the next page.
+        jobs = {1: [{"status": "completed", "labels": [FOUR], "created_at": ago(5)}] * spill.JOB_PAGE}
+        load = spill.sample_load(Client(self.RUNS[:1], jobs), now=NOW)
+        self.assertFalse(load[spill.COMPLETE])
+
     def test_the_sample_is_bounded(self):
         runs = [{"id": i, "status": "in_progress", "created_at": ago(1)} for i in range(500)]
         client = Client(runs, {})
@@ -225,6 +231,24 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(self.run_pass(switch, Client([], {}), NOW + dt.timedelta(minutes=1)), 0)
         self.assertEqual(json.loads(switch.variables["RUNNER_POOLS"])["linux"], SIXTEEN)
         self.assertNotIn("_spill", json.loads(switch.variables["RUNNER_POOLS"]))
+
+    def test_a_value_changed_during_the_pass_is_not_overwritten(self):
+        # Review of #31884: a concurrent writer's dead mark must survive this pass.
+        start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
+        changed = self.policy.render({"linux": FOUR, "_dead": {SIXTEEN: spill.iso(NOW)}, "_updated": ago(1)})
+
+        class Racing(self.Switch):
+            reads = 0
+
+            def get_variable(inner, name):
+                if name == "RUNNER_POOLS":
+                    inner.reads += 1
+                    return start if inner.reads == 1 else changed
+                return super().get_variable(name)
+
+        switch = Racing({"LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
+        self.assertEqual(self.run_pass(switch, self.backlog_client(40), NOW), 0)
+        self.assertEqual(switch.writes, [])
 
     def test_dry_run_writes_nothing(self):
         start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})

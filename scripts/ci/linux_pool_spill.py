@@ -55,6 +55,8 @@ LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
 WAITED_MINUTES = 3
 # The sample: the newest runs in flight, created within RUN_WINDOW (older queued runs are ghosts or held).
 MAX_RUNS = 60
+# The client reads one page of each run's jobs (cloud_overflow_switch.GitHub.jobs(): per_page=100).
+JOB_PAGE = 100
 RUN_WINDOW = dt.timedelta(hours=6)
 SPILL_WAITED = 15
 SPILL_ROOM_WAITED = 3
@@ -102,6 +104,9 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
         except Exception:  # noqa: BLE001 - one unread run only makes the sample partial
             complete = False
             continue
+        if len(jobs) >= JOB_PAGE:
+            # One page of jobs; a run with more may hide queued ones (review of cmux#31884).
+            complete = False
         for job in jobs:
             status = job.get("status")
             if status not in ("queued", "in_progress"):
@@ -294,6 +299,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if not writes:
         print(f"{VARIABLE} and its mirrors unchanged")
         return 0
+    if switch is not None and VARIABLE in dict(writes):
+        # Another writer may have changed RUNNER_POOLS (a dead mark, say) while this pass sampled: never
+        # overwrite it with a value planned from the old one; the next pass plans from the new one.
+        try:
+            again = switch.get_variable(VARIABLE)
+        except Exception as error:  # noqa: BLE001 - unread means unknown: do not write over it
+            print(f"::warning title=Linux pool spill::could not re-read {VARIABLE} ({error}); writing nothing")
+            return 0
+        if (again or "").strip() != (raw or "").strip():
+            print(f"::warning title=Linux pool spill::{VARIABLE} changed during this pass; writing nothing")
+            return 0
     if args.dry_run:
         for name, text in writes:
             print(f"{name} would be {text} (dry run)")
