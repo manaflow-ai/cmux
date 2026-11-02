@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4140259429701",
+  "notes": "notes/4140259429701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31924,
+      "title": "test(webviews): the working line's box is the footer slot #31690 gave it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31914,
+      "title": "fix(ci): require every scale-set count for document admission",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31784,
+      "title": "journeys tui-kit: tk-beacon, the SWITCH FRAMES beacon in compiled Rust (uptime clock, rt pacing)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31909,
+      "title": "base red: release-notary green (attachment-drag highlight docs link, two nightly.yml routing jobs in warm-sources.json)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31907,
+      "title": "base red: agent_chat_notices clippy (obfuscated if/else, a missing ;, a redundant clone) from #31770",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
