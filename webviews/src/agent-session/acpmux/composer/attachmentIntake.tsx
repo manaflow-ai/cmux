@@ -269,6 +269,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
+  /// The loading chips now, for a try again on its own to see which chat its chip is in by then.
+  const pendingNow = useRef<readonly PendingAttachment[]>([]);
+  pendingNow.current = pending;
   /// The chips a render has staged: one not yet rendered is not gone, only not drawn yet.
   const everStaged = useRef(new Set<string>());
   for (const attachment of attachments) everStaged.current.add(attachment.id);
@@ -451,7 +454,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // Retry reads the chat showing now (its upload, its machine). A chip the switch left in
+            // the chat it was pasted in (not carried) must not upload there: it waits for its own
+            // chat's Retry. A carried chip is that chat's now and tries again in it.
+            const chip = pendingNow.current.find((pending) => pending.id === id);
+            if (!chip || chip.scope !== live.current.options.scope) return giveUp();
+            retryRef.current(id);
           },
           giveUp,
         );
