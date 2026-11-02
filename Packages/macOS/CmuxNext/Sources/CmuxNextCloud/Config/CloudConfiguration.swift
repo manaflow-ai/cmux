@@ -123,11 +123,18 @@ public struct CloudConfiguration: Sendable, Equatable {
         let scheme = value("CMUX_AUTH_CALLBACK_SCHEME").flatMap { URL(string: "\($0)://auth-callback") == nil ? nil : $0 }
             ?? (isDebugBuild ? (tag.map { "cmux-dev-\($0)" } ?? "cmux-dev") : defaultScheme(bundleID))
         let stackBase = value("CMUX_STACK_BASE_URL").flatMap(URL.init(string:)) ?? stackOrigin
+        // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
+        // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
+        // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
+        // The app-server link (NEXT Cloud through the owner API) is the default in every
+        // environment, production included; `legacy` keeps the classic one as the escape hatch.
+        let linkSource: LinkSource = (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "legacy" ? .legacy : .appServer
         if production {
             return CloudConfiguration(
                 backend: .production, apiBaseURL: productionOrigin, authWebOrigin: productionOrigin,
                 stackBaseURL: stackBase, stackProjectID: productionProjectID, stackPublishableClientKey: productionClientKey,
-                isProductionAuth: true, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild)
+                isProductionAuth: true, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
+                linkSource: linkSource)
         }
         // Every non-production build (Debug, tagged fleet builds) signs in on staging and uses the
         // new cloud with no launch environment. Tagged builds bake loopback origins for a local
@@ -148,11 +155,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
             isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
-            // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
-            // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
-            // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
-            // The app-server link is the default; `legacy` keeps the classic one.
-            linkSource: (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "legacy" ? .legacy : .appServer)
+            linkSource: linkSource)
     }
 
     /// This process's configuration.
