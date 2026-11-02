@@ -50,6 +50,19 @@ const rows = [
   summary(3.9, { status: "completed", durationMs: 21_000, toolCount: 2 }),
 ];
 
+/// The same chat ending on a long prompt cut to its first lines, with "Show more" under it, and a
+/// short reply: a line that is not a tool's, opened at the bottom.
+const LONG_PROMPT = Array.from(
+  { length: 18 },
+  (_, index) => `${index + 1}. Check that case ${index + 1} of the fetch retries fails fast on a client error.`,
+).join("\n");
+const promptRows = [
+  ...earlier,
+  user(LONG_PROMPT, 6),
+  assistant("All eighteen cases fail fast now.", 4),
+  summary(3.9, { status: "completed", durationMs: 21_000, toolCount: 0 }),
+];
+
 /// Opens the last turn's "Worked for" line when the turn folded its run under one, then puts the
 /// view at the transcript's very bottom, as the reader leaves it after reading the reply.
 const atBottom: Play = async (ctx) => {
@@ -58,7 +71,7 @@ const atBottom: Play = async (ctx) => {
     [...ctx.document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle[aria-expanded]")].find((node) =>
       /2/.test(node.textContent ?? ""),
     );
-  await ctx.waitFor(() => worked() ?? group(), { capMs: 10_000 });
+  await ctx.waitFor(() => worked() ?? group() ?? ctx.document.querySelector(".cv-user__more"), { capMs: 10_000 });
   if (!group() && worked()?.getAttribute("aria-expanded") === "false") {
     worked()!.click();
     await ctx.waitFor(group, { capMs: 10_000 });
@@ -77,6 +90,11 @@ export default agentPaneEntry({
     shipped: {
       note: "Scrolled to the very bottom with “Ran 2 commands” closed. Opening it keeps the bottom pinned and pushes the text above up; away from the bottom it opens down and nothing moves.",
       snapshot: chat(rows, { title: "Fetch tests" }),
+      play: atBottom,
+    },
+    prompt: {
+      note: "Scrolled to the very bottom under a long prompt cut to its first lines. Its Show more opens the whole prompt by pushing the text above up; the reply under it stays where it was.",
+      snapshot: chat(promptRows, { title: "Fetch tests" }),
       play: atBottom,
     },
   },

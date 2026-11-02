@@ -39,6 +39,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true, ...launchOptions });
     await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: VARIANT } });
+    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "prompt" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -97,13 +98,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(): Promise<Page> {
+  async function open(variant = VARIANT, ready = GROUP): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
-    await page.locator(GROUP).waitFor();
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
+    await page.locator(ready).waitFor();
     await settled(page);
     return page;
   }
@@ -127,6 +128,38 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     // What opened pushed the line (and the text above it) up by its height.
     expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
     expect(before.line - after.line).toBeGreaterThan(40);
+    await page.close();
+  });
+
+  test("at the very bottom, a long prompt's Show more opens it by pushing the text above up", async () => {
+    const MORE = '.cv-user__more[aria-expanded="false"]';
+    const page = await open("prompt", MORE);
+    await page.locator(".acpmux-scroll").evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await settled(page);
+    const where = () =>
+      page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const bubbles = [...scroller.querySelectorAll<HTMLElement>(".cv-user__text")];
+        return {
+          prompt: bubbles.at(-1)!.getBoundingClientRect().top,
+          lastFoot: rows.at(-1)!.getBoundingClientRect().bottom,
+          scrollHeight: scroller.scrollHeight,
+          fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+        };
+      });
+    const before = await where();
+    expect(before.fromEnd).toBeLessThanOrEqual(2);
+    await clickLine(page, MORE);
+    await page.locator('.cv-user__more[aria-expanded="true"]').waitFor();
+    await settled(page);
+    const after = await where();
+    expect(after.fromEnd).toBeLessThanOrEqual(2);
+    expect(Math.abs(after.lastFoot - before.lastFoot)).toBeLessThanOrEqual(2);
+    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
+    expect(before.prompt - after.prompt).toBeGreaterThan(40);
     await page.close();
   });
 
