@@ -59,10 +59,11 @@ extension SidebarStyle {
     }
 
     /// A `side`-square frame centered on trailing slot `slot` (0 is the column) and on `centerY`, never
-    /// past the resize band's reach.
+    /// past the resize band's reach. The reach is measured from the sidebar's edge (the fill's end plus
+    /// `rowEdgeGap`), from `trailingClearanceEdge` as the column's clearance is, so the row gap moves no slot.
     static func trailingColumnFrame(rowWidth: CGFloat, centerY: CGFloat, side: CGFloat, slot: Int = 0) -> CGRect {
         let frame = columns(rowWidth: rowWidth).trailingFrame(index: slot, centerY: centerY, side: side)
-        let end = rowWidth - SidebarResizeBand.contentInset
+        let end = rowWidth + rowEdgeGap - trailingClearanceEdge - SidebarResizeBand.contentInset
         return CGRect(x: min(frame.minX, end - side), y: frame.minY, width: side, height: side)
     }
 
