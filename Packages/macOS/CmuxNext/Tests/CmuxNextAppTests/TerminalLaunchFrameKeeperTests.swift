@@ -77,8 +77,9 @@ import Testing
         let next = TerminalLaunchFrames(directory: directory)
         await next.prefetch(on: Self.work)?.value
         let reveal = LaunchReveal(deadline: .seconds(60))
-        // A pane of the terminal's size (the frame was kept at that size and the window's scale).
-        let content = NSView(frame: NSRect(origin: .zero, size: shown.session.surfaceView.bounds.size))
+        // A pane of the terminal host's size: its surface is the host less a legacy scroller's strip, the size the
+        // frame was kept at (a mini with no mouse uses legacy scrollers).
+        let content = NSView(frame: NSRect(origin: .zero, size: shown.session.view.bounds.size))
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: content.frame.size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
