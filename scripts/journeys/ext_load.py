@@ -94,8 +94,9 @@ def step_load_start(j, step):
             "--seed", str(step.get("seed", 7)), "--duration", str(step.get("duration", 300)), "--out", str(out),
             "--keep", named["pane"], *[str(a) for a in step.get("args", [])]]
     stdout = open(out / f"{profile}.stdout", "w")
+    # Its own process group, so load_stop can end the tool and every child it started (L6) together.
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=open(out / f"{profile}.stderr", "w"),
-                            env=dict(os.environ, HOME=str(home)))
+                            env=dict(os.environ, HOME=str(home)), start_new_session=True)
     j.load = {"proc": proc, "profile": profile, "out": out, "stdout": stdout}
     end = D.now() + float(step.get("ready_timeout", 180))
     ready, buf = None, b""
@@ -148,9 +149,12 @@ def step_load_stop(j, step):
     if proc.poll() is None:
         proc.send_signal(signal.SIGTERM)
         try:
-            proc.wait(timeout=60)
+            proc.wait(timeout=float(step.get("teardown_timeout", 150)))
         except subprocess.TimeoutExpired:
-            proc.kill()
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)  # the tool and its children (review note at 757dcf1eb1a)
+            except OSError:
+                proc.kill()
     j.load = None
     # Every profile that ran (L6: its five children) must have kept the focus and been stopped by this step, not by its
     # own timer (review must-fix 1 and 2 at e19d42d215a); the tool runs with --duration 0, so only SIGTERM ends it.
