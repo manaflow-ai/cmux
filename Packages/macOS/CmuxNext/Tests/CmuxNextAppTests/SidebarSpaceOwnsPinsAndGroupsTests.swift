@@ -380,7 +380,7 @@ import Testing
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
                                                                         resourceID: ResourceID(rawValue: "ws-5"), name: "ws-5")]))
-        let sections = SidebarDocSections().sections(machineGroups(), session: session, workspaces: store.workspaces, room: room)
+        let sections = SidebarDocSections(document: { nil }).sections(machineGroups(), session: session, workspaces: store.workspaces, room: room)
         return Dictionary(sections.compactMap { section in section.group.map { ($0.id.rawValue, $0.parent?.rawValue) } },
                           uniquingKeysWith: { first, _ in first })
     }

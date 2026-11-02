@@ -12,8 +12,11 @@ enum CloudNetworkAccessActions {
     /// writes it back, so the machine's own ranges and domains stay. An agent's run that would
     /// choose anything but `none` is refused: an agent may close its machine off, never open it up. A CLI, agent
     /// or script run gets `machine_id`, `network_access`, `mode` and `applied` back; a person's run
-    /// reports a failure in a sheet.
+    /// reports a failure in a sheet. The GET and then the PUT can outlast `action.run`'s result
+    /// deadline, so a run still going after `pendingAfter` answers `machine_id`, the requested
+    /// `network_access` and `pending: true`, and the change goes on (#28855).
     static func set(_ invocation: ActionInvocation, _ context: AppActionContext,
+                    pendingAfter: Duration = CloudHandlers.answerWithin,
                     read: @escaping @MainActor (String) async throws -> CloudNetworkPolicyState,
                     write: @escaping @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState) throws {
         let session = try CloudHandlers.machine(invocation, context)
@@ -34,7 +37,10 @@ enum CloudNetworkAccessActions {
             if policy == current.policy, current.applied?.state == "applied" { return fields(machineID, current) }
             return fields(machineID, try await write(machineID, policy))
         } }
-        guard CloudHandlers.origin(of: invocation) == .user else { return CloudHandlers.result("set network access", context, work) }
+        guard CloudHandlers.origin(of: invocation) == .user else {
+            let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "network_access": .string(access.rawValue)]
+            return CloudHandlers.result("set network access", context, pendingAfter: pendingAfter, pending: pending, work)
+        }
         CloudHandlers.runTracked("set network access", context) { _ = try await work() }
     }
 

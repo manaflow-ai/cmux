@@ -88,8 +88,12 @@ public final class SidebarDocSections {
     /// at the window's slot meanwhile). A live workspace the document does not place
     /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
     public var placesNewRowsFirst: @MainActor () -> Bool = { true }
+    /// The app's own document store (its confirmed folds, its shown projection); nil before it starts.
+    let document: @MainActor () -> SidebarDocStore?
 
-    public init() {}
+    public init(document: @escaping @MainActor () -> SidebarDocStore?) {
+        self.document = document
+    }
 
     /// The document ref of `workspace` on the session `session`.
     public static func ref(of workspace: WorkspaceModel, session: String?) -> SidebarDocWorkspaceRef? {
@@ -203,7 +207,7 @@ public final class SidebarDocSections {
 
     private func model(_ group: SidebarDocProjection.Group) -> WorkspaceGroupModel {
         let snapshot = WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: group.id), name: group.name, color: group.color,
-                                              collapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
+                                              collapsed: document()?.groupFolds[group.id] ?? group.collapsed,
                                               icon: group.icon, pinned: group.pinned,
                                               parent: group.parent.map(WorkspaceGroupID.init(rawValue:)), depth: group.depth)
         if let model = groups[group.id] {
