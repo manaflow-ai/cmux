@@ -21,7 +21,7 @@ fn row(key: &str) -> &'static Value {
         .unwrap_or(&Value::Null)
 }
 
-pub(super) fn read(configured: Option<&Vec<u64>>) -> Vec<u64> {
+pub(in crate::hub) fn read(configured: Option<&Vec<u64>>) -> Vec<u64> {
     let settings = crate::user_settings::read();
     resolve(
         configured,
