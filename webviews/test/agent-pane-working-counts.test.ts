@@ -258,14 +258,20 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = await line(page).evaluate((node) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          const px = (name: string) => parseFloat(style.getPropertyValue(name));
+          // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32). On the
+          // grid (#27580, design/grid.md 5.5) --cv-meta-row is a calc() of --grid-transcript-action-control
+          // and --cv-turn-gap is 0 (the stack owns the gap), so the tokens are resolved by layout, not
+          // parseFloat (which read NaN from the calc()).
+          const probe = document.createElement("div");
+          probe.style.cssText = "position:absolute;visibility:hidden;height:calc(var(--cv-meta-row) + var(--cv-turn-gap))";
+          node.appendChild(probe);
+          const oneLine = probe.getBoundingClientRect().height;
+          probe.remove();
           return {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+            oneLine,
           };
         });
         await page.close();

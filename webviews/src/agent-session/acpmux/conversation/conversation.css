@@ -3802,7 +3802,9 @@ a.cv-sha:focus-visible {
    the reader points at the reply or a button in it has keyboard focus. */
 .cv-reply-actions {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
+  /* Its left edge is col-left: the first button's own negative margin (above) is the overhang, so
+     the row adding it too put the first glyph and a "Worked for" label 6px left of the prose. */
+  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
   margin: 0;
   opacity: 0;
@@ -5191,7 +5193,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
+  /* Left edge on col-left, as .cv-reply-actions: the first button's margin is the overhang. */
+  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
   top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 /* The last footer's gap to the composer is the block gap too (transcriptGrid.ts tailGap), so its
