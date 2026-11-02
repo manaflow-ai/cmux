@@ -182,6 +182,7 @@ declare namespace Cmux {
   type HistoryRestoreResult = { restored: number }
   type HistoryTrailLocation = { machine: string; tab: string; title: string; page?: string; workspace?: string; workspace_title?: string; pane?: string; screen?: string; room?: string; content?: string; machine_name?: string; url?: string; cwd?: string }
   type HistoryTrailRecordResult = { id?: string; recorded: boolean }
+  type HistoryUntitledTitles = { chat?: string; terminal?: string }
   type HistoryVisitImportResult = { imported: number }
   type HistoryVisitRecordResult = { id: string }
   type HistoryVisitSummary = { url: string; title: string | null; visit_count: number; last_visit_ms: string }

@@ -83,6 +83,19 @@ impl UntitledTitles {
     pub fn is_empty(&self) -> bool {
         self.chat.is_none() && self.terminal.is_none()
     }
+
+    /// The title the client shows for `entry` when the row has none: a closed
+    /// agent chat (a closed tab with an agent session or harness, Swift
+    /// `HistoryService.closedAgentSession`) shows the chat title, every other
+    /// untitled closed row the terminal title. None for a titled row, another
+    /// kind, or a title the client did not send.
+    pub fn shown_title(&self, entry: &HistoryEntry) -> Option<&str> {
+        if entry.kind != HistoryKind::Closed || !entry.title.is_empty() {
+            return None;
+        }
+        let chat = entry.session_id.is_some() || entry.provider.is_some();
+        if chat { self.chat.as_deref() } else { self.terminal.as_deref() }
+    }
 }
 
 impl HistoryQuery {
@@ -123,7 +136,7 @@ pub fn apply(
             is_displayable(entry, &is_directory)
                 && query.wants(entry.kind)
                 && bounds.is_none_or(|(start, end)| start <= entry.at_ms && entry.at_ms <= end)
-                && matches(&search_text(entry), &tokens)
+                && matches(&searchable_text(entry, &query.untitled), &tokens)
         })
         .cloned()
         .collect();
@@ -132,6 +145,16 @@ pub fn apply(
         matched.truncate(limit);
     }
     matched
+}
+
+/// The entry's search text, and the title the client shows for an untitled row.
+fn searchable_text(entry: &HistoryEntry, untitled: &UntitledTitles) -> String {
+    let mut text = search_text(entry);
+    if let Some(title) = untitled.shown_title(entry) {
+        text.push(' ');
+        text.push_str(title);
+    }
+    text
 }
 
 /// True when every folded token is a substring of the folded `haystack`.

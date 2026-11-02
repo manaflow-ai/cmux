@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use cmux_history::{
-    HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal, VisitStores,
+    HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal, UntitledTitles,
+    VisitStores,
 };
 use serde_json::{Map, Value, json};
 
@@ -77,8 +78,38 @@ pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, Resourc
         },
         range: range(fields, false)?,
         limit: Some(limit),
-        untitled: cmux_history::UntitledTitles::default(),
+        untitled: untitled_titles(fields)?,
     })
+}
+
+/// The longest localized title `untitled_titles` takes.
+const MAX_UNTITLED_TITLE: usize = 256;
+
+/// `untitled_titles`: the client's localized titles of untitled closed rows
+/// (`chat`, `terminal`), each a string of 1 to 256 bytes; omitted or null: none.
+fn untitled_titles(fields: &Map<String, Value>) -> Result<UntitledTitles, ResourceError> {
+    const REASON: &str = "untitled_titles takes chat and terminal, strings of 1 to 256 bytes";
+    let object = match fields.get("untitled_titles") {
+        None | Some(Value::Null) => return Ok(UntitledTitles::default()),
+        Some(Value::Object(object)) => object,
+        Some(_) => return Err(invalid("untitled_titles", REASON)),
+    };
+    let mut titles = UntitledTitles::default();
+    for (key, value) in object {
+        let slot = match key.as_str() {
+            "chat" => &mut titles.chat,
+            "terminal" => &mut titles.terminal,
+            _ => return Err(invalid("untitled_titles", REASON)),
+        };
+        match value {
+            Value::Null => {}
+            Value::String(text) if !text.is_empty() && text.len() <= MAX_UNTITLED_TITLE => {
+                *slot = Some(text.clone());
+            }
+            _ => return Err(invalid("untitled_titles", REASON)),
+        }
+    }
+    Ok(titles)
 }
 
 pub(super) fn kinds(fields: &Map<String, Value>) -> Result<Vec<HistoryKind>, ResourceError> {
@@ -379,4 +410,41 @@ pub(super) fn with_stores<T>(
         let _ = shared.stores.prune(now);
     }
     body(&mut shared.stores)
+}
+
+#[cfg(test)]
+mod untitled_titles_tests {
+    use super::*;
+
+    fn parse(value: Value) -> Result<UntitledTitles, ResourceError> {
+        let fields = json!({"untitled_titles": value});
+        untitled_titles(fields.as_object().unwrap())
+    }
+
+    /// The list request carries the client's localized titles into the query; a bad
+    /// value is refused where it enters, not ignored.
+    #[test]
+    fn list_query_takes_the_localized_untitled_titles() {
+        let fields = json!({"text": "konsole",
+            "untitled_titles": {"chat": "Assistent", "terminal": "Konsole"}});
+        let parsed = query(fields.as_object().unwrap()).unwrap();
+        assert_eq!(parsed.untitled.chat.as_deref(), Some("Assistent"));
+        assert_eq!(parsed.untitled.terminal.as_deref(), Some("Konsole"));
+        assert!(query(json!({}).as_object().unwrap()).unwrap().untitled.is_empty());
+        assert!(parse(Value::Null).unwrap().is_empty());
+        assert_eq!(
+            parse(json!({"chat": null, "terminal": "T"})).unwrap().terminal.as_deref(),
+            Some("T")
+        );
+        for bad in [
+            json!("Agent"),
+            json!({"chat": ""}),
+            json!({"chat": 3}),
+            json!({"page": "Page"}),
+            json!({"terminal": "x".repeat(MAX_UNTITLED_TITLE + 1)}),
+        ] {
+            let error = parse(bad.clone()).unwrap_err();
+            assert_eq!(error.code, "validation.invalid", "{bad}");
+        }
+    }
 }
