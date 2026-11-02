@@ -119,6 +119,14 @@ class OwnedPoolSources(unittest.TestCase):
         source = rescue_tree.read(sources.RESCUE_SCRIPT) if rescue_tree is not None else None
         cls.watched = sources.watched_paths(source) if source is not None else None
         cls.unrescued = sources.unrescued_paths(source) if source is not None else frozenset()
+        # Either copy may acknowledge an unrescued workflow (feat-cmux-next #30867 accepts main's on its side). An
+        # unrescued entry changes no behaviour, since the rescue acts only on watched paths, and watched paths
+        # still come from main's copy, the one that runs. feat-cmux-next's copy lists the workflows that read
+        # vars.RUNNER_POOLS.linux there (feat-cmux-next #30878).
+        for tree in cls.trees:
+            own = tree.read(sources.RESCUE_SCRIPT)
+            if own is not None and sources.UNRESCUED_NAME in own:
+                cls.unrescued = cls.unrescued | sources.unrescued_paths(own)
         cls.owned = {str(tree): sources.owned_workflows(tree) for tree in cls.trees}
 
     def test_the_other_branch_is_read(self) -> None:
