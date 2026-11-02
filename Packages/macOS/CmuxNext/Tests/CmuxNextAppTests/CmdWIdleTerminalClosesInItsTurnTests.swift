@@ -163,6 +163,45 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// (Review of #31875, #29409 again) A second Cmd-W during the read (a double press, a key repeat) closes the
+    /// neighbour the hide shows at once, and the keys held for the first close keep waiting: they never run in that
+    /// neighbour, and after Cancel the line comes back whole to the terminal that stays.
+    @Test func aSecondCmdWDuringTheReadKeepsTheHeldKeysForTheAnswer() async throws {
+        try await Self.withFocusedTerminal { t in
+            try await Self.input("cat\r", t)
+            try await Self.waitRunning("cat", t)
+            var neighbours: [TabModel] = []
+            for _ in 0..<2 {
+                let surface = try await t.connection.newTab(in: t.pane.pane.handle).surface
+                try await PinnedPageTests.until({ t.store.tab(surface: surface).map { t.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+                neighbours.append(try #require(t.store.tab(surface: surface)))
+            }
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            let window = try #require(t.pane.view.window)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try Self.press("w", .command, keyCode: 13, in: window, t)
+            try await Self.turns()
+            for character in "dw\(nonce)" { try Self.press(String(character), in: window, t) }
+            try Self.press("w", .command, keyCode: 13, in: window, t) // the second, quick Cmd-W
+            for character in "x\r" { try Self.press(String(character), keyCode: character == "\r" ? 36 : 0, in: window, t) }
+            try await Self.turns()
+            for neighbour in neighbours {
+                let screen = (try? await t.connection.request(ReadScreenRequest(surface: neighbour.surface), timeout: .seconds(5)))?.text ?? ""
+                #expect(!screen.contains("dw\(nonce)"), "keys held for the first close ran in a neighbour: \(screen.suffix(300))")
+            }
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            let back = try? await t.connection.request(WaitForTextRequest(surface: t.tab.surface, pattern: "dw\(nonce)", timeoutMs: 10_000),
+                                                       timeout: .seconds(15))
+            #expect(back?.matched == true, "the keys held for the first close did not come back to the terminal that stays")
+        }
+    }
+
     // MARK: Fixture
 
     private struct Terminal {
