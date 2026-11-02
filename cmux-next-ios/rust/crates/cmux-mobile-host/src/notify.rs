@@ -453,16 +453,36 @@ pub struct Reporter {
     wants: Arc<Mutex<Wants>>,
     /// Paired phones that gave a push key get the content sealed (`sealed_notify.rs`).
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+    /// The live per-chat exposure policy.  This is read again in the spawned
+    /// send task, immediately before the HTTP request, so an OFF transition
+    /// cannot race the token or sealing awaits.
+    session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 impl Reporter {
     pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None }
+        Self {
+            base_url,
+            device_id,
+            tokens,
+            wants: Arc::default(),
+            sealer: None,
+            session_exposure: None,
+        }
     }
 
     /// With the sealer of a supervised hostd.
     pub fn with_sealer(mut self, sealer: Option<Arc<crate::sealed_notify::Sealer>>) -> Self {
         self.sealer = sealer;
+        self
+    }
+
+    /// With the live per-chat exposure policy owned by the supervised host.
+    pub fn with_session_exposure(
+        mut self,
+        session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    ) -> Self {
+        self.session_exposure = session_exposure;
         self
     }
 
@@ -488,6 +508,13 @@ impl Reporter {
                 Some(sealer) => sealer.body(body).await,
                 None => body,
             };
+            // Re-read after all fallible awaits.  Remote Control can be turned
+            // off while a token or push-key lookup is pending.
+            if let Some(exposure) = this.session_exposure.as_ref()
+                && !exposure_allows(&exposure.borrow(), &event)
+            {
+                return tracing::debug!(kind = event.kind, "push skipped: chat is not exposed");
+            }
             match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
@@ -502,6 +529,23 @@ impl Reporter {
     }
 }
 
+/// Whether a notification may leave the Mac under the current per-chat policy.
+/// Terminal program notifications remain a legacy Mac-wide surface; an
+/// agent-derived terminal hook without a session binding fails closed once a
+/// per-chat policy is configured.
+fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent) -> bool {
+    if !state.available {
+        return false;
+    }
+    if event.session_id.as_deref().is_some_and(|id| state.blocked.contains(id)) {
+        return false;
+    }
+    if state.configured && event.session_id.is_none() && event.agent.as_deref() != Some("Terminal") {
+        return false;
+    }
+    true
+}
+
 /// Runs until the process stops: watch acpmux and the daemon's notifications, report events, reconnect.
 pub async fn run(
     base_url: String,
@@ -512,7 +556,9 @@ pub async fn run(
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
     session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) {
-    let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
+    let reporter = Reporter::new(base_url, device_id, tokens)
+        .with_sealer(sealer)
+        .with_session_exposure(session_exposure.clone());
     let places = Arc::new(Places::default());
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
@@ -632,6 +678,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::SessionExposure;
     use crate::notify_content::PlaceMap;
     use cmux_mobile_link::api::{NotifyChoice, NotifyQuestion};
 
@@ -640,6 +687,30 @@ mod tests {
             {"sessionId":"s1","harness":"claude-code","cwd":"/Users/me/secret-dir/cmuxterm-hq","name":"fix the bug"},
             {"sessionId":"c1","harness":"chief","cwd":"/Users/me"}
         ]})
+    }
+
+    #[test]
+    fn exposure_policy_blocks_disabled_chat_and_unbound_agent_hooks() {
+        let state = SessionExposure {
+            configured: true,
+            blocked: ["chat-off".to_owned()].into_iter().collect(),
+            ..SessionExposure::default()
+        };
+        let blocked = NotifyEvent { session_id: Some("chat-off".into()), ..NotifyEvent::default() };
+        assert!(!exposure_allows(&state, &blocked));
+
+        let unbound_agent = NotifyEvent { agent: Some("Claude".into()), ..NotifyEvent::default() };
+        assert!(!exposure_allows(&state, &unbound_agent));
+
+        let terminal = NotifyEvent { agent: Some("Terminal".into()), ..NotifyEvent::default() };
+        assert!(exposure_allows(&state, &terminal));
+    }
+
+    #[test]
+    fn exposure_policy_unavailable_fails_closed_for_every_notification() {
+        let state = SessionExposure { available: false, configured: true, ..SessionExposure::default() };
+        let event = NotifyEvent { session_id: Some("chat".into()), ..NotifyEvent::default() };
+        assert!(!exposure_allows(&state, &event));
     }
 
     #[test]

@@ -266,6 +266,7 @@ async fn reply_to_notification_with_exposure(
             if !has_capability(&identify, SEND_EXPECT_AGENT) {
                 return Err(refused("update cmux on this Mac to reply to an agent from a notification"));
             }
+            exposure_allows(session_exposure, Some(&session))?;
             let Some(answer) = lines
                 .call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program, &session))
                 .await?
@@ -280,6 +281,7 @@ async fn reply_to_notification_with_exposure(
     // as the final exposure key before the first terminal write.
     exposure_allows(session_exposure, target_session)?;
     for line in terminal_lines(found, text, &program) {
+        exposure_allows(session_exposure, target_session)?;
         let answer = lines.call_daemon(&policy, &line).await?;
         if let Some(why) = failed(&answer) {
             return Err(refused(why));
@@ -448,13 +450,7 @@ fn failed(reply: &Value) -> Option<String> {
 
 impl LiveApplier {
     fn exposure_allows(&self, session: Option<&str>) -> Result<(), Rejection> {
-        if let (Some(session), Some(exposure)) = (session, &self.session_exposure) {
-            let state = exposure.borrow().clone();
-            if !state.available || state.blocked.contains(session) {
-                return Err(refused("this chat is not exposed to iPhone Remote Control"));
-            }
-        }
-        Ok(())
+        exposure_allows(self.session_exposure.as_ref(), session)
     }
     async fn respond(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
@@ -716,6 +712,27 @@ mod tests {
         json!({"permissionId": "p1", "request": {"options": [
             {"optionId": "allow", "kind": "allow_once"}, {"optionId": "always", "kind": "allow_always"},
             {"optionId": "no", "kind": "reject_once"}]}})
+    }
+
+    #[test]
+    fn an_info_answer_must_name_a_canonical_session() {
+        assert_eq!(resolved_session(&json!({"sessionId": "s-canonical"})).unwrap(), "s-canonical");
+        assert!(resolved_session(&json!({"sessionId": ""})).is_err());
+        assert!(resolved_session(&json!({"pending": []})).is_err());
+    }
+
+    #[test]
+    fn exposure_checks_use_the_resolved_session_id() {
+        let (tx, exposure) = tokio::sync::watch::channel(crate::control::SessionExposure {
+            available: true,
+            configured: true,
+            allowed: Default::default(),
+            blocked: ["s-canonical".to_owned()].into_iter().collect(),
+        });
+        assert!(exposure_allows(Some(&exposure), Some("s-canonical")).is_err());
+        assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_ok());
+        tx.send_replace(crate::control::SessionExposure { available: false, ..exposure.borrow().clone() });
+        assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_err());
     }
 
     #[test]
