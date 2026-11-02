@@ -69,7 +69,7 @@ def make_film(path, flash=False):
 def record():
     wall = lambda t: START + t + OFFSET
     return {"cycle": 1, "how": "kill-app", "screen": {"w": W, "h": H, "scale": 1, "hz": 60},
-            "record_started_wall": START,
+            "record_started_wall": START, "sync_method": "CGWarpMouseCursorPosition",
             "sync": [{"x": x, "y": 11, "sent_wall": wall(t) - 0.010, "done_wall": wall(t) + 0.004} for t, x in JUMPS],
             "end_wall": wall(END), "gone_wall": wall(GONE), "open_wall": wall(PROC - 0.2),
             "process_start_wall": wall(PROC), "main_wall": wall(MAIN),

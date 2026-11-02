@@ -74,6 +74,23 @@ def box(rect, scale, shape, inset=0):
     return slice(max(0, y0), min(h, y1)), slice(max(0, x0), min(w, x1))
 
 
+def shifted_share(frame, ref, sl, mask, reach=6):
+    """changed_share of the pane against its last frame, the least over shifts of up to REACH film pixels (a pane
+    whose layout settles by a few pixels still shows its own content; another text of the same density does not)."""
+    best = 1.0
+    y, x = sl
+    h, w = frame.shape
+    for dy in range(-reach, reach + 1, 2):
+        for dx in range(-reach, reach + 1, 2):
+            ys, xs = slice(y.start + dy, y.stop + dy), slice(x.start + dx, x.stop + dx)
+            if ys.start < 0 or xs.start < 0 or ys.stop > h or xs.stop > w:
+                continue
+            best = min(best, changed_share(frame[ys, xs], ref[sl], mask))
+            if best < 0.01:
+                return best
+    return best
+
+
 def changed_share(a, b, mask=None):
     d = np.abs(a.astype(np.int16) - b.astype(np.int16)) > DIFF
     if mask is not None:
@@ -93,15 +110,20 @@ def is_glyph(frame, cell, scale, bg):
     return 0.06 <= ink <= 0.7
 
 
-def clock_offset(frames, record, scale):
-    """The film's offset to the wall clock from the cursor jumps: wall = record_started_wall + pts + offset."""
+def clock_offset(frames, record, scale, refresh_s=1 / 60.0):
+    """The film's offset to the wall clock: wall = record_started_wall + pts + offset. Each sync event bounds it:
+    an event between wall times [lo, hi] first seen in frame k (so after frame k-1) gives
+    offset in [lo - start - pts_k, hi - start - pts_(k-1)]. Events: the pointer's arrivals at new points (a warp
+    is drawn up to one refresh after its call returns) and the reopened app's front-app switch on the menu bar."""
     start = record.get("record_started_wall")
     sync = record.get("sync") or []
-    if not start or not sync or len(frames) < 3:
-        return None, None, "no sync moves"
-    lows, highs, seen = [], [], []
+    if not start or len(frames) < 3:
+        return None, None, "no film clock"
+    cursor = []
     visited = set()
-    for move in sync:
+    # Kit v1 records (no sync_method) moved the pointer with CuaDriver's slow, animated move_cursor and left it at a
+    # sync point between cycles: those arrivals are not clean events.
+    for move in (sync if record.get("sync_method") else []):
         # Only an ARRIVAL at a point never visited before in this film is a clean event (a revisited point's
         # region also changes when the pointer leaves it).
         if move["x"] in visited:
@@ -109,54 +131,39 @@ def clock_offset(frames, record, scale):
         visited.add(move["x"])
         r = {"x": move["x"] - 10, "y": max(0, move["y"] - 10), "w": 24, "h": 24}
         sl = box(r, scale, frames[0][1].shape)
-        hit = None
         for k in range(1, len(frames)):
             t = frames[k][0] + start
-            if t < move["sent_wall"] - 2.0:
+            if t < move["sent_wall"] - 1.0:
                 continue
             a, b = frames[k - 1][1][sl], frames[k][1][sl]
-            if a.size and float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > 6.0 and t >= move["sent_wall"] - 1.0:
-                hit = k
+            if a.size and float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > 6.0:
+                cursor.append((move["sent_wall"] - start - frames[k][0],
+                               move["done_wall"] + refresh_s - start - frames[k - 1][0]))
                 break
-        if hit is None:
-            continue
-        # The jump happened between the sent and done wall times, and the film first shows it at frame `hit`
-        # (so after frame hit-1): offset in [sent - start - pts_hit, done - start - pts_(hit-1)].
-        lows.append(move["sent_wall"] - start - frames[hit][0])
-        highs.append(move["done_wall"] - start - frames[hit - 1][0])
-        seen.append(hit)
-    # The front-app switch: when the reopened app became the front app (lsappinfo polled between front_prev_wall
-    # and front_wall), the menu bar's app menus (its left part) change on film.
+    front = None
     if record.get("front_wall") and record.get("process_start_wall"):
         fprev = record.get("front_prev_wall") or record["front_wall"] - 0.05
+        fdone = record.get("front_done_wall") or record["front_wall"] + 0.034
         menu = (slice(0, int(24 * scale)), slice(0, int(700 * scale)))
         # The old app's own end also changes the menu bar (to the Finder's), seconds earlier when pre-main is long:
         # look only from shortly before the front poll saw the switch (the film's offset is well under 0.4 s).
-        p0 = fprev - start - 0.4
+        p0 = max(fprev, record["front_wall"] - 0.3) - start - 0.4
         for k in range(1, len(frames)):
             if frames[k][0] < p0:
                 continue
             a, b = frames[k - 1][1][menu], frames[k][1][menu]
             if float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > 1.0:
-                # Drawn at or after the switch, and the frame before was still the old menu bar.
-                lows.append(fprev - start - frames[k][0])
-                highs.append(record["front_wall"] + 0.034 - start - frames[k - 1][0])
-                seen.append(k)
+                # Drawn at or after the switch (up to a refresh after the poll that saw it ended); the frame
+                # before still showed the old menu bar.
+                front = (fprev - start - frames[k][0], fdone + refresh_s - start - frames[k - 1][0])
                 break
-    if not lows:
+    events = cursor + ([front] if front else [])
+    if not events:
         return None, None, "no cursor jump or front-app switch seen on film"
-    lo, hi = max(lows), min(highs)
-    if lo > hi and len(lows) > 1 and record.get("front_wall"):
-        # The cursor events disagree with the front-app switch (a pointer already at a sync point from an earlier
-        # cycle shows its LEAVE as the first change): trust the front-app switch alone.
-        lo, hi = lows[-1], highs[-1]
-        if lo <= hi:
-            return (lo + hi) / 2, (hi - lo) / 2, "front-app switch only (the cursor jumps disagreed)"
-    if lo > hi:
-        # Inconsistent bounds (a jump drawn late): the widest consistent guess, flagged.
-        mid = (lo + hi) / 2
-        return mid, abs(lo - hi) / 2, f"sync bounds cross by {round((lo - hi) * 1000, 1)} ms ({len(lows)} jumps)"
-    return (lo + hi) / 2, (hi - lo) / 2, f"{len(lows)} sync events (cursor jumps and the front-app switch)"
+    lo, hi = max(e[0] for e in events), min(e[1] for e in events)
+    if lo <= hi:
+        return (lo + hi) / 2, (hi - lo) / 2, f"{len(cursor)} cursor arrivals + {'the' if front else 'no'} front-app switch"
+    return (lo + hi) / 2, abs(lo - hi) / 2, f"SYNC BOUNDS CROSS by {round((lo - hi) * 1000, 1)} ms ({len(events)} events): clock not trusted"
 
 
 def frame_index_at(frames, film_t):
@@ -186,7 +193,7 @@ def judge_cycle(record, movie, frames_out=None):
     scale = vw / float(screen.get("w") or vw)
     hz = float(screen.get("hz") or 60) or 60.0
     refresh_ms = 1000.0 / hz
-    offset, err, sync_note = clock_offset(frames, record, scale)
+    offset, err, sync_note = clock_offset(frames, record, scale, 1.0 / hz)
     start = record.get("record_started_wall")
     to_film = (lambda wall: wall - start - (offset or 0.0)) if start else None
     main_wall = record.get("main_wall") or record.get("process_start_wall")
@@ -229,6 +236,10 @@ def judge_cycle(record, movie, frames_out=None):
                 window_t = p
                 break
     out["window_ms"] = ms_of(window_t) if window_t is not None else None
+    # The film shows a change at most one film frame late: the gap to the frame before each event.
+    gaps = [round((b[0] - a[0]) * 1000, 1) for a, b in zip(frames, frames[1:])]
+    out["film"]["max_gap_ms"] = max(gaps) if gaps else None
+    out["film"]["median_gap_ms"] = sorted(gaps)[len(gaps) // 2] if gaps else None
     # (2) each pane back to its last content (the marker cell and the cursor cell masked).
     key_times = [to_film(m["key_sent_wall"]) for m in record.get("markers") or [] if m.get("key_sent_wall")]
     first_key = min(key_times) if key_times else None
@@ -258,7 +269,8 @@ def judge_cycle(record, movie, frames_out=None):
             part = f[sl]
             share = changed_share(part, ref_pane, mask)
             ink = float((np.abs(part.astype(np.int16) - bg) > DIFF)[mask].mean())
-            if visible is None and ref_ink > 0 and ink >= (0.6 if animated else 0.8) * ref_ink and (animated or share < 0.25):
+            if visible is None and ref_ink > 0 and ink >= (0.6 if animated else 0.8) * ref_ink and (
+                    animated or share < MATCH_SHARE or shifted_share(f, ref, sl, mask) < 0.05):
                 visible = p
             if exact is None:
                 worst = share if worst is None else min(worst, share)
@@ -277,21 +289,29 @@ def judge_cycle(record, movie, frames_out=None):
                        "trace": inks}
     # (3) each marker's echo: after its key and once its pane matches its last content (marker cells masked), the
     # first frame whose marker cell differs from the last frame before the end.
-    for m in record.get("markers") or []:
+    markers = record.get("markers") or []
+    for n, m in enumerate(markers):
         cell, pane = m.get("cell"), m.get("pane")
         if not cell or pane not in panes:
             continue
         c = box(cell, scale, shape)
         sl, mask = masks[pane]
         k0 = to_film(m["key_sent_wall"])
+        # The search ends when the next marker's click or key goes out (its key could land in this pane).
+        later = [x.get("click_sent_wall") or x.get("key_sent_wall") for x in markers[n + 1:]]
+        k1 = to_film(min(later)) if later and None not in later else float("inf")
         echo = None
-        for i, p, f in after_launch:
-            if p < k0 or changed_share(f[sl], ref[sl], mask) >= MATCH_SHARE:
-                continue
-            if is_glyph(f, cell, scale, bgs[pane]):
-                echo = p
-                break
-        panes[pane].update(key_sent_ms=ms_of(k0), key_path=m.get("key_path"), echo_ms=ms_of(echo) if echo is not None else None,
+        if is_glyph(ref, cell, scale, bgs[pane]):
+            panes[pane]["echo_invalid"] = "the marker cell already held a character before the end"
+        else:
+            for i, p, f in after_launch:
+                if p < k0 or p >= k1 or changed_share(f[sl], ref[sl], mask) >= MATCH_SHARE:
+                    continue
+                if (is_glyph(f, cell, scale, bgs[pane])
+                        and float(np.abs(f[c].astype(np.int16) - ref[c].astype(np.int16)).mean()) > ECHO_LEVEL):
+                    echo = p
+                    break
+        panes[pane].update(key_sent_ms=ms_of(k0), key_path=m.get("key_path"), received=m.get("received"), echo_ms=ms_of(echo) if echo is not None else None,
                            key_to_echo_ms=round((echo - k0) * 1000, 1) if echo is not None else None,
                            focused_before=m.get("focused_before"))
     out["panes"] = panes
@@ -352,6 +372,8 @@ def verdict(row):
         return [row["error"]]
     panes = row.get("panes") or {}
     window = row.get("window_ms")
+    if "CROSS" in str((row.get("clock") or {}).get("note")):
+        return [f"NOT JUDGED: {(row.get('clock') or {}).get('note')}"]
     if window is None:
         fails.append("no window frame on film after the launch")
     for pane, p in sorted(panes.items()):
@@ -368,6 +390,9 @@ def verdict(row):
         fails.append(f"every visible terminal's last content at {worst} ms after main() > {CONTENT_TARGET_MS:.0f} ms")
     precise = all((p.get("key_path") or "").startswith("CGEventPost") for p in panes.values() if p.get("key_sent_ms") is not None)
     echo = row.get("all_echo_ms")
+    for pane, p in sorted(panes.items()):
+        if p.get("received") is not None and p["received"] != 1:
+            fails.append(f"pane {pane[-8:]}: received {p['received']} marker keys, not 1 (a key went to another pane)")
     if precise and echo is None and any(p.get("key_sent_ms") is not None for p in panes.values()):
         fails.append("a marker key typed into a visible terminal never echoed on film (a lost key)")
     elif precise and echo is not None and echo > INTERACTIVE_TARGET_MS:

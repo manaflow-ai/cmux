@@ -141,7 +141,7 @@ def _wid(window):
 
 SCREEN_JXA = """
 ObjC.import('AppKit');
-const s = $.NSScreen.mainScreen; const f = s.frame;
+const s = $.NSScreen.screens.objectAtIndex(0); const f = s.frame;
 JSON.stringify({w: f.size.width, h: f.size.height, scale: s.backingScaleFactor,
   hz: s.maximumFramesPerSecond === undefined ? null : s.maximumFramesPerSecond});
 """
@@ -187,7 +187,14 @@ _LIBPROC = None
 def _libproc():
     global _LIBPROC
     if _LIBPROC is None:
-        _LIBPROC = ctypes.CDLL("/usr/lib/libproc.dylib")
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+        lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        lib.proc_pidinfo.restype = ctypes.c_int
+        lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        lib.proc_pidpath.restype = ctypes.c_int
+        lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.proc_listallpids.restype = ctypes.c_int
+        _LIBPROC = lib
     return _LIBPROC
 
 
@@ -221,7 +228,7 @@ def find_new_app(executable, old, timeout):
         for pid in _all_pids():
             if pid != old and _pid_path(pid) == executable:
                 return pid
-        time.sleep(0.005)
+        time.sleep(0.02)
     return None
 
 
@@ -292,6 +299,18 @@ def can_post_events():
 
 
 KEYCODE_X = 7  # kVK_ANSI_X
+
+
+def post_click(x, y):
+    """A HID left click at screen point (x, y) (the pointer warps there first)."""
+    cg = _cg()
+    cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, CGPoint, ctypes.c_uint32]
+    cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+    warp(x, y)
+    for kind in (1, 2):  # kCGEventLeftMouseDown, kCGEventLeftMouseUp
+        ev = cg.CGEventCreateMouseEvent(None, kind, CGPoint(x, y), 0)
+        cg.CGEventPost(0, ev)
+        cg.CFRelease(ev)
 
 
 def post_key(keycode=KEYCODE_X):
@@ -423,12 +442,15 @@ def exact_state(j):
     terms = _visible_terminals(j)
     topo = j.topology()
     # debug.surfaces' terminal_id is the view's; the daemon's terminal id is the topology's (pane -> shown tab).
-    daemon_of = {}
+    by_tab, by_pane = {}, {}
     for _ws, pane, tab, term in j.places(topo):
-        if term and (pane.get("selected_tab") in (None, tab.get("id")) or pane.get("id") not in daemon_of):
-            daemon_of[pane.get("id")] = term
+        if term:
+            by_tab[tab.get("id")] = term
+            by_pane.setdefault(pane.get("id"), []).append(term)
     for t in terms:
-        t["terminal"] = daemon_of.get(t["pane"]) or t.get("terminal")
+        # The pane's SHOWN tab's terminal; a pane with one terminal tab when the tab id is not in the topology.
+        only = by_pane.get(t["pane"]) or []
+        t["terminal"] = by_tab.get(t.get("shown_tab")) or (only[0] if len(only) == 1 else None)
     state = {
         "app_pid": j.app.pid,
         "windows": [{"id": w.get("id"), "selected": w.get("selected"), "workspaces": w.get("workspaces"),
@@ -505,7 +527,9 @@ def state_differences(before, after):
         if _screen_lines(before["screens"].get(pane)) != _screen_lines(after["screens"].get(pane)):
             out.append(f"pane {pane[-8:]} screen text differs")
         bh, ah = before["history"].get(pane) or {}, after["history"].get(pane) or {}
-        if bh.get("total") != ah.get("total") or bh.get("tail") != ah.get("tail"):
+        if bh.get("error") or ah.get("error") or not bh or not ah:
+            out.append(f"pane {pane[-8:]} scrollback unreadable (before: {str(bh.get('error'))[:80]}, after: {str(ah.get('error'))[:80]})")
+        elif bh.get("total") != ah.get("total") or bh.get("tail") != ah.get("tail"):
             out.append(f"pane {pane[-8:]} scrollback {bh.get('total')} rows -> {ah.get('total')} rows"
                        + (" (tail differs)" if bh.get("tail") != ah.get("tail") else ""))
     for pane in av:
@@ -628,11 +652,9 @@ def _reopen(j, record, env):
     """`open -a` the same bundle, active (a Dock click brings it to the front the same way); the new pid from the
     kernel's process list, its start, and when it became the front app. No socket read."""
     app, old = j.app, j.app.pid
-    executable = None
-    for name in os.listdir(os.path.join(app.bundle, "Contents", "MacOS")):
-        path = os.path.join(app.bundle, "Contents", "MacOS", name)
-        if os.access(path, os.X_OK) and not name.endswith(".dylib"):
-            executable = executable or path
+    import plistlib
+    with open(os.path.join(app.bundle, "Contents", "Info.plist"), "rb") as f:
+        executable = os.path.join(app.bundle, "Contents", "MacOS", plistlib.load(f)["CFBundleExecutable"])
     argv = ["/usr/bin/open", "-n", "-a", app.bundle]
     for key, value in env.items():
         argv += ["--env", f"{key}={value}"]
@@ -647,14 +669,16 @@ def _reopen(j, record, env):
     record["new_pid"] = pid
     record["process_start_wall"] = process_start(pid)
     end = time.monotonic() + FRONT_TIMEOUT
-    prev = time.time()
+    prev = record["open_wall"]
     while time.monotonic() < end:
         now_wall = time.time()
-        if front_pid() == pid:
-            record["front_prev_wall"], record["front_wall"] = prev, now_wall
+        front = front_pid()
+        if front == pid:
+            # The switch happened after the last poll that did not see it began, and before this poll ended.
+            record["front_prev_wall"], record["front_wall"], record["front_done_wall"] = prev, now_wall, time.time()
             break
         prev = now_wall
-        time.sleep(0.005)
+        time.sleep(0.02)
     else:
         record["front_wall"] = None
     return pid
@@ -674,7 +698,11 @@ def _type_markers(j, cua, pid, before, rects, record):
         record["markers_error"] = "the reopened app showed no window"
         return marks
     record["window_listed_wall"] = time.time()
-    wid = _wid(windows[0])
+    # The app's main window (its helper windows are layer 0 too, a few points wide): the largest of the new pid.
+    server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == pid])
+    main = max(server, key=lambda w: w["w"] * w["h"]) if server else None
+    wid = int(main["number"]) if main else _wid(windows[0])
+    record["marker_window"] = main
     terms = before["visible_terminals"]
     order = [t for t in terms if t["focused"]] + [t for t in terms if not t["focused"]]
     for index, t in enumerate(order):
@@ -685,10 +713,15 @@ def _type_markers(j, cua, pid, before, rects, record):
         mark = {"pane": t["pane"], "focused_before": t["focused"], "cell": cell}
         if index > 0:
             # A click in the pane's lower half, on its text area (window points from the window's top-left).
-            server = max(before["server_windows"], key=lambda w: w["w"] * w["h"]) if before["server_windows"] else {"x": 0, "y": 0}
-            cx, cy = rect["x"] + rect["w"] / 2 - server["x"], rect["y"] + rect["h"] * 0.6 - server["y"]
+            sx, sy = rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] * 0.6
+            origin = main or {"x": 0, "y": 0}
             mark["click_sent_wall"] = time.time()
-            cua.tool("click", {"pid": pid, "window_id": wid, "x": cx, "y": cy}, check=False)
+            if record.get("can_post_events"):
+                post_click(sx, sy)
+                mark["click_path"] = "CGEventPost HID"
+            else:
+                cua.tool("click", {"pid": pid, "window_id": wid, "x": sx - origin["x"], "y": sy - origin["y"]}, check=False)
+                mark["click_path"] = "cua click"
             mark["click_done_wall"] = time.time()
         if record.get("can_post_events"):
             mark["key_sent_wall"], mark["key_done_wall"] = post_key()
@@ -704,21 +737,24 @@ def _type_markers(j, cua, pid, before, rects, record):
 
 def _clean_markers(j, before, marks):
     """Removes the marker characters (Ctrl-U to each shell through the daemon) and gives focus back to the pane
-    that had it, so the next cycle starts from the same state."""
-    for mark in marks:
-        t = next((x for x in before["visible_terminals"] if x["pane"] == mark["pane"]), None)
-        if t and t.get("terminal"):
-            try:
-                j.app.cmux("terminal", t["terminal"], "write", "--text", "\u0015")
-            except D.StepError:
-                pass
+    that had it, so the next cycle starts from the same state; returns the errors (recorded, never hidden)."""
+    errors = []
+    for t in before["visible_terminals"]:
+        if not t.get("terminal"):
+            errors.append(f"pane {t['pane'][-8:]}: no daemon terminal to clean")
+            continue
+        try:
+            j.app.cmux("terminal", t["terminal"], "write", "--text", "\u0015")
+        except D.StepError as error:
+            errors.append(f"pane {t['pane'][-8:]}: {str(error)[-160:]}")
     focused = next((t for t in before["visible_terminals"] if t["focused"]), None)
     if focused:
         try:
             j.app.cmux("pane", focused["pane"], "focus")
-        except D.StepError:
-            pass
+        except D.StepError as error:
+            errors.append(f"focus {focused['pane'][-8:]}: {str(error)[-160:]}")
     time.sleep(0.4)
+    return errors
 
 
 def _settle(j, timeout=20):
@@ -800,6 +836,7 @@ def step_reopen_video(j, step):
             cua.close()
         settled = _settle(j)
         record["settled"] = settled
+        record["pid_matches"] = record.get("new_pid") == j.app.pid
         try:
             timings = j.app.rpc("debug.timings", timeout=10) or {}
         except (D.StepError, OSError, ValueError):
@@ -816,8 +853,13 @@ def step_reopen_video(j, step):
         after = exact_state(j)
         record["after"] = after
         record["after_pane_rects"] = pane_rects(after)
+        # Where each marker key went: the screens after hold one more "x" after the prompt per key received.
+        for mark in record.get("markers") or []:
+            b = (before["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
+            a = (after["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
+            mark["received"] = len(a.rstrip()) - len(b.rstrip())
         # The marker keys are in the screens after; judged by the video. Exactness compares the state without them.
-        _clean_markers(j, before, record.get("markers") or [])
+        record["clean_errors"] = _clean_markers(j, before, record.get("markers") or [])
         cleaned = exact_state(j)
         record["differences"] = state_differences(before, cleaned)
         record["cleaned"] = cleaned
