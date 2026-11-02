@@ -80,6 +80,8 @@ use crate::surface::{AttachFrame, AttachFrameReceiver, AttachLifecycle, ViewerEv
 use crate::{Mux, Surface, SurfaceId};
 
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
+/// `set-attach-visibility`: a snapshot viewer that does not show its terminal gets output once per wall-clock second.
+pub const ATTACH_VISIBILITY_CAPABILITY: &str = "attach-visibility-v1";
 /// READY is followed by its history chunks (scrollback, then FINISH).
 pub const TERMINAL_SNAPSHOT_HISTORY_CAPABILITY: &str = "terminal-snapshot-history-v1";
 /// A resize reaches an opted-in viewer as a READY without history.
@@ -163,6 +165,27 @@ pub(crate) struct SnapshotHave {
     snapshot_version: Option<u16>,
 }
 
+/// `set-attach-visibility` (`attach-visibility-v1`): the caller's snapshot attach of `surface` shows the terminal
+/// (`visible`) or not. A hidden viewer gets its output once per wall-clock second (all hidden viewers of the daemon on
+/// the same second, as Chrome aligns a hidden page's timers), at once past a byte cap, before any snapshot, and at once
+/// when it is shown again.
+#[derive(Debug, Deserialize)]
+pub(crate) struct AttachVisibilityParams {
+    pub(super) surface: SurfaceId,
+    pub(super) visible: bool,
+}
+
+/// `set-attach-visibility`: `{viewers}` reached; 0 when the caller has no snapshot attach of the surface.
+pub(crate) fn set_visibility(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: AttachVisibilityParams,
+) -> anyhow::Result<Value> {
+    let viewers =
+        mux.control_clients.snapshot_viewers.set_visible(client, params.surface, params.visible);
+    Ok(json!({"viewers": viewers}))
+}
+
 /// `snapshot-request` (raw v12) and channel `snapshot_request`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SnapshotRequestParams {
@@ -209,6 +232,12 @@ impl SnapshotViewers {
                 viewers.remove(&(client, surface));
             }
         }
+    }
+
+    /// `set-attach-visibility`: every snapshot viewer of `surface` on `client` shows the terminal or not. Returns how
+    /// many viewers it reached.
+    pub(super) fn set_visible(&self, client: u64, surface: SurfaceId, visible: bool) -> usize {
+        self.gates(client, surface).iter().filter(|gate| gate.set_visible(visible)).count()
     }
 
     fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {

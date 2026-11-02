@@ -2288,6 +2288,8 @@ enum Command {
     },
     /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
     SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
+    /// The caller's snapshot attach of a surface shows it or not (`attach-visibility-v1`).
+    SetAttachVisibility(terminal_snapshot::AttachVisibilityParams),
     /// GHOSTSNP history pages above a row marker (`terminal.history`).
     TerminalHistory(terminal_history::TerminalHistoryParams),
     /// Text or VT of a row-marker range (`terminal.read_range`).

@@ -155,6 +155,9 @@ struct GateState {
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
     state: Arc<Mutex<GateState>>,
+    /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
+    /// output once per wall-clock second instead of per frame.
+    hidden: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl SnapshotRequestGate {
@@ -163,7 +166,20 @@ impl SnapshotRequestGate {
         Self {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
+            hidden: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    /// Whether the viewer said it does not show the terminal.
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden.load(Ordering::Acquire)
+    }
+
+    /// The viewer shows (`visible`) or no longer shows the terminal; its worker rereads it at once. Returns false
+    /// when the viewer is gone.
+    pub(crate) fn set_visible(&self, visible: bool) -> bool {
+        self.hidden.store(!visible, Ordering::Release);
+        self.handle.poke()
     }
 
     pub(crate) fn request(&self, now: Instant) -> SnapshotAdmission {

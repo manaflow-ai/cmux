@@ -1159,3 +1159,129 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
          CMUX_UPDATE_SNAPSHOT_FIXTURE=1 and review the diff"
     );
 }
+
+/// SWITCH FRAMES SF-5 C (busy gate on a 2x display, 2026-11-02): with 8 warm hidden terminals printing 20 lines/s,
+/// the Mac app woke about 115 times a second, because each hidden terminal's attach stream sent every output frame
+/// at once. A viewer that says it does not show its terminal (`set-attach-visibility`, `attach-visibility-v1`) gets
+/// its output batched to once per wall-clock second, at once when it is shown again, and loses no byte. What the
+/// person sees without the terminal (a title set by the program) still reaches the viewer within one batch window.
+#[test]
+fn a_hidden_snapshot_viewer_gets_output_once_a_second_and_at_once_when_shown() {
+    let mux = Mux::new_for_test("snapshot-hidden-batch", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("snapshot");
+    assert_eq!(first["event"], "snapshot", "{first}");
+    let mut offset = first["offset"].as_u64().unwrap();
+    // The READY's history chunks and any first scroll or colors event.
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        assert_ne!(event["event"], "output", "output before the test wrote any: {event}");
+    }
+
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["viewers"], 1, "{reply}");
+
+    // A busy program while hidden: a title, then 20 lines 100 ms apart.
+    let started = Instant::now();
+    surface.inject_output_for_test(b"\x1b]0;hidden-title\x07");
+    let mut output_events = 0;
+    let mut title_on_attach_at = None;
+    let mut collect = |outbound: &BoundedOutbound,
+                       until: Instant,
+                       output_events: &mut usize,
+                       offset: &mut u64| {
+        while Instant::now() < until {
+            let Some(event) = next_event(outbound, Duration::from_millis(5)) else { continue };
+            if event["event"] == "output" {
+                *output_events += 1;
+                *offset += decoded_len(&event);
+                assert_eq!(
+                    event["offset"].as_u64(),
+                    Some(*offset),
+                    "offsets are contiguous: {event}"
+                );
+                let data = base64::engine::general_purpose::STANDARD
+                    .decode(event["data"].as_str().unwrap())
+                    .unwrap();
+                if title_on_attach_at.is_none()
+                    && String::from_utf8_lossy(&data).contains("hidden-title")
+                {
+                    title_on_attach_at = Some(started.elapsed());
+                }
+            }
+        }
+    };
+    for line in 0..20 {
+        surface.inject_output_for_test(format!("hidden line {line}\r\n").as_bytes());
+        collect(
+            &outbound,
+            Instant::now() + Duration::from_millis(100),
+            &mut output_events,
+            &mut offset,
+        );
+    }
+    assert!(
+        output_events <= 3,
+        "{output_events} output events for 21 writes in 2 s to a hidden viewer: each wakes the app (want at most one per second)"
+    );
+    let title_at = title_on_attach_at.expect("the hidden viewer never got the title bytes");
+    assert!(
+        title_at <= Duration::from_millis(1_300),
+        "the title reached the hidden viewer after {title_at:?}: more than one batch window"
+    );
+
+    // Shown again: what waits goes out at once, not at the next second.
+    surface.inject_output_for_test(b"shown again\r\n");
+    std::thread::sleep(Duration::from_millis(20));
+    let shown_at = Instant::now();
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": true})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["viewers"], 1, "{reply}");
+    let mut flushed = false;
+    while shown_at.elapsed() < Duration::from_millis(250) {
+        if let Some(event) = next_event(&outbound, Duration::from_millis(5)) {
+            if event["event"] == "output" {
+                offset += decoded_len(&event);
+                assert_eq!(
+                    event["offset"].as_u64(),
+                    Some(offset),
+                    "offsets are contiguous: {event}"
+                );
+                flushed = true;
+            }
+        }
+    }
+    assert!(flushed, "a shown viewer got its waiting output only at the next second");
+    assert_eq!(offset, surface_offset(&mux, surface.id), "the viewer missed output bytes");
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// The daemon's output offset of `surface` (its snapshot digest's position).
+fn surface_offset(mux: &Mux, surface: crate::SurfaceId) -> u64 {
+    mux.surface(surface).expect("surface").snapshot_digest().expect("digest").offset
+}
