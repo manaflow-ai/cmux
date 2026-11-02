@@ -325,7 +325,7 @@ TimeoutStopSec=30
 [Install]
 WantedBy=default.target
 `;
-  const settleScript = `i=0; while [ "$i" -lt 30 ]; do status=$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null || true); pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then break; fi; i=$((i + 1)); sleep 1; done; status=$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null || true); pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null`;
+  const settleScript = `i=0; while [ "$i" -lt 30 ]; do status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null || true); pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then break; fi; i=$((i + 1)); sleep 1; done; status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null || true); pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null`;
   const settle = `XDG_RUNTIME_DIR="/run/user/$(id -u)" sh -c ${shellQuote(settleScript)}`;
   return [
     cmuxTuiLayoutSelector(),
