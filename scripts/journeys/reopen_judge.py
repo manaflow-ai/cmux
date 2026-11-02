@@ -133,7 +133,9 @@ def clock_offset(frames, record, scale, refresh_s=1 / 60.0):
         sl = box(r, scale, frames[0][1].shape)
         for k in range(1, len(frames)):
             t = frames[k][0] + start
-            if t < move["sent_wall"] - 1.0:
+            # Menu bar status items change too (seen on cmux20 at x 1560): look only from shortly before the jump
+            # (the film's offset to the wall clock is under 0.2 s in every cycle so far).
+            if t < move["sent_wall"] - 0.5:
                 continue
             a, b = frames[k - 1][1][sl], frames[k][1][sl]
             if a.size and float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > 6.0:
@@ -412,6 +414,8 @@ def verdict(row):
     for error in row.get("clean_errors") or []:
         fails.append(f"cleanup after the cycle failed (the next cycle starts from another state): {error}")
     for difference in row.get("differences") or []:
+        if difference.startswith("NOT COMPARED"):
+            continue  # listed in the row, not a defect
         fails.append(f"not restored exactly: {difference}")
     return fails
 

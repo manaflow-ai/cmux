@@ -542,7 +542,9 @@ def state_differences(before, after):
             if bg.get(key) != ag.get(key):
                 out.append(f"pane {pane[-8:]} {key} {bg.get(key)} -> {ag.get(key)}")
         if b.get("live") or a.get("live"):
-            continue  # a live program (its screen changes by itself): screen and scrollback not compared
+            # A live program (its screen changes by itself): screen and scrollback not compared; listed.
+            out.append(f"NOT COMPARED pane {pane[-8:]}: a live program (its screen changed between two reads)")
+            continue
         if _screen_lines(before["screens"].get(pane)) != _screen_lines(after["screens"].get(pane)):
             out.append(f"pane {pane[-8:]} screen text differs")
         bh, ah = before["history"].get(pane) or {}, after["history"].get(pane) or {}
@@ -707,6 +709,10 @@ def _type_markers(j, cua, keys, pid, before, rects, record):
     """A real HID marker key into the focused terminal as soon as the reopened app has a window, then a click and
     the key into each other visible terminal, each with its wall time and the cell it should echo in."""
     marks = []
+    if not record.get("front_wall"):
+        # Desktop-scope keys go to the front app: never type when the reopened app did not come to the front.
+        record["markers_error"] = "the reopened app never became the front app: no key typed"
+        return marks
     end = time.monotonic() + FRONT_TIMEOUT
     windows = []
     while time.monotonic() < end and not windows:
@@ -719,7 +725,7 @@ def _type_markers(j, cua, keys, pid, before, rects, record):
     record["window_listed_wall"] = time.time()
     main = None
     wid = _wid(windows[0])
-    terms = before["visible_terminals"]
+    terms = [t for t in before["visible_terminals"] if not t.get("live")]  # never a key into a running TUI
     order = [t for t in terms if t["focused"]] + [t for t in terms if not t["focused"]]
     for index, t in enumerate(order):
         rect = rects.get(t["pane"])
@@ -831,11 +837,12 @@ def step_reopen_video(j, step):
         keys = Cua()  # a second session for the marker keys and clicks: no recording, no per-action screenshots
         try:
             # The pointer away from the sync points before the film starts.
-            away = (float(screen.get("w") or 1920) - 620, 11)
+            away = (float(screen.get("w") or 1920) * 0.36, 11)
             use_warp = warp(*away)
             record["sync_method"] = "CGWarpMouseCursorPosition" if use_warp else "cua move_cursor"
+            px = float(screen.get("scale") or 1)
             if not use_warp:
-                cua.tool("move_cursor", {"x": away[0], "y": away[1], "scope": "desktop"}, check=False)
+                cua.tool("move_cursor", {"x": away[0] * px, "y": away[1] * px, "scope": "desktop"}, check=False)
             cua.tool("start_recording", {"output_dir": str(movie_dir), "record_video": True})
             record["record_started_wall"] = time.time()
             time.sleep(LEAD_SECONDS)
@@ -843,12 +850,12 @@ def step_reopen_video(j, step):
             # this film, so each point's first change on film is the arrival) at known wall times.
             sync = []
             w = float(screen.get("w") or 1920)
-            for x in (w - 460, w - 360, w - 260, w - 160):
+            for x in (w * 0.42, w * 0.47, w * 0.52, w * 0.57):
                 before_move = time.time()
                 if use_warp:
                     warp(x, 11)
                 else:
-                    cua.tool("move_cursor", {"x": x, "y": 11, "scope": "desktop"}, check=False)
+                    cua.tool("move_cursor", {"x": x * px, "y": 11 * px, "scope": "desktop"}, check=False)
                 sync.append({"x": x, "y": 11, "sent_wall": before_move, "done_wall": time.time()})
                 time.sleep(0.25)
             record["sync"] = sync
