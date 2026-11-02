@@ -375,14 +375,35 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// release, and a claim of the last reported size on show.
     public nonisolated func sendHidden(_ hidden: Bool) {
         let (lease, inPlace) = control.value.withLock { ($0.lease, $0.hidesInPlace) }
-        guard let lease else { return }
-        if inPlace {
-            fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: hidden ? false : nil))
-        } else if hidden {
-            fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
-        } else {
-            claimGeometry(reporting: nil)
+        for step in Self.hiddenSteps(hidden: hidden, lease: lease, inPlace: inPlace, batchesHidden: false) {
+            switch step {
+            case .sizeCounts(let lease, let counts):
+                fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: counts))
+            case .releaseSize(let lease):
+                fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
+            case .claim:
+                claimGeometry(reporting: nil)
+            case .visibility(let visible):
+                fireAndForget(SetAttachVisibilityRequest(surface: surface, visible: visible))
+            }
         }
+    }
+
+    /// What `sendHidden` sends, in order.
+    enum HiddenStep: Equatable, Sendable {
+        case sizeCounts(lease: String, counts: Bool?)
+        case releaseSize(lease: String)
+        case claim
+        /// `set-attach-visibility`: the daemon batches a hidden view's output (`attach-visibility-v1`).
+        case visibility(Bool)
+    }
+
+    /// The commands a view that hid (`hidden`) or shows again sends, given its lease and whether the daemon hides it
+    /// in place (`shared-sizing-v1`).
+    static func hiddenSteps(hidden: Bool, lease: String?, inPlace: Bool, batchesHidden: Bool) -> [HiddenStep] {
+        guard let lease else { return [] }
+        if inPlace { return [.sizeCounts(lease: lease, counts: hidden ? false : nil)] }
+        return hidden ? [.releaseSize(lease: lease)] : [.claim]
     }
 
     /// Idempotent: the first call detaches and closes the connection.
