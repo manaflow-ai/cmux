@@ -169,8 +169,8 @@ impl ChatService {
 
     /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
     /// the time of its newest chat (a chat another chat started left out), by harness id then
-    /// path. acpmux groups its own index, so the app relays a few rows, never every chat. None
-    /// while chats are off.
+    /// path. acpmux groups its own index, so the cmux daemon reads a few rows, never every chat.
+    /// None while chats are off.
     pub fn projects(&self, activity: &ChatActivity) -> Option<Vec<Value>> {
         let state = lock(&self.state);
         if !state.settings.enabled {

@@ -642,6 +642,9 @@ pub struct Mux {
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
+    /// The chat-index project import's wake (`project_chats.rs`).
+    #[cfg(unix)]
+    project_chats: project_chats::ProjectChatsWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
