@@ -8636,6 +8636,7 @@ function AcpmuxPane() {
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
     onOpenImage: quick ? undefined : openImage,
+    readPromptImage: quick ? undefined : readQueuedImage,
     processes: processRegistry,
     onStopProcess: stopProcess,
     subagents: cardSubagents,

@@ -125,6 +125,7 @@ import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
+import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -915,6 +916,7 @@ export function NewTabScreen(props: Props) {
   const look = useComposerLook();
   const chatBox = props.chips !== undefined;
   const split = chatBox;
+  const trailingGap = newTabComposerTrailingGapArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1801,6 +1803,7 @@ export function NewTabScreen(props: Props) {
         ref={setComposer}
         className="nt-composer"
         data-composer-look={look === "codex" ? "codex" : undefined}
+        data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (

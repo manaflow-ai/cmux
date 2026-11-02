@@ -45,11 +45,12 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # jobs (signer-app, signer-app-notary, signer-dmg, the cmux NIGHTLY-identity copy's legacy-signer-app and
 # legacy-signer-dmg, and legacy-identity-target, the feed compare that picks that copy's build) are the rulebook's
 # measured exception: GitHub-hosted Ubuntu first, Blacksmith
-# Linux 4 vCPU on a re-run (tests/test_ci_self_hosted_guard.sh allowlists that exact line).
+# Linux 4 vCPU on a re-run (tests/test_ci_self_hosted_guard.sh allowlists that exact line). sentry-dsyms-nightly
+# takes the same route: a network-bound Sentry upload that holds the Sentry token, not CPU-bound.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "signer-app", "signer-app-notary",
-    "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
+    "signer-dmg", "legacy-identity-target", "sentry-dsyms-nightly", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })

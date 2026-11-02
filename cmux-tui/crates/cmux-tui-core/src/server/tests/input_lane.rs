@@ -377,3 +377,44 @@ fn an_unattached_senders_connection_keeps_the_default_qos() {
     handler.join().unwrap();
     mux.shutdown();
 }
+
+/// A client attached to `surface` only through read-only views (`terminal.attach read_only`), as a watcher, an agent
+/// observing a terminal or a mirror attaches.
+fn read_only_viewer(mux: &Arc<Mux>, surface: SurfaceId) -> (u64, MessageWriter) {
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+    let stream_id = stream.id;
+    let lease =
+        mux.control_clients.attach_surface_with_required_lease(client, surface, stream).unwrap();
+    mux.control_clients.mark_view_lease_read_only(client, surface, &lease).unwrap();
+    mux.control_clients.commit_surface(client, surface, stream_id, None).unwrap();
+    (client, writer)
+}
+
+/// TYPING FIX 2 (F7 follow-up, lead 2026-11-02): only a client that can type into the terminal (an attach that may
+/// own the keyboard, not a read-only view) carries the person's input. A read-only viewer that sends through the
+/// legacy `send` or `send-key` (a watcher, an agent observing a terminal) is automation: its connection must not get
+/// the person's user-interactive QoS, so it never competes with the person's keys. The app's own attach still does.
+#[cfg(unix)]
+#[test]
+fn a_read_only_viewers_keys_do_not_get_the_persons_priority() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    let (viewer, viewer_writer) = read_only_viewer(&mux, typing.id);
+    let named = || Command::SendKey { surface: typing.id, keys: vec!["enter".into()] };
+    // The first key finds the terminal the long way, the next ones use the kept terminal.
+    for command in [key(typing.id, b'a'), named(), key(typing.id, b'b'), named()] {
+        handle_command(&mux, viewer, command, &viewer_writer).unwrap();
+    }
+    assert!(
+        !viewer_writer.input_lane.carries_person_input(),
+        "a read-only viewer's keys marked its connection as the person's input"
+    );
+    handle_command(&mux, client, key(typing.id, b'c'), &writer).unwrap();
+    assert!(
+        writer.input_lane.carries_person_input(),
+        "the typing client's keys did not mark its connection as the person's input"
+    );
+    mux.shutdown();
+}
