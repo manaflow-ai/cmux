@@ -145,3 +145,68 @@ extension AppServices {
         }
     }
 }
+
+extension AppServices {
+    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators
+    /// (``SimulatorSurfaceSources``, when SimulatorKit loads) and the owner's Cloud desktops
+    /// `c~<machine>~<team>`, view only (``CloudDesktopSurfaceSources``), on any Mac.
+    func phoneSurfaceHosts() -> any MobileHostSurfaceHosting {
+        let phoneTabs = SimulatorSurfaceSources.available(phones) ? SimulatorSurfaceSources(phones: phones) { [weak self] raw in
+            guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
+                  tab.page == InternalPageID.phone.rawValue else { return nil }
+            let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
+            return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
+        } : nil
+        let desktops = CloudDesktopSurfaceSources { [weak self] target in
+            guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
+            return try await self.phoneCloudDesktop(target)
+        }
+        let isDesktop = { (tab: String) in CloudDesktopSurfaceSources.target(of: tab) != nil }
+        return MobileHostSurfaceClosures(start: { tab, onExit in
+            if isDesktop(tab) { return try await desktops.start(tab: tab, onExit: onExit) }
+            guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
+            return try await phoneTabs.start(tab: tab, onExit: onExit)
+        }, stop: { tab in if isDesktop(tab) { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) } },
+        stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() })
+    }
+
+    /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
+    /// same check as hostd's), the same account after the hop, a running machine and a tunnel.
+    private func phoneCloudDesktop(_ target: CloudDesktopSurfaceSources.Target) async throws -> CloudDesktopSurfaceSources.Grant {
+        typealias Failure = CloudDesktopSurfaceSources.Failure
+        let account = (cloud.auth.user?.id, cloud.auth.teamID)
+        let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
+        guard account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
+              cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
+              let session = machines.session(link.machineID) else { throw Failure.forbidden }
+        guard session.machine.shownStatus == .running else { throw Failure.asleep }
+        guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
+        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud
+        return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
+                     label: session.machineID) { [weak session] in
+            guard let session else { return false }
+            return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
+                && machines.session(session.machineID) === session && session.machine.shownStatus == .running
+        }
+    }
+
+    /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
+    /// and whether the plan pays for Cloud. Classic links never enter this directory.
+    func phoneCloudLinks() async -> MobileHostCloudLinks {
+        guard cloud.auth.isSignedIn, let user = cloud.auth.user?.id else { return MobileHostCloudLinks() }
+        let selectedTeam = cloud.auth.teamID
+        // The backend team in attention events is the install token claim, not a Stack team id.
+        guard let token = try? await cloud.installIdentity.installToken(),
+              let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
+        var result: [MobileHostCloudLink] = []
+        for session in machines.cloud {
+            guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
+            let socket = await link.currentLinkSocket
+            guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, user: user))
+        }
+        // An account transition during either actor hop invalidates the whole answer.
+        guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, links: result)
+    }
+}
