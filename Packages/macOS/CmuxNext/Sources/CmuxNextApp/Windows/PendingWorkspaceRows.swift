@@ -83,9 +83,9 @@ final class PendingWorkspaceRows {
         func done(_ row: Row) -> Bool {
             row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
         }
-        guard rows.contains(where: done) else { return }
-        for row in rows where done(row) { takenOver.remove(row.id); unpinned.remove(row.id) }
-        rows.removeAll(where: done)
+        let gone = Set(rows.filter(done).map(\.id)); guard !gone.isEmpty else { return } // judged once: `done` reads the sets cleared below
+        takenOver.subtract(gone); unpinned.subtract(gone)
+        rows.removeAll { gone.contains($0.id) }
         redraws.run()
     }
 
