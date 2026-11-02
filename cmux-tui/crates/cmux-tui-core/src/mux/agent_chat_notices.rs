@@ -104,6 +104,7 @@ impl CacheTtlTarget {
 enum CacheTtlCommand {
     Observe(CacheTtlTarget),
     Remove(String),
+    Reload,
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +168,20 @@ impl CacheTtlQueue {
             .collect::<Vec<_>>();
         due.into_iter().filter_map(|key| self.entries.remove(&key)).collect()
     }
+
+    fn reload(&mut self, timers: HashMap<String, Vec<CacheTtlSpec>>, now: Instant, now_ms: u64) {
+        let mut targets = self
+            .entries
+            .values()
+            .map(|entry| (entry.target.session.clone(), entry.target.clone()))
+            .collect::<HashMap<_, _>>();
+        self.entries.clear();
+        self.epochs.clear();
+        for target in targets.values_mut() {
+            target.timers = timers.get(&target.kind).cloned().unwrap_or_default();
+            self.observe(target.clone(), now, now_ms);
+        }
+    }
 }
 
 fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand>) {
@@ -182,6 +197,15 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                 queue.observe(target, Instant::now(), crate::startup_timings::unix_now_ms())
             }
             Ok(CacheTtlCommand::Remove(session)) => queue.remove(&session),
+            Ok(CacheTtlCommand::Reload) => {
+                if let Some(live) = mux.upgrade() {
+                    queue.reload(
+                        live.cache_ttl_timers(),
+                        Instant::now(),
+                        crate::startup_timings::unix_now_ms(),
+                    );
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let Some(live) = mux.upgrade() else { return };
                 for entry in queue.take_due(Instant::now()) {
@@ -350,6 +374,12 @@ impl Mux {
     fn remove_cache_ttl_timer(&self, session: &str) {
         if let Some(sender) = &self.agent_chat_notices.lock().timers {
             let _ = sender.send(CacheTtlCommand::Remove(session.to_owned()));
+        }
+    }
+
+    pub(super) fn reload_cache_ttl_timers(&self) {
+        if let Some(sender) = &self.agent_chat_notices.lock().timers {
+            let _ = sender.send(CacheTtlCommand::Reload);
         }
     }
 
