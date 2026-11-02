@@ -25,7 +25,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 8
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     permissions: {}
@@ -98,7 +98,7 @@ jobs:
     # If neither route has room, the job is skipped in pick; it never queues on
     # the saturated side-std label. The final label is unreachable on a normal
     # skip, but remains a non-hosted Mac fallback for a placement race.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' cua-signed-host ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' cua-signed-host ') && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' cua-signed-host ') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-12vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' cua-signed-host ') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) || needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 15
     permissions:
       contents: read

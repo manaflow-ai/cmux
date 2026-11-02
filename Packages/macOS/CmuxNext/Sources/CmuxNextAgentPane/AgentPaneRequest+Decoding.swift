@@ -101,6 +101,18 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.leftover":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftover(text)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.leftoverTaken":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftoverTaken(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)

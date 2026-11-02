@@ -178,6 +178,12 @@ ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 # Rule 7a: owned pool variables a claim-gated signing job may fall back to.
 OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
+# jobs may use them as their pool-backed fallback; the hosted pools are excluded.
+EPHEMERAL_POOL_KEYS = frozenset({
+    "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "linux_arm64",
+    "macos_15", "macos_26", "macos_26_large", "macos_latest", "windows",
+})
 # Rule 7b: (workflow, job) -> (env variable, value that means "sign with the release key").
 GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
@@ -222,7 +228,10 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
     condition = mode.group(1)
     runs_on = str(job.get("runs-on", ""))
     picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
-    if not picked or not EPHEMERAL_LABEL.match(picked.group(1)) or ANY_VARS.search(runs_on[:picked.start()]):
+    picked_pool = re.search(re.escape(condition) + r"\s*&&\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on)
+    picked_ok = (picked and EPHEMERAL_LABEL.match(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
+    picked_at = picked.start() if picked else (picked_pool.start() if picked_pool else 0)
+    if not picked_ok or ANY_VARS.search(runs_on[:picked_at]):
         problems.append(f"{name}: runs-on does not take a literal ephemeral label on `{condition}` before any variable")
     gated_if = f"env.{variable} == '{value}'"
     gated_value = re.compile(re.escape(gated_if) + r"\s*&&\s*secrets\.[A-Z0-9_]+\s*\|\|\s*'[^']*'\s*\}\}")
@@ -334,15 +343,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
         runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
-        trusted_linux_pool = (
-            "fromJSON(vars.RUNNER_POOLS).linux" in runs_on
-            and all(label in runs_on for label in (
-                "blacksmith-4vcpu-ubuntu-2404",
-                "blacksmith-16vcpu-ubuntu-2404",
-                "blacksmith-32vcpu-ubuntu-2404",
-            ))
-            and "contains(fromJSON(" in runs_on
-        )
+        pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
+        trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
         gated = secret_gate_failures(name, job)
         if gated is not None:
             failures.extend(gated)
@@ -357,7 +359,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
-            if trusted_linux_pool and variable == "RUNNER_POOLS":
+            if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
                 continue
             if owned_route and variable in OWNED_ROUTE_VARIABLES:
                 continue
@@ -368,6 +370,11 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 )
             # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
             # so nothing after them (an `&&`, another selector) can replace the label they give.
+            elif (trusted_ephemeral_pool and re.search(
+                    r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
+                    runs_on[match.end():]) and
+                  re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
+                continue
             elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
                 failures.append(
                     f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "

@@ -50,6 +50,28 @@ struct CloudNativeFirstLauncherTests {
         #expect(try await launcher.ensure(install: "i").status == "native")
     }
 
+    /// `cloud.machines`' `link_route` (#32494): the launcher each link source and choice gets, and its route.
+    @Test func theAppServerLinkReportsTheRouteItLaunched() async throws {
+        let link = FakeLauncher(status: "link")
+        var asked = 0
+        let legacy = CloudAppServerLink(appServer: false, link: link, choice: .native, native: { asked += 1; return nil }) { _ in }
+        #expect(legacy.launcher == nil && legacy.route() == "legacy")
+        let cmuxLink = CloudAppServerLink(appServer: true, link: link, choice: .link, native: { asked += 1; return nil }) { _ in }
+        #expect(cmuxLink.launcher as? FakeLauncher === link && cmuxLink.route() == "link")
+        #expect(asked == 0, "the Native route holder was made for a choice that does not use it")
+        let noHolder = CloudAppServerLink(appServer: true, link: link, choice: .native, native: { asked += 1; return nil }) { _ in }
+        #expect(asked == 1 && noHolder.launcher as? FakeLauncher === link)
+        #expect(noHolder.route() == "link (native asked; no Native route holder for this app)")
+
+        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400))
+        var reasons = 0
+        let first = CloudAppServerLink(appServer: true, link: link, choice: .native, native: { native }) { _ in reasons += 1 }
+        #expect(first.launcher is CloudNativeFirstLauncher && first.route() == "native")
+        #expect(try await first.launcher?.ensure(install: "i").status == "link")
+        #expect(reasons == 1)
+        #expect(first.route() == "link (native failed: \(NativeDeviceEnrollmentError.refused(400)))")
+    }
+
     @Test func signedOutIsNotARouteFailure() async {
         let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.signedOut)
         let link = FakeLauncher(status: "link")

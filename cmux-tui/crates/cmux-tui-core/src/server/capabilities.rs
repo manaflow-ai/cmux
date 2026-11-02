@@ -256,6 +256,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
+        terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,

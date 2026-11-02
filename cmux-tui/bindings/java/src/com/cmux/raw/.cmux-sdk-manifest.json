@@ -732,8 +732,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4378715fb0b006ff048e0bd497c0a613965aba266ad08ce4f4d533ed388997ab",
-      "size": 79025
+      "sha256": "2c3eb5698d574096b908dacf6788fdeaa2d070d518fcd4e0d829d54107c775d3",
+      "size": 79288
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1382,8 +1382,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "5558bfe58377ea9a9abb927738e680d2208971b364e0ddb00b61144d86e9a4d6",
-      "size": 68303
+      "sha256": "8cdc3109c481a01a38626d1eeac7f3e5f4d3b840112c4b6d138b017fb84bf01d",
+      "size": 68574
     },
     {
       "path": "GetBlobRequest.java",
@@ -2137,7 +2137,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9dbe1bc2a8ba1a4a7e7e3bc4abe455d5823dfc3c2061715038a268bbac7c4fff",
+      "sha256": "40aecbe395158b8be7e21804fb1fc711eedb476fe031e630340a143ead9b1901",
       "size": 7584
     },
     {
@@ -2589,6 +2589,16 @@
       "path": "ServerStatsWriterPhase.java",
       "sha256": "72c2585d60467ab291742dda9d6babe925cfbc33f84eadfcfb26753aa7ecfa66",
       "size": 972
+    },
+    {
+      "path": "SetAttachVisibilityRequest.java",
+      "sha256": "df92bb958a3dfe4caea7ea468d8e101b8f83b718e2d12f788dfd3f24b629aaaf",
+      "size": 2801
+    },
+    {
+      "path": "SetAttachVisibilityResult.java",
+      "sha256": "e3a092b69db069a87b9cf1d1dd85d330bcb721336680e8f2ed2db1a3d6cac3fa",
+      "size": 1994
     },
     {
       "path": "SetCellPixelsRequest.java",
@@ -3457,7 +3467,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8",
+  "ir_sha256": "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -30,7 +30,7 @@ import PackageDescription
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
-//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
+//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
@@ -174,8 +174,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-17b75935f08e6ab30b996a3724b92e882c866c6f/CCmuxAppFFI.xcframework.zip",
-    checksum: "883643bb1ddebcdb736e9e618b8dcad924ec4e95577479093a5b4c6ba01b95b5"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-bbb2b89006beea85f8a368b7b11e9dd97bd5b134/CCmuxAppFFI.xcframework.zip",
+    checksum: "8b615965bdcf5cb5a787189a69e2392093b3174692bfd38bb47b2f7deefcbfe4"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1236,6 +1236,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // CloudMoveCLI runs cmux-tui through the daemon's ProcessRunner.
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                // CloudStartCore: the Cloud start's decisions (cmux-cloud-start-core).
+                "CCmuxAppFFI",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
