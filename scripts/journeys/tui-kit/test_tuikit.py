@@ -213,9 +213,19 @@ class Sigwinch(unittest.TestCase):
             log = os.path.join(tmp, "w.jsonl")
             run = PtyRun([PY, KIT, "sigwinch", "--seed", "4", "--duration", "3", "--tick", "20", "--log", log], 80, 24)
             self.assertTrue(run.read_until(b"SIGWINCH 80x24", 10))
+            # Read the pty all the time, as a terminal does: macOS pty buffers are small, and a program
+            # blocked on a full pty reflows only when it can write again (cmux21, 01:22Z: one reflow).
+            last = (80, 24)
             for cols, rows in ((100, 30), (60, 20), (60, 20), (120, 40)):
+                seen = len(run.buf)
                 run.resize(cols, rows)
-                time.sleep(0.3)
+                header = b"SIGWINCH %dx%d" % (cols, rows)
+                deadline = time.monotonic() + (0.3 if (cols, rows) == last else 5)
+                while time.monotonic() < deadline and ((cols, rows) == last or header not in run.buf[seen:]):
+                    run.pump(0.02)
+                if (cols, rows) != last:
+                    self.assertIn(header, run.buf[seen:], "no reflow drawn for %dx%d" % (cols, rows))
+                last = (cols, rows)
             data, code = run.collect(15)
             self.assertEqual(code, 0)
             events = read_jsonl(log)
