@@ -122,3 +122,16 @@ public nonisolated struct LinkHintHeldKeys<Key> {
         return outcome == .passThrough ? keys : []
     }
 }
+
+/// The keys link hints sent back to the page (``LinkHintHeldKeys``): each goes on to the page untouched once, never
+/// held or taken by a session again (a key sent again and taken again looped without end, v5 of #32537).
+public nonisolated struct LinkHintReplays<Key: AnyObject> {
+    private var pending: Set<ObjectIdentifier> = []
+
+    public init() {}
+
+    public mutating func mark(_ keys: [Key]) { pending.formUnion(keys.map(ObjectIdentifier.init)) }
+
+    /// Whether `key` is one sent back to the page; true once (stub for the red commit: never).
+    public mutating func isReplay(_ key: Key) -> Bool { false }
+}

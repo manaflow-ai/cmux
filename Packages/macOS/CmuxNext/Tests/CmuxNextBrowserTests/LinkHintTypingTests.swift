@@ -39,6 +39,23 @@ struct LinkHintTypingTests {
         #expect(held.release(after: outcome).isEmpty, "a hint letter reached the page")
     }
 
+    /// v5 of #32537 looped without end (REOPEN VIDEO, ~32,000 key-downs per round): the keys link hints sent back to
+    /// the page went through the key route again, were held by the next session and sent again. A key sent back is
+    /// let through once and never taken again; the keys that reach the page equal the keys typed.
+    @Test func aKeySentBackToThePageIsLetThroughOnceAndNeverTakenAgain() {
+        final class Key {}
+        let typed = (0..<10).map { _ in Key() }
+        var held = LinkHintHeldKeys<Key>()
+        var replays = LinkHintReplays<Key>()
+        typed.forEach { held.hold($0) }
+        let sent = held.release(after: .passThrough)
+        replays.mark(sent)
+        let passed = sent.filter { replays.isReplay($0) }
+        #expect(passed.count == typed.count, "a key sent back to the page was taken again: \(typed.count - passed.count) of \(typed.count)")
+        #expect(sent.allSatisfy { !replays.isReplay($0) }, "a key sent back was let through twice")
+        #expect(!replays.isReplay(Key()), "a key never sent back was let through")
+    }
+
     @Test func aSessionWhosePageIsNotEditingStillLabelsAndPicks() {
         var session = LinkHintSession(mode: .follow)
         let outcome = session.show([Self.field], editing: false)
