@@ -213,7 +213,8 @@ public final class ChiefSidebar {
     }
 
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
-    /// workspace on it in the Chief home's acpmux, shown once it is made.
+    /// workspace on it in the Chief home's acpmux, shown once the app lists it (in this turn when
+    /// the app shows it before the daemon's creates).
     /// False only when there is no Chief host (a refused open has already said why).
     @discardableResult
     private func openSubagent(_ session: String, chiefHost: String? = nil, registry: ActionRegistry) -> Bool {
@@ -230,10 +231,13 @@ public final class ChiefSidebar {
         }
         opening.insert(session)
         registry.track(work)
+        // The app shows the new workspace and its chat tab in this turn when it can (P4): that tab comes
+        // forward now, and the work's end brings nothing forward again.
+        let shownNow = host.tab(session, chiefHost).map(host.reveal) ?? false
         // task-owner: one open; ends with the workspace's work
         Task { [weak self] in
             defer { self?.opening.remove(session) }
-            guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
+            guard await work.value == nil, !shownNow, let tab = host.tab(session, chiefHost) else { return }
             _ = host.reveal(tab)
         }
         return true

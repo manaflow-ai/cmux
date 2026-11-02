@@ -28,6 +28,7 @@ struct PendingPlacement {
 // personal order in the home session, else `move-workspace-to-group` on the
 // owning daemon.
 extension WindowManager {
+    func forgetCreate(_ id: String) { pendingPlacements[id] = nil; pendingPlacementOrder.removeAll { $0 == id }; PendingWorkspaceRows.shared.remove(id) } // a create ended without its workspace
     /// Retries the placements a cold or updated layout deferred (`awaitsCurrentAnchor`), once a
     /// sidebar rows pass has realized the fresh rows; nothing to do while none waits.
     func retryDeferredPlacements() {

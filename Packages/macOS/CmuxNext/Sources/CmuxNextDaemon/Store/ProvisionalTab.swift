@@ -173,9 +173,18 @@ public struct ProvisionalTab: Sendable, Hashable {
     @MainActor private static func guess(_ surface: SurfaceID, in pane: PaneID, asking asked: ConversationTabRef?, in store: DaemonStore) {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
+        // A created tab's create in this pane, or a new workspace's first tab in a pane of that workspace (a chat opened
+        // in a new workspace, Cmd-N's page): the raw tab is its guess, so the stand-in screen stays until it is named.
+        let workspaceKey = store.workspace(containing: pane)?.key
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
-                  provisional.kind == .conversation, let wanted = provisional.conversation else { return false }
+            guard entry.createdSurface == nil else { return false }
+            let provisional: TabSnapshot
+            switch entry.kind {
+            case .createTab(let target, let tab) where target == pane: provisional = tab
+            case .createWorkspace(let workspace, _) where workspace.key == workspaceKey: provisional = workspace.tab
+            default: return false
+            }
+            guard provisional.kind == .conversation, let wanted = provisional.conversation else { return false }
             return wanted.agentSession?.host == asked?.agentSession?.host && wanted.agentSession?.session == asked?.agentSession?.session
                 && wanted.page == asked?.page && wanted.route == asked?.route
         }
