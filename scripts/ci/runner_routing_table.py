@@ -540,7 +540,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
             hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
+            pool = "fromJSON(vars.RUNNER_POOLS).linux"
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not (alternatives[-1] == pool and not used):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -559,7 +560,10 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 tail = tail[1:]
             switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
                         and tail[0].split(" && ", 1)[1] in paid)
-            if not (len(tail) == 1 and tail[0] in paid or switched or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
+            # Or, for a job that holds no secret, the reconciled Linux pool's live member.
+            pooled = tail == [pool] and not used
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled
+                    or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
             if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):

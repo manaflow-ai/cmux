@@ -143,6 +143,10 @@ class RoutingTableTests(unittest.TestCase):
                                   ({"runs-on": route.replace("'ubuntu-24.04' || github.run_attempt", "'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt").replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, False),
                                   ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"glaeda-std\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
                                   ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
+                                  # A secretless job may retry on the reconciled pool.
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux")}, False),
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux"),
+                                    "env": {"KEY": "${{ secrets.GLAEDA_ROUTE_APP_KEY }}"}}, True),
                                   ({"env": {"KEY": "${{ secrets.CMUX_RELEASE_APP_KEY }}"}}, True),
                                   ({"steps": [{"run": "codesign app"}]}, True),
                                   ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04'", "'macos-26'")}, True),
