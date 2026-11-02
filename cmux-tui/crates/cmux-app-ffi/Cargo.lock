@@ -25,7 +25,6 @@ dependencies = [
  "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
- "cmux-url-input",
 ]
 
 [[package]]
@@ -107,10 +106,6 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
-
-[[package]]
-name = "cmux-url-input"
-version = "0.1.0"
 
 [[package]]
 name = "cpufeatures"

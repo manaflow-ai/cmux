@@ -83,7 +83,7 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertFalse(gate.license_allowed("MIT AND GPL-2.0"))
         self.assertFalse(gate.license_allowed(None))
 
-    def test_the_eleven_first_party_gpl_crates_are_named_exactly(self):
+    def test_the_ten_first_party_gpl_crates_are_named_exactly(self):
         self.assertEqual(
             sorted(gate.FIRST_PARTY_GPL),
             sorted(
@@ -99,8 +99,6 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-tasks-core",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
-                    # The typed URL input policy, linked into the app FFI (rust-migration A9).
-                    "cmux-url-input",
                 ]
             ),
         )
