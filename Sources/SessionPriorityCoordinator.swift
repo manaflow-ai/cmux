@@ -43,6 +43,8 @@ final class SessionPriorityCoordinator {
         var snapshot: SessionRestorableAgentSnapshot?
     }
 
+    /// Whether a pane's Claude owns its terminal, checked before the pane is restarted.
+    let foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck
     private(set) var state = SessionPriorityCoordinatorState()
     private var lastSettings: Settings?
     private var defaultsObserver: (any NSObjectProtocol)?
@@ -51,6 +53,12 @@ final class SessionPriorityCoordinator {
     private var drainTask: Task<Void, Never>?
     /// At most one per pane: a held pane's retry, or a restarted pane's session-start deadline.
     private var paneTimers: [UUID: Task<Void, Never>] = [:]
+
+    /// - Parameter foregroundCheck: Whether a pane's Claude owns its terminal before the pane
+    ///   is restarted; defaults to reading live processes.
+    init(foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck = ClaudeAccountAutoSwitchForegroundCheck()) {
+        self.foregroundCheck = foregroundCheck
+    }
 
     var isEnabled: Bool {
         AutomationCatalogSection().sessionPriority.value(in: .standard)

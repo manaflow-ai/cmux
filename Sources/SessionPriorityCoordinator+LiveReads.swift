@@ -94,7 +94,7 @@ extension SessionPriorityCoordinator {
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
             receivedInputRecently: receivedInputRecently,
             screen: screen,
-            claudeInForeground: ClaudeAccountAutoSwitchForegroundCheck().claudeOwnsTerminal(
+            claudeInForeground: foregroundCheck.claudeOwnsTerminal(
                 registered: workspace.claudeAgentProcesses(panelId: panelId),
                 startedAfter: .distantPast,
                 paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier
