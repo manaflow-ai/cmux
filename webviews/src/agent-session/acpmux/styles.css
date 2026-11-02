@@ -141,7 +141,7 @@
 /* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
    icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
    14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
-.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding-block:var(--ui-popup-padding);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
+.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .acpmux-menu .ui-menu-check{color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
