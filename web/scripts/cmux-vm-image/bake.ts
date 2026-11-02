@@ -321,7 +321,21 @@ export const APT_BATCH_BYTES = 20_000_000;
  * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
  * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size.
  */
-export const APT_UPDATE_COMMAND = "apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }";
+export const APT_UPDATE_COMMAND = [
+  "apt_update_ok=0;",
+  "for attempt in 1 2; do",
+  "  if [ \"$attempt\" -eq 1 ]; then timeout_s=180; else timeout_s=30; fi;",
+  "  if timeout \"${timeout_s}s\" apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1; then apt_update_ok=1; break; fi;",
+  "  [ \"$attempt\" -eq 2 ] || sleep 5;",
+  "done;",
+  "if [ \"$apt_update_ok\" -eq 0 ]; then",
+  "  echo 'apt-update: snapshot mirror unavailable; falling back to archive.ubuntu.com/security.ubuntu.com' | tee -a /tmp/apt-update.log;",
+  "  cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.snapshot;",
+  "  printf %s VHlwZXM6IGRlYgpVUklzOiBodHRwOi8vYXJjaGl2ZS51YnVudHUuY29tL3VidW50dS8KU3VpdGVzOiBub2JsZSBub2JsZS11cGRhdGVzIG5vYmxlLWJhY2twb3J0cwpDb21wb25lbnRzOiBtYWluIHJlc3RyaWN0ZWQgdW5pdmVyc2UgbXVsdGl2ZXJzZQpTaWduZWQtQnk6IC91c3Ivc2hhcmUva2V5cmluZ3MvdWJ1bnR1LWFyY2hpdmUta2V5cmluZy5ncGcKClR5cGVzOiBkZWIKVVJJczogaHR0cDovL3NlY3VyaXR5LnVidW50dS5jb20vdWJ1bnR1LwpTdWl0ZXM6IG5vYmxlLXNlY3VyaXR5CkNvbXBvbmVudHM6IG1haW4gcmVzdHJpY3RlZCB1bml2ZXJzZSBtdWx0aXZlcnNlClNpZ25lZC1CeTogL3Vzci9zaGFyZS9rZXlyaW5ncy91YnVudHUtYXJjaGl2ZS1rZXlyaW5nLmdwZwo= | base64 -d > /etc/apt/sources.list.d/ubuntu.sources;",
+  "  if apt-get update -q --error-on=any >>/tmp/apt-update.log 2>&1; then apt_update_ok=1; fi;",
+  "fi;",
+  "if [ \"$apt_update_ok\" -ne 1 ]; then tail -30 /tmp/apt-update.log; exit 1; fi",
+].join(" ");
 
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
 export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
