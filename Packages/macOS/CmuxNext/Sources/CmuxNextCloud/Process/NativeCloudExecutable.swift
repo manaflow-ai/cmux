@@ -6,10 +6,10 @@ import Security
 /// Which check refused the Native link's executable or child. Each case names one check and carries no path,
 /// hash or key, so `link_route` says why Native fell back.
 package enum NativeCloudExecutableRefusal: Error, Equatable, CustomStringConvertible {
-    case ownSigning(OSStatus)
+    case ownSigning(Int32)
     case noResources
     case binaryMoved
-    case signing(String, OSStatus)
+    case signing(String, Int32)
     case noCodeHash
     case publisher(expected: String, app: String?, binary: String?)
     case peer
