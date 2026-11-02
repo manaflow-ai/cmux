@@ -302,7 +302,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
                 "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
-                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend",
+                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",

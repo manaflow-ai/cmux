@@ -20,6 +20,8 @@ import { EffortTrack } from "./EffortTrack";
 import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
+import { useChatDisplay } from "./chatDisplay";
+import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
@@ -340,7 +342,10 @@ export function QuickModelMenu({
 }) {
   const t = useT();
   const settings = useComposerSettings();
-  const placement = menu.harnessPlacement ?? settings.harnessPlacement;
+  const display = useChatDisplay();
+  const placement =
+    menu.harnessPlacement ??
+    resolveHarnessPlacement(display.harnessPlacement, settings.harnessPlacement, display.managedHarnessPlacement);
   // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge

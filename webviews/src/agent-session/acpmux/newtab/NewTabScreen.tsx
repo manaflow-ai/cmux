@@ -771,7 +771,7 @@ export function NewTabScreen(props: Props) {
           target: {
             harness,
             ...(targetHost ? { host: targetHost } : {}),
-            ...(targetCwd ? { cwd: targetCwd } : {}),
+            ...(targetCwd?.startsWith("/") ? { cwd: targetCwd } : {}),
           },
         }
       : undefined;
