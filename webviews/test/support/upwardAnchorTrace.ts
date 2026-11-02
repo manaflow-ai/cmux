@@ -224,10 +224,33 @@ export async function traceUpwardAnchors({
         const bottom = current.visible.at(-1);
         // Only a transcript's true first/last row may leave intentional space at its ends.
         // Else row boxes must cover both viewport edges as well as every adjacent pair.
-        const topEdgeGap = top ? (top.index > 0 ? Math.max(0, top.y) : 0) : current.viewHeight;
+        const mountedBefore = top
+          ? [...current.mounted.values()]
+              .filter((row) => row.index < top.index)
+              .sort((a, b) => a.index - b.index)
+              .at(-1)
+          : undefined;
+        const mountedAfter = bottom
+          ? [...current.mounted.values()]
+              .filter((row) => row.index > bottom.index)
+              .sort((a, b) => a.index - b.index)[0]
+          : undefined;
+        const topEdgeGap = top
+          ? top.index > 0
+            ? Math.max(
+                0,
+                top.y - (mountedBefore ? expectedGap(mountedBefore.mark, top.mark, gridTokens) : 0),
+              )
+            : 0
+          : current.viewHeight;
         const bottomEdgeGap =
           bottom && bottom.index < bottom.count - 1
-            ? Math.max(0, current.viewHeight - bottom.bottom)
+            ? Math.max(
+                0,
+                current.viewHeight -
+                  bottom.bottom -
+                  (mountedAfter ? expectedGap(bottom.mark, mountedAfter.mark, gridTokens) : 0),
+              )
             : 0;
         const rowBoxGaps = current.visible.flatMap((row, index, rows) => {
           const previous = rows[index - 1];
