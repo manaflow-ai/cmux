@@ -185,8 +185,8 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// own credential, since `codex login status` says "Not logged in" there
 /// while Codex works. Otherwise `codex login status` answers (also behind
 /// codex-acp) when Codex keeps its login in a file. Claude's sign-in
-/// sources (`claude_auth`) only ever prove a sign-in, so none found stays
-/// unknown, never a guess from a missing file.
+/// sources (`claude_auth`) normally prove presence only. A sole, expired file login without
+/// a refresh token is Expired off macOS only with complete project context; otherwise unknown.
 ///
 /// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
 /// start, every few hours), and acpmux never asks the keychain on its own.
@@ -194,7 +194,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// here), and `codex login status` does not run when Codex keeps its login
 /// in the keychain (`cli_auth_credentials_store` `keyring` or `auto`): the
 /// sign-in stays unknown. Nothing here writes a credential or starts a login.
-fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>)> {
     // No credential read (Keychain, `codex login status`) while agent
     // launches are off (cx-9ettq): the sign-in stays unknown.
     if crate::launch_policy::agent_launch_disabled() {
@@ -226,7 +226,22 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         }
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
             let env = crate::login_env::effective_for(Some("claude"), &s.env);
-            let found = crate::claude_auth::find(&env);
+            let found = match cwd.filter(|_| s.unresolved.is_empty()) {
+                Some(cwd) => crate::claude_auth::find_in(&env, cwd),
+                None => crate::claude_auth::find(&env),
+            };
+            if found.expired_file_login {
+                if !found.credential_sources_complete {
+                    return Some((
+                        Auth::Unknown,
+                        Some("Claude file login expired; project credentials not verified".into()),
+                    ));
+                }
+                return Some((
+                    Auth::Expired,
+                    Some("Claude file login expired; sign in again".into()),
+                ));
+            }
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
@@ -323,6 +338,17 @@ pub(crate) fn fresh_auth(
     profile: &crate::config::HarnessProfile,
     notes: Option<&crate::config::profiles::AuthNotes>,
 ) -> Result<(Auth, String), String> {
+    fresh_auth_in(id, profile, notes, None)
+}
+
+/// A known session directory lets the file check account for project credentials. A target
+/// without a directory, or a profile supplying its own settings, remains inconclusive.
+pub(crate) fn fresh_auth_in(
+    id: &str,
+    profile: &crate::config::HarnessProfile,
+    notes: Option<&crate::config::profiles::AuthNotes>,
+    cwd: Option<&Path>,
+) -> Result<(Auth, String), String> {
     let s = Subject::of(id, profile, notes).ok_or("the harness has no command")?;
     let keychain = keychain_sign_in(id, profile);
     if !s.check.is_empty() && keychain.is_none() {
@@ -332,7 +358,13 @@ pub(crate) fn fresh_auth(
             (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
         };
     }
-    match builtin_auth(&s) {
+    let custom_settings = profile.argv.iter().any(|arg| {
+        arg == "--settings"
+            || arg.starts_with("--settings=")
+            || arg == "--setting-sources"
+            || arg.starts_with("--setting-sources=")
+    });
+    match builtin_auth(&s, cwd.filter(|_| !custom_settings)) {
         Some((auth, detail)) if auth != Auth::Unknown => Ok((auth, detail.unwrap_or_default())),
         _ => Err(match keychain {
             Some(why) => format!("no check ran: {why}, which acpmux does not read"),
@@ -545,7 +577,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     // Without a profile check, the agent's own answer; a sign-in it proves,
     // or a provider that `codex login` cannot fix, outranks an older probe's
     // sign-in error.
-    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
+    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s, None)).flatten();
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {

@@ -49,6 +49,11 @@ pub struct Found {
     pub endpoint: Option<String>,
     /// Credential keys that came from the environment (not a file).
     pub env_keys: Vec<String>,
+    /// The sole file login is positively expired and cannot refresh. Never set on macOS,
+    /// where an uninspected keychain login can still work, or with another credential source.
+    pub expired_file_login: bool,
+    /// Project context was supplied and all candidate settings could be inspected.
+    pub credential_sources_complete: bool,
 }
 
 impl Found {
@@ -90,6 +95,22 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
 /// The sign-in sources `env` gives Claude Code, from the environment and
 /// files only (never the keychain).
 pub fn find(env: &BTreeMap<String, String>) -> Found {
+    find_sources(env, None)
+}
+
+/// Include project settings when evaluating a session's own credential sources. Helpers are
+/// only recognized, never executed. Ancestor settings conservatively count as alternatives.
+pub fn find_in(env: &BTreeMap<String, String>, cwd: &Path) -> Found {
+    find_sources(env, Some(cwd))
+}
+
+fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
+    // Claude runs in the resolved directory: lexical ancestors of a symlink can miss its
+    // actual project's settings. Failure to resolve context is never proof of missing auth.
+    let project = cwd
+        .filter(|path| path.is_absolute())
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .filter(|path| path.is_dir());
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -98,7 +119,12 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         .unwrap_or_default();
     let custom = env.get("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty());
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
-    let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
+    let mut found = Found {
+        home: home.clone(),
+        custom_home: custom.is_some(),
+        credential_sources_complete: project.is_some(),
+        ..Found::default()
+    };
     for (key, words) in PROVIDER_KEYS {
         if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
@@ -114,9 +140,30 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     if let Some(url) = env.get(BASE_URL).filter(|v| !v.is_empty()) {
         found.endpoint = Some(endpoint_host(url));
     }
-    for file in settings_files(&home) {
-        let Ok(bytes) = std::fs::read(&file) else { continue };
-        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+    let mut settings = settings_files(&home);
+    if let Some(cwd) = project.as_deref() {
+        for dir in cwd.ancestors() {
+            settings.push(dir.join(".claude/settings.json"));
+            settings.push(dir.join(".claude/settings.local.json"));
+        }
+    }
+    for file in settings {
+        let bytes = match std::fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    found.credential_sources_complete = false;
+                }
+                continue;
+            }
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            found.credential_sources_complete = false;
+            continue;
+        };
+        if !json.is_object() || json.get("env").is_some_and(|value| !value.is_object()) {
+            found.credential_sources_complete = false;
+        }
         let at = tilde(&file);
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
@@ -158,20 +205,61 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         Some(dir) => PathBuf::from(dir).join(".claude.json"),
         None => user_home.join(".claude.json"),
     };
-    if std::fs::read(&config)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.get("primaryApiKey").and_then(|k| k.as_str()).map(|k| !k.is_empty()))
-        == Some(true)
-    {
-        found.sources.push(format!("the API key saved in {}", tilde(&config)));
+    match std::fs::read(&config) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(json) => {
+                if json
+                    .get("primaryApiKey")
+                    .and_then(|key| key.as_str())
+                    .is_some_and(|key| !key.is_empty())
+                {
+                    found.sources.push(format!("the API key saved in {}", tilde(&config)));
+                }
+                if !json.is_object() {
+                    found.credential_sources_complete = false;
+                }
+            }
+            Err(_) => found.credential_sources_complete = false,
+        },
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            found.credential_sources_complete = false
+        }
+        Err(_) => {}
     }
-    if home.join(".credentials.json").is_file() {
+    let credentials = home.join(".credentials.json");
+    if credentials.is_file() {
+        found.expired_file_login = !cfg!(target_os = "macos")
+            && found.sources.is_empty()
+            && std::fs::read(&credentials)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|json| unrefreshable_file_expiry(&json));
         found
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
     found
+}
+
+/// Only a known OAuth expiry with no usable refresh token proves failure. Unknown fields,
+/// missing timestamps and malformed token shapes retain the existing presence-only evidence.
+fn unrefreshable_file_expiry(json: &serde_json::Value) -> bool {
+    let Some(oauth) = json.get("claudeAiOauth") else { return false };
+    let has_access = oauth
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.trim().is_empty());
+    let no_refresh = match oauth.get("refreshToken") {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(token)) => token.trim().is_empty(),
+        _ => false,
+    };
+    let expired = oauth.get("expiresAt").and_then(|v| v.as_u64()).is_some_and(|expiry| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .is_ok_and(|now| u128::from(expiry) <= now.as_millis())
+    });
+    has_access && no_refresh && expired
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
