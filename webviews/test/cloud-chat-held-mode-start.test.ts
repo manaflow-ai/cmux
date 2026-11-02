@@ -12,12 +12,14 @@ async function cloud(options: { failStarts?: number } = {}) {
   let starts = 0;
   let failures = options.failStarts ?? 0;
   const wire: string[] = [];
+  // Another chat on the machine the person can switch to.
+  const other = { sessionId: "other-chat", harness: "claude", status: "ready", turnCount: 3 };
   const answer = (method: string, params: any) => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "remote", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: session ? [session] : [] };
+        return { sessions: session ? [session, other] : [other] };
       case "session/new": {
         starts++;
         wire.push("session/new");
@@ -32,7 +34,7 @@ async function cloud(options: { failStarts?: number } = {}) {
         wire.push(`set_mode ${params.sessionId} ${params.modeId} ${params._meta?.cmuxGesture ?? "-"}`);
         return {};
       case "_acpmux/attach":
-        return { session, events: [], lastSeq: 0 };
+        return { session: params.sessionId === other.sessionId ? other : session, events: [], lastSeq: 0 };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: 0 };
       default:
@@ -111,10 +113,13 @@ test("a held mode goes to the session its start made, even when another chat is 
     const started = run.client.ensureSession();
     for (let turn = 0; turn < 200 && !awaited; turn += 1) await Promise.resolve();
     expect(awaited).toBe(true);
-    void run.client.select("other-chat").catch(() => undefined);
+    await run.client.select("other-chat");
+    expect(run.client.selectedSession).toBe("other-chat");
     resolveTicket("gesture-2");
     expect(await started).toBe("cloud-1");
-    expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual(["set_mode cloud-1 bypassPermissions gesture-2"]);
+    expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual([
+      "set_mode cloud-1 bypassPermissions gesture-2",
+    ]);
   } finally {
     run.client.close();
   }
@@ -128,6 +133,20 @@ test("a mode picked while the start is pending is the one its session takes", as
     run.client.holdStartMode("bypassPermissions");
     await started;
     expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual(["set_mode cloud-1 bypassPermissions -"]);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a mode picked after the start selected its new session, before the start returned, is still its own", async () => {
+  const run = await cloud();
+  try {
+    const started = run.client.ensureSession();
+    for (let turn = 0; turn < 200 && run.client.selectedSession !== "cloud-1"; turn += 1) await Promise.resolve();
+    expect(run.client.selectedSession).toBe("cloud-1");
+    run.client.holdStartMode("acceptEdits");
+    expect(await started).toBe("cloud-1");
+    expect(run.wire.filter((line) => line.startsWith("set_mode"))).toEqual(["set_mode cloud-1 acceptEdits -"]);
   } finally {
     run.client.close();
   }

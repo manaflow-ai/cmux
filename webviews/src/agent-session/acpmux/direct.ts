@@ -6465,7 +6465,15 @@ export class AcpmuxDirectClient {
       // The newest pick for this chat, one made while the start was pending included. It goes to the
       // session this start made, never the selected one: another chat picked while the ticket is
       // pending must not take a held Bypass permissions.
-      const held = this.heldStartMode?.generation === generation ? this.heldStartMode : undefined;
+      // create() selects the new session, a new generation: a pick made after that, while this chat
+      // is still the one selected, is also this start's.
+      const pick = this.heldStartMode;
+      const held =
+        pick &&
+        (pick.generation === generation ||
+          (pick.generation === this.selectionGeneration && this.selectedSessionId === sessionId))
+          ? pick
+          : undefined;
       if (held) {
         this.heldStartMode = undefined;
         const ticket = await held.ticket?.catch(() => undefined);
