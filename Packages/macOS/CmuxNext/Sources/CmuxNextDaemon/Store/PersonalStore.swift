@@ -76,6 +76,15 @@ public final class PersonalStore {
         _ = workspaces
         return workspaceIndex[session]?[key]
     }
+
+    /// The final personal index (`workspace.place`) that puts the row of `key` on `session` right after the last row of
+    /// `group` in the personal order; nil when no other row is in the group. A row that joins a group by its personal
+    /// state lands in the sidebar document right after its neighbor in this order, so it is placed after the group's
+    /// last member rather than after whatever row it followed.
+    public func index(afterLastMemberOf group: WorkspaceGroupID, moving key: String, session: String) -> Int? {
+        let others = workspaces.sorted { $0.index < $1.index }.filter { $0.sessionID != session || $0.workspaceKey.rawValue != key }
+        return others.lastIndex { $0.group == group }.map { $0 + 1 }
+    }
 }
 
 /// `workspaces` by session then key; the first row wins, as a scan would.

@@ -72,6 +72,8 @@ export interface WhatsNewDocument {
 export interface SummaryLine {
   group: string;
   title: string;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
 }
 
 /** One change of a build: its title, author and pull request (the provider fills these from the
@@ -80,6 +82,8 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
   /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
       whatever its subject says. Absent in notes published before the flag. */
   internal?: boolean;

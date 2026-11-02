@@ -26,6 +26,9 @@ final class CEFDevToolsController {
     /// From the close key's turn until Chromium's `DEVTOOLS_CLOSED`: the DevTools area is hidden and the page has its
     /// whole frame while Chromium still tears the DevTools browser down (`closeInThisTurn`).
     private(set) var closing = false
+    /// The DevTools cmux closed while Chromium began a new one (`willOpen` during `closing`): its late
+    /// `DEVTOOLS_CLOSED` only retires it and never removes the new DevTools' views.
+    private var retiredBrowserID: Int32?
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
@@ -87,9 +90,11 @@ final class CEFDevToolsController {
     private func openWithStandIn(_ command: Int32) {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim, !standIn else { return }
         // A parked tab (hidden in its pane) has no frame to show early: its open goes at once, to its own browser.
-        guard !tab.devTools.isOpen, !opening, layout.dock.isDocked, tab.container.window != nil,
-              tab.host.visibleTab === tab, !tab.container.isHiddenOrHasHiddenAncestor,
-              tab.runtime.supportsEmbeddedDevTools else {
+        let shown = tab.container.window != nil && tab.host.visibleTab === tab && !tab.container.isHiddenOrHasHiddenAncestor
+        guard !tab.devTools.isOpen, !opening, layout.dock.isDocked, shown, tab.runtime.supportsEmbeddedDevTools else {
+            // Console and Inspect are Chromium commands on the pane's active Chromium tab (`ExecuteChromeCommand`): for a
+            // tab not shown that is another page. Its own DevTools opens on that panel instead (the shim targets the browser).
+            if !shown, let panel = Self.panel(of: command) { _ = shim.devToolsShowPanel(browserID, panel); return }
             _ = shim.devToolsCommand(browserID, command, 0, 0)
             return
         }
@@ -102,6 +107,15 @@ final class CEFDevToolsController {
         // perf-gate-ok: one commit per DevTools open, so the stand-in frame reaches the screen before Chromium's creation.
         CATransaction.flush()
         Task { @MainActor [weak self] in self?.askChromium(command, generation: generation) }
+    }
+
+    /// The DevTools panel a Chromium command opens on (console, inspect), for a tab that is not the shown one.
+    static func panel(of command: Int32) -> String? {
+        switch command {
+        case CEFShimLibrary.DevToolsCommand.console: WebDevToolsPanel.console.chromiumID
+        case CEFShimLibrary.DevToolsCommand.inspect: WebDevToolsPanel.elements.chromiumID
+        default: nil
+        }
     }
 
     /// The stand-in's next turn: Chromium creates DevTools (`willOpen` ends the stand-in) or opens nothing.
@@ -140,6 +154,11 @@ final class CEFDevToolsController {
     private func endClosingForNewDevTools() {
         guard closing else { return }
         closing = false
+        // The closing DevTools' late event retires it only. The new DevTools is the open a waiting open asked for: a
+        // plain open is done; a console or panel the person asked for applies to it once it opened (`opened`).
+        retiredBrowserID = devToolsBrowserID
+        devToolsBrowserID = nil
+        if afterClose == .show || afterClose == .toggle { afterClose = nil }
         views?.host.isHidden = false
         views?.divider.isHidden = false
     }
@@ -305,9 +324,12 @@ final class CEFDevToolsController {
             views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
+        // A console or panel asked while the older DevTools closed, opened now by Chromium itself (see `endClosingForNewDevTools`).
+        if let next = afterClose, !closing { afterClose = nil; perform(next) }
     }
 
     func closed(browser: Int32) {
+        if browser == retiredBrowserID { retiredBrowserID = nil; return }
         guard let tab, devToolsBrowserID == nil || devToolsBrowserID == browser else { return }
         opening = false
         // Closed by cmux's close (`closeInThisTurn`): the pane and the tab's state already show it closed.
