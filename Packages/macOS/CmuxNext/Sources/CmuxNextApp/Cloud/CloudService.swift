@@ -236,15 +236,15 @@ final class CloudService {
         // The app server link: a non-production build takes the Native device route first (#28947),
         // falling back to this Mac's `cmux link` for a team the Worker has no Native mesh for;
         // production keeps `cmux link`. `CMUX_NEXT_CLOUD_NATIVE_LINK=0` keeps `cmux link`, `=1` forces Native.
-        let build = LaunchIdentity.current().build
-        let cmuxLink = CloudLinkLauncher.forApp(build: build, relay: relay)
+        let linkBuild = LaunchIdentity.current().build
+        let cmuxLink = CloudLinkLauncher.forApp(build: linkBuild, relay: relay)
         let launcher: (any CloudLinkLaunching)?
         if configuration.linkSource != .appServer {
             launcher = nil
         } else if CloudNativeFirstLauncher.choice(production: configuration.backend == .production) == .link {
             launcher = cmuxLink
         } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
-                                                             build: build, deviceName: Self.deviceName) {
+                                                             build: linkBuild, deviceName: Self.deviceName) {
             let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
             launcher = CloudNativeFirstLauncher.forced ? native : CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
                 logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
