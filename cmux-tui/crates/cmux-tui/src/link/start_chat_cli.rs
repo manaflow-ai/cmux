@@ -862,7 +862,7 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, Str
 /// and the files it left on this Mac, by name.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "guest_head"] {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }
@@ -1037,7 +1037,22 @@ impl StartCopy {
         // This receipt describes the per-chat directory only. A warm snapshot or a
         // completed copy provides no proof that dependencies were installed in it.
         if let Some(fields) = answer.as_object_mut() {
-            let checkout = if fields.get("ok") == Some(&json!(true)) {
+            let guest_head = fields.remove("guest_head").and_then(|value| value.as_str().map(str::to_string));
+            let observed = if fields.get("ok") == Some(&json!(true))
+                && fields.get("copied") == Some(&json!(true))
+                && fields.get("mode") == Some(&json!("seed"))
+            {
+                guest_head.filter(|head| super::sync_cli::is_sha(head)).and_then(|head| {
+                    folder_repo(&self.local).map(|repo| (repo, head))
+                })
+            } else {
+                None
+            };
+            let checkout = if let Some((repo, head)) = observed {
+                fields.insert("checkout_repository".into(), json!(repo));
+                fields.insert("checkout_commit".into(), json!(head));
+                "guest_verified"
+            } else if fields.get("ok") == Some(&json!(true)) {
                 "directory_present"
             } else if fields.get("error_code") == Some(&json!("checkout.missing")) {
                 "missing"
