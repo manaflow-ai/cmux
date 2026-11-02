@@ -17,6 +17,8 @@ import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxRow } from "../model";
 import { useState, type ReactNode } from "react";
 import { SessionInfoFold } from "./SessionInfoSection";
+import { useScrollEdges } from "../summary/scrollEdges";
+import "./outputsEdge.css";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows shown before Show more, as Changes (`CHANGES_SHOWN`).
@@ -193,11 +195,15 @@ export function OutputsSection({
     )),
   ];
   const folds = rows.length > OUTPUTS_SHOWN;
+  // Reuse the shared passive scroll/resize tracking; the ref removes it on unmount.
+  const scrollEdges = useScrollEdges();
   return (
     <>
-      <ul className="acpmux-session-info-list acpmux-session-info-scroll" data-section="outputs">
-        {folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows}
-      </ul>
+      <div className="acpmux-outputs-edges">
+        <ul ref={scrollEdges} className="acpmux-session-info-list acpmux-session-info-scroll" data-section="outputs">
+          {folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows}
+        </ul>
+      </div>
       {folds && (
         <SessionInfoFold open={all} onToggle={() => setAll(!all)}>
           {t(all ? "sessionInfo.outputs.showLess" : "sessionInfo.outputs.showMore")}
