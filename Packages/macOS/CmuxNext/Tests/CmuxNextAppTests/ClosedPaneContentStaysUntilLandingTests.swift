@@ -127,9 +127,13 @@ import Testing
         // #32197: the second release found no pane and ran in the motion).
         app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
         await ClosedPaneContentStaysUntilLandingTests.drainMain()
+        func state() -> String { "presenter \(app.cache.presenter(of: closedTab) != nil), withdrawn \(app.cache.withdrawnBy[closedTab]?.value != nil)" }
         app.cache.release(closedTab) // the gone-tab watch on the tree that dropped the pane
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the first release ran at once (\(state()))")
         app.cache.release(closedTab) // the watch again, on the next tree revision
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the second release ran at once (\(state()))")
         await prepared.finish(false, false) // the reply's release
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the reply's release ran at once (\(state()))")
 
         var releasedInFrame: Int?
         var frames = 0
