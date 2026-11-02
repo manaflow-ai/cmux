@@ -107,12 +107,29 @@ jobs:
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py
 
+      # A runners.json change adds a pool before the scheduled writer has had a
+      # chance to publish its first RUNNER_POOLS value. Defer this one check on
+      # that merge push; the next scheduled pass validates the reconciled value.
+      - name: Detect a pending runner pool declaration
+        id: declaration
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet "${{ github.event.before }}" "${{ github.sha }}" -- .github/runners.json; then
+            echo 'pending=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'pending=true' >> "$GITHUB_OUTPUT"
+            echo '::notice title=Runner pools::declaration changed; scheduled reconciliation will validate the new live value'
+          fi
+
       # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
       # one of its declared members. A missing pool fails every job that reads it. LINUX_RUNNER,
       # which most Linux runs-on still read, must name a member of the linux pool unless the
       # overflow switch's record is set (runner_pools.MIRRORS).
       - name: Check the runner pools
-        if: ${{ !cancelled() }}
+        id: runner-pools-check
+        if: ${{ !cancelled() && steps.declaration.outputs.pending != 'true' }}
         env:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}

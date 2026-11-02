@@ -426,6 +426,15 @@ class Main(unittest.TestCase):
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
                 self.assertEqual(step["env"].get(name), "${{ vars.%s }}" % name)
 
+    def test_runner_pool_check_defers_once_for_a_new_declaration(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())
+        steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+        declaration = next(step for step in steps if step.get("id") == "declaration")
+        check = next(step for step in steps if "runner_pools.py --check" in str(step.get("run", "")))
+        self.assertIn("github.event_name == 'push'", declaration["if"])
+        self.assertIn("steps.declaration.outputs.pending != 'true'", check["if"])
+        self.assertIn(".github/runners.json", declaration["run"])
+
     def test_no_switch_token_and_a_correct_linux_runner_is_not_a_failure(self) -> None:
         # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
