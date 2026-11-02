@@ -726,6 +726,7 @@ def _type_markers(j, cua, keys, pid, before, rects, record):
     """A real HID marker key into the focused terminal as soon as the reopened app has a window, then a click and
     the key into each other visible terminal, each with its wall time and the cell it should echo in."""
     marks = []
+    record["markers_expected"] = sum(1 for t in before["visible_terminals"] if not t.get("live") and rects.get(t["pane"]))
     if not record.get("front_wall"):
         # Desktop-scope keys go to the front app: never type when the reopened app did not come to the front.
         record["markers_error"] = "the reopened app never became the front app: no key typed"
@@ -922,10 +923,18 @@ def step_reopen_video(j, step):
         record["after_pane_rects"] = pane_rects(after)
         # Where each marker key went: the screens after hold one more "x" after the prompt per key received.
         trailing = lambda line: len(line.rstrip()) - len(line.rstrip().rstrip(MARKER_KEY))
+        last_line = lambda text: ([l for l in (text or "").rstrip("\n").split("\n") if l.strip()] or [""])[-1]
+        terms = {t["pane"]: t.get("terminal") for t in before["visible_terminals"]}
         for mark in record.get("markers") or []:
-            b = (before["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
-            a = (after["screens"].get(mark["pane"]) or "").rstrip("\n").split("\n")[-1]
-            mark["received"] = trailing(a) - trailing(b)
+            # What the SHELL got: the daemon's screen of the pane's terminal (never the app's view, which a held or
+            # replayed frame could show), compared with the same read before the end.
+            term = terms.get(mark["pane"])
+            try:
+                now_text = j.app.screen(term)["text"] if term else None
+            except D.StepError as error:
+                now_text, mark["received_error"] = None, str(error)[-160:]
+            b = last_line(before["screens"].get(mark["pane"]))
+            mark["received"] = trailing(last_line(now_text)) - trailing(b) if now_text is not None else None
         # The marker keys are in the screens after; judged by the video. Exactness compares the state without them.
         record["clean_errors"] = _clean_markers(j, before, record.get("markers") or [])
         cleaned = exact_state(j)
@@ -941,7 +950,8 @@ def step_reopen_video(j, step):
         shutil.rmtree(movie_dir, ignore_errors=True)
         (Path(j.out) / f"reopen-{index}.json").write_text(json.dumps(record, indent=1, default=str) + "\n")
         records.append({"cycle": index, "markers": [{k: m.get(k) for k in ("pane", "focused_before", "received", "key_sent_wall")}
-                                                    for m in record.get("markers") or []], "main_wall": record.get("main_wall")})
+                                                    for m in record.get("markers") or []], "main_wall": record.get("main_wall"),
+                        "expected": record.get("markers_expected"), "markers_error": record.get("markers_error")})
         rows.append({"cycle": index, "movie": record["movie"], "differences": record["differences"],
                      "settled": settled, "app_marks_ms": record["app_marks_ms"],
                      "end_to_gone_ms": record.get("end_to_gone_ms")})
@@ -1073,6 +1083,9 @@ def cond_reopen_keys_received(j, want, cache):
         return False, {"why": "no reopen_video step with marker keys ran before this check"}
     bad = []
     for rec in records:
+        if rec.get("markers_error") or len(rec["markers"]) < int(rec.get("expected") or 0):
+            bad.append({"cycle": rec["cycle"], "why": rec.get("markers_error") or
+                        f"{len(rec['markers'])} keys typed, {rec.get('expected')} expected"})
         for m in rec["markers"]:
             if m.get("received") != 1:
                 sent = m.get("key_sent_wall")
@@ -1087,9 +1100,32 @@ def cond_reopen_keys_received(j, want, cache):
     return not bad, detail
 
 
+def step_hid_line(j, step):
+    """A person types TEXT (letters, digits and spaces only) and Return with real HID keys: CuaDriver's desktop-scope
+    key events, in a session with no recording (about 11 ms a key), to the front app. Unlike the driver's `type`
+    (debug.key, a key the app makes itself, after waiting out the creation hold), this is the window server's path
+    and waits for nothing. Records each key's wall time."""
+    text = j.sub(step["text"])
+    if not re.fullmatch(r"[a-z0-9 ]+", text):
+        raise D.StepError(f"hid_line: only lowercase letters, digits and spaces, not {text!r}")
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    cua = Cua()
+    sent = []
+    try:
+        for ch in list(text) + ["return"]:
+            key = "space" if ch == " " else ch
+            t = time.time()
+            cua.tool("press_key", {"scope": "desktop", "key": key}, check=False)
+            sent.append(round(time.time() - t, 4))
+    finally:
+        cua.close()
+    return {"typed": text, "keys": len(sent), "slowest_call_s": max(sent) if sent else None}
+
+
 def step_input_journal(j, step):
     """Evidence (cmux-ad 02:55Z: every reopen journey keeps it): the app's own input journal (`debug.journal`,
-    the last LAST entries: keys, mouse, focus resolutions) written to input-journal.json and kept in the result."""
+    the last LAST entries: keys, mouse, focus resolutions) written to diag-<NAME>.json (letters only) and summarized in the result."""
     try:
         entries = (j.app.rpc("debug.journal", {"last": int(step.get("last", 200))}, timeout=10) or {}).get("entries") or []
     except (D.StepError, OSError, ValueError) as error:
@@ -1102,5 +1138,5 @@ def step_input_journal(j, step):
     return {"entries": len(entries), "key_events": len(keys), "focus_resolved": focus[-12:]}
 
 
-STEPS = {"input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}

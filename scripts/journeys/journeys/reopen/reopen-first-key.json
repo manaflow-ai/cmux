@@ -107,10 +107,10 @@
    "title": "(b) a person waits ~2 s after the terminals show"
   },
   {
-   "do": "type",
-   "text": "echo after-${nonce}-$((6*7))",
-   "enter": true,
-   "mark": "after"
+   "do": "hid_line",
+   "text": "echo after${nonce}",
+   "mark": "after",
+   "title": "(b) a person types a line with real keys ~2 s after the terminals show (no creation-hold wait)"
   },
   {
    "do": "input_journal",
@@ -124,13 +124,13 @@
    "timeout": 10,
    "all": [
     {
-     "daemon_line": "after-${nonce}-42"
+     "daemon_line": "after${nonce}"
     },
     {
-     "app_text_line": "after-${nonce}-42"
+     "app_text_line": "after${nonce}"
     },
     {
-     "frame_text": "after-${nonce}-42"
+     "frame_text": "after${nonce}"
     }
    ]
   }
