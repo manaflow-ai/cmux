@@ -4,6 +4,71 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenParams {
+    pub items: Vec<FeedItemId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResult {
+    pub items: Vec<FeedSeenResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.seen declares.
+    FeedSeenError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
+    FeedSnoozeOp {
+        name: "feed.snooze",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedSnoozeParams,
+        result: FeedSnoozeResult,
+        error: FeedSnoozeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeParams {
+    pub items: Vec<FeedItemId>,
+    pub until: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResult {
+    pub items: Vec<FeedSnoozeResultItemsItem>,
+}
+
 wire_errors! {
     /// The error codes feed.snooze declares.
     FeedSnoozeError {
@@ -835,63 +900,4 @@ pub struct HomeRequestsListResultRequestsItem {
     pub created_at: String,
     pub expires_at: String,
     pub trusted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeRequestsListResult {
-    pub requests: Vec<HomeRequestsListResultRequestsItem>,
-}
-
-wire_errors! {
-    /// The error codes home.requests.list declares.
-    HomeRequestsListError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
-    HomeSearchOp {
-        name: "home.search",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:planetscale",
-        risk: "read",
-        principals: [Session, Install],
-        params: HomeSearchParams,
-        result: HomeSearchResult,
-        error: HomeSearchError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchParams {
-    pub q: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub author: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<Timestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchResultHitsItemRangesItem {
-    pub start: i64,
-    pub length: i64,
 }

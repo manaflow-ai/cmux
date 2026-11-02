@@ -4,6 +4,72 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Attach an owned WireGuard tunnel to an owned private network.
+    TunnelAttachOp {
+        name: "tunnel.attach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelAttachParams,
+        result: TunnelAttachResult,
+        error: TunnelAttachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.attach declares.
+    TunnelAttachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Detach an owned WireGuard tunnel from an owned private network.
+    TunnelDetachOp {
+        name: "tunnel.detach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelDetachParams,
+        result: TunnelDetachResult,
+        error: TunnelDetachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
 wire_errors! {
     /// The error codes tunnel.detach declares.
     TunnelDetachError {

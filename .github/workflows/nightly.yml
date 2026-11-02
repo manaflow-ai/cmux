@@ -1813,6 +1813,7 @@ jobs:
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
       light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
       light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
+      light_linux_runner: ${{ steps.place-fleet.outputs.linux_runner }}
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
       # The cx-f58x scan of the archived app passed here; prepare skips its own.
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
@@ -2588,6 +2589,23 @@ jobs:
         timeout-minutes: 5
         run: bash scripts/ci/nightly-steps/light-placement.sh finish
 
+      # prepare-nightly-variant-primary takes fleet Linux only while an idle runner waits there now (it starts at
+      # once), else the light placement's Mac; no read waits. Median 45 s on Linux, 202 s on a nightly Mac.
+      - name: Offer fleet Linux to the primary preparation
+        id: place-fleet
+        if: success() && steps.light-route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          JOBS: prepare-nightly-variant-primary
+          LINUX_ONLY: prepare-nightly-variant-primary
+          FLEET_LINUX: cmux-fleet-linux-x64
+          REQUIRE_LIVE_CAPACITY: "1"
+          ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
       - name: Stop the helper builds still running
         if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
@@ -2877,11 +2895,10 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Linux: only moves and reads files (llvm-lipo thins, giving Apple lipo's
-    # bytes); Mach-O checks run in verify-signed-nightly. Like every Linux
-    # nightly job it takes a runner-set member (16 vCPU when LINUX_RUNNER
-    # names it, else 32), never LINUX_RUNNER as-is.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    # Only moves and reads files (llvm-lipo thins on Linux); Mach-O checks run in verify-signed-nightly.
+    # Fleet Linux when build-nightly-app's place-fleet saw an idle runner, else its light placement's
+    # mini, else a runner-set member (16 vCPU when LINUX_RUNNER names it, else 32).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && needs.build-nightly-app.outputs.light_linux_runner || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -2946,37 +2963,10 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
-      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
-      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
-      # -archs prints a trailing space that the exact comparisons refuse, so a
-      # shim trims it.
       - &put-llvm-lipo-on-path-as-lipo
         name: Put llvm-lipo on PATH as lipo
         if: runner.os == 'Linux' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')
-        run: |
-          set -euo pipefail
-          llvm_lipo="$(ls /usr/lib/llvm-18/bin/llvm-lipo 2>/dev/null || command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo 2>/dev/null | sort -V | tail -n 1 || true)"
-          if [ -z "$llvm_lipo" ]; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq llvm >/dev/null
-            llvm_lipo="$(command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo | sort -V | tail -n 1)"
-          fi
-          bin="$RUNNER_TEMP/lipo-bin"
-          mkdir -p "$bin"
-          {
-            echo '#!/usr/bin/env bash'
-            echo 'set -uo pipefail'
-            echo 'for arg in "$@"; do'
-            echo '  if [ "$arg" = -archs ]; then'
-            echo "    out=\"\$('$llvm_lipo' \"\$@\")\" || exit \$?"
-            echo "    printf '%s\\n' \"\$out\" | sed 's/[[:space:]]*\$//'"
-            echo '    exit 0'
-            echo '  fi'
-            echo 'done'
-            echo "exec '$llvm_lipo' \"\$@\""
-          } > "$bin/lipo"
-          chmod +x "$bin/lipo"
-          echo "$bin" >> "$GITHUB_PATH"
-          "$llvm_lipo" --version | head -n 2
+        run: bash scripts/ci/nightly-steps/put-llvm-lipo-on-path.sh
 
 
       # download-artifact reads each blob over one connection. Fetch all three
@@ -3231,9 +3221,12 @@ jobs:
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
             # Only files with a Mach-O or fat magic reach `file` (one process
-            # each); the per-file scan of the whole bundle took 90 s.
+            # each); the per-file scan of the whole bundle took 90 s. A missing or failing
+            # `file` fails the check rather than reading as "no fat file".
+            command -v file >/dev/null || { [ "$RUNNER_OS" = Linux ] && sudo apt-get install -y -qq file >/dev/null; } || true
+            command -v file >/dev/null || { echo "file(1) is missing; cannot check for fat Mach-O" >&2; exit 1; }
             fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
-              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
+              | xargs -0 sh -c 'for f do k="$(file -b "$f")" || exit 255; case "$k" in *"Mach-O universal"*) echo "$f";; esac; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
@@ -3343,10 +3336,7 @@ jobs:
       - *init-cmux-next-notices-submodu
 
 
-      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
-      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
-      # -archs prints a trailing space that the exact comparisons refuse, so a
-      # shim trims it.
+      # llvm-lipo as lipo: put-llvm-lipo-on-path.sh says why.
       - *put-llvm-lipo-on-path-as-lipo
 
 
@@ -6399,7 +6389,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - *checkout-publication-tooling-a
