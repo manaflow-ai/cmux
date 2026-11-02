@@ -1,0 +1,226 @@
+import CmuxAgentChat
+import Foundation
+import Testing
+@testable import CmuxMobileHost
+
+@Suite("Transcript tail reader", .timeLimit(.minutes(2)))
+struct TranscriptTailReaderTests {
+    private func makeFile(_ contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tail-reader-\(UUID().uuidString).jsonl")
+        try Data(contents.utf8).write(to: url)
+        return url
+    }
+
+    private func decodedLines(_ reader: TranscriptTailReader, _ window: TranscriptTailWindow, maxRecordBytes: Int) -> [String] {
+        Array(reader.lines(in: window.lineRanges, maxRecordBytes: maxRecordBytes))
+    }
+
+    @Test("the window holds the newest lines within the line limit, with absolute indexes")
+    func lineLimit() throws {
+        let url = try makeFile("a\nbb\nccc\ndddd\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 2, maxBytes: 100, maxRecordBytes: 100)
+        let window = try reader.scan(limits: limits)
+        #expect(window.completeLineCount == 4)
+        #expect(window.firstLine == 2)
+        #expect(window.byteCount == 14)
+        #expect(decodedLines(reader, window, maxRecordBytes: 100) == ["ccc", "dddd"])
+    }
+
+    @Test("the window stops at the byte budget but a skipped record costs none of it")
+    func byteBudget() throws {
+        let url = try makeFile("aaaa\nbbbb\n\(String(repeating: "h", count: 50))\ncccc\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 100, maxBytes: 8, maxRecordBytes: 10)
+        let window = try reader.scan(limits: limits)
+        #expect(window.firstLine == 1)
+        #expect(window.oversizedLines == [2])
+        #expect(decodedLines(reader, window, maxRecordBytes: 10) == ["bbbb", "", "cccc"])
+    }
+
+    @Test("bytes after the last newline are a fragment, not a line")
+    func trailingFragment() throws {
+        let url = try makeFile("line\npartial")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 100, maxRecordBytes: 100)
+        let window = try reader.scan(limits: limits)
+        #expect(window.completeLineCount == 1)
+        #expect(window.byteCount == 12)
+        #expect(String(decoding: reader.data(in: window.trailingFragment), as: UTF8.self) == "partial")
+    }
+
+    @Test("an empty file has an empty window")
+    func emptyFile() throws {
+        let url = try makeFile("")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 100, maxRecordBytes: 100)
+        let window = try reader.scan(limits: limits)
+        #expect(window.completeLineCount == 0)
+        #expect(window.lineRanges.isEmpty)
+        #expect(window.trailingFragment.isEmpty)
+    }
+
+    @Test("a multi-gigabyte file yields a window sized by the limits")
+    func multiGigabyteFile() throws {
+        // Sparse, so the test exercises real offsets without the disk cost.
+        let url = try makeFile("")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let handle = try FileHandle(forWritingTo: url)
+        let holeBytes: UInt64 = 3 * 1024 * 1024 * 1024
+        try handle.truncate(atOffset: holeBytes)
+        try handle.seek(toOffset: holeBytes)
+        try handle.write(contentsOf: Data("\nsecond\nthird\n".utf8))
+        try handle.close()
+
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 4, maxBytes: 1024, maxRecordBytes: 1024)
+        let window = try reader.scan(limits: limits)
+        #expect(window.completeLineCount == 3)
+        #expect(window.firstLine == 0)
+        #expect(window.oversizedLines == [0])
+        #expect(window.byteCount == holeBytes + 14)
+        #expect(decodedLines(reader, window, maxRecordBytes: 1024) == ["", "second", "third"])
+    }
+
+    @Test("a cancelled task stops scanning")
+    func cancelledScanThrows() async throws {
+        let url = try makeFile("a\nb\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 100, maxRecordBytes: 100)
+        let path = url.path
+        let task = Task.detached { () -> Bool in
+            withUnsafeCurrentTask { $0?.cancel() }
+            let reader = TranscriptTailReader(path: path)
+            do {
+                _ = try reader?.scan(limits: limits)
+                return false
+            } catch {
+                return error is CancellationError
+            }
+        }
+        #expect(await task.value)
+    }
+
+    @Test("cancellation between records ends the line sequence")
+    func cancelledLinesStop() async throws {
+        let url = try makeFile("a\nb\nc\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 100, maxRecordBytes: 100)
+        let path = url.path
+        let task = Task.detached { () -> [String] in
+            guard let reader = TranscriptTailReader(path: path),
+                  let window = try? reader.scan(limits: limits) else { return [] }
+            var seen: [String] = []
+            for line in reader.lines(in: window.lineRanges, maxRecordBytes: 100) {
+                seen.append(line)
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+            return seen
+        }
+        #expect(await task.value == ["a"])
+    }
+
+    @Test("stopping during the first read abandons it and start returns")
+    func stopAbandonsInitialLoad() async throws {
+        let url = try makeFile("")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: 64 * 1024 * 1024 * 1024)
+        try handle.close()
+
+        let tailer = AgentChatTranscriptTailer(sessionID: "session", agentKind: .codex, path: url.path) { _ in }
+        let started = Task { await tailer.start() }
+        await tailer.stop()
+        await started.value
+        #expect(await tailer.didAbandonInitialLoad)
+    }
+
+    @Test("a completed first read is not abandoned by a later stop")
+    func stopAfterLoadKeepsHistory() async throws {
+        let url = try makeFile("{}\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let tailer = AgentChatTranscriptTailer(sessionID: "session", agentKind: .codex, path: url.path) { _ in }
+        await tailer.start()
+        await tailer.stop()
+        #expect(await tailer.didAbandonInitialLoad == false)
+    }
+
+    @Test("an oversized record appended live keeps its seq and its row")
+    func oversizedAppend() async throws {
+        let url = try makeFile("")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (batches, continuation) = AsyncStream.makeStream(of: AgentChatTranscriptTailer.Batch.self)
+        let tailer = AgentChatTranscriptTailer(
+            sessionID: "session",
+            agentKind: .codex,
+            path: url.path,
+            maxInitialBytes: 1024,
+            maxRecordBytes: 64
+        ) { batch in
+            continuation.yield(batch)
+        }
+        await tailer.start()
+
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.write(contentsOf: Data((String(repeating: "h", count: 200) + "\n").utf8))
+        try handle.close()
+
+        var appended: [ChatMessage] = []
+        for await batch in batches {
+            appended = batch.appended
+            break
+        }
+        await tailer.stop()
+        continuation.finish()
+        #expect(appended.map(\.seq) == [0])
+        if case .unsupported(let payload) = appended.first?.kind {
+            #expect(payload.rawType == AgentChatTranscriptTailer.oversizedRecordRawType)
+        } else {
+            Issue.record("expected an oversized row")
+        }
+    }
+}
+
+@Suite("Transcript line assembler")
+struct TranscriptLineAssemblerTests {
+    private func data(_ text: String) -> Data { Data(text.utf8) }
+
+    @Test("a line split across chunks comes out whole, once")
+    func splitAcrossChunks() {
+        var assembler = TranscriptLineAssembler(maxRecordBytes: 100)
+        #expect(assembler.consume(data("ab")) == [])
+        #expect(assembler.consume(data("c\nd\ne")) == [.record("abc"), .record("d")])
+        #expect(assembler.consume(data("\n")) == [.record("e")])
+    }
+
+    @Test("a record over the limit is dropped across chunks and consumes one line")
+    func oversizedAcrossChunks() {
+        var assembler = TranscriptLineAssembler(maxRecordBytes: 4)
+        #expect(assembler.consume(data("abc")) == [])
+        #expect(assembler.consume(data("defg")) == [])
+        #expect(assembler.consume(data("hij\nok\n")) == [.oversized, .record("ok")])
+    }
+
+    @Test("a record exactly at the limit is kept")
+    func exactlyAtLimit() {
+        var assembler = TranscriptLineAssembler(maxRecordBytes: 4)
+        #expect(assembler.consume(data("abcd\n")) == [.record("abcd")])
+    }
+
+    @Test("a fragment from the first read continues, and an oversized one is not read")
+    func seededFragment() {
+        var kept = TranscriptLineAssembler(maxRecordBytes: 10, fragmentByteCount: 2, fragment: { Data("ab".utf8) })
+        #expect(kept.consume(data("c\n")) == [.record("abc")])
+
+        var discarded = TranscriptLineAssembler(maxRecordBytes: 10, fragmentByteCount: 50, fragment: {
+            Issue.record("an oversized fragment must not be read")
+            return Data()
+        })
+        #expect(discarded.consume(data("tail\nnext\n")) == [.oversized, .record("next")])
+    }
+}

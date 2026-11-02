@@ -48,6 +48,14 @@ public actor AgentChatArtifactIndex {
         let snapshot: Snapshot
     }
 
+    /// How much of a transcript's tail one snapshot reads. Paths referenced
+    /// only before this window leave the scope, which fails closed.
+    static let scanLimits = TranscriptTailLimits(
+        maxLines: 200_000,
+        maxBytes: 256 * 1024 * 1024,
+        maxRecordBytes: 8 * 1024 * 1024
+    )
+
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
 
     public func snapshot(
@@ -60,12 +68,21 @@ public actor AgentChatArtifactIndex {
         if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
-        let snapshot = try Self.buildSnapshot(
-            agentKind: agentKind,
-            transcriptPath: transcriptPath,
-            workingDirectory: workingDirectory,
-            generation: key.generation
-        )
+        // Off the actor, so a slow transcript doesn't hold up other sessions'
+        // lookups, and cancelled along with the request that asked for it.
+        let build = Task.detached(priority: .utility) {
+            try Self.buildSnapshot(
+                agentKind: agentKind,
+                transcriptPath: transcriptPath,
+                workingDirectory: workingDirectory,
+                generation: key.generation
+            )
+        }
+        let snapshot = try await withTaskCancellationHandler {
+            try await build.value
+        } onCancel: {
+            build.cancel()
+        }
         cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
         return snapshot
     }
@@ -122,16 +139,25 @@ public actor AgentChatArtifactIndex {
         workingDirectory: String?,
         generation: String
     ) throws -> Snapshot {
-        let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
-        let text = String(decoding: data, as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let reader = TranscriptTailReader(path: transcriptPath) else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        let limits = scanLimits
+        let window = try reader.scan(limits: limits)
+        // A last line with no newline yet still counts as a line here.
+        let lines = reader.lines(
+            in: window.lineRanges + [window.trailingFragment],
+            maxRecordBytes: limits.maxRecordBytes
+        )
         let parseResult: ChatTranscriptParseResult
         switch agentKind {
         case .codex:
-            parseResult = CodexTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = CodexTranscriptParser().parse(lines: lines, startingSeq: window.firstLine)
         case .claude, .other:
-            parseResult = ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = ClaudeTranscriptParser().parse(lines: lines, startingSeq: window.firstLine)
         }
+        // The line sequence ends early on cancellation; don't cache a partial scope.
+        try Task.checkCancellation()
         let artifacts = ChatArtifactIndexedReference.derive(
             from: parseResult.messages,
             supplementalReferences: parseResult.artifactReferences,
