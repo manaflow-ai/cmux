@@ -65,6 +65,9 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
         self.mode = mode
     }
 
+    /// Proof-only stub: the behavior at 1972dd8 (keys are taken while the labels are collected).
+    public var takesKeys: Bool { true }
+
     /// The labels for `targets` (links only in `.newSplit`); `.cancel` when
     /// there is nothing to label, else what the keys typed so far mean.
     /// `editing`: a text field of the page has the keyboard (the page's own answer).
