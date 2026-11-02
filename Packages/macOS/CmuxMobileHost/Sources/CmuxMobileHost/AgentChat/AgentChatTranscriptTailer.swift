@@ -134,6 +134,9 @@ public actor AgentChatTranscriptTailer {
         let watcher = FileWatcher(path: path, throttle: .milliseconds(200))
         self.watcher = watcher
         watchTask = Task { [weak self] in
+            // Lines written after the scan and before the watcher attached have
+            // no event of their own, and an idle agent may never write again.
+            await self?.drainNewContent()
             for await _ in watcher.events {
                 guard let self else { return }
                 await self.drainNewContent()
