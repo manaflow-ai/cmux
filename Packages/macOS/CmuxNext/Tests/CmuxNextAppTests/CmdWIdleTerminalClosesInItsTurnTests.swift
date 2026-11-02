@@ -304,8 +304,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             hold.release() // the idle close ends while the question asks
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the idle close never ended: asking \(TabCloseGuard.asking)" })
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
-            let back = try? await t.connection.request(WaitForTextRequest(surface: running.surface, pattern: first + second, timeoutMs: 10_000), timeout: .seconds(15))
-            #expect(back?.matched == true, "the held keys did not reach the terminal that stays in typing order: \(back?.text.suffix(300) ?? "no answer")")
+            // cat writes each line back after the terminal's echo; wait for one of the two orders, then read the screen.
+            _ = try? await t.connection.request(WaitForTextRequest(surface: running.surface, pattern: "o\\d\(nonce)o\\d\(nonce)", timeoutMs: 10_000), timeout: .seconds(15))
+            let screen = (try? await t.connection.request(ReadScreenRequest(surface: running.surface), timeout: .seconds(5)))?.text ?? ""
+            #expect(screen.contains(first + second) && !screen.contains(second + first),
+                    "the held keys did not reach the terminal that stays in typing order (\(first)\(second)): \(screen.suffix(300))")
         }
     }
 
