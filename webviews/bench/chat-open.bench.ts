@@ -230,6 +230,7 @@ try {
       ([latestText, instrument, hostLatency]) => {
         if (hostLatency > 0)
           (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
+            // fixed-wait: the stand-in host's answer latency is what this run measures.
             "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
           };
         const forced = {
@@ -282,11 +283,11 @@ try {
             }
           } as typeof WebSocket;
           const fetched = window.fetch;
-          window.fetch = (input, init) => {
+          window.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {
             const what = `${String(input instanceof Request ? input.url : input).replace(location.origin, "")} ${String(init?.body ?? "").slice(0, 60)}`;
             trace.push(`${performance.now().toFixed(0)} fetch ${what}`);
             return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
-          };
+          }, fetched);
         }
         const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
         (window as unknown as { __open: typeof state }).__open = state;
