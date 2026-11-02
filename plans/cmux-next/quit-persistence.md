@@ -15,6 +15,12 @@ the "quit = plain NSAlert" decision; the default choice is Keep sessions running
 automated quit-and-relaunch proof runs on cmux-lawrence-2. The work is split between the dialogs
 lead and the durable-sessions owner.
 
+Update 2026-11-01 (QUIT P0, #29984): from 2026-10-11 (cx-7vu, aba72a3fbae, Lawrence 2026-10-07 "no confirm dialogs")
+until #29984, an interactive quit asked nothing and kept the sessions. Lawrence 2026-11-01 asked for the prompt again
+("cmd q needs to prompt for what type of quit"): with local terminals and `app.quitBehavior` "ask", Cmd-Q asks Keep
+Sessions Running (default) / End Sessions, Keep Layout / End Everything / Cancel in one cmux dialog (the four buttons
+stack when they do not fit on one line); "Don't ask again" writes the choice. Scripts, signals and power off never ask.
+
 Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start with `cmux-tui/`.
 
 ## 1. What happens today
