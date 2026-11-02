@@ -120,3 +120,47 @@ fn a_failed_group_commit_settles_every_split() {
     }
     first.kill();
 }
+
+/// A split sent again with the same client ids while its original waits
+/// for its group commit must get the original's replay. Joining the group,
+/// it found its original executed but not committed and answered
+/// `mutation.indeterminate`, which tells a client to retry with a new key:
+/// a second pane (review of #32364).
+#[test]
+fn a_split_sent_again_during_its_group_gets_the_replay() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let keyed = || TerminalSpawnOptions {
+        pane_id: Some(format!("pane_{:032x}", 0x5b11_u128)),
+        tab_id: Some(format!("tab_{:032x}", 0x5b11_u128)),
+        ..TerminalSpawnOptions::default()
+    };
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    mux.set_creation_before_effect_hook_for_test(Box::new(move || {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    }));
+    let split = |mux: &Arc<Mux>| {
+        let (mux, spawn) = (mux.clone(), keyed());
+        std::thread::spawn(move || {
+            mux.split_with_options_as(&Actor::Daemon, pane, SplitDir::Down, spawn, None)
+        })
+    };
+    let original = split(&mux);
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let again = split(&mux);
+    wait_until("the second send to wait", || mux.creations_waiting_for_test() == 1);
+    release_tx.send(()).unwrap();
+    let original = original.join().unwrap().unwrap();
+    let again = again
+        .join()
+        .unwrap()
+        .unwrap_or_else(|error| panic!("the split sent again did not get the replay: {error:#}"));
+    assert!(!original.replayed);
+    assert!(again.replayed, "the split sent again was not a replay");
+    assert_eq!(again.surface.id, original.surface.id);
+    original.surface.kill();
+    first.kill();
+}
