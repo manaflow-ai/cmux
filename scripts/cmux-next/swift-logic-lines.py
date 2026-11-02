@@ -28,10 +28,10 @@ no body: its signature; a file-scope let/var/typealias: past brackets, braces an
 newline that no operator carries on). A line counts once: a declaration that starts on a line another one already spans
 counts from the next line (`let a = 1; let b = 2`: a 1 line, b 0) and still reports its own line. The top-level
 statements of a main.swift (its code lines outside every declaration, not an import or a `#if`-style directive) are
-one more unit, kind `main`, name `main.swift`. Other lines outside every declaration (imports, header comments, `#if`
-lines) never count. A declaration inside `#if` counts like any other. Known limit: an `#if` whose branches open and
-close braces unevenly makes the brace before it run to the end of the file (arch_counts.Braces); the lines are put
-under the wrong declaration, none is hidden.
+one more unit, kind `main`, name `main.swift` (its non-blank lines, a multi-line string's too). Other lines
+outside every declaration (imports, header comments, `#if` lines) never count. A declaration inside `#if` counts like
+any other. Known limit: an `#if` whose branches open and close braces unevenly makes the brace before it run to the
+end of the file (arch_counts.Braces); the lines are put under the wrong declaration, none is hidden.
 
 Table: plans/cmux-next/swift-logic-classes.tsv at SHA, tab-separated, first line exactly
 `module kind name ordinal class logic_share mirror_share path reason` (--table FILE reads another copy). `path` is the
@@ -88,7 +88,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 METHOD = "swift-logic-lines"
-METHOD_VERSION = 1
+METHOD_VERSION = 2  # v2: the table key is per file; a main.swift's statements count (counts not comparable with v1)
 TABLE = "plans/cmux-next/swift-logic-classes.tsv"
 LOGIC = "swift_logic_lines"
 MIRROR = "mirror_lines"
@@ -174,13 +174,11 @@ _SHORTHAND_EXTENSION = re.compile(
 # (`}; struct B {`).
 _TYPE_DECL = re.compile(r"(?:^|(?<=[;}]))" + AC.TYPE_DECL.pattern[1:], re.M)
 _FUNC_DECL = re.compile(r"(?:^|(?<=[;}]))" + AC.FUNC_DECL.pattern[1:], re.M)
-# Between a func's parameter list and a `{`: a line that starts another declaration means the func has no body.
-_NEXT_DECL = re.compile(r"[;}]|\n[ \t]*(?:@|#|(?:public|package|internal|private|fileprivate|open|final|nonisolated|"
-                        r"func|var|let|class|struct|enum|actor|protocol|extension|typealias|import|macro|operator|"
-                        r"precedencegroup)\b)")
-# A main.swift line that is no statement: an import or a compiler directive.
-_NO_STATEMENT = re.compile(r"[ \t]*(?:(?:@\w+[ \t]+)*import\b|"
-                           r"#(?:if|elseif|else|endif|warning|error|sourceLocation)\b)")
+# A func signature goes on to a next line that starts with an effect (`throws -> Int` under the parameter list).
+_EFFECTS = re.compile(r"[ \t]*(?:async|throws|rethrows|reasync)\b")
+# A main.swift line that is no statement: an import (attributes and an access level too) or a compiler directive.
+_NO_STATEMENT = re.compile(rf"[ \t]*(?:(?:{AC.ATTR}[ \t]+)*(?:(?:public|package|internal|fileprivate|private)[ \t]+)?"
+                           r"import\b|#(?:if|elseif|else|endif|warning|error|sourceLocation)\b)")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -327,14 +325,12 @@ def units(raw: str, path: str = "") -> list[Unit]:
     for m in _FUNC_DECL.finditer(code):
         if braces.enclosing(m.start()):
             continue
-        # Its body: the first `{` after its parameter list when only signature text (effects, `->`, `where`, on any
-        # number of lines) comes before it; a func with no body (`@_silgen_name`) ends at its signature statement.
-        paren = AC._closing(code, m.end() - 1) + 1
-        brace = code.find("{", paren)
-        if brace >= 0 and not _NEXT_DECL.search(code, paren, brace):
-            end = braces.close.get(brace, n - 1) + 1
-        else:
-            end = _statement_end(code, paren, braces)
+        # Its statement from the parameter list on: the result, the `where` clause and the body brace (on the line or
+        # the next ones: _statement_end), and a next line that starts with an effect; a func with no body
+        # (`@_silgen_name`) ends at its signature.
+        end = _statement_end(code, AC._closing(code, m.end() - 1) + 1, braces)
+        while end < n and code[end] == "\n" and _EFFECTS.match(code, end + 1):
+            end = _statement_end(code, end + 1, braces)
         found.append((m.start(), end, "func", m.group(2), False))
     for m in AC.STATIC.finditer(code):
         if braces.enclosing(m.start()) or re.search(r"\bstatic\b", m.group(1) or ""):
@@ -360,7 +356,9 @@ def units(raw: str, path: str = "") -> list[Unit]:
         counted = max(counted, last)
     if path.rsplit("/", 1)[-1] == "main.swift":
         # Its top-level statements (code outside every declaration, not an import or a directive): one unit.
-        lines = [i for i, text in enumerate(code_lines, 1)
+        # Comments blanked, strings kept: a multi-line string's lines are the statement's lines.
+        kept = AC.strip(raw, keep_strings=True).split("\n")
+        lines = [i for i, text in enumerate(kept, 1)
                  if i not in covered and text.strip() and not _NO_STATEMENT.match(text)]
         if lines:
             out.append(Unit("main", "main.swift", lines[0], len(lines), False, made))

@@ -240,14 +240,15 @@ class LogicLinesTests(Repo):
                    "guard let name = CommandLine.arguments.first,\n      let other = Optional(name) else {\n"
                    "    exit(1)\n}\n#if DEBUG\nprint(other)\n#endif\nlet service = Service()\n"  # 5, service 1
                    "struct Service {\n}\n"  # 2
-                   "service.run()\nprint(\"\"\"\n    started\n\n    \"\"\")\nRunLoop.main.run()\n")  # 6 more, a string too
+                   "service.run()\nprint(\"\"\"\n    started\n\n    \"\"\")\n"
+                   "RunLoop.main.run()\n")  # 5 more: a string's lines too, no blank line
         self.write(f"{SRC}/CmuxNextHelper/Other.swift", "struct Other {\n}\n")  # 2: no main.swift
         self.commit()
-        self.assertEqual(self.count()["rows"]["swift_logic_lines"], (5 + 6) + 1 + 2 + 2)
+        self.assertEqual(self.count()["rows"]["swift_logic_lines"], (5 + 5) + 1 + 2 + 2)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             logic.main(["--repo", str(self.repo), "--sites", "swift_logic_lines"])
-        self.assertIn(f"{SRC}/CmuxNextHelper/main.swift:7: main main.swift #0: 11 of 11 lines (unlisted)",
+        self.assertIn(f"{SRC}/CmuxNextHelper/main.swift:7: main main.swift #0: 10 of 10 lines (unlisted)",
                       out.getvalue())
 
     def test_a_listed_declaration_moved_to_another_file_or_module_counts_again(self):
