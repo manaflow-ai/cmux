@@ -27,6 +27,18 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
         automaticOrder.first { !used.contains($0.rawValue) }
     }
 
+    /// A stable palette color for an unbranded harness or session mark. Groups with no
+    /// user-chosen color use `GroupTint.none` and never call this fallback.
+    public static func unset(id: String) -> GroupColor {
+        // FNV-1a: `hashValue` is seeded per process, so it would change the color each launch.
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in id.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        return automaticOrder[Int(hash % UInt64(automaticOrder.count))]
+    }
+
     /// The group color closest to an sRGB `0xRRGGBB` color by hue (another
     /// browser's profile color, so an imported profile keeps its look);
     /// grey for colors with almost no saturation.
