@@ -106,6 +106,10 @@ class Wiring(unittest.TestCase):
                 continue
             with self.subTest(job=name):
                 allowed = {"signer-dmg", "signer-build"} if name in LEGACY_POOL_JOBS else {"signer-dmg"}
+                # The parallel launch smoke reads the unsigned DMG while signer-dmg signs it; publish matches
+                # its image to the final DMG's (ParallelLaunchSmoke below).
+                if name == "launch-smoke-nightly":
+                    allowed = {"signer-dmg-image"}
                 self.assertLessEqual(set(needs(job)) & set(SIGNER_JOBS), allowed)
         for name in ("report-nightly-failure", "close-nightly-failure-issue"):
             self.assertFalse(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
@@ -678,6 +682,119 @@ class SignerStapleApp(unittest.TestCase):
         done = subprocess.run(["bash", str(self.SCRIPT), str(self.tmp / "none.app")], capture_output=True, text=True,
                               env=dict(os.environ, XCRUN_TOOL=str(self.xcrun)))
         self.assertNotEqual(done.returncode, 0)
+
+
+
+def fake_dmg(data: bytes, xml: bytes, signature: bytes = b"") -> bytes:
+    """A UDIF-shaped file: data fork, block map, an optional signature after it, then the koly trailer."""
+    import struct
+    koly = bytearray(512)
+    koly[0:4] = b"koly"
+    struct.pack_into(">II", koly, 4, 4, 512)
+    struct.pack_into(">QQQQ", koly, 24, 0, len(data), 0, 0)
+    struct.pack_into(">QQ", koly, 216, len(data), len(xml))
+    if signature:
+        struct.pack_into(">QQ", koly, 296, len(data) + len(xml), len(signature))
+    return data + xml + signature + bytes(koly)
+
+
+class ParallelLaunchSmoke(unittest.TestCase):
+    """launch-smoke-nightly smokes a pool-signed build's unsigned DMG while signer-dmg signs it, and
+    publish-nightly publishes that build only when the smoke passed on the final DMG's image."""
+
+    DIGEST = ROOT / "scripts/ci/dmg_image_digest.py"
+    SMOKE = JOBS["launch-smoke-nightly"]
+
+    def digest(self, content: bytes) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.dmg"
+            path.write_bytes(content)
+            return subprocess.run([sys.executable, "-I", str(self.DIGEST), str(path)], capture_output=True, text=True)
+
+    def test_signing_and_stapling_keep_the_image_digest(self):
+        unsigned = self.digest(fake_dmg(b"image" * 1000, b"<plist/>"))
+        signed = self.digest(fake_dmg(b"image" * 1000, b"<plist/>", b"signature and ticket"))
+        self.assertEqual(unsigned.returncode, 0, unsigned.stderr)
+        self.assertEqual(unsigned.stdout, signed.stdout)
+        for other in (fake_dmg(b"imagf" * 1000, b"<plist/>"), fake_dmg(b"image" * 1000, b"<plist>")):
+            self.assertNotEqual(self.digest(other).stdout, unsigned.stdout)
+
+    def test_the_digest_refuses_what_is_not_a_dmg(self):
+        for content in (b"short", b"x" * 2048, fake_dmg(b"", b"<plist/>")):
+            self.assertEqual(self.digest(content).returncode, 1)
+
+    def test_the_smoke_runs_beside_signer_dmg_on_the_dmg_it_signs(self):
+        self.assertIn("signer-dmg-image", needs(self.SMOKE))
+        self.assertNotIn("signer-dmg", needs(self.SMOKE))
+        self.assertNotIn("environment", self.SMOKE)
+        self.assertNotIn("secrets.", yaml.safe_dump(self.SMOKE))
+        self.assertEqual(self.SMOKE["runs-on"], JOBS["verify-final-dmg-nightly"]["runs-on"])
+        self.assertIn("vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off'", self.SMOKE["if"])
+        self.assertEqual(self.SMOKE["env"]["UNSIGNED_SHA256"], "${{ needs.signer-dmg-image.outputs.sha256 }}")
+        steps = {s.get("name"): s for s in self.SMOKE["steps"]}
+        smoke = steps["Launch smoke from a fresh home"]
+        self.assertIn(".publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh", smoke["run"])
+        self.assertNotIn("continue-on-error", smoke)
+        self.assertNotIn("if", smoke)
+        names = [s.get("name") for s in self.SMOKE["steps"]]
+        self.assertLess(names.index("Check the DMG is the one signer-dmg signs"), names.index(smoke["name"]))
+        self.assertEqual(self.SMOKE["outputs"]["image"], "${{ steps.image.outputs.image }}")
+
+    def test_the_final_verify_smokes_only_when_the_parallel_smoke_did_not(self):
+        steps = {s.get("name"): s for s in JOBS["verify-final-dmg-nightly"]["steps"]}
+        image = steps["Read the final DMG's image for the parallel launch smoke"]
+        self.assertTrue(image["if"].startswith("needs.signer-dmg.result == 'success' && "
+                                               "vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off'"), image["if"])
+        self.assertTrue(steps["Launch smoke from a fresh home"]["if"].startswith("steps.final-image.outputs.image == '' && "))
+        self.assertEqual(JOBS["verify-final-dmg-nightly"]["outputs"]["image"], "${{ steps.final-image.outputs.image }}")
+
+    def test_publish_needs_the_smoke_on_the_final_image(self):
+        publish = JOBS["publish-nightly"]
+        self.assertIn("launch-smoke-nightly", needs(publish))
+        self.assertIn("needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.image == '' || "
+                      "needs.launch-smoke-nightly.result == 'success' && "
+                      "needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image))", publish["if"])
+        select = next(s for s in publish["steps"] if s.get("name") == "Select the build to publish")
+        own = dict(OWN_RESULT="success", OWN_PENDING="", OWN_VERIFIED="success", OWN_DMG_VERIFIED="success",
+                   OWN_TREE="ok", OWN_BUILD="50001", OWN_BUILD_SHA="a" * 40, OWN_TIP_SHA="b" * 40, OWN_BEHIND="0",
+                   OWN_BEHIND_HOURS="0", RECOVERED="", RECOVERED_VERIFIED="")
+
+        def source(**env):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                out.touch()
+                done = subprocess.run(["bash", "-c", select["run"]], capture_output=True, text=True,
+                                      env=dict(os.environ, GITHUB_OUTPUT=str(out), GITHUB_ENV=str(Path(tmp) / "env"),
+                                               **own, **env))
+                return done.returncode, out.read_text()
+
+        self.assertEqual(source()[0], 0)
+        self.assertEqual(source(OWN_SMOKE_IMAGE="i1", PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE="i1")[0], 0)
+        for env in (dict(PARALLEL_SMOKE="failure", PARALLEL_SMOKE_IMAGE="i1"),
+                    dict(PARALLEL_SMOKE="skipped", PARALLEL_SMOKE_IMAGE=""),
+                    dict(PARALLEL_SMOKE="success", PARALLEL_SMOKE_IMAGE="i2")):
+            with self.subTest(env=env):
+                code, out = source(OWN_SMOKE_IMAGE="i1", **env)
+                self.assertNotEqual(code, 0)
+                self.assertNotIn("source=own", out)
+
+    def test_the_image_step_checks_the_digest_signer_dmg_checks(self):
+        script = (ROOT / "scripts/ci/nightly-steps/launch-smoke-image.sh").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            dmg = Path(tmp) / "u.dmg"
+            dmg.write_bytes(fake_dmg(b"image" * 10, b"<plist/>"))
+            out = Path(tmp) / "out"
+            out.touch()
+            import hashlib
+            good = hashlib.sha256(dmg.read_bytes()).hexdigest()
+            run = lambda sha: subprocess.run(  # noqa: E731
+                ["bash", str(ROOT / "scripts/ci/nightly-steps/launch-smoke-image.sh")], capture_output=True, text=True,
+                env=dict(os.environ, DMG=str(dmg), UNSIGNED_SHA256=sha, GITHUB_OUTPUT=str(out)))
+            self.assertNotEqual(run("0" * 64).returncode, 0)
+            self.assertEqual(out.read_text(), "")
+            self.assertEqual(run(good).returncode, 0)
+            self.assertRegex(out.read_text(), r"^image=[0-9a-f]{64}\n$")
+        self.assertIn("dmg_image_digest.py", script)
 
 
 if __name__ == "__main__":

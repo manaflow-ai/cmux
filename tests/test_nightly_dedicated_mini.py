@@ -21,7 +21,7 @@ BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
 EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
          "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
          "build-nightly-ghostty-cli-helper")
-VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
+VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
