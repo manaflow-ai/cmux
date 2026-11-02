@@ -219,6 +219,12 @@ async fn agent_login_resolves_routes_from_defaults_and_presets_before_account_se
         c.prompt(id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
         let auth = c.auth(json!({"sessionId": id})).await;
         assert_eq!(auth["routeId"], "acct", "spawn route overrides apply: {auth}");
+        assert!(
+            auth["login"]["command"]
+                .as_str()
+                .is_some_and(|v| v.contains(&account.display().to_string())),
+            "login command must use the selected account: {auth}"
+        );
         let saved = c
             .call(
                 method::MUX_AGENT_LOGIN_API_KEY,
@@ -229,7 +235,15 @@ async fn agent_login_resolves_routes_from_defaults_and_presets_before_account_se
             saved.get("error").is_none(),
             "subscription override must not be mistaken for global provider: {saved}"
         );
-        assert!(account.join("settings.json").is_file());
+        assert!(
+            account.join("settings.json").is_file(),
+            "account files: {:?}",
+            std::fs::read_dir(&root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .collect::<Vec<_>>()
+        );
         let auth = c.auth(json!({"sessionId": id})).await;
         assert_eq!(state(&auth), ("unknown", "none"), "{auth}");
     }
