@@ -45,11 +45,48 @@ D = None
 R = None  # ext_realkey: the CuaDriver session and the window placement
 
 
+# cmux-ad 01:30Z (hard rule): CuaDriver is INPUT ONLY. Its screen recorder wedges the shared daemon and opens a
+# "bypass the system private window picker" dialog per start; the only recorders are the app's own debug.motion
+# record_* and the lease's 120 Hz virtual-display capture.
+CUA_RECORD_TOOLS = ("start_recording", "stop_recording", "record_screen", "screen_record")
+# Words of the CuaDriver consent dialog; a window with them on screen makes the round SMOKE ENV (not a result).
+BYPASS_WORDS = ("bypass the system private window picker", "requesting to bypass")
+
+
 def install(driver):
     global D, R
     D = driver
     import ext_realkey  # beside this file; load_extensions imported it already
     R = ext_realkey
+    _guard_session_calls()
+
+
+def _guard_session_calls():
+    """Refuses any CuaDriver screen-recording call made through ext_realkey's session (KIT.md, hard rule)."""
+    session = R._Session
+    if getattr(session, "_video_guarded", False):
+        return
+    original = session.call
+
+    def call(self, tool, args):
+        if tool in CUA_RECORD_TOOLS:
+            raise D.StepError(f"CuaDriver is input only (cmux-ad 01:30Z): {tool} refused; record with debug.motion record_*")
+        return original(self, tool, args)
+
+    session.call = call
+    session._video_guarded = True
+
+
+def _bypass_dialog(j):
+    """Whether a CuaDriver consent dialog is on screen (its window list names it): the round is SMOKE ENV then."""
+    try:
+        bad, data, raw = R._session(j).call("list_windows", {})
+    except D.NotRun:
+        return None
+    rows = data.get("windows") or []
+    hits = [w for w in rows if any(word in json.dumps(w).lower() for word in BYPASS_WORDS)
+            or ("cuadriver" in json.dumps(w).lower() and int(w.get("layer", 0) or 0) > 0)]
+    return [{k: w.get(k) for k in ("app_name", "owner_name", "title", "name", "layer", "pid")} for w in hits][:4]
 
 
 def _vdir(j):
@@ -72,8 +109,32 @@ def _hid_log(j, kind, args, sent, returned, answer=None):
                            "answer": answer})
 
 
+def _crash_reports(j, since):
+    """The app's crash reports written after SINCE (epoch s): ~/Library/Logs/DiagnosticReports/*.ips of a process
+    named like the app's executable (the lease's clone), first 200 lines each, into <journey out>/video/."""
+    import glob
+    exe = os.path.basename(str(getattr(j.app, "bundle", "") or "")).replace(".app", "")
+    found = []
+    for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
+        try:
+            if os.path.getmtime(path) < since:
+                continue
+            with open(path, errors="replace") as f:
+                text = f.read(400_000)
+        except OSError:
+            continue
+        if "cmux" not in text[:4000].lower() and (not exe or exe.lower() not in text[:4000].lower()):
+            continue
+        out = _vdir(j) / ("crash-" + os.path.basename(path).replace(" ", "_") + ".txt")
+        out.write_text(text[:200_000])
+        found.append(out.name)
+    return found
+
+
 def step_video_start(j, step):
     name = step["name"]
+    if not hasattr(j, "video_t0_epoch"):
+        j.video_t0_epoch = time.time()
     if getattr(j, "video", None):
         raise D.StepError(f"video_start {name}: {j.video['name']} is still recording")
     path = _vdir(j) / f"{name}.mov"
@@ -83,7 +144,20 @@ def step_video_start(j, step):
             params[key] = step[key]
     seq = R._journal_last_seq(j)
     trace = _motion(j, "trace_start", window=0)
-    started = _motion(j, "record_start", **params)
+    try:
+        started = _motion(j, "record_start", **params)
+    except (OSError, D.StepError) as error:
+        time.sleep(3)
+        crashes = _crash_reports(j, j.video_t0_epoch - 5)
+        raise D.StepError(f"video_start {name}: record_start failed ({error}); app crash reports: {crashes or 'none found'}")
+    time.sleep(0.3)
+    try:
+        _motion(j, "record_read")
+    except OSError as error:
+        time.sleep(3)
+        crashes = _crash_reports(j, j.video_t0_epoch - 5)
+        raise D.StepError(f"video_start {name}: the app stopped answering after record_start ({error}); "
+                          f"app crash reports: {crashes or 'none found'}")
     if not started.get("starting"):
         _motion(j, "trace_stop")
         raise D.NotRun(f"video_start {name}: the recorder did not start: {json.dumps(started)[:300]}")
@@ -98,7 +172,8 @@ def step_video_start(j, step):
         _motion(j, "record_stop")
         _motion(j, "trace_stop")
         raise D.NotRun(f"video_start {name}: ScreenCaptureKit did not start: {json.dumps(counts)[:300]}")
-    j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started,
+    dialog = _bypass_dialog(j)
+    j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started, "bypass_dialog": dialog,
                "trace_views": trace.get("views"), "notes": {}}
     # The first frames show the layout at rest: the judge's reference.
     time.sleep(float(step.get("lead", 0.4)))
@@ -138,6 +213,8 @@ def step_video_stop(j, step):
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
             "t_start": rec["t_start"], "t_stop": D.now(), "notes": rec["notes"], "trace_views": rec["trace_views"],
             "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(),
+            "bypass_dialog": {"start": rec.get("bypass_dialog"), "stop": _bypass_dialog(j)},
+            "smoke_env": bool(rec.get("bypass_dialog") or _bypass_dialog(j)),
             "clock": "host seconds: mach_absolute_time (time.monotonic, CACurrentMediaTime, ScreenCaptureKit display time)"}
     (base.parent / f"{rec['name']}.meta.json").write_text(json.dumps(meta))
     if not counts.get("written"):
@@ -174,7 +251,11 @@ def _target_point(j, target):
         y = {"top": inset, "bottom": h - inset}.get(edge.split("-")[0] if "-" in edge else edge, h / 2)
         return (x, y)
     sample = _latest_sample(j)
-    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5]
+    win_w, win_h = (sample.get("window") or [1e9, 1e9])[:2]
+    # Only dividers that show inside the window (a strip wider than the window scrolls: its dividers can sit at
+    # negative x or past the right edge; round 02:45Z on cmux23 dragged at x -362).
+    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5
+                and d[1] >= 8 and d[1] + d[3] <= win_w - 8 and d[2] >= 0 and d[2] + d[4] <= win_h + 1]
     if "divider" in target:
         vertical = sorted((d for d in dividers if d[4] > d[3]), key=lambda d: d[1])
         index = int(target["divider"])
@@ -204,7 +285,47 @@ def _desktop_pixels(j, point):
     return (round(sx * scale), round(sy * scale)), scale
 
 
+def _cua_tools(j):
+    """CuaDriver's tool list with input schemas (once per journey): the drag tool's arguments differ by version."""
+    cached = getattr(j, "cua_tools", None)
+    if cached is None:
+        tools = R._session(j).request("tools/list", {})
+        cached = j.cua_tools = {t.get("name"): t.get("inputSchema") for t in (tools.get("tools") or []) if isinstance(t, dict)}
+    return cached
+
+
+def _mouse_events_since(j, seq):
+    """The app's input-journal mouse entries after SEQ: [(phase, x, y)] (what the app received, window points)."""
+    out = []
+    for e in R._journal_entries(j, 400):
+        if int(e.get("seq") or 0) <= seq:
+            continue
+        kind = e.get("kind") or {}
+        mouse = kind.get("mouse")
+        mouse = (mouse or {}).get("_0", mouse) if isinstance(mouse, dict) else None
+        if isinstance(mouse, dict):
+            out.append((mouse.get("phase"), mouse.get("x"), mouse.get("y")))
+    return out
+
+
+def _drag_args(j, mode, start, end, duration, steps):
+    """CuaDriver drag arguments. `desktop`: true screen pixels from the primary display's top-left. `window`: the
+    app's main window by id, window-local screenshot pixels (points x the screen scale)."""
+    if mode == "desktop":
+        (fx, fy), scale = _desktop_pixels(j, start)
+        (tx, ty), _ = _desktop_pixels(j, end)
+        return {"scope": "desktop", "from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty, "duration_ms": duration,
+                "steps": steps}, scale
+    bad, size, raw = R._session(j).call("get_screen_size", {})
+    scale = float((size or {}).get("scale_factor") or 1.0)
+    return {"pid": j.app.pid, "window_id": R._main_window(j), "delivery_mode": "foreground",
+            "from_x": round(start[0] * scale), "from_y": round(start[1] * scale), "to_x": round(end[0] * scale),
+            "to_y": round(end[1] * scale), "duration_ms": duration, "steps": steps}, scale
+
+
 def step_hid_drag(j, step):
+    """A real drag. The mode that reaches the app is found once per journey (`desktop` first, then `window`) and
+    proven by the app's own input journal: a mouse-down and moves after the call. No mode that reaches it: not run."""
     R.require_front(j)
     start = _target_point(j, step["target"])
     if "to" in step:
@@ -212,29 +333,42 @@ def step_hid_drag(j, step):
     else:
         dx, dy = (float(v) for v in step["by"])
         end = (start[0] + dx, start[1] + dy)
-    (fx, fy), scale = _desktop_pixels(j, start)
-    (tx, ty), _ = _desktop_pixels(j, end)
     duration = int(step["duration_ms"])
     steps = int(step.get("steps", max(2, duration // 8)))
-    args = {"scope": "desktop", "from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty, "duration_ms": duration,
-            "steps": steps}
-    if step.get("hold_ms"):
-        args["hold_ms"] = int(step["hold_ms"])
-    if step.get("modifiers"):
-        args["modifier"] = [R.MODIFIERS.get(m, m) for m in step["modifiers"]]
-    if step.get("mark"):
-        j.marks[step["mark"]] = D.now()
-    sent = D.now()
-    bad, data, raw = R._session(j).call("drag", args)
-    returned = D.now()
-    _hid_log(j, "drag", {**args, "window_from": list(start), "window_to": list(end)}, sent, returned,
-             {"bad": bad, "effect": data.get("effect")})
-    if bad or data.get("effect") in ("refused", "failed", "error"):
-        tools = R._session(j).request("tools/list", {})
-        names = [t.get("name") for t in (tools.get("tools") or []) if isinstance(t, dict)]
-        raise D.NotRun(f"hid_drag: CuaDriver did not drag: {json.dumps(raw)[:400]}; its tools: {names}")
-    return {"from": list(start), "to": list(end), "pixels": [fx, fy, tx, ty], "scale": scale, "duration_ms": duration,
-            "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6), "drag_s": round(returned - sent, 4)}
+    modes = [getattr(j, "hid_drag_mode", None)] if getattr(j, "hid_drag_mode", None) else ["desktop", "window"]
+    tried = []
+    for mode in modes:
+        args, scale = _drag_args(j, mode, start, end, duration, steps)
+        if step.get("hold_ms"):
+            args["hold_ms"] = int(step["hold_ms"])
+        if step.get("modifiers"):
+            args["modifier"] = [R.MODIFIERS.get(m, m) for m in step["modifiers"]]
+        seq = R._journal_last_seq(j)
+        if step.get("mark"):
+            j.marks[step["mark"]] = D.now()
+        sent = D.now()
+        bad, data, raw = R._session(j).call("drag", args)
+        returned = D.now()
+        time.sleep(0.15)
+        got = _mouse_events_since(j, seq)
+        downs = sum(1 for e in got if e[0] == "down")
+        _hid_log(j, "drag", {**args, "mode": mode, "window_from": list(start), "window_to": list(end)}, sent, returned,
+                 {"bad": bad, "effect": data.get("effect"), "app_mouse_events": len(got), "app_downs": downs})
+        tried.append({"mode": mode, "effect": data.get("effect"), "bad": bad, "app_mouse_events": len(got),
+                      "app_downs": downs, "first": got[:2], "last": got[-2:]})
+        if downs and not bad:
+            j.hid_drag_mode = mode
+            return {"mode": mode, "from": list(start), "to": list(end), "args": args, "scale": scale,
+                    "duration_ms": duration, "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6),
+                    "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:]}
+    raise D.NotRun(f"hid_drag: no CuaDriver drag reached the app (its journal has no mouse-down): {json.dumps(tried)[:700]}; "
+                   f"drag schema: {json.dumps(_cua_tools(j).get('drag'))[:600]}")
+
+
+def step_hid_probe(j, step):
+    """Records CuaDriver's tools and their argument schemas (no input)."""
+    tools = _cua_tools(j)
+    return {"tools": sorted(t for t in tools if t), "drag": tools.get("drag"), "click": tools.get("click")}
 
 
 def step_hid_click(j, step):
@@ -275,5 +409,55 @@ def step_layout_note(j, step):
     return note
 
 
-STEPS = {"video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag,
+def step_video_count(j, step):
+    """The running recording's counts now, kept in its meta notes under `as` (which change made frames come)."""
+    counts = _motion(j, "record_read")
+    if getattr(j, "video", None):
+        j.video["notes"][step["as"]] = {"t": D.now(), "counts": counts}
+    return counts
+
+
+def step_sck_probe(j, step):
+    """Builds sck_probe.swift on the mini (once), runs it as an app in the GUI session (`open`), and returns its
+    JSON line: whether ScreenCaptureKit delivers own-window frames on this host, per kind of change."""
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    work = os.path.join(os.path.dirname(here), "sckprobe")
+    exe_dir = os.path.join(work, "SCKProbe.app", "Contents", "MacOS")
+    os.makedirs(exe_dir, exist_ok=True)
+    built = subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-O", "-target", "arm64-apple-macos14.4", os.path.join(here, "sck_probe.swift"),
+                            "-o", os.path.join(exe_dir, "SCKProbe")], capture_output=True, text=True, timeout=300)
+    if built.returncode:
+        raise D.StepError(f"sck_probe: build failed: {built.stderr[-600:]}")
+    with open(os.path.join(work, "SCKProbe.app", "Contents", "Info.plist"), "w") as f:  # noqa: PTH123
+        f.write('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
+                '<string>SCKProbe</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.sckprobe</string>'
+                '<key>CFBundleName</key><string>SCKProbe</string><key>CFBundlePackageType</key><string>APPL</string>'
+                '<key>LSMinimumSystemVersion</key><string>14.4</string></dict></plist>')
+    subprocess.run(["codesign", "-s", "-", "--force", os.path.join(work, "SCKProbe.app")], capture_output=True, timeout=60)
+    out = os.path.join(work, "probe.out")
+    if os.path.exists(out):
+        os.remove(out)
+    seconds = str(step.get("seconds", 9))
+    opened = subprocess.run(["open", "-W", "--stdout", out, "--stderr", out + ".err", os.path.join(work, "SCKProbe.app"),
+                             "--args", seconds], capture_output=True, text=True, timeout=float(seconds) * 2 + 60)
+    text = open(out).read() if os.path.exists(out) else ""
+    line = next((l for l in reversed(text.splitlines()) if l.startswith("{")), None)
+    if not line:
+        err = open(out + ".err").read()[-400:] if os.path.exists(out + ".err") else ""
+        raise D.StepError(f"sck_probe: no result (open exit {opened.returncode}: {(opened.stdout + opened.stderr)[-300:]}): "
+                          f"{text[-300:]} {err}")
+    return json.loads(line)
+
+
+def step_action_try(j, step):
+    """`action.run` of a set-up action that may refuse (a width preset that already holds): the reply is kept, an
+    error is not a failure."""
+    try:
+        return {"reply": j.app.rpc("action.run", {"action": step["action"], "args": step.get("args") or {}, "focus": True})}
+    except D.StepError as error:
+        return {"refused": str(error)[:300]}
+
+
+STEPS = {"action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}

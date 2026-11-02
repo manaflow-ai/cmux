@@ -17,9 +17,38 @@
    "do": "smoke_make_key"
   },
   {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen (3 columns fit, no strip scroll)",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "hid_probe"
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "rv"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case (Home docks an agent chat as its main pane)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
   },
   {
    "do": "neutral_prompt"
@@ -39,6 +68,11 @@
    ]
   },
   {
+   "do": "action_try",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
    "do": "wait",
    "seconds": 1.2
   },
@@ -57,6 +91,11 @@
    ]
   },
   {
+   "do": "action_try",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
    "do": "wait",
    "seconds": 1.2
   },
@@ -64,6 +103,25 @@
    "do": "type",
    "text": "seq -f 'pane text %g, a long line that wraps when the column narrows' 1 400",
    "enter": true
+  },
+  {
+   "do": "action",
+   "action": "focusLeft",
+   "title": "set-up: focus the column on the left"
+  },
+  {
+   "do": "action",
+   "action": "focusLeft",
+   "title": "set-up: focus the column on the left"
+  },
+  {
+   "do": "action_try",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
   },
   {
    "do": "wait",
@@ -170,6 +228,12 @@
      "pane_frame_text": "rv-done-${nonce}"
     }
    ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
   }
  ]
 }
