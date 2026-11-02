@@ -396,6 +396,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// The cmux app's sidebar groups: ls, move a session's workspace into one,
+    /// tidy (one group per name in a space; a dry run unless --apply).
+    #[command(subcommand)]
+    Group(crate::cli::group::GroupCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
