@@ -63,6 +63,9 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// This side reaches the viewer through TURN alone.
+    #[serde(default)]
+    relay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +211,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         stun,
         bind: "0.0.0.0:0".parse()?,
         turn: crate::carrier::turn_servers(&setup.turn),
+        relay_only: setup.relay_only,
     })?;
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {

@@ -40,6 +40,9 @@ struct Answer {
     #[serde(default)]
     candidates: Vec<String>,
     socket: String,
+    /// The person's "relay only": this side reaches the host through TURN alone.
+    #[serde(default)]
+    relay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +96,7 @@ pub fn run() -> Res<()> {
         stun,
         bind: "0.0.0.0:0".parse()?,
         turn: crate::carrier::turn_servers(&answer.turn),
+        relay_only: answer.relay_only,
     })?;
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);

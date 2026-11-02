@@ -216,7 +216,7 @@ public final class MacScreenSession {
         socketDirectory = directory
         socketPath = directory.appendingPathComponent("s").path
         process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
-                            candidates: answer.candidates, socket: socketPath ?? ""))
+                            candidates: answer.candidates, socket: socketPath ?? "", relayOnly: relayOnly))
     }
 
     @ObservationIgnored private var socketPath: String?
@@ -338,10 +338,12 @@ public final class MacScreenSession {
         var turn: [MacScreenRdServers.Turn]
         var candidates: [String]
         var socket: String
+        var relayOnly: Bool
 
         enum CodingKeys: String, CodingKey {
             case session, stun, turn, candidates, socket
             case peerKey = "peer_key"
+            case relayOnly = "relay_only"
         }
     }
 }
