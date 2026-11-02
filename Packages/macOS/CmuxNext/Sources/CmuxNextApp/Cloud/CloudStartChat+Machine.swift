@@ -15,7 +15,7 @@ extension CloudStartChat {
     /// The account a send began in as cmux-tui keeps its sends: its user and team. A team switch keeps
     /// the user signed in, so a send of the previous team never names this team's machine.
     static func accountText(_ account: [String?]) -> String {
-        account.map { $0 ?? "" }.joined(separator: "/")
+        CloudStartCore().accountText(account)
     }
 
     /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list named (as the pick
@@ -61,9 +61,9 @@ extension CloudStartChat {
     /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
     /// previous team's machines stay in the store until that list lands, and the chat's folder must
     /// never be copied to one of them.
-    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws {
-        guard asked == now else { throw CloudMove.Failure(message: CloudMoveStrings.startChatAccountChanged) }
-        guard listCurrent else { throw CloudMove.Failure(message: CloudMoveStrings.startChatListUnread) }
+    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
+        guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
+        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread)
     }
 
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list

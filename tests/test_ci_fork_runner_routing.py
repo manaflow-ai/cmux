@@ -162,7 +162,7 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+"
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a
@@ -340,6 +340,17 @@ class _Parser:
                     args.append(self._or())
             self._take(")")
             call = ("call", text, args)
+            # Keep the declared pool member selected by a RUNNER_POOLS
+            # property so expression test evaluators can resolve it from the
+            # repository's pool declaration. Preserve the historical AST for
+            # other fromJSON() property/index expressions.
+            if (text.lower() == "fromjson" and len(args) == 1 and args[0] == ("ref", "vars.RUNNER_POOLS")
+                    and self._peek() == "."):
+                self._take(".")
+                property_token = self._take()
+                if property_token[0] != "name":
+                    raise ExpressionSyntaxError(f"bad pool property {property_token[1]!r}")
+                return ("pool", property_token[1])
             if self._peek() not in (".", "["):
                 return call
             # e.g. fromJSON(x)[0]: an index into a call's result. Its refs are
@@ -433,7 +444,13 @@ def _blacksmith_pick(node: tuple) -> bool:
     if node[0] != "or" or len(node[1]) != 2:
         return False
     kept, fallback = node[1]
-    if fallback[0] != "literal" or not re.fullmatch(r"'blacksmith-\d+vcpu-macos-\d+'", fallback[1]):
+    if fallback[0] == "pool":
+        fallback_ok = True
+    else:
+        fallback_ok = fallback[0] == "literal" and bool(
+            re.fullmatch(r"'blacksmith-\d+vcpu-macos-\d+'", fallback[1])
+        )
+    if not fallback_ok:
         return False
     if kept[0] != "and" or len(kept[1]) != 2:
         return False
@@ -461,6 +478,16 @@ def _trusted_fork_exclusion(node: tuple) -> bool:
 
 
 def _is_fork_pull_request_branch(node: tuple) -> bool:
+    if node[0] == "and" and node[1] and node[1][-1][0] == "pool":
+        conditions = node[1][:-1]
+        keys = [_condition_key(condition) for condition in conditions]
+        if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+            return True
+        if (len(conditions) == 3 and None not in keys[:2]
+                and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+                and _trusted_fork_exclusion(conditions[2])):
+            return True
+        return False
     if node[0] == "and" and node[1] and _blacksmith_pick(node[1][-1]):
         conditions = node[1][:-1]
         keys = [_condition_key(condition) for condition in conditions]
@@ -491,6 +518,17 @@ def _is_fork_pull_request_branch(node: tuple) -> bool:
     return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
 
 
+def _ends_in_pool(node: tuple) -> bool:
+    """Whether a disjunct's selected value is a declared Blacksmith pool."""
+    if node[0] == "pool":
+        return True
+    if node[0] == "and" and node[1]:
+        return _ends_in_pool(node[1][-1])
+    if node[0] == "or" and node[1]:
+        return all(_ends_in_pool(child) for child in node[1])
+    return False
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -510,6 +548,8 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
+        if _ends_in_pool(disjunct):
+            continue
         early = _owned(disjunct, selector)
         if early:
             return f"checks {early[0]} before the fork pull-request branch"
@@ -523,6 +563,14 @@ def _runner_value_error(
             continue
         return "has no top-level fork pull-request branch"
     return "has no top-level fork pull-request branch"
+
+
+# `(<fork branch> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a pool read that carries its own fork
+# branch. A fork evaluates it as '<label>', so the gate reads it as that literal.
+FORK_WRAPPED_POOL_READ = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+)
 
 
 def fork_pull_request_gate_error(
@@ -541,6 +589,7 @@ def fork_pull_request_gate_error(
     """
     if not selector.search(line):
         return None
+    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
     if selector.search(EXPRESSION.sub("", line)):
         return "reads a runner selector outside a ${{ }} expression"
     for expression in EXPRESSION.findall(line):
@@ -700,7 +749,16 @@ def _gated_expression(expression: str, explicit_input_first: bool = False) -> bo
         body = body[len("startsWith("):]
     if explicit_input_first:
         body = re.sub(r"^(?:inputs\.[A-Za-z0-9_-]+ \|\| )+", "", body)
-    return body.startswith(FORK_BRANCHES)
+    if body.startswith(FORK_BRANCHES):
+        return True
+    # Pull-request workflows may use the full head-repository fork guard
+    # before a Blacksmith fallback; it is equivalent to the owner branch for
+    # this zero-configuration check.
+    return bool(re.match(
+        r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+        r" != github\.repository && '[^']+'",
+        body,
+    ))
 
 
 def ungated_blacksmith_labels(name: str, text: str) -> list[str]:

@@ -2016,3 +2016,26 @@ fn a_prompt_in_flight_across_a_host_reconnect_is_sent_again() {
     let state = state_of(&room, conn, "c0");
     assert_eq!(state["state"], "held", "{state}");
 }
+
+/// `agent-session-share-room` names the room and the API whose install token it takes, so the app
+/// mints from the room's environment, not from its own build kind (cmux#31372).
+#[test]
+fn share_room_names_the_room_and_its_owner_api() {
+    let fake = FakeAcpmux::start("share-room-api");
+    let mux = mux_with(&fake, "share-room-api");
+    let mut owner = Client::connect(&mux, "share-room-api");
+    let ask = |owner: &mut Client| {
+        let reply = owner.request(json!({"cmd":"agent-session-share-room"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    assert_eq!(ask(&mut owner), json!({"room": null, "owner_api": null}));
+    let platform = crate::cloud_conversations::platform::STAGING;
+    assert!(shares(&mux).bridge.configure(Some(&format!("{platform}/")), fast()));
+    assert_eq!(
+        ask(&mut owner),
+        json!({"room": platform, "owner_api": "https://cloud-api-staging.cmux.dev"})
+    );
+    assert!(shares(&mux).bridge.configure(Some("http://127.0.0.1:9"), fast()));
+    assert_eq!(ask(&mut owner), json!({"room": "http://127.0.0.1:9", "owner_api": null}));
+}
