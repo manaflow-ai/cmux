@@ -26,8 +26,34 @@ export const BUSY_MAX_MS = 4_000;
 /// Refusals one request takes before its caller sees the busy error.
 export const BUSY_TRIES = 6;
 
+/// Methods the native host lets through only on the person's fresh click
+/// (`AcpmuxPaneMethods.gestureRules`). That grant lasts moments and is spent when the frame passes,
+/// so one of these never waits for a slot and never goes again after a busy refusal: it counts, but
+/// goes out at once, and a refusal reaches the card that offers its own retry.
+const ON_GESTURE = new Set([
+  "session/prompt",
+  "_acpmux/btw",
+  "session/set_mode",
+  "session/set_config_option",
+  "acp.trust.set",
+  "_acpmux/harness_enable",
+  "_acpmux/permission_respond",
+  "_acpmux/permission_group_respond",
+  "_acpmux/secret_submit",
+  "_acpmux/agent_pair_resume",
+  "_acpmux/app_reply",
+  "_acpmux/queue_approve",
+  "_acpmux/agent_login/start",
+  "_acpmux/agent_login/api_key",
+]);
+
 export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
+}
+
+/// Whether a busy refusal of `method` may send it again: never one the person's click authorized.
+export function retriesWhenBusy(method: string): boolean {
+  return !ON_GESTURE.has(method);
 }
 
 /// The wait before try `attempt` (1-based) of a refused request: exponential, with full jitter so
@@ -76,9 +102,11 @@ export class RequestBudget {
     return this.unanswered.has(id);
   }
 
-  /// Sends request `id` now, or once a slot frees when `limit` are unanswered.
+  /// Sends request `id` now, or once a slot frees when `limit` are unanswered. One the person's
+  /// click authorized goes now whatever the count (the daemon's 64 leaves it room).
   admit(id: number | string, method: string, send: () => void): void {
     if (!countsAgainstBudget(method)) return send();
+    if (ON_GESTURE.has(method)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }

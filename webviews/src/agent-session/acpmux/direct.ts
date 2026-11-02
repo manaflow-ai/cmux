@@ -92,7 +92,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
-import { BUSY_TRIES, busyDelay, RequestBudget } from "./requestBudget";
+import { BUSY_TRIES, busyDelay, RequestBudget, retriesWhenBusy } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
@@ -3923,25 +3923,27 @@ export class AcpmuxDirectClient {
     const id = this.nextRequest++;
     const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     // A request that waited goes only on the connection it was asked on: a closed one rejected it.
+    // A send that throws fails its own request and frees its slot, also when a reply freed it later.
     const send = () => {
       if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
-      this.wire.sent(text, method, id);
-      socket.send(text);
+      try {
+        this.wire.sent(text, method, id);
+        socket.send(text);
+      } catch (error) {
+        const request = this.pending.get(id);
+        this.pending.delete(id);
+        if (request?.timer) clearTimeout(request.timer);
+        this.budget.settled(id);
+        request?.reject(error instanceof Error ? error : new Error(String(error)));
+      }
     };
-    const result = this.expectReply(id, method, deadline, send);
-    try {
-      this.budget.admit(id, method, send);
-    } catch (error) {
-      const request = this.pending.get(id);
-      this.pending.delete(id);
-      if (request?.timer) clearTimeout(request.timer);
-      request?.reject(error instanceof Error ? error : new Error(String(error)));
-    }
+    const result = this.expectReply(id, method, deadline, retriesWhenBusy(method) ? send : undefined);
+    this.budget.admit(id, method, send);
     return result;
   }
 
   /// `send` puts the request on the wire again after a busy refusal; without one (a request the
-  /// native host sends) a busy refusal fails it like any other.
+  /// native host sends, or one a click authorized) a busy refusal fails it like any other.
   private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = deadline

@@ -5,7 +5,14 @@
 // (`REQUEST_WORK_LIMIT`); a request the page stopped waiting for keeps its slot until it is answered.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { BUSY_MAX_MS, busyDelay, countsAgainstBudget, RequestBudget, WORK_LIMIT } from "./requestBudget";
+import {
+  BUSY_MAX_MS,
+  busyDelay,
+  countsAgainstBudget,
+  RequestBudget,
+  retriesWhenBusy,
+  WORK_LIMIT,
+} from "./requestBudget";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -27,8 +34,19 @@ afterAll(() => {
 
 const DAEMON_LIMIT = 64;
 const PROBE = "_acpmux/storm_probe";
+/// A click-authorized answer: the native host passes it only on a fresh gesture.
+const ANSWER = "_acpmux/permission_respond";
 
-type Daemon = { inFlight: number; peak: number; refused: number; latencyMs: number };
+type Daemon = {
+  inFlight: number;
+  peak: number;
+  refused: number;
+  latencyMs: number;
+  /// Answers sent, each refused as busy, and when (ms since connect).
+  answers?: number[];
+  /// A frame carrying this text throws in the socket's send.
+  throwOn?: string;
+};
 
 async function connectBusyDaemon(daemon: Daemon) {
   const { AcpmuxDirectClient } = await import("./direct");
@@ -36,10 +54,12 @@ async function connectBusyDaemon(daemon: Daemon) {
   class LimitedHost extends MockAcpmuxSocket {
     override send(raw: string): void {
       const request = JSON.parse(raw) as { id?: number; method: string };
-      if (request.method !== PROBE || request.id === undefined) return super.send(raw);
+      if (daemon.throwOn && raw.includes(daemon.throwOn)) throw new Error("socket send failed");
+      if ((request.method !== PROBE && request.method !== ANSWER) || request.id === undefined) return super.send(raw);
       const reply = (message: Record<string, unknown>) =>
         this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: request.id, ...message }) });
-      if (daemon.inFlight >= DAEMON_LIMIT) {
+      if (request.method === ANSWER) daemon.answers?.push(performance.now() - started);
+      if (request.method === ANSWER || daemon.inFlight >= DAEMON_LIMIT) {
         daemon.refused += 1;
         reply({
           error: {
@@ -58,19 +78,21 @@ async function connectBusyDaemon(daemon: Daemon) {
       }, daemon.latencyMs);
     }
   }
+  const started = performance.now();
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     () => undefined,
     undefined,
     () => new LimitedHost() as unknown as WebSocket,
   );
-  const request = (deadline?: number) =>
+  const call = (method: string, params: object, deadline?: number) =>
     (client as unknown as { request(method: string, params: object, deadline?: number): Promise<unknown> }).request(
-      PROBE,
-      {},
+      method,
+      params,
       deadline,
     );
-  return { client, request };
+  const request = (deadline?: number) => call(PROBE, {}, deadline);
+  return { client, request, call };
 }
 
 async function burst(request: (deadline?: number) => Promise<unknown>, count: number, deadline?: number) {
@@ -164,4 +186,57 @@ test("a busy retry waits with jitter, and closing the connection cancels it", ()
   expect(busyDelay(1, () => 0)).toBe(125);
   expect(busyDelay(1, () => 1)).toBe(250);
   expect(busyDelay(20, () => 1)).toBe(BUSY_MAX_MS);
+});
+
+test("a click-authorized answer goes past a full budget at once and is never sent again after a busy refusal", async () => {
+  // The host's grant for the click lasts moments and is spent when the frame passes: an Allow that
+  // waited behind 48 slow reads, or went again after a refusal, would be refused for want of a click.
+  const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 300, answers: [] };
+  const { client, request, call } = await connectBusyDaemon(daemon);
+  try {
+    const reads = burst(request, WORK_LIMIT);
+    const answer = call(ANSWER, { permissionId: "p1", optionId: "allow" });
+    const refusal = await answer.then(
+      () => undefined,
+      (error: { reason?: string }) => error,
+    );
+    expect(refusal?.reason).toBe("connection.busy");
+    expect(daemon.answers).toHaveLength(1);
+    expect(daemon.answers![0]!).toBeLessThan(daemon.latencyMs);
+    expect((await reads).ok).toBe(WORK_LIMIT);
+    expect(daemon.answers).toHaveLength(1);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("a waiting request whose send throws fails alone and frees its slot", async () => {
+  const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 30, throwOn: "boom" };
+  const { client, request, call } = await connectBusyDaemon(daemon);
+  try {
+    const reads = burst(request, WORK_LIMIT);
+    const doomed = call(PROBE, { note: "boom" }).then(
+      () => "sent",
+      (error: Error) => error.message,
+    );
+    expect((await reads).ok).toBe(WORK_LIMIT);
+    expect(await doomed).toBe("socket send failed");
+    expect((await burst(request, WORK_LIMIT)).ok).toBe(WORK_LIMIT);
+    expect(daemon.refused).toBe(0);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("click-authorized methods count but never wait, and are never retried after a busy refusal", () => {
+  const budget = new RequestBudget(1);
+  const sent: string[] = [];
+  budget.admit(1, PROBE, () => sent.push("probe"));
+  budget.admit(2, PROBE, () => sent.push("waits"));
+  budget.admit(3, ANSWER, () => sent.push("answer"));
+  expect(sent).toEqual(["probe", "answer"]);
+  expect(budget.inFlight).toBe(2);
+  expect(retriesWhenBusy(ANSWER)).toBe(false);
+  expect(retriesWhenBusy("_acpmux/permission_group_respond")).toBe(false);
+  expect(retriesWhenBusy(PROBE)).toBe(true);
 });
