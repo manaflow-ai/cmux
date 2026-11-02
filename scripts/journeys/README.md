@@ -485,6 +485,23 @@ manifest says why). It writes `heavy.json` (ids, which pane runs what, refusals,
 check) after each step; `teardown` closes what it made and stops its page server. `heavy_profile.py
 plan` prints the plan with no app.
 
+Background load for TYPING UNDER LOAD (`load_profiles.py`, each one command, each runnable at the same
+time as the others; never moves focus; only the `--app-socket` named, and never the shipped bundle):
+
+```bash
+L=scripts/journeys/tui-kit/load_profiles.py
+python3 $L run L1 --app-socket SOCK --home HOME --keep PANE --seed 7 --duration 120 --rate 100  # CLI storm
+python3 $L run L2 --app-socket SOCK ...      # 4 MCP clients back to back
+python3 $L run L3 --app-socket SOCK --keep PANE ...   # 30 browser tabs, 4 beside PANE, DevTools set-up
+python3 $L run L4 --app-socket SOCK ...      # 6 streaming agent panes
+python3 $L run L5 --app-socket SOCK ...      # the heavy profile, --no-focus
+python3 $L run L6 --app-socket SOCK --keep PANE ...   # L1..L5 at once
+```
+
+Each prints `LOAD-READY <L> t_mono= t_wall=` when the load is at full rate and `LOAD-DONE <L> ...` at the
+end, and writes `<out>/<L>/manifest.json`, `calls.jsonl` and `focus.jsonl` (the focus guard). The module
+docstring has every rule; `test_load_profiles.py` checks them against a stand-in app.
+
 The fleet check (no app, no GUI): `cmux-ci run --class exclusive --script
 scripts/measure/tui-kit-selftest.sh --ref SHA` runs the tests with the Mac's Python and reports the
 gradient's pace.

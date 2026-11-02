@@ -135,7 +135,8 @@ def run_frames(args, count, cols=90, rows=30, timeout=30):
 class Grammar(unittest.TestCase):
     def test_python_3_9(self):
         """The minis run /usr/bin/python3 3.9.6: no newer syntax."""
-        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "pace_probe.py", "test_tuikit.py"):
+        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "pace_probe.py", "load_profiles.py",
+                     "test_tuikit.py", "test_load_profiles.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 ast.parse(f.read(), filename=name, feature_version=(3, 9))
 
