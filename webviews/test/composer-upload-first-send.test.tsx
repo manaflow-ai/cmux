@@ -42,6 +42,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  restoreInput?.();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -128,6 +129,7 @@ test("a failed upload is tried again on the person's next key; its chip never sh
 
 /// The person's key or click as the page's retry hears it: jsdom cannot dispatch a trusted event, so
 /// the listener retryUploadLater put on `document` is called with one.
+let restoreInput: (() => void) | undefined;
 function personInput() {
   const listeners: ((event: Event) => void)[] = [];
   const add = document.addEventListener.bind(document);
@@ -135,11 +137,16 @@ function personInput() {
     if (type === "keydown" || type === "pointerdown") listeners.push(run);
     add(type, run as EventListener, options as AddEventListenerOptions);
   }) as typeof document.addEventListener;
+  const restore = () => {
+    document.addEventListener = add as typeof document.addEventListener;
+    restoreInput = undefined;
+  };
+  restoreInput = restore;
   return {
     key: () => {
       for (const run of listeners.splice(0)) run({ type: "keydown", key: "h", isTrusted: true } as unknown as Event);
     },
-    restore: () => (document.addEventListener = add as typeof document.addEventListener),
+    restore,
   };
 }
 
@@ -342,8 +349,9 @@ test("every try again waits for the person's key or click, never Return", async 
     () => (gaveUp += 1),
     doc,
   );
-  // Return is the send's own gesture: it never starts an upload.
+  // Return is the send's own gesture, and a lone modifier is none: neither starts an upload.
   fire("keydown", { key: "Enter" });
+  fire("keydown", { key: "Shift" });
   await turn();
   expect(again).toBe(1);
   fire("keydown", { key: "h" });

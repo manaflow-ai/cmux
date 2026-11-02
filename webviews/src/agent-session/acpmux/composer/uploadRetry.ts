@@ -14,6 +14,8 @@ export const UPLOAD_RETRY_DELAY_MS = 1_000;
 /// How long a try again waits for the person's next key or click before the chip shows Retry.
 export const UPLOAD_RETRY_INPUT_WAIT_MS = 15_000;
 
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"]);
+
 /// Runs `again` for try `tries` (0 is the first try again) of a failed upload, or `giveUp` once the
 /// tries are spent or the wait for input ends. Answers what stops a try still waiting (the chip's x).
 export function retryUploadLater(
@@ -39,8 +41,9 @@ export function retryUploadLater(
   };
   function input(event: Event) {
     if (done || !event.isTrusted) return;
-    if (event.type === "keydown" && ((event as KeyboardEvent).key === "Enter" || (event as KeyboardEvent).repeat))
-      return;
+    const key = event.type === "keydown" ? (event as KeyboardEvent) : undefined;
+    // A lone modifier reaches AppKit as flagsChanged, not keyDown: the host records no gesture for it.
+    if (key && (key.key === "Enter" || key.repeat || MODIFIER_KEYS.has(key.key))) return;
     stop();
     // After the host recorded this key or click: the try begins with it.
     setTimeout(again, 0);
