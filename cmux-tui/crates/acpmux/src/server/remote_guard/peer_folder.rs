@@ -43,12 +43,16 @@ pub(super) async fn make_inside_root(
         return Err(None);
     }
     // Each folder the make would add, in the caller's spelling and in the found one.
-    let added = rest.components().scan((ancestor.to_path_buf(), found.clone()), |(a, f), c| {
-        a.push(c);
-        f.push(c);
-        Some([a.clone(), f.clone()])
-    });
-    for spelling in added.flatten() {
+    let (mut asked, mut real, mut added) = (ancestor.to_path_buf(), found.clone(), Vec::new());
+    for name in rest.iter() {
+        asked.push(name);
+        real.push(name);
+        added.push(asked.clone());
+        if real != asked {
+            added.push(real.clone());
+        }
+    }
+    for spelling in added {
         if removed_on_purpose(&spelling).await {
             return Err(Some(removed_refused(&spelling)));
         }
