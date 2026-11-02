@@ -1,5 +1,60 @@
-//! The QoS of a connection's threads (TYPING FIX 2, F7): which threads carry the person's keys, and the test hook
-//! that reads each thread's own QoS.
+//! The QoS of a connection's threads (TYPING FIX 2, F7). Under full CPU a default-QoS thread waits for a CPU: the
+//! fleet probe measured a default-QoS key thread's wake at p99 up to 7.7 ms and max up to 24.8 ms with 2 x cores busy
+//! threads, and at user-interactive about half the max and no wait in the middle of a send (STATUS 6593). A key
+//! crosses three threads of its connection: the `mux-conn` reader, the `mux-control-dispatch` request thread and the
+//! `mux-line-out` writer. Once a connection carries the person's keys to a terminal it views (`send` or `send-key`
+//! of an attached client, the input lane of `cmd_terminal_io::input_surface`), those three threads run at
+//! QOS_CLASS_USER_INTERACTIVE, as Chrome runs the thread that carries input at the highest priority. Each thread
+//! raises itself (a QoS is set by the thread itself), on its next line, request or reply. Automation's connections
+//! (CLI, MCP, agents writing to terminals they do not view) keep the default QoS, so they never compete with the
+//! person's input. Off macOS this sets nothing.
+
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a connection carries the person's keys; shared by its threads through its `MessageWriter`.
+#[derive(Default)]
+pub(super) struct InputLane {
+    carries_person_input: AtomicBool,
+}
+
+thread_local! {
+    static RAISED: Cell<bool> = const { Cell::new(false) };
+}
+
+impl InputLane {
+    /// The connection carries the person's keys: the calling thread (the one that runs the key) raises itself now,
+    /// the connection's other threads on their next line or reply.
+    pub(super) fn mark_person_input(&self) {
+        self.carries_person_input.store(true, Ordering::Release);
+        raise_this_thread();
+    }
+
+    /// Raises the calling thread when its connection carries the person's keys. One atomic load per line, request
+    /// or reply, one system call per thread.
+    pub(super) fn raise_this_thread_if_marked(&self) {
+        if self.carries_person_input.load(Ordering::Acquire) {
+            raise_this_thread();
+        }
+    }
+}
+
+fn raise_this_thread() {
+    if RAISED.with(Cell::get) {
+        return;
+    }
+    RAISED.with(|raised| raised.set(true));
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: sets the calling thread's own QoS; no pointer is passed.
+        let rc = unsafe {
+            libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+        };
+        if rc != 0 {
+            eprintln!("cmux: could not raise the input thread's QoS ({rc})");
+        }
+    }
+}
 
 /// Test hook: each connection thread (`mux-conn` reader, `mux-control-dispatch`, `mux-line-out` writer) records its
 /// own QoS before each line, request or reply, so a test reads it after that reply arrives (no timing).

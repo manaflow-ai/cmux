@@ -45,6 +45,7 @@ pub(super) fn serve_line_connection(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(item) = writer_outbound.recv() {
+                writer_close.input_lane.raise_this_thread_if_marked();
                 super::input_qos::note_thread_qos("mux-line-out");
                 if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
@@ -111,6 +112,7 @@ pub(super) fn serve_line_connection(
             }
             continue;
         }
+        writer.input_lane.raise_this_thread_if_marked();
         super::input_qos::note_thread_qos("mux-conn");
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => {
