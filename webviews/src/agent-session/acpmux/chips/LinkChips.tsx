@@ -103,7 +103,8 @@ function FolderFileChip({
     (info?.place === "root" || (info?.place === "outside" && policy.outsideRoots !== "text"));
   if (found) return <PathChip path={path} written={name} />;
   // Asked and not there: the next folder the reply names.
-  if (answered && folders.length > 1) return <FolderFileChip name={name} folders={folders.slice(1)} fallback={fallback} />;
+  if (answered && folders.length > 1)
+    return <FolderFileChip name={name} folders={folders.slice(1)} fallback={fallback} />;
   return fallback;
 }
 

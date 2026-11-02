@@ -673,6 +673,14 @@ function keptCode(raw: string, opts: InlineOptions): string {
   return kept ? (opts.codes![Number(kept[1])] ?? raw) : raw;
 }
 
+const NO_FOLDERS: readonly string[] = [];
+
+/// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
+/// the link's chip.
+function linkLabel(source: string, opts: InlineOptions): ReactNode {
+  return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
+}
+
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
   const refs: string[] = [];
@@ -725,35 +733,34 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // a chip that opens the header's Needs you list on it, so the ask is never restated. With the
       // list off (not installed from the App Store) it draws as its text, like a link the pane will not open.
       const ask = href ? undefined : needsYouTarget(lm[2]);
-      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (ask)
         out.push(
           <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
             <span className="acpmux-needs-you-dot" aria-hidden="true" />
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </button>,
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         out.push(
           <a key={k++} className="cv-link is-app" href={app}>
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </a>,
         );
       // A template (`${variant}.png`) names no file: its text.
-      else if (!href && isTemplatePath(lm[2]))
-        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (!href && isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
             {(opts.linkIcon ?? linkIcon)(lm[2])}
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </span>,
         );
-      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else
         out.push(
           <UrlChip
@@ -761,7 +768,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             href={href}
             icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
           >
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
@@ -886,12 +893,12 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   const fallback = !href ? (
     <span className="cv-link is-image">
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, labelOpts)}
+      {linkLabel(name, labelOpts)}
     </span>
   ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer">
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, labelOpts)}
+      {linkLabel(name, labelOpts)}
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).

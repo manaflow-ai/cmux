@@ -145,9 +145,8 @@ test("a bare name is looked up in the next folder the reply names when the first
 });
 
 test("replyFolders and bareFileNames read the shapes an agent writes", async () => {
-  const { bareFileNames, replyFolders, isBareFileName } = await import(
-    "../src/agent-session/acpmux/chips/replyFolders"
-  );
+  const { bareFileNames, replyFolders, isBareFileName } =
+    await import("../src/agent-session/acpmux/chips/replyFolders");
   expect(replyFolders("[a](/x/y/a.png) then `/x/z/` and ~/w/q.md, again /x/y/b.png")).toEqual([
     "/x/y/",
     "/x/z/",
