@@ -192,7 +192,9 @@ export function slashLogin(
   return { kind: "terminal", command };
 }
 
-export type SessionAuthQuery = { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } };
+export type SessionAuthQuery =
+  | { sessionId: string }
+  | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
 export function useSessionAuth(

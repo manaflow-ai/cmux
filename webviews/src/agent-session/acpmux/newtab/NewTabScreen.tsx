@@ -741,6 +741,8 @@ export function NewTabScreen(props: Props) {
   pastedChips.opens.current = inline.expand;
   inlinePlace.current = (chips) => inline.place(chips, "paste");
   const parentSignIn = useSignIn();
+  const offMachine =
+    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
   // Auth must follow the same target precedence as askChat: a saved environment wins over a
   // previously picked machine, so an old machine verdict cannot block this environment's prompt.
   const targetHost = environment
@@ -749,9 +751,17 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const targetCwd = environment ? environment.folder : machine ? machine.folder : chatFolder;
+  // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
-    harness && (!remoteTarget || targetHost)
-      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+    harness && !offMachine && (!remoteTarget || targetHost)
+      ? {
+          target: {
+            harness,
+            ...(targetHost ? { host: targetHost } : {}),
+            ...(targetCwd ? { cwd: targetCwd } : {}),
+          },
+        }
       : undefined;
   const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
     authQuery,
@@ -2009,8 +2019,6 @@ export function NewTabScreen(props: Props) {
   // the folder Enter asks in, picked in place as the composer's strip picks it, and its machine the
   // one the chat starts on: a saved SSH environment's machine, else the location row's machine, else
   // this Mac's name. Cloud and Sandboxed send the prompt to no machine of these, so it names none.
-  const offMachine =
-    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
   const headlineMachine = offMachine
     ? undefined
     : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
