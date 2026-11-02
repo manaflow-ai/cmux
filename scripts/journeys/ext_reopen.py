@@ -1286,6 +1286,24 @@ def step_hid_key(j, step):
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "call_s": round(done - sent, 4)}
 
 
+def step_hid_click(j, step):
+    """A real HID left click (CGEventPost) at point (X, Y) of the app's largest main window, in points from its top
+    left corner (the window server's frame); the app must be the front app."""
+    if front_pid() != j.app.pid:
+        raise D.StepError(f"hid_click: the app is not the front app (front pid {front_pid()})")
+    server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == j.app.pid])
+    if not server:
+        raise D.StepError("hid_click: the app has no main window on the window server")
+    win = max(server, key=lambda w: w["w"] * w["h"])
+    x, y = float(step["x"]), float(step["y"])
+    if not (0 <= x < win["w"] and 0 <= y < win["h"]):
+        raise D.StepError(f"hid_click: ({x}, {y}) is outside the window ({win['w']} x {win['h']})")
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    post_click(win["x"] + x, win["y"] + y)
+    return {"window": {k: win[k] for k in ("x", "y", "w", "h")}, "point": [x, y]}
+
+
 def step_reopen_browser_keys(j, step):
     """A real Cmd-Q (Keep), the reopen through LaunchServices as reopen_video does (no socket read while the app
     launches), and AS SOON AS the reopened app's main window is listed: a real Cmd-L, then the marker TEXT with real
@@ -1382,7 +1400,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),

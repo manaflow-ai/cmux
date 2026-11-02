@@ -2,7 +2,7 @@
  "id": "reopen-browser-plain-keys",
  "priority": "P1",
  "title": "After Cmd-Q (Keep) and reopen with a browser page (focused text field) focused: plain keys typed after the restored page loaded reach it (cycle A); plain keys typed as soon as the main window is listed reach it, in order (cycle B)",
- "why": "Diagnostic for reopen-f4 (lead STATUS 6493, review of #32207): reopen-browser-first-key cycle 4 loses every plain key typed at once after the reopen. Cycle A tells whether plain keys reach the restored page at all; cycle B is the same check as cycle 4.",
+ "why": "Diagnostic for reopen-f4 (lead STATUS 6493, review of #32207): reopen-browser-first-key cycle 4 loses every plain key typed at once after the reopen. Cycle A tells whether plain keys reach the restored page at all; cycle B is the same check as cycle 4. Set-up clicks the field first: in a fresh app (no quit yet) real plain keys did not reach a page just loaded from the address bar (exploratory 9f0c6ff56af, both builds; journal: responder windowOrNone suppressed).",
  "source": "REOPEN VIDEO for reopen-f4",
  "budget_seconds": 200,
  "steps": [
@@ -220,6 +220,16 @@
      "frame_text": "pgok42"
     }
    ]
+  },
+  {
+   "do": "hid_click",
+   "x": 520,
+   "y": 165,
+   "title": "set-up: a real click in the page's text field (the page is at the window's top left: field at 216-824 x 146-184 points)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
   },
   {
    "do": "hid_key",
