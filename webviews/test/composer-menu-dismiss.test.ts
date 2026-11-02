@@ -132,7 +132,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       { timeout: 5_000 },
     );
     const box = (await chip.boundingBox())!;
-    await pressPoint(page, box.x + box.width / 2, box.y + box.height / 2);
+    // Let Playwright re-check the hit target immediately before dispatching the trusted pointer
+    // sequence; a hover-induced layout adjustment between a sampled box and mouse.down otherwise
+    // drops the click on a stale coordinate under load.
+    await chip.click({ position: { x: box.width / 2, y: box.height / 2 } });
   };
   const pressPoint = async (page: Page, x: number, y: number) => {
     await page.mouse.move(x, y);
