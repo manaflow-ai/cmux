@@ -350,7 +350,7 @@ extension NewTabPage {
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
-            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user).onMachine(page.daemon.machineID))
         }
         return true
     }

@@ -161,36 +161,68 @@ fn base_tools() -> Value {
     all
 }
 
+/// The tools a session may use here: every one, or under a `CMUX_MCP_TOOLS` allowlist (a
+/// Chief turn's, `agent_tools::scoped`) only those it names as `acpmux_<tool>`, the name the
+/// folding `cmux` server gives each. Folded, `cmux` applies the same list; standalone (cmux
+/// off or missing) this is the only filter, so `bg_*` and `team_*` reach no turn that does not
+/// list them, whatever the harness.
+fn allowed(all: Value, allow: Option<&str>) -> Value {
+    let Some(allow) = allow else { return all };
+    let allow: Vec<String> = allow.split(',').map(|t| t.trim().to_owned()).collect();
+    let keep = |tool: &Value| {
+        tool["name"].as_str().is_some_and(|n| allow.contains(&format!("{SERVER_NAME}_{n}")))
+    };
+    Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
     let artifacts = artifacts::from_config();
+    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
+    // Under an allowlist, a call outside it is refused like an unknown tool.
+    let names: Option<Arc<Vec<String>>> = allow
+        .is_some()
+        .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
+    // The background steer only where the background tools are listed.
+    let steer =
+        crate::mcp_hint::names(&tools).any(|n| bg::TOOLS.contains(&n)).then(|| BG_STEER.to_owned());
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
-        tools_with_artifacts(artifacts.is_some()),
-        Some(BG_STEER.to_owned()),
+        tools,
+        steer,
         move |daemon, session, params| {
             let artifacts = artifacts.clone();
+            let names = names.clone();
             async move {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if artifacts::TOOLS.contains(&name) {
-                return match (&artifacts, args.is_object()) {
-                    (_, false) => error_result("arguments must be an object".to_owned()),
-                    (Some(client), true) => artifacts::call(client, name, &args).await,
-                    (None, true) => error_result(
-                        "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
-                    ),
-                };
-            }
-            if bg::TOOLS.contains(&name) {
-                return bg::call(&daemon, &session, name, &args).await;
-            }
-            if matches!(name, "inbox_read" | "inbox_reply") {
-                return inbox_tool(&daemon, &session, name, &args).await;
-            }
-            call(&daemon, &params).await
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                if let Some(names) = &names
+                    && !names.iter().any(|n| n == name)
+                {
+                    return error_result(crate::mcp_hint::unknown_tool(
+                        name,
+                        names.iter().map(String::as_str),
+                    ));
+                }
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if artifacts::TOOLS.contains(&name) {
+                    return match (&artifacts, args.is_object()) {
+                        (_, false) => error_result("arguments must be an object".to_owned()),
+                        (Some(client), true) => artifacts::call(client, name, &args).await,
+                        (None, true) => error_result(
+                            "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
+                        ),
+                    };
+                }
+                if bg::TOOLS.contains(&name) {
+                    return bg::call(&daemon, &session, name, &args).await;
+                }
+                if matches!(name, "inbox_read" | "inbox_reply") {
+                    return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                call(&daemon, &params).await
             }
         },
     )

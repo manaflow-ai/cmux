@@ -14,7 +14,7 @@ import Observation
 import os
 import CmuxNextWakeups
 
-/// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
+/// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
 /// machine mutation, and when the app becomes active (at most every 30 s);
@@ -24,8 +24,8 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
-    /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
-    /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    /// A machine's exec and file routes: ``api`` on the legacy link, and the
+    /// configured cmux API Worker on the app-server link.
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// Same person and team as the machine API, at the configured platform preview origin.
     var previewAPI: CloudAPIClient? {
@@ -233,8 +233,24 @@ final class CloudService {
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        let launcher = configuration.linkSource == .appServer
-            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
+        // The app server link: this Mac's `cmux link`, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=1` the Native
+        // device route (#28947) with `cmux link` as its fallback when Native does not start.
+        let linkBuild = LaunchIdentity.current().build
+        let cmuxLink = CloudLinkLauncher.forApp(build: linkBuild, relay: relay)
+        let launcher: (any CloudLinkLaunching)?
+        if configuration.linkSource != .appServer {
+            launcher = nil
+        } else if CloudNativeFirstLauncher.choice() == .link {
+            launcher = cmuxLink
+        } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
+                                                             build: linkBuild, deviceName: Self.deviceName) {
+            let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+            launcher = CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
+                logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            launcher = cmuxLink
+        }
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
@@ -254,6 +270,7 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
+
     /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
     /// lane when Cloud starts; async callers use ``installID()``.
     func localDeviceID() throws -> String { try deviceID.loadNow() }
@@ -322,13 +339,14 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account, not only signed-in: Switch Account stays signed in.
-            for await account in ObservationStream({ self.auth.isSignedIn ? (self.auth.user?.id ?? "") : nil }) {
-                if account != nil {
+            // The account and selected team: a team switch stays signed in but
+            // must fence the old Native mesh and link before reconnecting.
+            for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
+                if accountScope != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     // Another account's machines and connections end first.
-                    if await self.link.sessionBegan(user: self.auth.user?.id) { self.dropAllMachines() }
+                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) { self.dropAllMachines() }
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()

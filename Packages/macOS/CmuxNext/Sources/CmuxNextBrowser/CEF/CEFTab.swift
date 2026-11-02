@@ -85,6 +85,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
+    /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
+    /// manual clock.
+    @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -108,6 +111,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
+    /// (`documentDidPaint`), so the second of the two events starts no second read.
+    @ObservationIgnored var pageBackdropReading: Int?
+    /// A load end or stop came while that read was in flight: one more read follows its answer.
+    @ObservationIgnored var pageBackdropReReadOwed = false
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
@@ -534,7 +542,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
-        devToolsController.views?.host.isHidden = !visible
+        // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
+        devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
         if visible, host.visibleTab === self { reloadOwedAfterExit() }
     }
@@ -542,9 +551,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
@@ -564,6 +570,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()
+        settleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {

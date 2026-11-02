@@ -31,6 +31,10 @@ impl PtySurface {
         else {
             return;
         };
+        // The stored screen is now of the old size: the output store asks
+        // for a snapshot at the new one, whether or not the program prints
+        // after the resize (dash prints nothing on SIGWINCH).
+        mux.output_store.resized(&terminal_id);
         mux.journal_terminal_resize(
             terminal_id,
             self.journal_generation.clone(),
