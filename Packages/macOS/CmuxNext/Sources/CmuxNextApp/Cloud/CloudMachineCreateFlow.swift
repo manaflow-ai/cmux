@@ -127,7 +127,7 @@ struct CloudMachineCreateFlow {
     /// in this app: sent once with one key; when the backend holds it for approval, `confirm` asks the
     /// person (a no sends nothing more), then the approval is answered and the same key retried.
     func approvedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
-        try await approvalLoop(op, args: args, key: newKey(), confirmed: false) { _ in await confirm() }
+        try await approvalLoop(op, args: args, key: newKey(), confirmed: false) { _ in await confirm() ? .yes : .no }
     }
 
     /// The first call, then at most `retries` same-key calls after the approval: every pass
@@ -137,7 +137,7 @@ struct CloudMachineCreateFlow {
     private func approvalLoop(_ op: String, args: JSONValue, key: String, confirmed: Bool, approved earlier: String? = nil,
                               onApproved: @MainActor (String) -> Void = { _ in },
                               answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
-                              ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
+                              ask: @MainActor (_ request: String) async -> Confirmation) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?
         var attempt = 0
@@ -155,8 +155,15 @@ struct CloudMachineCreateFlow {
                     continue
                 }
                 if !confirmed {
-                    guard await ask(request) else { throw Failure.declined }
+                    let answer = await ask(request)
+                    guard answer != .no else { throw Failure.declined }
                     confirmed = true
+                    if answer == .answeredElsewhere {
+                        // Its item is closed, so it is not answered again; the same-key retry gets the op's answer.
+                        approved = request
+                        onApproved(request)
+                        continue
+                    }
                 }
                 onAnswering(request)
                 do {
@@ -179,17 +186,23 @@ struct CloudMachineCreateFlow {
     /// phone, the dashboard; G8 lets their own session answer it): the same-key call goes on at `watchPause`'s
     /// pace, and an answer other than this request's pending ends the sheet as a yes, so the loop finds the
     /// request ended (``alreadyAnswered``) and the next same-key call replays the op's answer.
-    private func confirmUnlessAnsweredElsewhere(_ prompt: Prompt, op: String, args: JSONValue, key: String, request: String) async -> Bool {
-        guard let watchPause else { return await confirm(prompt) }
-        return await CloudWait.firstAnswer(ask: { await confirm(prompt) }) { [run] in
-            await CloudWait.untilAnswered(pause: watchPause) {
+    private func confirmUnlessAnsweredElsewhere(_ prompt: Prompt, op: String, args: JSONValue, key: String, request: String) async -> Confirmation {
+        guard let watchPause else { return await confirm(prompt) ? .yes : .no }
+        let elsewhere = AnsweredElsewhere()
+        let yes = await CloudWait.firstAnswer(ask: { await confirm(prompt) }) { [run] in
+            elsewhere.seen = await CloudWait.untilAnswered(pause: watchPause) {
                 do { _ = try await run(op, args, key, .user) } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
                     return failure.approvalRequest == request ? nil : false
                 } catch { return isDefinitiveAnswer(error) }
                 return true
             }
+            return elsewhere.seen
         }
+        return elsewhere.seen ? .answeredElsewhere : yes ? .yes : .no
     }
+
+    enum Confirmation { case no, yes, answeredElsewhere }
+    @MainActor private final class AnsweredElsewhere { var seen = false }
 
     /// A denied or expired hold was answered too; anything else leaves the answer to the sheet.
     private func isDefinitiveAnswer(_ error: any Error) -> Bool {
