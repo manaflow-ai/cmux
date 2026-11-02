@@ -7,6 +7,7 @@ import CmuxNextSettings
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import QuartzCore
 import Testing
@@ -121,8 +122,7 @@ import Testing
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while !waiting.view.hostsContent, ContinuousClock.now < deadline {
             CATransaction.flush()
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
         #expect(waiting.view.hostsContent, "the second pane's surface never came")
         #expect(Self.savedFrames(in: waiting.view.contentHost) == 1, "the surface did not take the last frame over (none or two shown)")
