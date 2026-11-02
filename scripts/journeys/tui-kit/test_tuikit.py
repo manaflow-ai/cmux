@@ -331,6 +331,58 @@ class GradientRust(unittest.TestCase):
         self.assertLess(gaps[int(0.95 * len(gaps))], 1000 / 120 * 1.5, "p95 frame interval")
 
 
+class BeaconRust(unittest.TestCase):
+    """tk-beacon: the SWITCH FRAMES beacon rows (ext_switch.py's codec), the uptime clock, the rate."""
+
+    def test_rows_decode_and_rate(self):
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            run = PtyRun([PY, KIT, "beacon", "--ws", "5", "--pane", "3", "--duration", "2", "--log", log], 80, 24)
+            data, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        self.assertEqual(end["verdict"], "ok", end)
+        self.assertGreaterEqual(end["achieved_hz"], 0.95 * 240)
+        frames_ = frames(data)
+        self.assertGreater(len(frames_), 400)
+        blk = lambda rgb: ("\x1b[48;2;%d;%d;%dm  " % rgb).encode()
+        y, r, one, zero = blk((255, 255, 0)), blk((255, 0, 0)), blk((255, 0, 255)), blk((0, 255, 255))
+        clocks = []
+        for f in (frames_[10], frames_[200]):
+            rows = []
+            for i in range(3):
+                seg = f.split(("\x1b[%d;1H" % (i + 1)).encode(), 1)[1]
+                self.assertTrue(seg.startswith(y))
+                seg = seg[len(y):]
+                bits = []
+                while not seg.startswith(r):
+                    if seg.startswith(one):
+                        bits.append(1)
+                        seg = seg[len(one):]
+                    else:
+                        self.assertTrue(seg.startswith(zero))
+                        bits.append(0)
+                        seg = seg[len(zero):]
+                self.assertEqual(sum(bits) % 2, 0, "parity")
+                rows.append(bits[:-1])
+            ws = int("".join(map(str, rows[0][:6])), 2)
+            pane = int("".join(map(str, rows[0][6:10])), 2)
+            self.assertEqual((ws, pane), (5, 3))
+            g = int("".join(map(str, rows[1] + rows[2])), 2)
+            n, shift = g, 1
+            while (g >> shift) > 0:
+                n ^= g >> shift
+                shift += 1
+            clocks.append(n)
+        self.assertGreater((clocks[1] - clocks[0]) % (1 << 18), 0, "the clock advances")
+        self.assertIn(b"WS 5  PANE 3", data)
+
+
 class Sigwinch(unittest.TestCase):
     def test_logs_each_sigwinch_and_reflows_per_size(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -45,6 +45,7 @@ VARIANTS = (
     ("rust-spin", [], "spin", None),
     ("rust-hybrid", [], "hybrid", None),
     ("rust-sleep", [], "sleep", None),
+    ("rust-rt", [], "rt", None),
 )
 BUCKETS = (1, 4, 8.34, 16.7, 33.4)  # late_ms histogram edges
 

@@ -444,7 +444,8 @@ kit has its own `top`). Every program takes `--seed N` (the same seed draws the 
 K=scripts/journeys/tui-kit/tuikit.py
 python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
 python3 $K gradient --pace sleep ...                            # pacing: spin (gradient default, one core), hybrid, sleep
-python3 $K build-bins                                           # once per Mac: the compiled tk-gradient (cargo, std only)
+python3 $K build-bins                                           # once per Mac: tk-gradient, tk-storm, tk-beacon (cargo, std only)
+python3 $K beacon --ws N --pane M [--hz 240] [--fill]            # SWITCH FRAMES beacon (compiled; rt pacing; CLOCK_UPTIME_RAW)
 python3 scripts/journeys/tui-kit/pace_probe.py --seconds 30      # frame intervals per pacing variant on this host
 python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
 python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged

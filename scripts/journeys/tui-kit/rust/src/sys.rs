@@ -159,6 +159,103 @@ pub fn darwin_bg() -> &'static str {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod mach {
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct TimebaseInfo {
+        pub numer: u32,
+        pub denom: u32,
+    }
+
+    #[repr(C)]
+    pub struct TimeConstraint {
+        pub period: u32,
+        pub computation: u32,
+        pub constraint: u32,
+        pub preemptible: i32,
+    }
+
+    pub const THREAD_TIME_CONSTRAINT_POLICY: u32 = 2;
+    pub const THREAD_TIME_CONSTRAINT_POLICY_COUNT: u32 = 4;
+
+    extern "C" {
+        pub fn mach_absolute_time() -> u64;
+        pub fn mach_timebase_info(info: *mut TimebaseInfo) -> i32;
+        pub fn mach_wait_until(deadline: u64) -> i32;
+        pub fn mach_thread_self() -> u32;
+        pub fn thread_policy_set(thread: u32, flavor: u32, info: *const i32, count: u32) -> i32;
+    }
+
+    /// (numer, denom): mach ticks * numer / denom = ns.
+    pub fn timebase() -> (u64, u64) {
+        let mut info = TimebaseInfo::default();
+        // SAFETY: one valid out-struct.
+        let rc = unsafe { mach_timebase_info(&mut info) };
+        if rc != 0 || info.numer == 0 || info.denom == 0 {
+            (1, 1)
+        } else {
+            (u64::from(info.numer), u64::from(info.denom))
+        }
+    }
+}
+
+/// --pace rt: makes the calling thread a time-constraint thread for frames of `period_s` (macOS;
+/// computation 0.75 ms, constraint 1.5 ms, preemptible). Returns whether the kernel took it.
+#[cfg(target_os = "macos")]
+pub fn realtime_thread(period_s: f64) -> bool {
+    let (numer, denom) = mach::timebase();
+    let ticks = |seconds: f64| -> u32 {
+        let t = seconds * 1e9 * denom as f64 / numer as f64;
+        t.clamp(1.0, f64::from(u32::MAX)) as u32
+    };
+    let policy = mach::TimeConstraint {
+        period: ticks(period_s),
+        computation: ticks(0.00075),
+        constraint: ticks(0.0015),
+        preemptible: 1,
+    };
+    // SAFETY: the policy struct is THREAD_TIME_CONSTRAINT_POLICY_COUNT ints, alive for the call.
+    let rc = unsafe {
+        mach::thread_policy_set(
+            mach::mach_thread_self(),
+            mach::THREAD_TIME_CONSTRAINT_POLICY,
+            &policy as *const mach::TimeConstraint as *const i32,
+            mach::THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+        )
+    };
+    rc == 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn realtime_thread(_period_s: f64) -> bool {
+    false
+}
+
+/// A sleep of `seconds` on mach_wait_until (macOS), else std's sleep.
+pub fn precise_sleep(seconds: f64) {
+    if seconds <= 0.0 {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let (numer, denom) = mach::timebase();
+        let ticks = (seconds * 1e9 * denom as f64 / numer as f64) as u64;
+        // SAFETY: plain integer calls.
+        unsafe {
+            let deadline = mach::mach_absolute_time().saturating_add(ticks);
+            let _ = mach::mach_wait_until(deadline);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
+}
+
+/// std's sleep (the --pace sleep and hybrid modes).
+pub fn plain_sleep(seconds: f64) {
+    std::thread::sleep(std::time::Duration::from_secs_f64(seconds.max(0.0)));
+}
+
 pub fn quit_requested() -> bool {
     QUIT.load(Ordering::SeqCst)
 }
