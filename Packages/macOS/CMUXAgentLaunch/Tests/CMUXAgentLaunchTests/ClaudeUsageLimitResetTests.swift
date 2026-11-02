@@ -41,6 +41,17 @@ import Testing
         #expect(parse("resets 9am (Asia/Seoul)") == date(2026, 10, 24, 9, 0, in: seoul))
     }
 
+    @Test func repeatedHourResolvesToItsNextOccurrence() {
+        // 01:15 EST on 2026-11-01, inside the hour New York repeats when it falls back. The next
+        // 1:30 is the repeated one fifteen minutes later, not 1:30 tomorrow.
+        let iso = ISO8601DateFormatter()
+        let secondPass = iso.date(from: "2026-11-01T06:15:00Z")!
+        #expect(parse("resets 1:30am (America/New_York)", now: secondPass) == iso.date(from: "2026-11-01T06:30:00Z"))
+        // 01:15 EDT, the first pass: the first 1:30 comes next.
+        let firstPass = iso.date(from: "2026-11-01T05:15:00Z")!
+        #expect(parse("resets 1:30am (America/New_York)", now: firstPass) == iso.date(from: "2026-11-01T05:30:00Z"))
+    }
+
     @Test func midnightHourIsTwelveAm() {
         #expect(parse("You've hit your session limit · resets 12:10am (Asia/Seoul)") == date(2026, 10, 24, 0, 10, in: seoul))
     }
