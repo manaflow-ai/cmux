@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextScreenshots
 import Foundation
 
 /// `window.screenshot`, `pane.screenshot` and `tab.screenshot`: a PNG of one
@@ -23,11 +25,13 @@ import Foundation
 /// point) and `method` (`window` or `page`). A person's run (palette, menu)
 /// also copies the image.
 ///
-/// An automation run (CLI, MCP, scripts) gets the same image with every web
-/// page the app does not own painted black (``ScreenshotPrivacyMask``): the
-/// app cannot mask the secrets a page shows the way the browser host does, so
-/// a browser tab or a pane showing one is refused and points at the browser
-/// REPL, whose capture masks them.
+/// An agent's or a script's run (anything the control socket carries, whatever
+/// origin it claims) gets the window with every browser page area, chat, Home
+/// view and app page not known to be safe masked in gray
+/// (``AppWindowImage/maskedCapture(_:)``, ``ScreenshotMask``), and `masked`,
+/// how many areas the image covers. Page pixels reach automation
+/// only through the browser host's guarded capture (`cmux browser page
+/// screenshot`), so a browser tab no window shows is refused to it.
 enum ScreenshotHandlers {
     /// The capture gave no image; the message says why.
     static let unavailableCode = "screenshot.unavailable"
@@ -39,7 +43,7 @@ enum ScreenshotHandlers {
             let output = try ScreenshotOutput(invocation)
             guard let window = try context.window(invocation).window else { throw ActionFailure(message: ScreenshotStrings.notOnScreen) }
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: nil, masked: ScreenshotPrivacyMask.applies(to: invocation), services: context.services)
+                try await shown(window, crop: nil, for: invocation, services: context.services)
             }
         })
         registry.bind("pane.screenshot", run: { invocation in
@@ -52,23 +56,19 @@ enum ScreenshotHandlers {
             guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
-            let masked = ScreenshotPrivacyMask.applies(to: invocation)
-            if masked, case .browser? = pane.currentContent { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: view, masked: masked, services: context.services)
+                try await shown(window, crop: view, for: invocation, services: context.services)
             }
         })
         registry.bind("tab.screenshot", run: { invocation in
             let output = try ScreenshotOutput(invocation)
             let (tab, controller) = try resolveTab(invocation, services: context.services)
-            let masked = ScreenshotPrivacyMask.applies(to: invocation)
-            if masked, tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
-                    try await shown(window, crop: view, masked: masked, services: context.services)
+                    try await shown(window, crop: view, for: invocation, services: context.services)
                 }
                 return
             }
@@ -76,6 +76,8 @@ enum ScreenshotHandlers {
             guard tab.kind == .browser else {
                 throw ActionFailure(message: tab.kind == .pty ? ScreenshotStrings.terminalNotShown : ScreenshotStrings.tabNotShown)
             }
+            // Off screen a browser tab is all page, which a masked capture would cover whole.
+            guard invocation.isPersonsOwnRun else { throw ActionFailure(message: ScreenshotStrings.pageNeedsGuardedCapture) }
             start(output: output, invocation: invocation, context: context) {
                 try await offscreenPage(tab, services: context.services)
             }
@@ -99,26 +101,35 @@ enum ScreenshotHandlers {
         return (tab, pane)
     }
 
-    /// One capture: the image, its scale (pixels per point) and how it was made.
+    /// One capture: the image, its scale (pixels per point), how it was made and, for
+    /// automation, how many areas it masks (nil: a person's raw capture).
     struct Capture {
         let image: CGImage
         let scale: Double
         let method: String
+        var masked: Int?
     }
 
-    /// `window` as on screen, cropped to `crop`'s frame when given; `masked`
-    /// for an automation run (``ScreenshotPrivacyMask``).
-    private static func shown(_ window: NSWindow, crop view: NSView?, masked: Bool, services: AppServices) async throws -> Capture {
-        let full = try await AppWindowImage(services: services).capture(window, masked: masked)
+    /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run,
+    /// masked for any other (``ActionInvocation/isPersonsOwnRun``).
+    static func shown(_ window: NSWindow, crop view: NSView?, for invocation: ActionInvocation, services: AppServices) async throws -> Capture {
+        let shot: (image: CGImage, masked: Int?)
+        if !invocation.isPersonsOwnRun {
+            let result = try await AppWindowImage.maskedCapture(window)
+            shot = (result.image, result.masked)
+        } else {
+            shot = (try await AppWindowImage(services: services).capture(window), nil)
+        }
+        let full = shot.image, count = shot.masked
         let size = window.frame.size
         let scale = size.width > 0 ? Double(full.width) / size.width : Double(window.backingScaleFactor)
-        guard let view else { return Capture(image: full, scale: scale, method: "window") }
+        guard let view else { return Capture(image: full, scale: scale, method: "window", masked: count) }
         // The view may have left the window while the capture ran.
         guard view.window === window,
               let cropped = full.cropped(toWindowRect: view.convert(view.bounds, to: nil), windowSize: size) else {
             throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.outsideWindow)
         }
-        return Capture(image: cropped, scale: scale, method: "window")
+        return Capture(image: cropped, scale: scale, method: "window", masked: count)
     }
 
     /// A browser tab no window shows, rendered by its engine in the
@@ -149,7 +160,7 @@ enum ScreenshotHandlers {
     private static func start(output: ScreenshotOutput, invocation: ActionInvocation, context: AppActionContext,
                               capture: @escaping @MainActor () async throws -> Capture) {
         let services = context.services
-        let byPerson = invocation.origin == .user
+        let byPerson = invocation.isPersonsOwnRun
         // task-owner: the action run; a capturing caller awaits it through the registry.
         let task: ActionResultWork = Task { @MainActor in
             do {
@@ -157,6 +168,8 @@ enum ScreenshotHandlers {
             } catch let failure as ActionWorkFailure {
                 return .failure(failure)
             } catch let failure as WindowScreenshotFailure {
+                return .failure(ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.reason(failure)))
+            } catch let failure as ScreenshotMask.Failure {
                 return .failure(ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.reason(failure)))
             } catch {
                 return .failure(ActionWorkFailure(code: unavailableCode, reason: String(describing: error)))
@@ -181,6 +194,7 @@ enum ScreenshotHandlers {
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
+        if let masked = capture.masked { result["masked"] = .int(masked) }
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
@@ -196,8 +210,8 @@ enum ScreenshotHandlers {
             throw ActionWorkFailure(code: writeFailedCode, reason: BrowserPageStrings.saveFailed(error.localizedDescription))
         }
         if copies {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            // Written with cmux as its source, so a paste of it wears cmux's icon.
+            AttachmentSource.write([NSImage(cgImage: image, size: .zero)], to: NSPasteboard.general)
         }
         return result
     }
@@ -212,18 +226,16 @@ enum ScreenshotHandlers {
 
     @concurrent
     nonisolated private static func write(_ png: Data, to url: URL) async throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
+        try AttachmentSource.writeOwn(png, to: url) // made, written and marked as cmux's
     }
 
     /// Writes to `$TMPDIR/cmux-screenshots/`, pruned as browser screenshots are.
     @concurrent
     nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
-        try png.write(to: file, options: .atomic)
+        try AttachmentSource.writeOwn(png, to: file)
         AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
                              newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
         return file.path

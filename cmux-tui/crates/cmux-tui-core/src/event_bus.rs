@@ -290,6 +290,7 @@ impl SurfaceSessionScope {
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
+            | MuxEvent::AppsChanged(_)
             | MuxEvent::Empty => true,
         }
     }
@@ -480,6 +481,16 @@ impl MuxEventReceiver {
     /// consumers use it for state changes that no broadcast event carries.
     pub(crate) fn wake(&self) {
         self.mailbox.push(MuxEvent::TreeChanged);
+    }
+
+    /// A waker that calls ``wake`` while this receiver lives (it holds no strong reference).
+    pub(crate) fn waker(&self) -> impl Fn() + Send + Sync + 'static {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                mailbox.push(MuxEvent::TreeChanged);
+            }
+        }
     }
 
     pub fn overflowed(&self) -> bool {

@@ -58,6 +58,7 @@
 //! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 #[path = "agent_pair_progress.rs"]
@@ -242,7 +243,7 @@ impl Held {
             "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
         });
         if let Some(class) = self.class {
-            record["class"] = json!(class);
+            record.set("class", json!(class));
         }
         record
     }
@@ -680,6 +681,11 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A prompt that waits for the owner queues: never steered in, never stopping the turn.
+        // Any other prompt keeps its own interrupt and steer-now, which need no `steer`.
+        let held = crate::author::awaits_owner(opts.provenance.as_ref());
+        let steer = steer && !held;
+        (opts.interrupt, opts.steer_now) = (opts.interrupt && !held, opts.steer_now && !held);
         self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
         self.run_prompt(session, blocks, client, steer, opts).await
     }
@@ -700,7 +706,10 @@ impl Hub {
                 return;
             };
             tokio::spawn(async move {
+                // Checked again here: a chat that became a review box since stops for no
+                // other agent's message (`inbox.rs`).
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
+                    && !super::inbox::review_box(&to)
                     && let Err(e) = hub.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
@@ -933,7 +942,11 @@ impl Hub {
             let accepted = tx.clone();
             let took = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let took_it = took.clone();
-            let opts = PromptOptions {
+            // A held prompt's durable provenance carries the original outbox
+            // delivery id. Releasing it must reuse that id so the receiver's
+            // and sender's message projections remain one delivery after a
+            // pause, restart, and retry.
+            let mut opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
                     took_it.store(true, Ordering::SeqCst);
@@ -951,6 +964,9 @@ impl Hub {
                 class: h.class,
                 ..PromptOptions::default()
             };
+            // Held provenance is durable state, so restore the original delivery id and (for a
+            // peer-origin message) its sender identity before retrying the prompt.
+            super::message_events::restore_message_options(&mut opts, Some(&h.provenance));
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();

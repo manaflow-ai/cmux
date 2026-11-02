@@ -238,6 +238,8 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
+    /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
+    pub(super) deployments: super::deploy::Deployments,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -246,7 +248,12 @@ pub(super) fn now_ms() -> u64 {
 
 impl Supervisor {
     pub fn new(config: Config, router: Box<dyn OpRouter>, fetcher: Box<dyn Fetcher>) -> Arc<Self> {
+        let config_state_dir = config.state_dir.clone();
+        // Taken before the read (see `PrintsBefore`): a local app saved
+        // during it is read again once the watch starts.
+        let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
+        let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
@@ -318,12 +325,13 @@ impl Supervisor {
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
+            deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
         supervisor.start_always_servers();
-        supervisor.start_local_watch();
+        supervisor.start_local_watch(local_prints);
         supervisor
     }
 
@@ -367,7 +375,11 @@ impl Supervisor {
         ids.extend(inner.mirror.apps.iter().filter(|(_, r)| r.installed).map(|(id, _)| id));
         let apps: Vec<Value> = ids
             .into_iter()
-            .map(|id| entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id)))
+            .map(|id| {
+                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                row.set("instance", self.instance_json(id));
+                row
+            })
             .collect();
         json!({ "revision": inner.mirror.revision, "apps": apps })
     }

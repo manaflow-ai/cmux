@@ -217,6 +217,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             origin: ActionOrigin(rawValue: request.origin) ?? .cli,
             focusRequested: request.focus
         )
+        invocation.viaControlSocket = true
         invocation.callerApp = request.callerApp
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
@@ -334,5 +335,6 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.webViewFocused, "webViewFocused"),
+        (.sideSessions, "sideSessions"),
     ]
 }

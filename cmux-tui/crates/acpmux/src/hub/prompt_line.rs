@@ -20,6 +20,34 @@ pub(super) fn prompt_line(text: &str, client: &str, provenance: Option<&Value>) 
     }
 }
 
+/// Whether a prompt with `provenance` is acpmux's own notice of other agents' messages rather
+/// than anyone's words: an inbox notice ("[inbox] New messages from other agents in 1 thread"),
+/// an inbox digest or an agent digest. A History of what was asked (the sidebar hover card) leaves
+/// such a turn out; one agent's message stays, as "name: words" (`prompt_line`).
+pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    kind.is_some_and(|k| {
+        [super::inbox::NOTICE_KIND, super::digest::DIGEST_KIND, super::digest::inbox_digest::KIND]
+            .contains(&k)
+    })
+}
+
+/// The words of `text` a chat's title is made from (`titles.rs`): another agent's message
+/// without its sender and envelope, else `text` itself. A turn of several messages has no words
+/// of one sender: it stays as it is.
+pub(super) fn prompt_words<'a>(
+    text: &'a str,
+    client: &str,
+    provenance: Option<&Value>,
+) -> std::borrow::Cow<'a, str> {
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    let several = [super::digest::DIGEST_KIND, super::digest::inbox_digest::KIND];
+    match message(text, client, provenance) {
+        Some((_, words)) if !kind.is_some_and(|k| several.contains(&k)) => words.into(),
+        _ => text.into(),
+    }
+}
+
 /// Who sent `text` and its words, when it is another agent's message: its provenance says so,
 /// or (with none) `acpmux send` at a shell put the sender's name in brackets before it, or
 /// Claude Code's own envelope wraps it in an adopted chat.
@@ -38,22 +66,18 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
             let words = field("msgId").and_then(|id| rendered_body(text, &id)).unwrap_or(text);
             Some((name, words.to_owned()))
         }
-        // `[NAME] lane report: ...` (`lane_reports.rs`).
+        // `[NAME] verdict or first sentence` (`lane_reports.rs`); legacy report titles work too.
         Some(super::lane_reports::KIND) => name_prefixed(text),
         Some(super::digest::DIGEST_KIND) => {
             let messages = provenance?.get("messages")?.as_array()?;
-            let mut senders: Vec<&str> = Vec::new();
-            for from in messages.iter().filter_map(|m| m.get("from")?.as_str()).map(str::trim) {
-                if !from.is_empty() && !senders.contains(&from) {
-                    senders.push(from);
-                }
-            }
-            let name = match senders.len() {
-                0 => return None,
-                n if n > 3 => format!("{} +{}", senders[..3].join(", "), n - 3),
-                _ => senders.join(", "),
-            };
+            let name = senders(messages.iter().filter_map(|m| m.get("from")?.as_str()))?;
             Some((name, format!("{} messages", messages.len())))
+        }
+        // `[inbox digest] N messages …` (`inbox_digest.rs`): its senders, as a turn of them reads.
+        Some(super::digest::inbox_digest::KIND) => {
+            let parts = provenance?.get("parts")?.as_array()?;
+            let name = senders(parts.iter().filter_map(|m| m.get("fromName")?.as_str()))?;
+            Some((name, format!("inbox digest of {} messages", parts.len())))
         }
         Some(_) => None,
         // `acpmux send` at a shell, through a peer, or with `--no-wait` through this daemon's
@@ -67,6 +91,29 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
         None if client == "adopt" => cross_session(text),
         None => None,
     }
+}
+
+/// The senders of a turn of several messages, each once, in order: "a, b, c +2". `None` when
+/// none is named.
+fn senders<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut senders: Vec<&str> = Vec::new();
+    for from in names.map(str::trim) {
+        if !from.is_empty() && !senders.contains(&from) {
+            senders.push(from);
+        }
+    }
+    match senders.len() {
+        0 => None,
+        n if n > 3 => senders.get(..3).map(|first| format!("{} +{}", first.join(", "), n - 3)),
+        _ => Some(senders.join(", ")),
+    }
+}
+
+/// The sender's own words in another agent's message: inside the envelope cmux wraps a cmux
+/// agent message in (`rendered_body`), else the whole text (`inbox_digest.rs`).
+pub(super) fn agent_words<'a>(text: &'a str, provenance: Option<&Value>) -> &'a str {
+    let msg_id = provenance.and_then(|p| p.get("msgId")).and_then(Value::as_str);
+    msg_id.and_then(|id| rendered_body(text, id)).unwrap_or(text)
 }
 
 /// The sender's words in a message as cmux renders it for the agent (`agent_message_prompt.rs`
@@ -157,6 +204,21 @@ mod tests {
     }
 
     #[test]
+    fn lane_reports_read_the_verdict_without_parsing_the_legacy_title() {
+        let p = json!({"kind": "lane_report", "from": "lane-id", "fromName": "review-1", "turn": 4, "state": "idle"});
+        for title in [
+            "BLOCK at 123456789abc · 2 P2 · turn 4, idle",
+            "Fixed the crash. · turn 4, idle",
+            "lane report: turn 4 ended, idle.",
+        ] {
+            assert_eq!(
+                prompt_line(&format!("[review-1] {title}\nMore"), "acpmux", Some(&p)),
+                format!("review-1: {title}")
+            );
+        }
+    }
+
+    #[test]
     fn a_session_message_reads_as_its_short_name() {
         let p = json!({"kind": "subsession_message", "from": "s1", "fromName": "claude-sr2/tests", "fromShortName": "tests", "to": "s2"});
         assert_eq!(prompt_line("\n  All green\nok", "acpmux-cli#1", Some(&p)), "tests: All green");
@@ -210,6 +272,36 @@ mod tests {
         // The person's own words, and an envelope typed in a live chat, stay as they are.
         assert_eq!(prompt_line("Fix the grid", "adopt", None), "Fix the grid");
         assert_eq!(prompt_line(text, "acpmux-cli#1", None), text);
+    }
+
+    #[test]
+    fn a_lane_report_reads_as_its_lane_and_first_line_without_its_session() {
+        let text = "[child] lane report: turn 5 ended, done.\nSession: 01a18a3e-239e-7ef1-8c37-b22b3a8da2e6\nLast message: Merged #1\n(acpmux sends this at the end of each turn of a session you started or gave a task. Answer only if it needs you.)";
+        let p = json!({"kind": "lane_report", "from": "s1", "fromName": "child", "to": "s0"});
+        assert_eq!(
+            prompt_line(text, "acpmux", Some(&p)),
+            "child: lane report: turn 5 ended, done."
+        );
+    }
+
+    #[test]
+    fn a_title_reads_the_senders_words_without_the_envelope() {
+        let text = "[cmux agent message] from coord-deputy (acp:abc)\nMessage id: m1\n\
+                    This message was delivered by cmux from another agent or person.\n---\n\n\
+                    Fix the grid spacing\nMore below\n--- end of message m1 ---";
+        let p = json!({"kind": "agent_message", "from": "acp:abc", "fromName": "coord-deputy", "msgId": "m1"});
+        assert_eq!(prompt_words(text, "cmux", Some(&p)).trim(), "Fix the grid spacing\nMore below");
+        assert_eq!(
+            prompt_words("[coord] Fix the grid\nok", "acpmux-cli#1", None),
+            "Fix the grid\nok"
+        );
+        // The person's own words, and a turn of several senders, stay as they are.
+        assert_eq!(prompt_words("Fix the grid", "acpmux-cli#1", None), "Fix the grid");
+        let p = json!({"kind": "agent_digest", "messages": [{"from": "a"}, {"from": "b"}]});
+        assert_eq!(
+            prompt_words("2 messages from other agents…", "cmux", Some(&p)),
+            "2 messages from other agents…"
+        );
     }
 
     #[test]

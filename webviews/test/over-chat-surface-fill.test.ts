@@ -1,13 +1,13 @@
 // A surface that lies over the chat never takes its fill from the page color. `--agent-page-bg`
 // (AgentPaneTheme.pageColor) is clear in a translucent window, where the window root paints the one
-// backdrop, so a dialog or the overlay Inspector filled with it showed the transcript through it,
-// unblurred: the Inspector before #23477 and the PDF attachment viewer after it. Such a surface is the
+// backdrop, so a dialog or the overlay Session Info filled with it showed the transcript through it,
+// unblurred: Session Info before #23477 and the PDF attachment viewer after it. Such a surface is the
 // liquid glass (.ui-glass) or mixes from the opaque surface (`--cmux-surface-solid`); the page color
 // may stay only as a var() fallback for a page with no host theme.
 //
 // The check reads the sources: the classes each agent-pane `<Dialog>` and `.ui-glass` element gets
-// (its className in the TSX), and the overlay Inspector, then every stylesheet rule whose selector
-// names one of those classes. Rules for the pushed Inspector (`data-placement="push"`), a column
+// (its className in the TSX), and the overlay Session Info, then every stylesheet rule whose selector
+// names one of those classes. Rules for the pushed Session Info (`data-placement="push"`), a column
 // beside the chat on its own page, are not over the chat and are not checked.
 import { expect, test } from "bun:test";
 import fs from "node:fs";
@@ -38,8 +38,8 @@ const attributes = (text: string, start: number) => {
 };
 
 // The classes of every surface over the chat: a <Dialog>'s className, a .ui-glass element's, and
-// the overlay Inspector (ChatInspector.tsx gives it its class only in a ternary).
-const surfaces = new Set<string>(["acpmux-chat-inspector"]);
+// the overlay Session Info (SessionInfo.tsx gives it its class only in a ternary).
+const surfaces = new Set<string>(["acpmux-session-info"]);
 for (const file of files(source, /\.tsx$/)) {
   const text = fs.readFileSync(file, "utf8");
   for (const open of text.matchAll(/<Dialog\b/g)) {
@@ -73,6 +73,9 @@ test("no surface over the chat fills with the page color, which is clear in a tr
     for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selector = rule[1].trim();
       if (selector.includes('data-placement="push"') || selector.includes("data-placement=push")) continue;
+      // The wide-pane Summary (`data-placement=inline`) is a column beside the chat as well; only its
+      // narrow-pane popover lies over the chat (summary/SummaryCard.tsx).
+      if (/\.acpmux-summary-card\[data-placement="?inline"?\]/.test(selector)) continue;
       const named = selector.match(/\.[a-z][\w-]*/g)?.map((name) => name.slice(1)) ?? [];
       if (!named.some((name) => surfaces.has(name))) continue;
       // Only the surface's own fill: a descendant (a row, a tab) lies on the surface, not over the chat.

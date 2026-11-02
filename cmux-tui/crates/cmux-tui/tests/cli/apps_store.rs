@@ -25,6 +25,8 @@ struct Apps {
     session: String,
     /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
     runtime: Option<PathBuf>,
+    /// The daemon's customization folder (`CMUX_CUSTOMIZE_DIR`).
+    customize: PathBuf,
 }
 
 impl Apps {
@@ -43,7 +45,13 @@ impl Apps {
             out = dir.join("resolved.jsonl").display(),
         );
         write_script(&dir.join("app-host"), &host);
-        Self { socket: dir.join("mux.sock"), session: format!("as-{name}"), dir, runtime: None }
+        Self {
+            socket: dir.join("mux.sock"),
+            session: format!("as-{name}"),
+            customize: dir.join("customize"),
+            dir,
+            runtime: None,
+        }
     }
 
     fn command(&self, action: &str) -> Command {
@@ -57,7 +65,14 @@ impl Apps {
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
             .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
-            .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
+            .env("CMUX_CUSTOMIZE_DIR", &self.customize);
+        // Fake remote tools (`ssh`, `docker`, ...) a test puts in `<dir>/bin` come first.
+        if self.dir.join("bin").is_dir() {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut dirs = vec![self.dir.join("bin")];
+            dirs.extend(std::env::split_paths(&path));
+            command.env("PATH", std::env::join_paths(dirs).unwrap());
+        }
         // By default a daemon with no login session (cx-9mmyz: rbx, containers,
         // cron) has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
         // for a socket path: app servers must still get a socket folder.
@@ -153,6 +168,19 @@ impl Client {
             let reply: Value = serde_json::from_str(&line).unwrap();
             if reply["id"] == json!(self.next) {
                 return reply;
+            }
+        }
+    }
+
+    /// The next event line named `name` (other events and replies are
+    /// skipped; the read timeout bounds the wait).
+    fn event(&mut self, name: &str) -> Value {
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value["event"] == name {
+                return value;
             }
         }
     }
@@ -1045,51 +1073,61 @@ fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
     assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
 }
 
+/// Writes the customization app at `version` into the folder `dir`.
+fn write_customize(dir: &Path, version: &str) {
+    let (Some(root), Some(name)) = (dir.parent(), dir.file_name()) else {
+        panic!("{} has no parent", dir.display())
+    };
+    write_app(
+        root,
+        "local",
+        &name.to_string_lossy(),
+        json!({
+            "id": "local/customize",
+            "version": version,
+            "runtime": { "main": "main.js" },
+            "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
+            "scopes": { "agent:read": "Shows what the hovered row's agent does." },
+        }),
+    );
+    std::fs::write(
+        dir.join("main.js"),
+        "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
+    )
+    .unwrap();
+}
+
+/// Waits (at most 20 s) until `local/customize` is listed at `version`;
+/// returns its entry.
+fn customize_listed(client: &mut Client, version: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let list = client.rpc(json!({ "cmd": "apps-list" }));
+        let found = list["data"]["apps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|app| app["id"] == "local/customize" && app["version"] == version)
+            .cloned();
+        if let Some(found) = found {
+            return found;
+        }
+        assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The user's customization folder (cx-swovq.1): its `local/customize` app
 /// installs itself with its required scopes, and a changed file reloads it
 /// with no restart and no command.
 #[test]
 fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
     let apps = Apps::new("customize");
-    let customize = |version: &str| {
-        write_app(
-            &apps.dir,
-            "local",
-            "customize",
-            json!({
-                "version": version,
-                "runtime": { "main": "main.js" },
-                "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
-                "scopes": { "agent:read": "Shows what the hovered row's agent does." },
-            }),
-        );
-        std::fs::write(
-            apps.dir.join("customize/main.js"),
-            "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
-        )
-        .unwrap();
-    };
-    customize("1.0.0");
+    let customize = apps.dir.join("customize");
+    write_customize(&customize, "1.0.0");
     apps.start();
     let mut client = apps.agent();
-    let mut entry_at = |version: &str| {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            let list = client.rpc(json!({ "cmd": "apps-list" }));
-            let found = list["data"]["apps"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|app| app["id"] == "local/customize" && app["version"] == version)
-                .cloned();
-            if let Some(found) = found {
-                return found;
-            }
-            assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    };
-    let first = entry_at("1.0.0");
+    let first = customize_listed(&mut client, "1.0.0");
     assert_eq!(first["installed"], true, "{first}");
     assert_eq!(first["enabled"], true, "{first}");
     assert!(
@@ -1097,9 +1135,51 @@ fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
         "its read scope is granted: {first}"
     );
     assert_eq!(first["sandboxed"], true, "it runs sandboxed as any unverified app: {first}");
-    customize("1.0.1");
-    let reloaded = entry_at("1.0.1");
+    write_customize(&customize, "1.0.1");
+    let reloaded = customize_listed(&mut client, "1.0.1");
     assert_eq!(reloaded["installed"], true, "still installed after the reload: {reloaded}");
+}
+
+/// A customization folder deleted and made again (a `git checkout`, an
+/// editor that saves a folder by replacing it, `rm -rf` then a copy) is
+/// watched again: a later save in the new folder reloads with no restart.
+/// On Linux the inotify watch went away with the old folder, and nothing
+/// watched the new one until the daemon restarted.
+#[test]
+fn the_customize_folder_reloads_after_it_is_deleted_and_made_again() {
+    let apps = Apps::new("customize-remade");
+    let customize = apps.dir.join("customize");
+    write_customize(&customize, "1.0.0");
+    apps.start();
+    let mut client = apps.agent();
+    customize_listed(&mut client, "1.0.0");
+    // Deleted, then made again in one step: a full copy renamed into place.
+    std::fs::remove_dir_all(&customize).unwrap();
+    let staged = apps.dir.join("customize.new");
+    write_customize(&staged, "1.0.1");
+    std::fs::rename(&staged, &customize).unwrap();
+    customize_listed(&mut client, "1.0.1");
+    // A save in the new folder.
+    write_customize(&customize, "1.0.2");
+    let saved = customize_listed(&mut client, "1.0.2");
+    assert_eq!(saved["installed"], true, "{saved}");
+}
+
+/// A customization folder whose parent is missing too when the daemon
+/// starts (no `~/.config/cmux` yet) is picked up once the user makes it,
+/// and a later save in it reloads. The watch went no higher than the
+/// folder's parent, so nothing watched for it until the daemon restarted.
+#[test]
+fn the_customize_folder_installs_when_its_missing_parent_is_made_later() {
+    let mut apps = Apps::new("customize-parent");
+    apps.customize = apps.dir.join("config/cmux/customize");
+    apps.start();
+    let mut client = apps.agent();
+    write_customize(&apps.customize, "1.0.0");
+    let first = customize_listed(&mut client, "1.0.0");
+    assert_eq!(first["installed"], true, "{first}");
+    write_customize(&apps.customize, "1.0.1");
+    customize_listed(&mut client, "1.0.1");
 }
 
 /// The documented template (docs/cmux-next/sidebar-customization) is a valid
@@ -1141,4 +1221,358 @@ fn the_documented_customize_template_installs_as_is() {
         entry["grants"].as_array().is_some_and(|g| g.iter().any(|s| s == "workspace:read")),
         "{entry}"
     );
+}
+
+/// Copies the App Store examples shipped with cmux (`samples/apps/<name>`
+/// with a `STORE` marker, the folder the Mac app hands its daemon as
+/// `CMUX_APPS_DIRS`) into `root`; returns their app ids.
+fn copy_store_examples(root: &Path) -> Vec<String> {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir(&samples).unwrap() {
+        let dir = entry.unwrap().path();
+        if !dir.join("STORE").is_file() {
+            continue;
+        }
+        let manifest: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cmux-app.v2.json")).unwrap())
+                .unwrap();
+        ids.push(manifest["id"].as_str().unwrap().to_string());
+        let status = Command::new("cp")
+            .arg("-R")
+            .arg(&dir)
+            .arg(root.join(dir.file_name().unwrap()))
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    ids.sort();
+    ids
+}
+
+/// The examples the App Store ships (a command-only app, a web app and a
+/// scene app) pass the supervisor's validator, list as installable
+/// third-party apps, and install and uninstall for the user only.
+#[test]
+fn the_store_examples_list_and_install_for_the_user() {
+    let apps = Apps::new("examples");
+    let ids = copy_store_examples(&apps.dir.join("bundled"));
+    assert_eq!(
+        ids,
+        [
+            "manaflow-ai/cmux-docs",
+            "manaflow-ai/hello-deploy",
+            "manaflow-ai/quick-links",
+            "manaflow-ai/standup"
+        ],
+        "the shipped examples"
+    );
+    apps.start();
+
+    let mut agent = apps.agent();
+    let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+    let rejected = ok(&reply)["lines"].as_array().cloned().unwrap_or_default();
+    assert!(rejected.is_empty(), "no example is rejected: {rejected:?}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({}), "cli");
+    let catalog = ok(&reply).clone();
+    for id in &ids {
+        let row = listing(&catalog, id);
+        assert_eq!(
+            (row["hide_only"].clone(), row["tier"].clone(), row["install"].clone()),
+            (json!(false), json!("unverified"), Value::Null),
+            "{row}"
+        );
+    }
+
+    // An agent cannot install an example; the person can, and can remove it.
+    let args =
+        json!({ "app": "manaflow-ai/standup", "grant_optional": false, "idempotency_key": "e1" });
+    let refused = agent.store("cmux.apps.install", args.clone(), "user");
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+    let mut app = apps.app();
+    let installed = app.store("cmux.apps.install", args, "user");
+    assert_eq!(ok(&installed)["app"]["state"]["installed"], true, "{installed}");
+    let listed = app.store("cmux.apps.installed.list", json!({}), "user");
+    assert!(
+        ok(&listed)["apps"].as_array().unwrap().iter().any(|a| a["app"] == "manaflow-ai/standup"),
+        "{listed}"
+    );
+    let removed = app.store(
+        "cmux.apps.uninstall",
+        json!({ "app": "manaflow-ai/standup", "idempotency_key": "e2" }),
+        "user",
+    );
+    assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
+}
+
+/// `cmux apps list` and `cmux apps info` read the store from the CLI with
+/// no Mac app (a self-hosted Linux host included): the examples with their
+/// tier and install state, `--installed` for the installed apps only, and a
+/// listing's scopes with their risk class.
+#[test]
+fn apps_list_and_info_read_the_store_from_the_cli() {
+    let apps = Apps::new("cli-list");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+    let cli = |args: &[&str]| -> Output {
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--socket")
+            .arg(&apps.socket)
+            .args(args)
+            .env("CMUX_TUI_STATE_DIR", apps.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", apps.dir.join("config.json"))
+            .output()
+            .unwrap()
+    };
+
+    let parsed = |out: &Output| -> Value {
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|error| {
+            panic!(
+                "{error}: status {:?}, stdout {:?}, stderr {:?}",
+                out.status,
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
+    };
+    let out = cli(&["apps", "list", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let listed = parsed(&out);
+    let standup = listed["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["app"] == "manaflow-ai/standup")
+        .unwrap_or_else(|| panic!("standup listed: {listed}"));
+    assert_eq!(
+        (standup["tier"].clone(), standup["installed"].clone()),
+        (json!("unverified"), json!(false)),
+        "{standup}"
+    );
+
+    let out = cli(&["apps", "list"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success() && text.contains("manaflow-ai/standup"), "{text}");
+    assert!(text.contains("Standup"), "the name shows: {text}");
+
+    let out = cli(&["apps", "list", "--installed", "--json"]);
+    let installed = parsed(&out);
+    assert!(
+        installed["apps"].as_array().unwrap().iter().all(|row| row["installed"] == true),
+        "{installed}"
+    );
+
+    let out = cli(&["apps", "info", "manaflow-ai/standup", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let info = parsed(&out);
+    assert_eq!(info["scopes"][0]["scope"], "storage:local", "{info}");
+
+    let out = cli(&["apps", "info", "acme/nothing"]);
+    assert_eq!(out.status.code(), Some(1), "an unknown app fails");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("apps.unknown"));
+}
+
+/// Fake remote tools for the deploy tests in `<dir>/bin`: `ssh` logs its
+/// destination and runs the script it gets on stdin here; `docker` logs each
+/// call and answers `port` with 49153; `curl` passes the health check unless
+/// `<dir>/health-fail` exists; `tailscale ip -4` answers 100.64.0.9.
+fn fake_remote_tools(dir: &Path) {
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = |name: &str| dir.join(name).display().to_string();
+    write_script(
+        &bin.join("ssh"),
+        &format!(
+            "#!/bin/sh\nfor a in \"$@\"; do last=\"$a\"; done\nprintf '%s\\n' \"$*\" >> '{ssh}'\n# the destination is the word after --\nexec sh -s\n",
+            ssh = log("ssh.log")
+        ),
+    );
+    write_script(
+        &bin.join("docker"),
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{docker}'\ncase \"$1\" in\n  port) echo '100.64.0.9:49153' ;;\n  logs) echo 'fake container log' ;;\nesac\nexit 0\n",
+            docker = log("docker.log")
+        ),
+    );
+    write_script(
+        &bin.join("curl"),
+        &format!("#!/bin/sh\n[ -e '{fail}' ] && exit 22\nexit 0\n", fail = log("health-fail")),
+    );
+    write_script(&bin.join("wget"), "#!/bin/sh\nexit 1\n");
+    write_script(&bin.join("tailscale"), "#!/bin/sh\necho 100.64.0.9\n");
+    // A short health wait so the failure case ends quickly.
+    write_script(&bin.join("sleep"), "#!/bin/sh\nexit 0\n");
+}
+
+/// The installed row of `app` once `done` accepts its instance, within 20 s.
+fn wait_instance(app_client: &mut Client, app: &str, done: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let reply = app_client.store("cmux.apps.installed.list", json!({}), "user");
+        let row = ok(&reply)["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["app"] == app)
+            .cloned()
+            .unwrap_or(Value::Null);
+        if done(&row) {
+            return row;
+        }
+        assert!(Instant::now() < deadline, "{app}: {row}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Install = deploy + pin on a self-hosted machine (docs/app-store-platonic-ideal.md
+/// 8a, 15): the person's install with `deploy: {target: "self-hosted:<host>"}`
+/// runs the app's container on that host over SSH, waits for its health check
+/// and records a running instance with its URL, with no cmux Cloud call;
+/// removing the app removes the container; a failed health check rolls the
+/// install back; an agent cannot deploy.
+#[test]
+fn self_hosted_deploy_runs_the_container_and_rolls_back_on_failure() {
+    let apps = Apps::new("deploy");
+    copy_store_examples(&apps.dir.join("bundled"));
+    fake_remote_tools(&apps.dir);
+    apps.start();
+    let target = json!({ "target": "self-hosted:ops@build-01.corp" });
+    let install = |key: &str| json!({ "app": "manaflow-ai/hello-deploy", "grant_optional": false, "idempotency_key": key, "deploy": target });
+
+    let mut agent = apps.agent();
+    let refused = agent.store("cmux.apps.install", install("d0"), "user");
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+
+    let mut app = apps.app();
+    let reply = app.store("cmux.apps.install", install("d1"), "user");
+    let data = ok(&reply);
+    assert_eq!(data["app"]["state"]["installed"], true, "{reply}");
+    assert_eq!(data["instance"]["target"], "self-hosted:ops@build-01.corp", "{reply}");
+    let row = wait_instance(&mut app, "manaflow-ai/hello-deploy", |row| {
+        row["instance"]["state"] == "running"
+    });
+    assert_eq!(row["instance"]["url"], "http://100.64.0.9:49153/", "{row}");
+    let ssh = std::fs::read_to_string(apps.dir.join("ssh.log")).unwrap();
+    assert!(ssh.contains("ops@build-01.corp"), "deployed over SSH to the host: {ssh}");
+    let docker = std::fs::read_to_string(apps.dir.join("docker.log")).unwrap();
+    assert!(
+        docker.contains("run -d") && docker.contains("docker.io/traefik/whoami:v1.10"),
+        "{docker}"
+    );
+    assert!(docker.contains("cmux-app-manaflow_ai.hello_deploy"), "{docker}");
+
+    // `cmux apps list` shows the instance too.
+    let listed = app.rpc(json!({ "cmd": "apps-list" }));
+    let entry = ok(&listed)["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "manaflow-ai/hello-deploy")
+        .cloned()
+        .unwrap();
+    assert_eq!(entry["instance"]["state"], "running", "{entry}");
+
+    // Remove stops the container and drops the instance.
+    let removed = app.store(
+        "cmux.apps.uninstall",
+        json!({ "app": "manaflow-ai/hello-deploy", "idempotency_key": "d2" }),
+        "user",
+    );
+    assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !std::fs::read_to_string(apps.dir.join("docker.log"))
+        .unwrap()
+        .contains("rm -f cmux-app-manaflow_ai.hello_deploy\n")
+        || std::fs::read_to_string(apps.dir.join("docker.log")).unwrap().matches("rm -f").count()
+            < 2
+    {
+        assert!(Instant::now() < deadline, "the container is removed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // A failed health check rolls the install back.
+    std::fs::write(apps.dir.join("health-fail"), "").unwrap();
+    let reply = app.store("cmux.apps.install", install("d3"), "user");
+    assert_eq!(ok(&reply)["app"]["state"]["installed"], true, "{reply}");
+    let row = wait_instance(&mut app, "manaflow-ai/hello-deploy", |row| row.is_null());
+    assert!(row.is_null(), "rolled back: no longer installed");
+    let logs = app.rpc(json!({ "cmd": "apps-logs", "app": "manaflow-ai/hello-deploy" }));
+    let text = ok(&logs).to_string();
+    assert!(text.contains("health check failed"), "{text}");
+
+    // A target the manifest does not allow is refused before anything installs.
+    let refused = app.store(
+        "cmux.apps.install",
+        json!({ "app": "manaflow-ai/hello-deploy", "idempotency_key": "d4", "deploy": { "target": "team-vm:t1" } }),
+        "user",
+    );
+    assert_eq!(error_code(&refused), "deploy.target_not_allowed", "{refused}");
+}
+
+/// An open App Store page shows an app installed from somewhere else (the
+/// CLI's `cmux apps install`, another window, an agent's request the person
+/// approved) without a reload: its relay hears `apps-changed` and re-reads
+/// `installed.list`. Before, the page's entry named no event and the relay
+/// was never an apps event sink, so the Installed tab stayed empty while
+/// `cmux apps list --installed` showed the app.
+#[test]
+fn the_apps_page_relay_hears_an_install_made_elsewhere() {
+    let apps = Apps::new("page-events");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+
+    let mut relay = apps.agent();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "apps"}));
+    assert_eq!(ok(&hello)["page_events"], json!(["apps-changed"]), "{hello}");
+    let page = json!({"origin": {"claim": "page"}});
+    let reply = relay.v2("apps.installed.list", json!({}), page.clone());
+    let before = v2_ok(&reply)["apps"].as_array().cloned().unwrap_or_default();
+    assert!(before.iter().all(|row| row["app"] != "manaflow-ai/standup"), "{reply}");
+    let subscribed = relay.rpc(json!({"cmd": "subscribe"}));
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+
+    // The person installs from the CLI: the cmux app's own connection.
+    let mut app = apps.app();
+    let installed = app.store(
+        "cmux.apps.install",
+        json!({ "app": "manaflow-ai/standup", "grant_optional": false, "idempotency_key": "pe1" }),
+        "user",
+    );
+    assert_eq!(ok(&installed)["app"]["state"]["installed"], true, "{installed}");
+
+    let changed = relay.event("apps-changed");
+    assert_eq!(changed["app"], "manaflow-ai/standup", "{changed}");
+    let reply = relay.v2("apps.installed.list", json!({}), page);
+    let after = v2_ok(&reply)["apps"].as_array().cloned().unwrap_or_default();
+    assert!(after.iter().any(|row| row["app"] == "manaflow-ai/standup"), "{reply}");
+}
+
+/// A listing with a `deploy` block says where it runs: `catalog.get` sends
+/// the manifest's targets (the App Store page's "Runs on" section) and
+/// `cmux apps info` prints them; an app with no deploy block sends none.
+#[test]
+fn a_deployed_apps_listing_names_its_deploy_targets() {
+    let apps = Apps::new("deploy-targets");
+    copy_store_examples(&apps.dir.join("bundled"));
+    apps.start();
+    let mut agent = apps.agent();
+    let reply =
+        agent.store("cmux.apps.catalog.get", json!({"app": "manaflow-ai/hello-deploy"}), "cli");
+    let detail = ok(&reply);
+    assert_eq!(detail["deploy"]["targets"], json!(["self-hosted", "cloud-vm"]), "{reply}");
+    assert_eq!(detail["deploy"]["tenancy"], json!(["user"]), "{reply}");
+    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "manaflow-ai/standup"}), "cli");
+    assert!(ok(&reply).get("deploy").is_none_or(Value::is_null), "{reply}");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .arg("--socket")
+        .arg(&apps.socket)
+        .args(["apps", "info", "manaflow-ai/hello-deploy"])
+        .env("CMUX_TUI_STATE_DIR", apps.dir.join("state"))
+        .env("CMUX_TUI_CONFIG", apps.dir.join("config.json"))
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("runs on: self-hosted, cloud-vm"), "{text}");
 }

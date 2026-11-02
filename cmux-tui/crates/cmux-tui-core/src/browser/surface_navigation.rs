@@ -110,6 +110,7 @@ impl BrowserSurface {
 
     pub(super) fn handle_javascript_dialog(&self, accept: bool) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        session.runtime.client.handle_javascript_dialog(&session.session_id, accept)
+        // Sent from the surface's event lane, which never waits on a reply.
+        session.runtime.client.handle_javascript_dialog_detached(&session.session_id, accept)
     }
 }

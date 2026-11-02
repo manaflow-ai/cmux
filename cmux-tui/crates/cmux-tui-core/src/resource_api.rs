@@ -21,7 +21,8 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId, ResourceError,
-    ResourceOperation, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
+    ResourceOperation, ScreenPublicId, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
 };
 use crate::resource_screen::{public_screen_value, tabs_by_pane};
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
@@ -538,7 +539,9 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
-    mux.publish_pending_terminal_directories();
+    // No pending terminal directory is published here: a read runs no
+    // write. Terminal output, resize, reconnect and every committed graph
+    // change publish a pending one (`publish_resource_event`).
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -587,7 +590,6 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .iter()
             .map(|screen| (&screen.public_id, screen))
             .collect::<HashMap<_, _>>();
-        let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
         let terminals_by_id = terminal_registry
             .terminals
             .iter()
@@ -600,24 +602,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
 
-        let workspaces = registry_snapshot
-            .workspaces
-            .iter()
-            .enumerate()
-            .map(|(index, workspace)| {
-                Ok(json!({
-                    "id": workspace.public_id,
-                    "session_id": topology.session_id,
-                    "name": workspace.name,
-                    "index": checked_index(index)?,
-                    "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
-                    "extra": crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                }))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
 
         let screens = topology
             .screens
@@ -625,38 +610,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .map(|screen| public_screen_value(&topology, screen, &tabs_by_pane, &panes_by_id))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        let panes = topology
-            .panes
-            .iter()
-            .map(|pane| {
-                let screen = screens_by_id
-                    .get(&pane.screen_id)
-                    .ok_or_else(|| anyhow::anyhow!("pane references a missing screen"))?;
-                let screen_focused = topology.active_workspace.as_ref()
-                    == Some(&screen.workspace_id)
-                    && active_screens.get(&screen.workspace_id).and_then(Option::as_ref)
-                        == Some(&screen.public_id);
-                Ok(json!({
-                    "id": pane.public_id,
-                    "screen_id": pane.screen_id,
-                    "name": pane.name,
-                    "focused": screen_focused && screen.active_pane == pane.public_id,
-                    "zoomed": screen.zoomed_pane.as_ref() == Some(&pane.public_id),
-                }))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        let tabs = topology
-            .tabs
-            .iter()
-            .map(|tab| {
-                let pane = panes_by_id
-                    .get(&tab.pane_id)
-                    .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
-                checked_index(tab.position)?;
-                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let (panes, tabs) = public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
 
         let mut terminal_order = Vec::new();
         let mut seen_terminals = HashSet::new();
@@ -844,6 +798,209 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
+}
+
+/// The public workspaces before decoration, in session order: one builder
+/// for the session snapshot and the workspace list.
+fn public_workspace_values(
+    registry_snapshot: &crate::workspace_registry::RegistrySnapshot,
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+) -> anyhow::Result<Vec<Value>> {
+    registry_snapshot
+        .workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            Ok(json!({
+                "id": workspace.public_id,
+                "session_id": topology.session_id,
+                "name": workspace.name,
+                "index": checked_index(index)?,
+                "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                "extra": crate::resource_name::workspace_name_extra(
+                    workspace.name_source,
+                    workspace.name_revision,
+                ),
+            }))
+        })
+        .collect()
+}
+
+/// The session snapshot's `workspaces`, built alone (`workspace.list`, the
+/// list agents' CLI calls make most): the same decorated values, from the
+/// workspace rows and the topology frame. It reads no screens, panes, tabs,
+/// terminals, notifications, agents or live state, and holds only the
+/// registry lock, not state.
+pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    read_committed_registry(mux, |connection, ids| {
+        let registry_snapshot = crate::workspace_registry::registry_snapshot_in(
+            connection,
+            &ids.registry_id,
+            &ids.generation,
+            &ids.session_id,
+        )?;
+        let frame = crate::workspace_registry::load_topology_frame(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )?;
+        anyhow::ensure!(
+            registry_snapshot.generation == frame.generation
+                && registry_snapshot.resource_revision == frame.revision,
+            "resource projection changed while listing workspaces"
+        );
+        let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
+        for workspace in &mut workspaces {
+            crate::state::values::decorate_value(connection, "workspace", workspace)?;
+        }
+        Ok(workspaces)
+    })
+    .map_err(operation_failed)
+}
+
+/// What a committed registry read needs besides its connection.
+pub(crate) struct RegistryReadIds {
+    registry_id: String,
+    generation: String,
+    session_id: SessionPublicId,
+}
+
+/// Run `read` on committed registry rows, in one read transaction (one
+/// consistent cut: no writer commit lands between its statements). On a
+/// file registry it reads the read-only WAL connection and takes no
+/// registry lock, so a writer that holds the lock across its commit (a
+/// state mutation: 281 ms max under the L1 storm, STATUS 6838) never
+/// delays a list or a ping. An in-memory registry has no reader: the read
+/// runs on the registry's own connection under its lock, as before.
+pub(crate) fn read_committed_registry<T>(
+    mux: &Mux,
+    read: impl FnOnce(&rusqlite::Connection, &RegistryReadIds) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let (registry_id, generation) = mux.registry_identity();
+    let ids =
+        RegistryReadIds { registry_id, generation, session_id: mux.session_public_id.clone() };
+    let mut read = Some(read);
+    let committed = mux.registry_connection.read_committed(|connection| {
+        let Some(read) = read.take() else { anyhow::bail!("committed registry read ran twice") };
+        let transaction = connection.unchecked_transaction()?;
+        let value = read(&transaction, &ids)?;
+        transaction.finish()?;
+        Ok(value)
+    });
+    if let Some(result) = committed {
+        return result;
+    }
+    let Some(read) = read.take() else { anyhow::bail!("committed registry read ran twice") };
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let connection = registry.connection.get();
+    read(&connection, &ids)
+}
+
+/// The public panes and tabs of `topology`, in its order: one builder for
+/// the session snapshot and the scoped lists.
+fn public_pane_and_tab_values(
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+    screens_by_id: &HashMap<&ScreenPublicId, &crate::workspace_registry::RegistryScreen>,
+    panes_by_id: &HashMap<&PanePublicId, &crate::workspace_registry::RegistryPane>,
+) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
+    let panes = topology
+        .panes
+        .iter()
+        .map(|pane| {
+            let screen = screens_by_id
+                .get(&pane.screen_id)
+                .ok_or_else(|| anyhow::anyhow!("pane references a missing screen"))?;
+            let screen_focused = topology.active_workspace.as_ref() == Some(&screen.workspace_id)
+                && active_screens.get(&screen.workspace_id).and_then(Option::as_ref)
+                    == Some(&screen.public_id);
+            Ok(json!({
+                "id": pane.public_id,
+                "screen_id": pane.screen_id,
+                "name": pane.name,
+                "focused": screen_focused && screen.active_pane == pane.public_id,
+                "zoomed": screen.zoomed_pane.as_ref() == Some(&pane.public_id),
+            }))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let tabs = topology
+        .tabs
+        .iter()
+        .map(|tab| {
+            let pane = panes_by_id
+                .get(&tab.pane_id)
+                .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
+            checked_index(tab.position)?;
+            Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok((panes, tabs))
+}
+
+/// The session snapshot's `screens` (id and workspace only), `panes` and
+/// `tabs` of one workspace, for a `pane.list` or `tab.list` scoped to a
+/// workspace, screen or pane (CLI-1): the same values in the same order,
+/// from the workspace's stored subtree. It reads no other workspace, no
+/// terminals, projections or journal, and holds only the registry lock, not
+/// state, so a list costs the workspace's size, not the session's.
+pub(crate) fn public_workspace_topology(
+    mux: &Mux,
+    workspace: &WorkspacePublicId,
+) -> Result<Value, ResourceError> {
+    read_committed_registry(mux, |connection, ids| {
+        let mut topology = crate::workspace_registry::load_resource_topology_scoped(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+            std::slice::from_ref(workspace),
+        )?;
+        // The full load's order (topology_load.rs): panes by screen id, then
+        // creation; tabs by pane id, then position. The scoped load walks
+        // screens by position, so sort to match.
+        topology.panes.sort_by(|left, right| {
+            (&left.screen_id, left.creation_ordinal, &left.public_id).cmp(&(
+                &right.screen_id,
+                right.creation_ordinal,
+                &right.public_id,
+            ))
+        });
+        topology.tabs.sort_by(|left, right| {
+            (&left.pane_id, left.position).cmp(&(&right.pane_id, right.position))
+        });
+        let screens_by_id = topology
+            .screens
+            .iter()
+            .map(|screen| (&screen.public_id, screen))
+            .collect::<HashMap<_, _>>();
+        let panes_by_id =
+            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        let (panes, mut tabs) =
+            public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
+        for tab in &mut tabs {
+            crate::state::values::decorate_value(connection, "tab", tab)?;
+        }
+        let screens = topology
+            .screens
+            .iter()
+            .map(|screen| json!({"id": screen.public_id, "workspace_id": screen.workspace_id}))
+            .collect::<Vec<_>>();
+        Ok(json!({"screens": screens, "panes": panes, "tabs": tabs}))
+    })
+    .map_err(operation_failed)
+}
+
+/// The session snapshot's `cursor` alone (`session.ping`): the topology
+/// generation and resource revision, from the topology frame.
+pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
+    let frame = read_committed_registry(mux, |connection, ids| {
+        crate::workspace_registry::load_topology_frame(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )
+    })
+    .map_err(operation_failed)?;
+    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {

@@ -34,6 +34,7 @@ struct ContextMenuShapeTests {
             case .submenu(let id, let children):
                 Row(id: id, title: dropEllipsis(labels[id] ?? byID[id]?.title ?? id.rawValue), children: rows(children, labels: labels))
             case .folder(let folder, let children): Row(id: nil, title: folder.title, children: rows(children, labels: labels))
+            case .group(let group, let children): Row(id: nil, title: group.title, children: rows(children, labels: labels))
             }
         }
     }
@@ -131,9 +132,10 @@ struct ContextMenuShapeTests {
             }
         }
         let more = try #require(submenu("More", in: rows(.workspaceRow)))
-        for id: ActionID in ["palette.closeOtherWorkspaces", "workspace.newAbove"] {
-            #expect(more.contains { $0.id == id }, "\(id) is a row of More itself")
-        }
+        // Close Other Workspaces remains in More for the single-row menu; New is a submenu once
+        // its action list exceeds the inline limit. Both remain reachable without nesting More.
+        #expect(more.contains { $0.id == "palette.closeOtherWorkspaces" })
+        #expect(more.contains { $0.id == "workspace.newAbove" || $0.title == "New" })
     }
 
     /// The sidebar's Sort submenu is called Sort; a section's menu names what each Hide hides.

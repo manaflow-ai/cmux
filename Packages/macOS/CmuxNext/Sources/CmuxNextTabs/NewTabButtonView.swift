@@ -36,8 +36,8 @@ final class NewTabButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        fillLayer.cornerRadius = Metrics.itemCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerRadius = Metrics.tabCornerRadius
+        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.space1 * 0.7
@@ -74,6 +74,8 @@ final class NewTabButtonView: NSView {
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
+        // The tabs' shape (`Metrics.tabCornerRadius`), so the + reads as one of the strip's pills.
+        fillLayer.cornerRadius = Metrics.tabCornerRadius
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2
