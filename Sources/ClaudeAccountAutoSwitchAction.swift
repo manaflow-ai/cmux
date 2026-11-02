@@ -37,10 +37,6 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         /// A typed message waits unsent, in Claude's input box or the pane's text box, and
         /// restarting the pane would discard it.
         case draftPending
-        /// The pane's screen didn't show Claude's empty input box: cmux couldn't read the screen,
-        /// couldn't place it, or it showed a dialog. A terminal cmux can't see as idle is not
-        /// restarted unattended.
-        case promptUnconfirmed
         /// The stopped turn left background work running, which a restart would kill.
         case backgroundWork
         /// The pane already went through every other account without finishing a turn.
@@ -50,10 +46,9 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         case notRecorded
 
         /// Why the source pane must not restart now, or `nil` when it may: Claude's input box or
-        /// the pane's text box holds a typed message, the pane received input after the limit, or
-        /// its screen isn't Claude's empty prompt. Only that prompt shows the pane is idle, so a
-        /// screen cmux can't read or place fails closed. Checked when the switch is decided and
-        /// again, synchronously, right before the pane restarts.
+        /// the pane's text box holds a typed message, or the pane received input after the limit.
+        /// Checked when the switch is decided and again, synchronously, right before the pane
+        /// restarts.
         ///
         /// - Parameters:
         ///   - receivedInputSinceReport: Whether the pane got input since the limit was reported,
@@ -67,8 +62,7 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
             textBoxHasDraft: Bool
         ) -> HoldBack? {
             if screen == .draft || textBoxHasDraft { return .draftPending }
-            if receivedInputSinceReport { return .userInput }
-            return screen == .emptyPrompt ? nil : .promptUnconfirmed
+            return receivedInputSinceReport ? .userInput : nil
         }
     }
 
