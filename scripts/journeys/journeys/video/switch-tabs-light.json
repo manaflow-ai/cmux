@@ -1,0 +1,33 @@
+{
+ "id": "switch-tabs-light",
+ "priority": "P2",
+ "title": "SWITCH FRAMES T1-T3 light: tab switch by real HID keys (Shift-Cmd-] / [, Ctrl-Tab, Ctrl-Shift-Tab, Ctrl-1..9), filmed at the display rate",
+ "why": "Lawrence 2026-11-02: changing tabs must change frame perfect. Each switch: the target tab complete in the next refresh, no old frame after it, no blank or half-drawn frame, current terminal content, the tab strip in the same frame; the other pane untouched. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie.",
+ "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 240,
+ "steps": [
+  {"do": "window_place", "title": "set-up: the window at 70% x 70% of the screen", "fraction": [0.05, 0.05, 0.7, 0.7]},
+  {"do": "switch_tabs_profile", "title": "set-up: a left pane with 9 beacon tabs, a right pane with one beacon", "tabs": 9, "name": "swt-${nonce}"},
+  {"do": "wait", "seconds": 1.5},
+  {"do": "switch_record", "action": "start", "name": "switch", "mbps": 60, "seconds": 100},
+  {"do": "switch_keys", "title": "next x4, previous x3, Ctrl-Tab x2, Ctrl-Shift-Tab, Ctrl-digits", "name": "switch", "via": "hid", "gap": 1.2,
+   "keys": [
+    [["shift", "cmd"], "]", "shift-cmd-]", "nextSurface"], [["shift", "cmd"], "]", "shift-cmd-]", "nextSurface"],
+    [["shift", "cmd"], "]", "shift-cmd-]", "nextSurface"], [["shift", "cmd"], "]", "shift-cmd-]", "nextSurface"],
+    [["shift", "cmd"], "[", "shift-cmd-[", "prevSurface"], [["shift", "cmd"], "[", "shift-cmd-[", "prevSurface"],
+    [["shift", "cmd"], "[", "shift-cmd-[", "prevSurface"],
+    [["ctrl"], "tab", "ctrl-tab", "nextSurface"], [["ctrl"], "tab", "ctrl-tab", "nextSurface"],
+    [["ctrl", "shift"], "tab", "ctrl-shift-tab", "prevSurface"],
+    [["ctrl"], "9", "ctrl-9", "selectSurfaceByNumber"], [["ctrl"], "2", "ctrl-2", "selectSurfaceByNumber"],
+    [["ctrl"], "7", "ctrl-7", "selectSurfaceByNumber"], [["ctrl"], "4", "ctrl-4", "selectSurfaceByNumber"],
+    [["ctrl"], "1", "ctrl-1", "selectSurfaceByNumber"], [["ctrl"], "8", "ctrl-8", "selectSurfaceByNumber"],
+    [["ctrl"], "3", "ctrl-3", "selectSurfaceByNumber"], [["ctrl"], "6", "ctrl-6", "selectSurfaceByNumber"],
+    [["ctrl"], "5", "ctrl-5", "selectSurfaceByNumber"], [["ctrl"], "9", "ctrl-9", "selectSurfaceByNumber"]
+   ]},
+  {"do": "switch_record", "action": "stop", "name": "switch"},
+  {"do": "switch_adopt_shown"},
+  {"do": "expect", "title": "the last switch shows a beacon tab: its beacon runs in the daemon, the app and on screen", "timeout": 10,
+   "all": [{"daemon_contains": "PANE"}, {"app_text_contains": "PANE"}, {"frame_text": "PANE"}]}
+ ],
+ "finally": [{"do": "restore_window", "from": "before-place"}]
+}

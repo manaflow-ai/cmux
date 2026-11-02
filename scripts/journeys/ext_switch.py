@@ -19,6 +19,9 @@ Steps (`do`):
               N workspaces (action.run newTab, a beacon as the command), each split to `panes` panes (splitRight),
               one beacon per pane (`--ws i --pane p`). Then maps Cmd-1..9 to the shown workspace by the socket's
               debug.key (no HID), and selects the first beacon workspace. Result: the map {digit: workspace}.
+  switch_tabs_profile {tabs: 9, name}
+              one workspace, two panes: the left pane holds `tabs` beacon tabs (ids 1..tabs), the right pane one
+              beacon (id 40) that a tab switch must leave alone. Focus: the left pane, tab 1.
   switch_record {action: start|stop, name: "switch", codec: hevc|prores, mbps: 80, seconds: 110}
               debug.motion record_* (the HARNESS recorder, branch perf/debug-screen-record): the window as the
               window server composites it, every frame, into <journey out>/<name>.mov (+ .frames.json, .scan).
@@ -218,6 +221,24 @@ def _wait(cond, timeout, what):
     raise D.StepError("switch: %s within %.0f s" % (what, timeout))
 
 
+def _shows(j, ws, name):
+    """Waits until the window shows `ws`: debug.surfaces' workspace id is the topology's id, or (if the two ids
+    differ in form) the focused pane is one of `ws`'s panes. Notes which held."""
+    pane_ids = {pid for pid, _ in _terminals_of(ws)}
+
+    def held():
+        panes = j.app.panes()
+        focused = next((p for p in panes if p.get("focused")), None)
+        if not focused:
+            return None
+        if focused.get("workspace") == ws.get("id"):
+            return "id"
+        return "pane" if focused.get("pane") in pane_ids else None
+    how = _wait(held, 10, "workspace %s did not show" % name)
+    j.switch_id_match = getattr(j, "switch_id_match", set()) | {how}
+    return how
+
+
 def step_switch_profile(j, step):
     count, panes = int(step.get("workspaces", 9)), int(step.get("panes", 2))
     prefix = j.sub(step.get("prefix", "sw"))
@@ -227,18 +248,10 @@ def step_switch_profile(j, step):
         j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
                                                                 "command": _beacon_command(i, 0, step)}})
         ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
-        _wait(lambda: _shown_workspace(j) == ws.get("id"), 10, "workspace %s did not show" % name)
+        _shows(j, ws, name)
         for p in range(1, panes):
-            have = len(_terminals_of(_ws_named(j, name)))
-            j.app.rpc("action.run", {"action": "splitRight", "args": {}})
-            now = _wait(lambda: (lambda w: w if w and len(_terminals_of(w)) > have else None)(_ws_named(j, name)),
-                        20, "split %d of %s made no terminal" % (p, name))
-            term = _terminals_of(now)[-1][1]
-            known = {t for _, t in _terminals_of(now)[:-1]}
-            fresh = [t for _, t in _terminals_of(now) if t not in known]
-            term = fresh[-1] if fresh else term
-            # The new shell's first prompt, then the beacon command.
-            _wait(lambda: j.app.screen(term)["text"].strip(), 20, "the shell of split %d of %s drew no prompt" % (p, name))
+            # Columns first, then rows inside them: splitRight for the first half, splitDown for the rest.
+            term = _new_terminal(j, name, "splitRight" if p <= max(1, panes // 2) else "splitDown")
             j.app.cmux("terminal", term, "write", "--text", "exec " + _beacon_command(i, p, step) + "\n")
         made.append({"index": i, "name": name, "id": _ws_named(j, name).get("id"),
                      "terminals": _terminals_of(_ws_named(j, name))})
@@ -259,6 +272,44 @@ def step_switch_profile(j, step):
     j.switch_profile = {"workspaces": made, "digits": digits}
     (j.out / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1))
     return {"workspaces": len(made), "panes": panes, "digits": {d: v["beacon_ws"] for d, v in digits.items()}}
+
+
+def _new_terminal(j, name, action, args=None):
+    """Runs `action` (splitRight, splitDown, newSurface) in the shown workspace `name`; returns the new daemon
+    terminal id once its shell drew a prompt."""
+    known = {t for _, t in _terminals_of(_ws_named(j, name) or {})}
+    j.app.rpc("action.run", {"action": action, "args": args or {}})
+    fresh = _wait(lambda: [t for _, t in _terminals_of(_ws_named(j, name) or {}) if t not in known], 20,
+                  "%s in %s made no terminal" % (action, name))
+    term = fresh[-1]
+    _wait(lambda: j.app.screen(term)["text"].strip(), 20, "the shell of %s in %s drew no prompt" % (action, name))
+    return term
+
+
+def step_switch_tabs_profile(j, step):
+    """One workspace, two panes: the LEFT pane holds `tabs` terminal tabs, tab k runs a beacon of workspace id k
+    (pane 0); the RIGHT pane one beacon of id 40 (pane 1) that a tab switch must not touch. The left pane has the
+    focus at the end, on tab 1."""
+    tabs = int(step.get("tabs", 9))
+    name = j.sub(step.get("name", "swt"))
+    j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
+                                                            "command": _beacon_command(1, 0, step)}})
+    ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+    _shows(j, ws, name)
+    left_pane = _terminals_of(_ws_named(j, name))[0][0]
+    right = _new_terminal(j, name, "splitRight")
+    j.app.cmux("terminal", right, "write", "--text", "exec " + _beacon_command(40, 1, step) + "\n")
+    j.app.cmux("pane", left_pane, "focus")
+    _wait(lambda: _shown_tab(j)[0] == left_pane, 10, "the left pane did not take the focus")
+    for k in range(2, tabs + 1):
+        term = _new_terminal(j, name, "newSurface")
+        j.app.cmux("terminal", term, "write", "--text", "exec " + _beacon_command(k, 0, step) + "\n")
+    time.sleep(0.5)
+    j.key("1", ["control"])  # selectSurfaceByNumber 1 (socket key: set-up, not under test)
+    time.sleep(0.5)
+    j.switch_profile = {"tabs_workspace": _ws_named(j, name), "left_pane": left_pane, "digits": {}}
+    (j.out / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1))
+    return {"workspace": name, "tabs": tabs, "left_pane": left_pane, "shown_tab": list(_shown_tab(j))}
 
 
 def step_switch_record(j, step):
@@ -313,11 +364,26 @@ def _recent(j):
     return [r for r in reply.get("recent") or [] if isinstance(r, dict)]
 
 
+def _uptime():
+    """Host seconds on CLOCK_UPTIME_RAW: the clock of debug.action_budget's start_uptime_ns and the recorder."""
+    return time.clock_gettime_ns(time.CLOCK_UPTIME_RAW) / 1e9
+
+
+def _shown_tab(j):
+    """(pane id, selected tab id) of the focused pane (debug.surfaces)."""
+    panes = j.app.panes()
+    focused = next((p for p in panes if p.get("focused")), None)
+    return (focused.get("pane"), focused.get("tab") or focused.get("terminal_id")) if focused else (None, None)
+
+
 def step_switch_keys(j, step):
+    """Each key entry: [modifiers, key, case] or [modifiers, key, case, action]. A key is matched to the first run of
+    its action that STARTS after the key was sent (host clock), so a key the app swallowed is a missing run, not a
+    shift of every later match."""
     name = step.get("name", "switch")
     gap = float(step.get("gap", 1.2))
     via = step.get("via", "hid")
-    action = step.get("action", "selectWorkspaceByNumber")
+    default_action = step.get("action", "selectWorkspaceByNumber")
     keys = step.get("keys")
     if not keys:
         keys = [[["cmd"], d, "cmd-" + d] for d in str(step.get("digits", "123456789"))]
@@ -326,29 +392,39 @@ def step_switch_keys(j, step):
     wid = _main_window(j) if via == "hid" else None
     before = max([int(r.get("sequence") or 0) for r in _recent(j)] or [0])
     sent = []
-    for mods, key, case in keys:
+    for entry in keys:
+        mods, key, case = entry[0], entry[1], entry[2]
+        action = entry[3] if len(entry) > 3 else default_action
         mods = [MODIFIERS.get(m, m) for m in mods]
-        t_wall = time.time()
+        t_sent = _uptime()
         if via == "hid":
-            code, answer = _cua("hotkey", {"pid": j.app.pid, "window_id": wid, "keys": mods + [key],
-                                           "delivery_mode": "foreground"})
+            code, answer = _cua("hotkey" if mods else "press_key",
+                                dict({"pid": j.app.pid, "window_id": wid, "delivery_mode": "foreground"},
+                                     **({"keys": mods + [key]} if mods else {"key": key})))
             effect = answer.get("effect") or (answer.get("structuredContent") or {}).get("effect")
             if code != 0 or effect in ("refused", "failed", "error"):
                 raise D.StepError("switch_keys %s: CuaDriver did not send it (exit %s): %s" % (mods + [key], code, json.dumps(answer)[:400]))
         else:
             j.key(key, mods)
+        t_done = _uptime()
         time.sleep(gap / 2)
         shown = _shown_workspace(j)
-        sent.append({"case": case, "keys": mods + [key], "wall": t_wall, "shown": shown,
-                     "expect": (digits.get(key) or {}).get("workspace") if action == "selectWorkspaceByNumber" else None})
+        sent.append({"case": case, "keys": mods + [key], "action": action, "sent_host_s": t_sent, "send_returned_host_s": t_done,
+                     "shown": shown, "shown_tab": list(_shown_tab(j)),
+                     "expect": (digits.get(key) or {}).get("workspace") if action == "selectWorkspaceByNumber" and mods == ["cmd"] else None})
         time.sleep(gap / 2)
-    runs = sorted((r for r in _recent(j) if int(r.get("sequence") or 0) > before and r.get("id") == action),
+    wanted = {s["action"] for s in sent}
+    runs = sorted((r for r in _recent(j) if int(r.get("sequence") or 0) > before and r.get("id") in wanted),
                   key=lambda r: int(r.get("sequence") or 0))
+    used = set()
     events = []
     for i, s in enumerate(sent):
-        run = runs[i] if i < len(runs) else None
+        until = sent[i + 1]["sent_host_s"] if i + 1 < len(sent) else s["sent_host_s"] + gap * 2
+        run = next((r for r in runs if id(r) not in used and r.get("id") == s["action"]
+                    and s["sent_host_s"] - 0.05 <= float(r.get("start_uptime_ns") or 0) / 1e9 < until), None)
         ev = dict(s)
         if run:
+            used.add(id(run))
             start = float(run.get("start_uptime_ns") or 0) / 1e9
             age = float(run.get("input_age_ms") if run.get("input_age_ms") is not None else -1)
             ev["action_start_host_s"] = start
@@ -360,10 +436,11 @@ def step_switch_keys(j, step):
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
     (j.out / (name + ".events.json")).write_text(json.dumps({"events": events, "runs": runs}, indent=1))
-    missing = sum(1 for e in events if "t" not in e)
+    missing = [e["case"] for e in events if "t" not in e]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,
-            "via": via, "entrypoints": sorted({str(e.get("entrypoint")) for e in events})}
+            "via": via, "entrypoints": sorted({str(e.get("entrypoint")) for e in events}),
+            "t_sources": sorted({str(e.get("t_source")) for e in events})}
 
 
 def step_switch_adopt_shown(j, step):
@@ -379,7 +456,7 @@ def step_switch_adopt_shown(j, step):
     return j.adopt(term, focused.get("pane"))
 
 
-STEPS = {"switch_profile": step_switch_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
+STEPS = {"switch_profile": step_switch_profile, "switch_tabs_profile": step_switch_tabs_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
          "switch_adopt_shown": step_switch_adopt_shown}
 
 
