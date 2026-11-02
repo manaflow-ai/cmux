@@ -344,6 +344,37 @@ class Wiring(unittest.TestCase):
                 self.assertIn("signer-app/signed-app.tar", later)
                 self.assertIn("APP_SHA256", later)
 
+    def test_the_mac_jobs_read_big_artifacts_in_parallel_ranges_first(self):
+        # Run 41478567483: both 5-minute download-artifact tries of the signed app ran out on a nightly Mac
+        # and that tip never published; run 41481821056's final-DMG download took 446 s. The Mac jobs read
+        # these artifacts with fetch_run_artifact.py first, and download-artifact runs only when it failed.
+        fetch = "python3 -I .publish-tooling/scripts/ci/fetch_run_artifact.py --name \"$ARTIFACT\" --dest "
+        image = JOBS["signer-dmg-image"]
+        steps = image["steps"]
+        names = [s.get("name") for s in steps]
+        ranged = steps[names.index("Download the signed app (parallel ranges)")]
+        self.assertEqual(names.index("Download the signed app (parallel ranges)") + 1, names.index("Download the signed app"))
+        self.assertEqual((ranged["continue-on-error"], ranged["timeout-minutes"]), (True, 5))
+        self.assertEqual(ranged["env"]["ARTIFACT"], steps[names.index("Download the signed app")]["with"]["name"])
+        self.assertIn(fetch + "signer-app\n", ranged["run"])
+        self.assertLess(ranged["run"].index("fetch_run_artifact.py"), ranged["run"].index('echo "SIGNER_APP_FETCHED=true" >> "$GITHUB_ENV"'))
+        self.assertEqual(steps[names.index("Download the signed app")]["if"], "env.SIGNER_APP_FETCHED != 'true'")
+        self.assertEqual(image["permissions"], {"contents": "read", "actions": "read"})
+        # signer-dmg reuses the download-artifact steps, has no ranged step and so never sets the flag.
+        self.assertNotIn("SIGNER_APP_FETCHED", yaml.safe_dump(JOBS["signer-dmg"].get("env") or {}))
+        self.assertNotIn("Download the signed app (parallel ranges)", [s.get("name") for s in JOBS["signer-dmg"]["steps"]])
+
+        verify = JOBS["verify-final-dmg-nightly"]
+        steps = {s.get("name"): s for s in verify["steps"]}
+        order = [s.get("name") for s in verify["steps"]]
+        ranged, fallback = steps["Download final DMG (parallel ranges)"], steps["Download final DMG"]
+        self.assertEqual(order.index("Download final DMG (parallel ranges)") + 1, order.index("Download final DMG"))
+        self.assertEqual((ranged["id"], ranged["continue-on-error"], ranged["timeout-minutes"]), ("fetch-final-dmg", True, 5))
+        self.assertEqual(ranged["env"]["ARTIFACT"], fallback["with"]["name"])
+        self.assertEqual(ranged["run"], fetch + fallback["with"]["path"])
+        self.assertEqual(fallback["if"], ranged["if"] + " && steps.fetch-final-dmg.outcome != 'success'")
+        self.assertEqual(verify["permissions"], {"contents": "read", "actions": "read"})
+
     def test_verify_final_reads_one_copy_of_a_pool_signed_dmg(self):
         # cmux-nightly-variant-arm64 holds the DMG under two names; verify-final-dmg-nightly runs on
         # an office Mac, so a pool-signed build hands it the DMG once, with the appcast.
