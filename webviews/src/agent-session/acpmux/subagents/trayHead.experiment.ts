@@ -17,12 +17,14 @@ export const trayHeadLook = defineExperiment({
     },
     bare: {
       label: "No mark",
-      description: "No icon: the counts start at the row inset; time after the counts.",
+      description: "No icon: its slot stays blank, so the counts keep the lines' text column; time after the counts.",
     },
     session: {
       label: "Chat bubble",
       description: "The chat bubble it drew before (agent.session), for comparison; time after the counts.",
     },
   },
-  defaultArm: "glyph",
+  // The ring read as a "3/4 circle" (Leo, 2026-11-01: "WHO THE FUCK EVEN DECIDED TO PUT THAT 3/4
+  // CIRCLE ANYWAYS", then "why did you guys not remove the 3/4"): the header has no mark.
+  defaultArm: "bare",
 });

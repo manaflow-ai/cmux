@@ -6,6 +6,7 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-build-id",
  "anyhow",
  "base64",
  "chrono",
@@ -16,9 +17,12 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server",
@@ -69,6 +73,10 @@ dependencies = [
  "x25519-dalek",
  "zeroize",
 ]
+
+[[package]]
+name = "acpmux-build-id"
+version = "1.0.0"
 
 [[package]]
 name = "adler2"
@@ -992,6 +1000,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bookmarks-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1208,7 +1225,10 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1221,6 +1241,21 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-host-budget"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1254,11 +1289,14 @@ name = "cmux-link"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "cmux-unix-socket",
  "libc",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1503,7 +1541,9 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1638,6 +1678,7 @@ name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
  "acpmux",
+ "acpmux-build-id",
  "anyhow",
  "async-trait",
  "base64",
@@ -1648,6 +1689,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
+ "cmux-conversation",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1671,6 +1713,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "flate2",
+ "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -1739,6 +1782,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-bookmarks-core",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
@@ -1903,6 +1947,7 @@ dependencies = [
  "clap",
  "cmux-vm-client",
  "futures",
+ "nix 0.31.3",
  "security-framework",
  "serde",
  "serde_json",

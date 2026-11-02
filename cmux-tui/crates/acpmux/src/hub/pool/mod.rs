@@ -885,6 +885,7 @@ impl Hub {
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
         self.set_status(session, SessionStatus::Ready);
+        self.note_launch(session, &child);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

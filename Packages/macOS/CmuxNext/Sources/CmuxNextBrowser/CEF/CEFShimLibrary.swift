@@ -42,6 +42,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     /// `cmux_shim_set_file_dialogs`: 1 sends page file choosers to the host (`CMUX_SHIM_FILE_DIALOG`).
     let setFileDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_browser_set_file_dialogs(browser, on)`: 1 sends that browser's choosers to the host.
+    let browserSetFileDialogs: @convention(c) (Int32, Int32) -> Void
     /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
     let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
@@ -102,7 +104,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
     let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
+    /// The background the next DevTools starts with (`cmux_shim_devtools_set_background`).
+    let devToolsSetBackground: @convention(c) (Int32, UInt32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    /// The host's dock side into the DevTools frontend's own setting (`cmux_shim_devtools_set_frontend_dock_side`).
+    let devToolsSetFrontendDockSide: @convention(c) (Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
     /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
@@ -324,6 +330,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         setFileDialogs = try r("cmux_shim_set_file_dialogs")
+        browserSetFileDialogs = try r("cmux_shim_browser_set_file_dialogs")
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
@@ -357,7 +364,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
         setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
+        devToolsSetBackground = try r("cmux_shim_devtools_set_background")
         devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsSetFrontendDockSide = try r("cmux_shim_devtools_set_frontend_dock_side")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         devToolsShowPanel = try r("cmux_shim_devtools_show_panel")

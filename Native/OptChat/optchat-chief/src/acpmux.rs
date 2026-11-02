@@ -212,6 +212,27 @@ pub trait AgentPort: Send + Sync {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String>;
+    /// [`Self::start_prompt`] as agent `from`'s message
+    /// (`_meta.acpmux.fromAgent`): the Chief's tell to another acpmux
+    /// session (brain/session_tell.rs).
+    fn start_agent_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        from: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let _ = from;
+        self.start_prompt(session, blocks, prompt_id, signals)
+    }
+    /// Every acpmux session (`_acpmux/sessions`).
+    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        Err("listing sessions is not supported".into())
+    }
+    /// Stops routing `session`'s signals, leaving the session as it is (a
+    /// session the Chief only told, brain/session_tell.rs).
+    fn forget_route(&self, _session: &str) {}
     /// The session's recorded events after `after`, oldest first.
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
     /// Stops routing the session's signals and removes the session.
@@ -1014,9 +1035,10 @@ fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
 
 /// The id of the session named `name`, from `_acpmux/info` (unpaced, as
 /// [`session_info`]), as the session list names them: a bare name is this
-/// daemon's own session, a peer's is `peer/name`. The paced list only when
-/// acpmux names several (several share the name, or none has it and it is a
-/// prefix of several) or refuses info.
+/// daemon's own session, a peer's is `peer/name`. An ambiguous lookup is
+/// refused: choosing the first list row can send Chief's message to the wrong
+/// child. Fall back to the paced list only when info cannot answer, and require
+/// exactly one matching name there too.
 pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
     let error = match info(client, name) {
         // acpmux resolves an exact id, then a name only one session has, then a
@@ -1035,13 +1057,23 @@ pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, Stri
             return Ok(qualified.then_some(s.session_id));
         }
         Ok(Resolved::None) => return Ok(None),
-        Ok(Resolved::Several) => InfoError::Refused(format!("info: {name:?} names several")),
+        Ok(Resolved::Several) => {
+            return Err(format!(
+                "find: {name:?} names several sessions; use a unique name or peer/name"
+            ));
+        }
         Err(e) => e,
     };
-    Ok(listed(client, error)?
+    let mut candidates = listed(client, error)?
         .into_iter()
-        .find(|s| s.name == name)
-        .map(|s| s.session_id))
+        .filter(|s| s.name == name);
+    let first = candidates.next();
+    if candidates.next().is_some() {
+        return Err(format!(
+            "find: {name:?} names several sessions; use a unique name or peer/name"
+        ));
+    }
+    Ok(first.map(|s| s.session_id))
 }
 
 /// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
@@ -1174,6 +1206,46 @@ pub fn new_session(
     Ok(id)
 }
 
+impl Acpmux {
+    /// Sends `session/prompt` with `_meta.acpmux` = `meta`; the session's
+    /// signals and the answer go to `signals`.
+    fn prompt_with_meta(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        meta: Value,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let client = self.client()?;
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
+        let answer = client.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": meta}}),
+        );
+        std::thread::Builder::new()
+            .name("acpmux-prompt".into())
+            .spawn(move || {
+                let done = match answer.recv() {
+                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+                };
+                let _ = signals.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         let ready = self
@@ -1207,33 +1279,30 @@ impl AgentPort for Acpmux {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
-        let client = self.client()?;
+        self.prompt_with_meta(session, blocks, json!({"promptId": prompt_id}), signals)
+    }
+
+    fn start_agent_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        from: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let meta = json!({"promptId": prompt_id, "fromAgent": from, "class": "question"});
+        self.prompt_with_meta(session, blocks, meta, signals)
+    }
+
+    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        sessions(&*self.client()?)
+    }
+
+    fn forget_route(&self, session: &str) {
         self.turns
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                session.to_owned(),
-                TurnRoute {
-                    tx: signals.clone(),
-                    spoke: false,
-                },
-            );
-        let answer = client.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
-        );
-        std::thread::Builder::new()
-            .name("acpmux-prompt".into())
-            .spawn(move || {
-                let done = match answer.recv() {
-                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
-                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
-                };
-                let _ = signals.send(done);
-            })
-            .map_err(|e| e.to_string())?;
-        Ok(())
+            .remove(session);
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {

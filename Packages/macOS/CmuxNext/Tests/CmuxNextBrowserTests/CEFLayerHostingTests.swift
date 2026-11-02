@@ -311,6 +311,113 @@ import Testing
     }
 }
 
+/// cmux#26037: a page beside a dragged divider trailed it by some frames (Chromium draws in another process, and
+/// from fork API 27 a page window never waits for its frame at a new size unless asked). With `dragResize` at
+/// `resizeSync` every page over the dragged pane, hosted or not, waits for its frame up to the drag deadline from the
+/// drag's first move until its release landed, capped at half the shortest display frame so no app frame is held
+/// past its display link's target time.
+@MainActor
+@Suite(.closesItsWindows) struct CEFLayerHostingPaneDragTests {
+    let fake = CEFLayerHostingTests.FakeFork()
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+
+    func makeHosting(enabled: Bool, refreshIntervals: [Double] = []) -> CEFLayerHosting {
+        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 8 }, liveResizeDeadlineMs: { 50 }, dragResizeDeadlineMs: { 30 },
+                                      refreshIntervals: { refreshIntervals })
+        hosting.view = view
+        return hosting
+    }
+
+    @Test func aPageWindowThatIsNotHostedWaitsForTheDragOnly() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        #expect(hosting.inPaneDrag)
+        hosting.paneResizeDrag(active: false)
+        #expect(!hosting.inPaneDrag)
+        #expect(fake.syncs.map(\.browser) == [4, 4])
+        #expect(fake.syncs.map(\.timeoutMs) == [30, 0])
+    }
+
+    @Test func aHostedPageGoesBackToItsPaneDeadlineWhenTheDragLands() {
+        let hosting = makeHosting(enabled: true)
+        hosting.pageWindowCreated(browser: 5, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.paneResizeDrag(active: false)
+        #expect(fake.syncs.map(\.timeoutMs) == [8, 30, 8])
+    }
+
+    /// Every tab container of the pane shares the page window and tells its own start and end: the wait lasts
+    /// until the last one ended (a parked container's early end does not cut the shown one's landing short).
+    @Test func theDragLastsUntilTheLastContainerEnded() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.paneResizeDrag(active: true)
+        hosting.paneResizeDrag(active: false)
+        #expect(hosting.inPaneDrag)
+        #expect(fake.syncs.map(\.timeoutMs) == [30])
+        hosting.paneResizeDrag(active: false)
+        hosting.paneResizeDrag(active: false)
+        #expect(!hosting.inPaneDrag, "an end with no start is ignored")
+        #expect(fake.syncs.map(\.timeoutMs) == [30, 0])
+    }
+
+    /// Review 1 of cmux#26037: a pane's only tab closed mid-drag; its container never heard the end, and the next
+    /// page window of the pane took the drag's wait for every later resize. A closed page window ends it.
+    @Test func aClosedPageWindowDoesNotPassTheDragsWaitToTheNextOne() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.stop()
+        hosting.pageWindowCreated(browser: 9, fork: fake.fork)
+        #expect(!hosting.inPaneDrag)
+        #expect(fake.syncs.map(\.browser) == [4, 4])
+        #expect(fake.syncs.map(\.timeoutMs) == [30, 0])
+        hosting.paneResizeDrag(active: false)
+        #expect(fake.syncs.count == 2, "the closed tab's late end changes nothing")
+    }
+
+    /// The wait never passes half the shortest display frame: 4 ms once a display runs at 120 Hz.
+    @Test func theDragWaitIsCappedAtHalfTheShortestDisplayFrame() {
+        let hosting = makeHosting(enabled: false, refreshIntervals: [1.0 / 60, 1.0 / 120])
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        #expect(fake.syncs.map(\.timeoutMs) == [4])
+    }
+
+    /// The window's own live resize wins while both run, and the drag's wait comes back after it.
+    @Test func aLiveResizeDuringTheDragKeepsItsOwnDeadline() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.windowLiveResize(active: true)
+        hosting.windowLiveResize(active: false)
+        hosting.paneResizeDrag(active: false)
+        #expect(fake.syncs.map(\.timeoutMs) == [30, 50, 30, 0])
+    }
+
+    /// A page window made during the drag (a pane's first page) starts with the drag's wait.
+    @Test func aPageWindowMadeDuringTheDragWaits() {
+        let hosting = makeHosting(enabled: false)
+        hosting.paneResizeDrag(active: true)
+        #expect(fake.syncs.isEmpty, "no page window, no fork call")
+        hosting.pageWindowCreated(browser: 6, fork: fake.fork)
+        #expect(fake.syncs.map(\.timeoutMs) == [30])
+    }
+
+    /// Below fork API 27 there is no resize sync call: the page lays out live and nothing else changes.
+    @Test func belowForkAPI27NothingReachesTheFork() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: CEFLayerHosting.Fork(setLayerHosting: { _, _ in 0 }))
+        hosting.paneResizeDrag(active: true)
+        hosting.paneResizeDrag(active: false)
+        #expect(fake.syncs.isEmpty)
+    }
+}
+
 /// A window whose live resize the test sets (`NSWindow.inLiveResize` is true only while the user drags an edge).
 private final class LiveResizeWindow: NSWindow {
     var isLive = false

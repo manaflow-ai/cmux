@@ -4,6 +4,7 @@
 // collapsed file's lines are not searched. The highlights are CSS custom highlights painted by the
 // code view's painter (find/highlight.ts), which adopts their styles into the shadow roots.
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { foldFind } from "../../../find/fold";
 import { collectQueryRanges, installFindHighlightPainter, type FindHighlightPainter } from "../../../find/highlight";
 import type { FindBarState } from "../conversation/chatFind";
 
@@ -21,7 +22,7 @@ export function useDiffFind(body: RefObject<HTMLElement | null>): FindBarState {
   const current = count ? Math.min(active, count - 1) : 0;
   // What the painter reads on each pass, and the match it last scrolled to.
   const state = useRef({ query: "", active: 0 });
-  state.current = { query: open ? query.toLocaleLowerCase() : "", active: current };
+  state.current = { query: open ? foldFind(query) : "", active: current };
   const revealed = useRef("");
   const painter = useRef<FindHighlightPainter | undefined>(undefined);
   const opener = useRef<HTMLElement | null>(null);

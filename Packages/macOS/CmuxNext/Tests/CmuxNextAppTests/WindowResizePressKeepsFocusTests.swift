@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Only the pane AppKit gives a press to takes the focus.
@@ -12,7 +13,7 @@ import Testing
 /// sidebar's resize band reaches over the pane beside it, and the titlebar's buttons sit over the
 /// top-left pane. Each one moved the focus, so the next keys went to a pane the person never clicked
 /// (journey r3-after-switch failed 4 of 4 on v2.2.11-opt after a corner drag, cmux-ad P0 2026-10-31).
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct WindowResizePressKeepsFocusTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -65,6 +66,8 @@ struct WindowResizePressKeepsFocusTests {
         }
 
         var size: CGSize { window.frame.size }
+
+        func close() { window.closeAfterTest() }
     }
 
     /// In a window on screen AppKit's frame view keeps this press for a window resize; in this test's
@@ -72,6 +75,7 @@ struct WindowResizePressKeepsFocusTests {
     /// The frame-view case is proved live by the journeys r3-after-switch and focus-corner-drag.
     @Test func aPressInTheBottomRightResizeCornerLeavesTheFocus() throws {
         let harness = Harness(focused: "left")
+        defer { harness.close() }
         let corner = CGPoint(x: harness.size.width - 1, y: 1)
         try #require(try harness.paneUnder(corner) == "right", "the corner must lie over the right pane for this test to mean anything")
         harness.press(at: corner)
@@ -81,6 +85,7 @@ struct WindowResizePressKeepsFocusTests {
 
     @Test func aPressOnASplitDividerLeavesTheFocus() throws {
         let harness = Harness(focused: "left")
+        defer { harness.close() }
         let handle = try #require(try harness.screen.dividerViews[.split("x")])
         // The right part of the divider's hit area: inside the right pane's rect, but the divider takes the press.
         let edge = handle.convert(CGPoint(x: handle.bounds.maxX - 1, y: handle.bounds.midY), to: nil)
@@ -92,6 +97,7 @@ struct WindowResizePressKeepsFocusTests {
 
     @Test func aPressOnTheSidebarResizeBandLeavesTheFocus() throws {
         let harness = Harness(focused: "right")
+        defer { harness.close() }
         // The sidebar's band sits above the layout and reaches over the pane beside the sidebar (WindowRootView).
         let band = SidebarResizeHandle(frame: CGRect(x: 0, y: 0, width: 8, height: harness.content.bounds.height))
         harness.content.addSubview(band)
@@ -104,6 +110,7 @@ struct WindowResizePressKeepsFocusTests {
 
     @Test func aPressOnTheTitlebarButtonsLeavesTheFocus() throws {
         let harness = Harness(focused: "right")
+        defer { harness.close() }
         let close = try #require(harness.window.standardWindowButton(.closeButton))
         let point = close.convert(CGPoint(x: close.bounds.midX, y: close.bounds.midY), to: nil)
         try #require(try harness.paneUnder(point) == "left", "the close button must lie over the left pane for this test to mean anything")
@@ -114,6 +121,7 @@ struct WindowResizePressKeepsFocusTests {
 
     @Test func aPressInsideAPaneStillFocusesIt() throws {
         let harness = Harness(focused: "left")
+        defer { harness.close() }
         let host = try #require(harness.root.context.hosts["right"])
         let center = host.convert(CGPoint(x: host.bounds.midX, y: host.bounds.midY), to: nil)
         try #require(try harness.paneUnder(center) == "right")
@@ -124,6 +132,7 @@ struct WindowResizePressKeepsFocusTests {
     /// Not a check: prints where AppKit's hit test sends presses near the window's edges, for the record.
     @Test func reportsAppKitHitTestNearTheEdges() {
         let harness = Harness(focused: "left")
+        defer { harness.close() }
         let (w, h) = (harness.size.width, harness.size.height)
         for inset in [0.0, 1, 2, 3, 4, 5, 6, 8, 12] {
             let corner = harness.hit(at: CGPoint(x: w - 1 - inset, y: 1 + inset))

@@ -107,3 +107,15 @@ test("a New Tab project picked before the host's sandbox check still reaches wor
   // Not offered (a chat started here, the Quick Composer): nothing is wired.
   expect(newTabProjectPick(native, false)).toEqual({});
 });
+
+test("the chosen Cloud environment travels with the start; an absent choice preserves the platform Default", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    calls.push(params);
+    return {};
+  };
+  await startCloudChat(call, { task: "hello", home: true, environment: "env_selected" }, "selected-start");
+  await startCloudChat(call, { task: "hello", home: true }, "default-start");
+  expect(calls[0]?.environment).toBe("env_selected");
+  expect(calls[1]).not.toHaveProperty("environment");
+});

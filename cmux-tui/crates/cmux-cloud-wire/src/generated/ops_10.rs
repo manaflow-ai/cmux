@@ -4,6 +4,28 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).
+    TeamVmEnsureAwakeOp {
+        name: "team_vm.ensure_awake",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmEnsureAwakeParams,
+        result: TeamVmEnsureAwakeResult,
+        error: TeamVmEnsureAwakeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeParams {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_seconds: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmEnsureAwakeResult {
     pub lease: TeamVmLeaseId,
@@ -877,28 +899,5 @@ wire_op! {
         params: UsageCapSetParams,
         result: UsageCapSetResult,
         error: UsageCapSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetParams {
-    pub cap_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetResult {
-    pub owner: Option<TeamId>,
-    pub team_cap_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes usage.cap.set declares.
-    UsageCapSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        TeamRolesRequired = "team.roles_required",
-        ValidationInvalid = "validation.invalid",
     }
 }

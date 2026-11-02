@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextFocusUI
 
 /// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 @MainActor

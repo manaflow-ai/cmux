@@ -16,6 +16,7 @@ use super::*;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LIMIT: u64 = 200;
+const DEFAULT_HISTORY_LIMIT: u64 = 50;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_HISTORY_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -127,6 +128,10 @@ fn dispatch(
             bounded_limit(&params, "limit")?;
             let mut request = Map::new();
             request.insert("sessionId".into(), Value::String(session.clone()));
+            // A history read is not the chat being shown (`server/view.rs`).
+            request.insert("visible".into(), Value::Bool(false));
+            // Pages rather than failing on the response cap when the phone names no limit.
+            request.insert("limit".into(), json!(DEFAULT_HISTORY_LIMIT));
             for (mobile, wire) in [
                 ("after_seq", "afterSeq"),
                 ("before_seq", "beforeSeq"),
@@ -161,10 +166,14 @@ fn dispatch(
                 return Err(("internal_error", "prompt acceptance channel unavailable".into()));
             };
             let caller = Arc::clone(link);
+            // This link is a Local unix connection, but every prompt here is
+            // the phone's: the marker keeps it under the Cloud mobile asking
+            // floor (acpmux `remote_guard::control_of`), as
+            // `agent_session_attach::prompt` does for the carrier path.
             let prompt = json!({
                 "sessionId": session,
                 "prompt": [{"type": "text", "text": text}],
-                "_meta": {"acpmux": {"promptId": prompt_id}},
+                "_meta": {"acpmux": {"promptId": prompt_id, "via": "cloud-mobile"}},
             });
             std::thread::spawn(move || {
                 if let Err(error) = caller.call("session/prompt", prompt, CALL_TIMEOUT) {
@@ -389,6 +398,15 @@ mod tests {
         results: Vec<Value>,
         accepted: Option<SyncSender<PromptOutcome>>,
     ) -> (Arc<AcpmuxLink>, cmux_unix_socket::TestDir) {
+        scripted_seen(results, accepted, None)
+    }
+
+    /// `scripted`, also handing each request the server reads to `seen`.
+    fn scripted_seen(
+        results: Vec<Value>,
+        accepted: Option<SyncSender<PromptOutcome>>,
+        seen: Option<std::sync::mpsc::Sender<Value>>,
+    ) -> (Arc<AcpmuxLink>, cmux_unix_socket::TestDir) {
         let dir = cmux_unix_socket::short_test_dir("mobile-chat");
         let socket = dir.path().join("acpmux.sock");
         let listener = UnixListener::bind(&socket).unwrap();
@@ -399,6 +417,9 @@ mod tests {
             for result in results {
                 let Some(Ok(line)) = lines.next() else { return };
                 let request: Value = serde_json::from_str(&line).unwrap();
+                if let Some(seen) = &seen {
+                    let _ = seen.send(request.clone());
+                }
                 let accepted = result.get("$accept").is_some();
                 if accepted {
                     writeln!(
@@ -508,5 +529,25 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.0, "acpmux_refused");
         assert!(error.1.contains("permission.denied"));
+    }
+
+    #[test]
+    fn relay_send_marks_the_prompt_as_the_phones() {
+        let (seen_tx, seen_rx) = std::sync::mpsc::channel();
+        let (tx, rx) = sync_channel(2);
+        let (link, _dir) =
+            scripted_seen(vec![json!({"$accept": true})], Some(tx.clone()), Some(seen_tx));
+        dispatch(
+            &link,
+            "mobile-chat-send",
+            json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
+            None,
+            Some((rx, tx)),
+        )
+        .unwrap();
+        let request = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(request["method"], "session/prompt");
+        assert_eq!(request["params"]["_meta"]["acpmux"]["via"], "cloud-mobile");
+        assert_eq!(request["params"]["_meta"]["acpmux"]["promptId"], "p1");
     }
 }

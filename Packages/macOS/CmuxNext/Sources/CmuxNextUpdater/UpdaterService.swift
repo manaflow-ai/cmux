@@ -40,8 +40,7 @@ public final class UpdaterService {
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
     public internal(set) var managedMinimumVersion: String?
-    /// Whether the circle shows the last probe's result (the user asked, in a
-    /// build without Sparkle).
+    /// Whether the circle shows the last probe's result (the user asked, in a build without Sparkle).
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
@@ -63,8 +62,7 @@ public final class UpdaterService {
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
     /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
-    /// The notice whose timeout is pending, and its one-shot deadline on the
-    /// injected clock (no `asyncAfter`).
+    /// The notice whose timeout is pending, and its one-shot deadline on the injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
     /// When the install phase began (``installStatus``), nil outside it.
@@ -88,8 +86,7 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to`
-    /// (set by the App).
+    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
@@ -106,8 +103,7 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
-    /// Where a staged update is recorded for the next build's What's New
-    /// (nil: not recorded).
+    /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
@@ -232,6 +228,8 @@ public final class UpdaterService {
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The build whose install the last relaunch left undone, and why (``UpdateInstallCheck``).
+    public internal(set) var failedInstall: (build: String, failure: UpdateInstallFailure)?
     /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
     @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
@@ -341,6 +339,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        failedInstall = UpdateInstallCheck.launchFailure(defaults: defaults, build: identity.build, now: now(), log: log)
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         // The app settled the install before making the updater (AppServices): an install that ran
@@ -395,7 +394,6 @@ public final class UpdaterService {
         Task { @MainActor [weak self, weak controller] in
             await pulledListReady.value
             guard let self, let controller, self.started else { return }
-            await self.prepareCrossChannelFeed()
             controller.startUpdaterIfNeeded()
             #if DEBUG || CMUX_BENCH_HOOKS
             if UpdateHarness.current?.backgroundCheck == true {
@@ -444,19 +442,9 @@ public final class UpdaterService {
                 log.append("check while the person's check runs: joined")
                 return nil
             }
+            controller.model.setOverrideState(nil)
+            controller.checkForUpdates()
             userCheckRunning = true
-            if identity.track == .nightlyNext, testFeedURL == nil {
-                Task { @MainActor [weak self, weak controller] in
-                    guard let self, let controller else { return }
-                    await self.prepareCrossChannelFeed()
-                    guard self.disabledReason == nil else { return }
-                    controller.model.setOverrideState(nil)
-                    controller.checkForUpdates()
-                }
-            } else {
-                controller.model.setOverrideState(nil)
-                controller.checkForUpdates()
-            }
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -464,8 +452,7 @@ public final class UpdaterService {
         }
     }
 
-    /// Reads the feed and records what it offers this Mac. Joins a probe
-    /// already in flight.
+    /// Reads the feed and records what it offers this Mac. Joins a probe already in flight.
     @discardableResult
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
@@ -478,14 +465,9 @@ public final class UpdaterService {
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await (identity.track == .nightlyNext
-                    ? prober.probeCrossChannel(identity, allowedChannels: allowed)
-                    : prober.probe(identity, allowedChannels: allowed))
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
-                if let self, self.testFeedURL == nil, self.identity.track == .nightlyNext {
-                    self.controller?.feedOverride = result.feedURL == self.identity.feed().url ? nil : result.feedURL
-                }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
@@ -500,17 +482,6 @@ public final class UpdaterService {
         }
         probeTask = task
         return task
-    }
-
-    /// Selects the newer source commit's feed before Sparkle starts a check. This is
-    /// deliberately best-effort: the prober keeps the running feed when ancestry is
-    /// unavailable, and a test feed always remains authoritative.
-    private func prepareCrossChannelFeed() async {
-        guard identity.track == .nightlyNext, testFeedURL == nil, let controller else { return }
-        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
-        guard let result = try? await prober.probeCrossChannel(identity, allowedChannels: allowed) else { return }
-        controller.feedOverride = result.feedURL == identity.feed().url ? nil : result.feedURL
-        log.append("cross-channel feed \(result.feedURL)")
     }
 
     /// Installs and relaunches the downloaded update at once, or the one
@@ -619,19 +590,21 @@ public final class UpdaterService {
 }
 
 extension UpdaterService {
-    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the
-    /// counterpart of the running app.
+    /// ``switchChannel(to:)`` by name (`stable`, `nightly`, `dev`); nil means the counterpart of
+    /// the running app. On the DEV app `nightly` names cmux NEXT's NIGHTLY, its counterpart.
     @discardableResult
     public func switchChannel(named name: String?) throws -> Task<String?, Never> {
-        let requested = name.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+        let counterpart = identity.channelSwitchTarget
+        let requested = name.flatMap { name in
+            counterpart.flatMap { $0.isNamed(name) ? $0 : nil } ?? AppChannelSwitchTarget(rawValue: name.lowercased())
+        }
         guard let target = requested ?? identity.channelSwitchTarget, name == nil || requested != nil else {
             throw UpdaterUnavailable.cannotSwitch(to: name ?? "?", from: identity.track)
         }
         return try switchChannel(to: target)
     }
 
-    /// Why switching channels is impossible here (DEV/RC builds have no
-    /// counterpart), or nil.
+    /// Why switching channels is impossible here (DEV/RC builds have no counterpart), or nil.
     public var channelSwitchUnavailableReason: String? {
         guard let target = identity.channelSwitchTarget else {
             return UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description

@@ -67,7 +67,7 @@ public final class SidebarDocStore {
     /// The change sent for `origin` gave no undoable inverse (refused, or a no-op): its step stays empty.
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
-    @MainActor public static var undoOrigin: AnyObject?
+    @ObservationIgnored public var undoOrigin: AnyObject?
     @ObservationIgnored private(set) var loading = false
     /// Changes and adopts sent and not answered yet, and who waits for none (``settled()``).
     @ObservationIgnored var inFlight = 0
@@ -76,13 +76,14 @@ public final class SidebarDocStore {
     @ObservationIgnored var onSettledWait: (@MainActor () -> Void)?
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
-    /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
+    /// Batches that arrived during a load; replayed after its reply (the mirror drops the stale ones).
+    /// Active stores still apply them immediately, but an older get reply must not erase them.
     @ObservationIgnored private var earlyBatches: [Data] = []
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The projection paired with `lastLive`: presentation-only `reshow` must not erase a departed remote's item
-    /// before `show` sends its close and removes any emptied ancestor groups.
+    /// before `show` sends its close. The workspace leaves, but its ancestor groups stay.
     @ObservationIgnored var lastLiveProjection: SidebarDocProjection?
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
@@ -112,11 +113,8 @@ public final class SidebarDocStore {
     /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
     @ObservationIgnored var answeredChief: [String: UInt64] = [:]
 
-    /// The app's one document store (one home session per app); the
-    /// App's composition root sets it.
-    public static var current: SidebarDocStore?
-    /// The records of the current document while the sidebar draws it; nil on the older path.
-    public static var activeRecords: SidebarDocRecords? { current.flatMap { $0.isActive && $0.shown != nil ? $0.records : nil } }
+    /// The records of the document while the sidebar draws it; nil on the older path.
+    public var activeRecords: SidebarDocRecords? { isActive && shown != nil ? records : nil }
 
     public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
         self.remote = remote
@@ -211,18 +209,23 @@ public final class SidebarDocStore {
             self.bump()
             let early = self.earlyBatches
             self.earlyBatches = []
-            for batch in early { self.receive(batch: batch) }
+            for batch in early { self.applyReceived(batch: batch) }
         }
     }
 
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
-        guard isActive, !isProvisional, let mirror else {
-            if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
-            return
+        if loading, mirror != nil {
+            if earlyBatches.count < 512 { earlyBatches.append(data) }
+            else { refetchAgain = true } // A fresh snapshot recovers the tail we could not retain.
         }
+        applyReceived(batch: data)
+    }
+
+    private func applyReceived(batch data: Data) {
+        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
+        guard isActive, !isProvisional, let mirror else { return }
         // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
         let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
@@ -382,7 +385,7 @@ public final class SidebarDocStore {
         do {
             try submit(intent, title: title, undoable: undoable, body)
         } catch {
-            if let origin = Self.undoOrigin { onUndoRefused(origin) }
+            if let origin = undoOrigin { onUndoRefused(origin) }
             onRefused(error.message)
         }
     }
@@ -411,7 +414,7 @@ public final class SidebarDocStore {
         pendingRecords.add(key: key, ops: stamped ?? intent.ops, records: shownRecords)
         if redraws { bump() }
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
-        let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
+        let origin = undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         inFlight += 1
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in

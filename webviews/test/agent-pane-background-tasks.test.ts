@@ -187,14 +187,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const at = await note.evaluate((node) => node.getBoundingClientRect().top);
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
-    // The first turn's calls, under its fold: the dev server stopped (a later turn said so), the
-    // watcher still runs in the background.
-    await page
-      .getByRole("button", { name: /^Worked for/ })
-      .first()
-      .click();
-    // Its two calls fold under their run's line too (Debug toggle agentPane.debug.codexToolRuns,
-    // on by default): open it to their rows.
+    // The first turn's calls: the dev server stopped (a later turn said so), the watcher still runs
+    // in the background. A finished Claude turn folds its two calls under their run's line, as Claude
+    // desktop does (turns.ts claudeGroups): open it to their rows.
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });

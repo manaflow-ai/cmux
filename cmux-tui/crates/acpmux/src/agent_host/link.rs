@@ -18,36 +18,22 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
-    /// On Linux `exe` is the path without the ` (deleted)` that `current_exe`
-    /// adds once an update replaced the file ([`Self::program`] still starts
-    /// this build).
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
-        Ok(Self { exe: undeleted(this.exe), prefix: this.prefix })
+        Ok(Self { exe: this.exe, prefix: this.prefix })
     }
 
-    /// The program [`spawn`] execs; `exe` stays the host's argv0. On Linux,
-    /// for this process's own binary, the open inode `/proc/self/exe`: once an
-    /// update replaces the file a long-lived daemon runs from (a Cloud VM's
-    /// `~/.cmux/bin/cmux-tui`), the path is gone or holds another build, and
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
     /// every new chat failed with "start PATH (deleted): No such file or
-    /// directory" (the app's `agent_session.refused`). The host then runs the
-    /// daemon's own build, as cmux-tui's terminal hosts do
-    /// (`self_exe_for_spawn`). argv0 stays the path: a cmux-tui copy named
-    /// `acpmux` (a peer's `~/.local/bin/acpmux`) runs as acpmux by that name.
+    /// directory" (the app's `agent_session.refused`).
     fn program(&self) -> PathBuf {
-        let own = cfg!(target_os = "linux")
-            && std::env::current_exe().is_ok_and(|exe| undeleted(exe) == self.exe);
-        if own { PathBuf::from("/proc/self/exe") } else { self.exe.clone() }
-    }
-}
-
-/// `path` without the ` (deleted)` Linux appends to a replaced executable.
-fn undeleted(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
-        Some(p) => PathBuf::from(p),
-        None => path,
+        crate::self_command::program(&self.exe)
     }
 }
 
@@ -415,10 +401,58 @@ pub struct Link {
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
     // A wedged host must not hold up the daemon: the handshake is bounded.
-    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
+    let budget = hello_budget();
+    // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not a sure
+    // miss (its timer fires on the next millisecond tick, after a fast local hello).
+    if budget.is_zero() {
+        return Err(anyhow::Error::new(HelloUnanswered(budget)));
+    }
+    tokio::time::timeout(budget, connect_inner(record, resume_after))
         .await
-        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+        .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+}
+
+/// How long a host has to answer `Hello` ([`connect`]) outside a [`with_hello_budget`] scope.
+pub const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The bound of a hello to a host that runs and was adopted before: its adoption at the daemon's
+/// start missed [`HELLO_BUDGET`], or a prompt reaches it again. On a loaded Mac (load 118 on 15
+/// cores, 85 hosts adopted at once, 2026-10-31) a live host answered later than 5 s; ending it
+/// then, or leaving it unowned with its whole agent and MCP servers, is worse than waiting.
+pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+tokio::task_local! {
+    static HELLO_BUDGET_SCOPE: std::time::Duration;
+}
+
+/// Runs `work` with every [`connect`] in it bounded by `budget` instead of [`HELLO_BUDGET`].
+pub async fn with_hello_budget<F: std::future::Future>(
+    budget: std::time::Duration,
+    work: F,
+) -> F::Output {
+    HELLO_BUDGET_SCOPE.scope(budget, work).await
+}
+
+fn hello_budget() -> std::time::Duration {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(HELLO_BUDGET)
+}
+
+/// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only
+/// slow on a loaded machine.
+#[derive(Debug, Clone, Copy)]
+pub struct HelloUnanswered(pub std::time::Duration);
+
+impl std::fmt::Display for HelloUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent host did not answer hello within {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelloUnanswered {}
+
+/// Whether `error` is (or wraps) a [`HelloUnanswered`].
+pub fn missed_hello(error: &anyhow::Error) -> bool {
+    error.chain().any(|c| c.downcast_ref::<HelloUnanswered>().is_some())
 }
 
 /// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
@@ -459,7 +493,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::hub::build().to_owned(),
         },
     )
     .await?;
@@ -740,7 +774,7 @@ impl Link {
 
 #[cfg(test)]
 mod launcher_tests {
-    use super::{HostLauncher, undeleted};
+    use super::HostLauncher;
     use std::path::PathBuf;
 
     /// A daemon whose binary an update replaced still starts agent hosts: on
@@ -759,12 +793,5 @@ mod launcher_tests {
         }
         let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
         assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-
-    #[test]
-    fn a_replaced_file_reads_as_its_path() {
-        let path = "/home/cmux/.cmux/bin/cmux-tui";
-        assert_eq!(undeleted(format!("{path} (deleted)").into()), PathBuf::from(path));
-        assert_eq!(undeleted(path.into()), PathBuf::from(path));
     }
 }

@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
+    IntegrationRevokeOp {
+        name: "integration.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "destructive",
+        principals: [Session],
+        params: IntegrationRevokeParams,
+        result: Connection,
+        error: IntegrationRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationRevokeParams {
+    pub connection: ConnectionId,
+}
+
 wire_errors! {
     /// The error codes integration.revoke declares.
     IntegrationRevokeError {
@@ -882,19 +902,4 @@ wire_enum! {
         ImageGif = "image/gif",
         ImageWebp = "image/webp",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResultAvatar {
-    pub sha256: String,
-    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
-    pub bytes: i64,
-    /// The image, base64.
-    pub data: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
 }

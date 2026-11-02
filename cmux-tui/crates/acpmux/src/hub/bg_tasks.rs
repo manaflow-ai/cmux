@@ -421,7 +421,9 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
             Ok(())
         });
     }
-    let mut child = cmd.spawn().context("start the task's runner")?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
         crate::agent_host::scope::place(pid).await;
     }

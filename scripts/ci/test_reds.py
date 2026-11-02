@@ -32,12 +32,13 @@ Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per st
 writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
 is the base's only when the same state is red the same way on the base (any budget miss is one kind; a broken
 state's reason is its kind, numbers aside). A render that crashed, or a shard with no whole health.json, is the
-head's own. gallery-health.yml replays a pull request's red entries on the base it merged with and asks:
+head's own. gallery-health.yml replays a pull request's red states on the base it merged with and asks:
 
-    test_reds.py gallery --head HEAD/health.json --entries               the entries to replay on the base
-    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--annotate] [--json]
+    test_reds.py gallery --head HEAD/health.json --entries               the entries of those states
+    test_reds.py gallery --head HEAD/health.json --states                the red states (entry#variant) it replays
+    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--base ...] [--annotate] [--json]
 
-with the same exit codes (`--entries` exits 1 when the head's red is its own whatever the base shows).
+with the same exit codes (`--entries` and `--states` exit 1 when the head's red is its own whatever the base shows).
 """
 from __future__ import annotations
 
@@ -58,6 +59,8 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Swift Testing emits type suites without quotes and custom suite names in quotes.
+SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
 # it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
 # `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
@@ -266,6 +269,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if match := SUITE_FAILED.search(text):
+            found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
     return found
@@ -627,6 +632,27 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
 
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
+
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
 # a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
 # while the base's own push runs it in whichever shard it falls in; a per-job comparison never matches those names
@@ -835,6 +861,8 @@ GALLERY_KEYS = ("fresh", "known", "slow")
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -868,24 +896,41 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("geometry") or []:
+        for violation in item.get("violations") or []:
+            result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
     return result
 
 
+def gallery_states(text: str | None) -> list[str]:
+    """The head's red states (`entry#variant`): the only states the base replays, every case of each."""
+    return sorted({name.split(": ", 1)[0] for name in gallery_read(text).failed})
+
+
 def gallery_entries(text: str | None) -> list[str]:
-    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base replays."""
-    return sorted({name.split(": ", 1)[0].rsplit("#", 1)[0] for name in gallery_read(text).failed})
+    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base's manifest names."""
+    return sorted({state.rsplit("#", 1)[0] for state in gallery_states(text)})
 
 
-def gallery_classify(head_text: str | None, base_text: str | None, base: str = "the base") -> Verdict | None:
+def gallery_classify(head_text: str | None, base_text, base: str = "the base") -> Verdict | None:
     """A gallery health shard's red judged per state against the same states rendered on the base; None when the
-    head's shard is whole and has nothing red."""
+    head's shard is whole and has nothing red. `base_text` may be several base renders: a state red the same way
+    in any of them is the base's. The head keeps a state red only when every retry shows it, so a base render that
+    had to show it every time too would call a state that flakes on the base the head's own."""
     head = gallery_read(head_text)
     if not head.failed and not head.crashes and not head.truncated:
         return None
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"gallery health: per-state results are not whole ({head.truncated[0]})")
-    seen = gallery_read(base_text, keep_known=True)
+    renders = base_text if isinstance(base_text, (list, tuple)) else [base_text]
+    seen = Result()
+    for text in renders or [None]:
+        found = gallery_read(text, keep_known=True)
+        seen.truncated.extend(found.truncated)
+        seen.failed |= found.failed
     if seen.truncated:
         reasons.append(f"no whole base result on {base} to compare {len(head.failed)} red state(s) with "
                        f"({seen.truncated[0]})")
@@ -897,14 +942,14 @@ def gallery_classify(head_text: str | None, base_text: str | None, base: str = "
 def gallery_main(args) -> int:
     read_text = lambda path: path.read_text(errors="replace") if path and path.is_file() else None
     head = read_text(args.head)
-    if args.entries:
+    if args.entries or args.states:
         found = gallery_read(head)
         if found.crashes or found.truncated:
             print("own red: " + "; ".join(found.crashes + found.truncated[:1]), file=sys.stderr)
             return 1
-        print(",".join(gallery_entries(head)))
+        print(",".join(gallery_states(head) if args.states else gallery_entries(head)))
         return 0 if found.failed else 2
-    verdict = gallery_classify(head, read_text(args.base) if args.base else None, args.base_name)
+    verdict = gallery_classify(head, [read_text(path) for path in args.base or []] or None, args.base_name)
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
@@ -935,9 +980,10 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--json", action="store_true")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
-    gallery.add_argument("--base", type=Path)
+    gallery.add_argument("--base", type=Path, action="append", help="a base render's health.json; repeat for several")
     gallery.add_argument("--base-name", default="the base")
     gallery.add_argument("--entries", action="store_true", help="print the entries to replay on the base")
+    gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")
     gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
     gallery.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)

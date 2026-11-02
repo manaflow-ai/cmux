@@ -6,7 +6,7 @@
 # floor and the ring tag. The signature is then checked again against the
 # pinned NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY, not the key that made it.
 set -euo pipefail
-: "${TOOLS:?}" "${CHANNEL_APP_NAME:?}" "${NIGHTLY_DMG_IMMUTABLE:?}" "${NIGHTLY_BUILD:?}" "${FLOOR:?}" "${SPARKLE_CHANNEL:?}" "${SOURCE_COMMIT:?}"
+: "${TOOLS:?}" "${CHANNEL_APP_NAME:?}" "${NIGHTLY_DMG_IMMUTABLE:?}" "${NIGHTLY_BUILD:?}" "${FLOOR:?}" "${SPARKLE_CHANNEL:?}"
 appcast="signer-out/appcast-${NIGHTLY_VARIANT}.xml"
 dmg="signer-out/$NIGHTLY_DMG_IMMUTABLE"
 plist_dir="$(mktemp -d "$RUNNER_TEMP/plist.XXXXXX")"

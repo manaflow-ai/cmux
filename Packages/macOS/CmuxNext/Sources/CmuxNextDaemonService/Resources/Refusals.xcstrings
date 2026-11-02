@@ -21492,6 +21492,138 @@
         }
       }
     },
+    "handlers.refusal.closeUnanswered": {
+      "comment": "Toast and CLI error when a workspace close got no answer from its machine within the safety bound and the workspace is still listed: the result is unknown, because a paused machine may still close it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its machine did not answer, so the workspace may still close."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが応答しなかったため、ワークスペースはこの後閉じる可能性があります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب جهازها، لذا قد تُغلق مساحة العمل لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegova mašina nije odgovorila, pa se radni prostor možda ipak zatvori."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dets maskine svarede ikke, så arbejdsområdet kan stadig blive lukket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sein Rechner hat nicht geantwortet, daher wird der Arbeitsbereich möglicherweise noch geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su máquina no respondió, así que es posible que el espacio de trabajo aún se cierre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa machine n’a pas répondu : l’espace de travail peut encore se fermer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua macchina non ha risposto, quindi lo spazio di lavoro potrebbe ancora chiudersi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនរបស់វាមិនបានឆ្លើយតប ដូច្នេះកន្លែងធ្វើការអាចនៅតែបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 머신이 응답하지 않아 워크스페이스가 나중에 닫힐 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen svarte ikke, så arbeidsområdet kan fortsatt bli lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna nie odpowiedziała, więc obszar roboczy może jeszcze zostać zamknięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina dele não respondeu, então o espaço de trabalho ainda pode ser fechado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Его компьютер не ответил, поэтому рабочее пространство ещё может закрыться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องของพื้นที่ทำงานไม่ตอบสนอง พื้นที่ทำงานจึงอาจยังปิดลงในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinesi yanıt vermedi; çalışma alanı yine de kapanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Його комп’ютер не відповів, тож робочий простір ще може закритися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy của nó không phản hồi, nên không gian làm việc vẫn có thể đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其机器没有响应，因此工作区仍可能会关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其機器沒有回應，因此工作區仍可能會關閉。"
+          }
+        }
+      }
+    },
     "handlers.refusal.topPageIsNotAWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -22536,6 +22668,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 仍在啟動背景服務。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.incognitoUnanswered": {
+      "comment": "Toast and CLI error when a new incognito window's workspace got no answer from cmux's local background service within the safety bound and the service made no workspace: no window opens.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The incognito window did not open: cmux’s background service did not answer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットウィンドウを開けませんでした: cmux のバックグラウンドサービスが応答しませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح نافذة التصفح المتخفي: لم تستجب خدمة cmux في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimni prozor se nije otvorio: pozadinska usluga cmux-a nije odgovorila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet blev ikke åbnet: cmux’ baggrundstjeneste svarede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Inkognito-Fenster wurde nicht geöffnet: Der Hintergrunddienst von cmux hat nicht geantwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ventana de incógnito no se abrió: el servicio en segundo plano de cmux no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fenêtre de navigation privée ne s’est pas ouverte : le service d’arrière-plan de cmux n’a pas répondu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La finestra in incognito non si è aperta: il servizio in background di cmux non ha risposto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចអនាមិកមិនបានបើកទេ៖ សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនបានឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿 창이 열리지 않았습니다: cmux 백그라운드 서비스가 응답하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet ble ikke åpnet: Bakgrunnstjenesten til cmux svarte ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno incognito się nie otworzyło: usługa w tle cmux nie odpowiedziała."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A janela anônima não abriu: o serviço em segundo plano do cmux não respondeu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окно инкогнито не открылось: фоновая служба cmux не ответила."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างไม่ระบุตัวตนไม่เปิด: บริการเบื้องหลังของ cmux ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli pencere açılmadı: cmux’un arka plan hizmeti yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вікно інкогніто не відкрилося: фонова служба cmux не відповіла."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ ẩn danh không mở: dịch vụ nền của cmux không phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕窗口未打开：cmux 的后台服务没有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕視窗未開啟：cmux 的背景服務沒有回應。"
           }
         }
       }
@@ -31448,6 +31712,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此工作區未停靠。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.diskFull": {
+      "comment": "A reason, after '<action> did not apply: ' and inside cmux-tui's start notice: the disk under cmux-tui's state is full. Lowercase fragment.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the disk is full"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص ممتلئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk je pun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Festplatte ist voll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el disco está lleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le disque est plein"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il disco è pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクがいっぱいです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាសពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 가득 찼습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dysk jest pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o disco está cheio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заполнен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดิสก์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk dolu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заповнений"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ổ đĩa đã đầy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘已满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟已滿"
           }
         }
       }

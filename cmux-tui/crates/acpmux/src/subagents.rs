@@ -63,6 +63,10 @@ pub struct SubagentTree {
     /// The background subagents still running: they outlive the turn that
     /// started them, so the session works on past it (`hub/work_below.rs`).
     background: HashSet<String>,
+    /// Every subagent that runs now (live updates only), foreground or background, at any
+    /// depth, oldest first, each with the label a list names it by (its name, else its task):
+    /// the summary's `subagentsRunning` and `subagentNames` (`hub/views.rs`).
+    running: Vec<(String, Option<String>)>,
     /// Codex's native ids for this session. Legacy activity can echo a root id
     /// while a child is running; it is the root, never a subagent. The tree
     /// lives as long as the hub session, and a harness restart or a new Codex
@@ -188,6 +192,7 @@ impl SubagentTree {
         }
         if live {
             self.note_background(&events);
+            self.note_running(&events);
         }
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
@@ -198,6 +203,29 @@ impl SubagentTree {
         owner
     }
 
+    /// Takes in what `log` (a tree rebuilt from the chat's log) knows: every subagent it started,
+    /// and which of them still run. A subagent this tree already knows keeps its own state, since
+    /// a live update may have ended it after the log was read.
+    pub fn adopt(&mut self, log: SubagentTree) {
+        let known: HashSet<String> = self.parents.keys().cloned().collect();
+        for (id, parent) in log.parents {
+            self.parents.entry(id).or_insert(parent);
+        }
+        for (sender, children) in log.pending {
+            self.pending.entry(sender).or_default().extend(children);
+        }
+        for (id, preview) in log.previews {
+            self.previews.entry(id).or_insert(preview);
+        }
+        self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
+        for (id, label) in log.running {
+            if !known.contains(&id) && !self.running.iter().any(|(r, _)| *r == id) {
+                self.running.push((id, label));
+            }
+        }
+        self.root_threads.extend(log.root_threads);
+    }
+
     /// How many background subagents still run.
     pub fn background_running(&self) -> usize {
         self.background.len()
@@ -206,6 +234,68 @@ impl SubagentTree {
     /// The harness is gone, and its background subagents with it.
     pub fn end_background(&mut self) {
         self.background.clear();
+        self.running.clear();
+    }
+
+    /// The subagents that run now and their labels, oldest first. A foreground subagent ends
+    /// with its turn even when the harness never said so (a cancelled turn), so without a
+    /// running turn (`turn_runs` false) only the background ones count.
+    pub fn running_now(&self, turn_runs: bool) -> Vec<(&str, Option<&str>)> {
+        self.running
+            .iter()
+            .filter(|(id, _)| turn_runs || self.background.contains(id))
+            .map(|(id, label)| (id.as_str(), label.as_deref()))
+            .collect()
+    }
+
+    /// A turn ended or a new one began: the foreground subagents of the one before are over
+    /// even when the harness never said so (a cancelled turn), so only the background ones
+    /// still run. Without it, the next turn's `running_now(true)` showed them again.
+    pub fn end_foreground(&mut self) {
+        let background = &self.background;
+        self.running.retain(|(id, _)| background.contains(id));
+    }
+
+    /// How many subagents run now, whatever their turn (`running_now` with a running turn):
+    /// the tap compares it around each update to tell watchers of a change.
+    pub fn running_count(&self) -> usize {
+        self.running.len()
+    }
+
+    /// Follows every running subagent through one live update's events: one that runs joins
+    /// (keeping the first label any event gives it), any that ends leaves.
+    fn note_running(&mut self, events: &[Value]) {
+        for event in events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            let at = self.running.iter().position(|(known, _)| known == id);
+            if event.get("state").and_then(Value::as_str) != Some("running") {
+                if let Some(at) = at {
+                    self.running.remove(at);
+                }
+                continue;
+            }
+            let label = ["name", "task"]
+                .iter()
+                .filter_map(|k| event.get(*k).and_then(Value::as_str))
+                // A task can be the subagent's whole prompt: its secrets are masked before it is
+                // cut, as a turn's preview is (`session::masked_preview`), so none leaves on the
+                // summary's `subagentNames` or half a one survives the cut.
+                .map(|t| {
+                    crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" ")
+                })
+                .find(|t| !t.is_empty())
+                .map(|t| truncate_label(&t));
+            match at {
+                Some(at) => {
+                    if let Some(slot) = self.running.get_mut(at)
+                        && slot.1.is_none()
+                    {
+                        slot.1 = label;
+                    }
+                }
+                None => self.running.push((id.to_owned(), label)),
+            }
+        }
     }
 
     /// Follows the background subagents through one update's events: one
@@ -610,6 +700,7 @@ impl SubagentTree {
         }
         // An echo that arrived before the root was known counted it as background work.
         self.background.remove(id);
+        self.running.retain(|(known, _)| known != id);
         let children = self
             .parents
             .iter()
@@ -622,6 +713,17 @@ impl SubagentTree {
             }
         }
     }
+}
+
+/// The most characters of a running subagent's label (`SubagentTree::running_now`).
+const LABEL_CHARS: usize = 60;
+
+fn truncate_label(text: &str) -> String {
+    if text.chars().count() <= LABEL_CHARS {
+        return text.to_owned();
+    }
+    let cut: String = text.chars().take(LABEL_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// A Codex agent status as a subagent state (codex-acp's `terminalStateOf`).
@@ -1230,64 +1332,5 @@ mod codex_tests {
 }
 
 #[cfg(test)]
-mod background_tests {
-    use super::*;
-
-    fn annotate(tree: &mut SubagentTree, update: Value, live: bool) {
-        let mut params = json!({"sessionId": "s1", "update": update});
-        tree.annotate_live(&mut params, live);
-    }
-
-    /// manaflow-ai/cmux#25230: the background subagents a chat runs past its turn, from their
-    /// start to their end; a foreground one ends with its turn, and a replay changes nothing.
-    #[test]
-    fn background_subagents_run_from_their_start_to_their_end() {
-        let mut tree = SubagentTree::default();
-        tree.set_own(Some("s1"));
-        let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "background": background});
-        let end = |id: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": "completed"});
-        annotate(&mut tree, spawn("fg", false), true);
-        assert_eq!(tree.background_running(), 0);
-        annotate(&mut tree, spawn("replayed", true), false);
-        assert_eq!(tree.background_running(), 0, "a replay starts nothing");
-        annotate(&mut tree, spawn("bg", true), true);
-        // Moved to the background later (Claude's task_started is_backgrounded).
-        annotate(
-            &mut tree,
-            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "fg", "background": true}),
-            true,
-        );
-        assert_eq!(tree.background_running(), 2);
-        // Progress without the mark keeps it.
-        annotate(
-            &mut tree,
-            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "bg"}),
-            true,
-        );
-        assert_eq!(tree.background_running(), 2);
-        annotate(&mut tree, end("bg"), true);
-        annotate(&mut tree, end("fg"), true);
-        assert_eq!(tree.background_running(), 0);
-        annotate(&mut tree, spawn("bg2", true), true);
-        tree.end_background();
-        assert_eq!(tree.background_running(), 0, "its harness exited");
-    }
-
-    /// A legacy activity echo of the native root that arrives before the root is known counts as
-    /// running background work; recognizing the root afterwards must stop counting it.
-    #[test]
-    fn a_late_root_seed_stops_counting_its_echo_as_background_work() {
-        let mut tree = SubagentTree::default();
-        tree.set_own(Some("s1"));
-        annotate(
-            &mut tree,
-            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-root",
-                   "_meta": {"codex": {"subagent": {"threadId": "root-native",
-                     "path": "/root", "activity": "working"}}}}),
-            true,
-        );
-        assert_eq!(tree.background_running(), 1, "the echo was counted before the root was known");
-        tree.set_root("root-native");
-        assert_eq!(tree.background_running(), 0, "the native root is not background work");
-    }
-}
+#[path = "subagents_background_tests.rs"]
+mod background_tests;

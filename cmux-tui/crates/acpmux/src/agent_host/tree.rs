@@ -175,7 +175,7 @@ pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
 #[cfg(target_os = "linux")]
 pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
     // A replaced file reads as `PATH (deleted)`: still the program the server was started as.
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(undeleted)
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(crate::self_command::undeleted)
 }
 
 /// Other unix systems: no executable is read, so no process passes for a server.
@@ -248,15 +248,6 @@ fn procargs2_exec_path(data: &[u8]) -> Option<std::path::PathBuf> {
     let end = rest.iter().position(|b| *b == 0)?;
     let path = std::str::from_utf8(rest.get(..end)?).ok()?;
     std::path::Path::new(path).is_absolute().then(|| std::path::PathBuf::from(path))
-}
-
-/// `/proc/<pid>/exe`'s target without the ` (deleted)` Linux appends once the file was replaced.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn undeleted(target: std::path::PathBuf) -> std::path::PathBuf {
-    match target.to_str().and_then(|t| t.strip_suffix(" (deleted)")) {
-        Some(t) => std::path::PathBuf::from(t),
-        None => target,
-    }
 }
 
 /// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
@@ -404,8 +395,11 @@ mod census_tests {
         let mut relative = 1i32.to_ne_bytes().to_vec();
         relative.extend_from_slice(b"bin/a\0bin/a\0");
         assert!(super::procargs2_exec_path(&relative).is_none(), "not absolute");
-        assert_eq!(super::undeleted(format!("{app} (deleted)").into()), std::path::Path::new(app));
-        assert_eq!(super::undeleted(app.into()), std::path::Path::new(app));
+        assert_eq!(
+            crate::self_command::undeleted(format!("{app} (deleted)").into()),
+            std::path::Path::new(app)
+        );
+        assert_eq!(crate::self_command::undeleted(app.into()), std::path::Path::new(app));
         assert_eq!(
             cmdline_argv(format!("{app}\0forum-mcp\0").as_bytes()).unwrap(),
             [app, "forum-mcp"]

@@ -195,7 +195,7 @@ final class CloseUndoToasts {
         }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
             guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked) { costly in closeAll(undo, costly) }
+            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in closeAll(undo, costly) }
         }
     }
 
@@ -203,7 +203,7 @@ final class CloseUndoToasts {
     /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
     /// `asked` holds terminals the close's question already asked; when it
     /// covers every terminal the rule asks about, the close runs at once.
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:],
+    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
                      then run: @escaping @MainActor (_ costly: Bool) -> Void) {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
         case .show: run(true)
@@ -211,8 +211,9 @@ final class CloseUndoToasts {
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
+            let coordinator = services?.keyRouter.creationInputCoordinator, keys = coordinator?.beginClose(of: tabs, in: window)
             // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty) }
+            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty); coordinator?.endClose(keys, in: window) }
         }
     }
 

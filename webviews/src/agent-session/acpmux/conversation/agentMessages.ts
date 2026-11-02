@@ -1,7 +1,7 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
 // into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage,
 // cmux-sessions' send_to_session and the acpmux MCP server's send (`acpmux_send` behind the cmux
-// server, acpmux_mcp.rs). The transcript draws them as message cards (MessageCard.tsx) instead of
+// server, acpmux_mcp.rs), team_send and inbox_reply. The transcript draws them as message cards (MessageCard.tsx) instead of
 // raw shell or JSON. A shell `acpmux send` is acpmuxSends.ts's.
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
@@ -63,6 +63,8 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
       to: acpmux.to.trim(),
       text: oneMessage(typeof acpmux.text === "string" ? acpmux.text : ""),
     };
+  const team = acpmuxTeamMessage(tool);
+  if (team) return team;
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];
@@ -86,6 +88,33 @@ function acpmuxSendArgs(tool: Tool): Record<string, unknown> | undefined {
       : undefined;
   }
   return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim()) ? parseInput(tool.inputSummary) : undefined;
+}
+
+/// The acpmux MCP server's other two messages (acpmux_mcp.rs): `team_send` `{to, body}` to a team
+/// address, and `inbox_reply` `{thread, text}`, which goes to the thread's newest sender. The reply
+/// names its recipient only in its JSON result (`sessionId`); most harnesses keep the text ("Sent
+/// into thread …"), so the recipient falls back to the sender a `from:<sender>[/pr:N]` thread
+/// names, else the thread (`pr:N`, `topic:T`) (hub/inbox.rs `thread_key`).
+function acpmuxTeamMessage(tool: Tool): AgentMessage | undefined {
+  const call = mcpCall(tool);
+  if (call?.server !== "acpmux" || !call.args || typeof call.args !== "object" || Array.isArray(call.args))
+    return undefined;
+  const args = call.args as Record<string, unknown>;
+  if (call.tool === "team_send" && typeof args.to === "string" && args.to.trim())
+    return { channel: "agent", to: args.to.trim(), text: oneMessage(typeof args.body === "string" ? args.body : "") };
+  if (call.tool !== "inbox_reply" || typeof args.thread !== "string" || !args.thread.trim()) return undefined;
+  const thread = args.thread.trim();
+  const result = parseInput(tool.output?.trim());
+  const structured = result?.structuredContent;
+  const session = [result?.sessionId, structured && (structured as Record<string, unknown>).sessionId].find(
+    (id): id is string => typeof id === "string" && id.trim() !== "",
+  );
+  const sender = /^from:([^/]+)/.exec(thread)?.[1];
+  return {
+    channel: "agent",
+    to: session?.trim() ?? sender ?? thread,
+    text: oneMessage(typeof args.text === "string" ? args.text : ""),
+  };
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// rest has one size, grid == fit(bounds) == the PTY's == the daemon's. A real Ghostty surface in a window;
 /// its IO (passed at construction) is a link to a PTY owner that applies, or never applies, the grids it is
 /// sent. A mismatch counts one violation once a second check sees it; a resize the PTY applies counts none.
-@MainActor @Suite(.serialized) struct TerminalSizeInvariantTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalSizeInvariantTests {
     final class Fixture {
         let io = LinkedTerminalIO()
         let session: TerminalSession

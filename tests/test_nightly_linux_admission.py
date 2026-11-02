@@ -258,7 +258,19 @@ class Workflow(unittest.TestCase):
                         self.assertEqual(evaluate(parse_expression(source), context),
                                          overflow if name == "build-nightly-inputs" or attempt != 1 else "ubuntu-24.04")
 
-    def test_light_resolvers_on_other_tracks_use_hosted_linux(self):
+    def test_light_resolvers_keep_hosted_first_only_for_nightly_next(self):
+        for name in admission.JOBS - {"build-nightly-inputs"}:
+            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
+            for attempt in (1, 2):
+                context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
+                           "needs.decide.outputs.track": "nightly-next",
+                           "needs.decide.outputs.early_attempt": "0", key: "",
+                           "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
+                expected = "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404"
+                self.assertEqual(evaluate(parse_expression(source), context), expected)
+
+    def test_light_resolvers_on_other_tracks_keep_measured_blacksmith_overflow(self):
         for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             for track in ("nightly", "rc"):
@@ -266,7 +278,7 @@ class Workflow(unittest.TestCase):
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                                "needs.decide.outputs.track": track,
                                "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"]}
-                    self.assertEqual(evaluate(parse_expression(source), context), "ubuntu-24.04")
+                    self.assertEqual(evaluate(parse_expression(source), context), "blacksmith-16vcpu-ubuntu-2404")
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:

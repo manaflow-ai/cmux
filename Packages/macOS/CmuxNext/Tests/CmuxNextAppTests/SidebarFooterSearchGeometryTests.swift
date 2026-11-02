@@ -1,10 +1,11 @@
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import AppKit
 
 /// Footer Search geometry stays reachable in every pinned-row shape: empty, fitting, and overfull.
-@MainActor @Suite(.serialized) struct SidebarFooterSearchGeometryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFooterSearchGeometryTests {
     nonisolated enum WidthKind: String, CaseIterable, Sendable { case minimum, `default`, wide }
 
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
@@ -105,7 +106,7 @@ import AppKit
             for spaces in [SpacesPosition.bottom, .top] {
                 for (label, count) in [("empty", 0), ("fitting", 1), ("overfull", 2)] {
                     let h = FooterHarness(width: Self.width(c.width), itemCount: count, searchEnabled: true, spaces: spaces)
-                    defer { h.window.close() }
+                    defer { h.window.closeAfterTest() }
                     h.settle()
                     try Self.assertSearch(h, c, enabled: true)
                     if label == "overfull" {
@@ -124,7 +125,7 @@ import AppKit
                     }
                 }
                 let disabled = FooterHarness(width: Self.width(c.width), itemCount: 2, searchEnabled: false, spaces: spaces)
-                defer { disabled.window.close() }
+                defer { disabled.window.closeAfterTest() }
                 disabled.settle()
                 try Self.assertSearch(disabled, c, enabled: false)
             }

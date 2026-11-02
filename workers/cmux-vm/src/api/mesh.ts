@@ -9,7 +9,8 @@ import { Schema } from "effect";
 import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
 import { DeviceId, MeshId, TenantId, TunnelId, VmId } from "../lib/ids.ts";
-import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders } from "./common.ts";
+import { describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
+import { Labels as ResourceLabels } from "./snapshots.ts";
 
 const EXPERIMENT = "Experiment: answers 404 unless the mesh experiment is enabled for the team.";
 
@@ -31,6 +32,11 @@ export class MeshList extends Schema.Class<MeshList>("MeshList")({ items: Schema
 
 export class CreateMeshRequest extends Schema.Class<CreateMeshRequest>("CreateMeshRequest")({
   displayName: Schema.optional(DisplayName),
+}) {}
+
+export class CreateMeshIntentRequest extends Schema.Class<CreateMeshIntentRequest>("CreateMeshIntentRequest")({
+  displayName: Schema.optional(DisplayName),
+  labels: Schema.optional(ResourceLabels.annotations({ identifier: "MeshLabels", description: "Up to 16 public labels. A service key may create or reach only meshes carrying every one of its required labels. Labels are retained with the original creation intent." })),
 }) {}
 
 const SIGNED =
@@ -227,6 +233,15 @@ export class PeerMap extends Schema.Class<PeerMap>("PeerMap")({
   peers: Schema.Array(Peer),
 }) {}
 
+/** Account-authorized VM ingress metadata; the Cloud owner joins backend grants. */
+export class VmReceiverPolicy extends Schema.Class<VmReceiverPolicy>("VmReceiverPolicy")({
+  schemaVersion: Schema.Literal(1), tenantId: TenantId, vmId: VmId, meshId: MeshId,
+  ipv4: Schema.NullOr(Schema.String), aclVersion: Schema.Int.pipe(Schema.nonNegative()),
+  checkedAt: Schema.Int.pipe(Schema.nonNegative()), expiresAt: Schema.Int.pipe(Schema.nonNegative()),
+  policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
+  peers: Schema.Array(Schema.Struct({ deviceId: DeviceId, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey, allow: Schema.Array(PeerAllow).pipe(Schema.maxItems(4096)) })).pipe(Schema.maxItems(128)),
+}) {}
+
 export const OverlayPeer = Schema.Struct({
   deviceId: DeviceId,
   wgPublicKey: WgPublicKey,
@@ -243,6 +258,8 @@ export class OverlayPolicy extends Schema.Class<OverlayPolicy>("OverlayPolicy")(
   aclVersion: Schema.Int,
   policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)).annotations({ description: "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof." }),
   peers: Schema.Array(OverlayPeer),
+  // Older services omit this projection. Cloud authorization must require it.
+  vms: Schema.optional(Schema.Array(Peer)).annotations({ description: "The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session." }),
 }, { description: "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane." }) {}
 
 export class DeviceOverlayPolicy extends OverlayPolicy.extend<DeviceOverlayPolicy>("DeviceOverlayPolicy")({
@@ -380,14 +397,26 @@ const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String })
 /** Endpoints without the Authentication middleware; src/api.ts applies it. */
 export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
+    HttpApiEndpoint.post("createMeshIntent", "/v1/mesh-creations")
+      .setPayload(CreateMeshIntentRequest)
+      .setHeaders(GroupCreationKeyHeaders)
+      .addSuccess(Mesh, { status: 201 })
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(PaymentRequired)
+      .addError(QuotaExceeded)
+      .annotateContext(describe("Create a mesh with durable replay", "mesh:write", `Requires an Idempotency-Key and a team admin for sessions. Reuses the original mesh across retries, conflicts on changed intent and never recreates a deleted mesh. Older servers without this route refuse it before allocation. ${EXPERIMENT}`)),
+  )
+  .add(
     HttpApiEndpoint.post("createMesh", "/v1/meshes")
       .setPayload(CreateMeshRequest)
       .setHeaders(GroupCreateHeaders)
       .addSuccess(Mesh, { status: 201 })
       .addError(NotFound)
+      .addError(Conflict)
       .addError(PaymentRequired)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. ${EXPERIMENT}`)),
+      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("listMeshes", "/v1/meshes")
@@ -524,6 +553,18 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.get("getMeshVm", "/v1/meshes/:meshId/vms/:vmId")
+      .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(MeshMember)
+      .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM's current mesh address", "mesh:read", `Also needs vm:read. Reads the exact owned VM and mesh without attaching or moving it. An unavailable address is null. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.get("getVmReceiverPolicy", "/v1/meshes/:meshId/vms/:vmId/receiver-policy")
+      .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(VmReceiverPolicy)
+      .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM's current receiving policy", "mesh:read", `Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and at most 4096 incoming service rules, with a lease of at most 30 seconds capped by included owner-key expiry. Public-address transport rules are excluded. No listener activation or backend service grant is implied. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")

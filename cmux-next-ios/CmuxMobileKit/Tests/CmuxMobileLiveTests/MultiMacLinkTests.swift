@@ -72,6 +72,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(decision.nextExpiry == nil)
     }
 
+    /// Opening the Cloud sheet keeps the whole authenticated Mac directory
+    /// shown, so selecting one Cloud VM cannot evict another Mac's link.
+    @Test func cloudSheetKeepsOtherMacLinksShown() {
+        let all = Set(macs.map(\.id))
+        let decision = MacLinkPolicy(maxLinks: 4).decide(macs: macs, focused: "m1", showing: all, lastShown: [:], now: now)
+        #expect(decision.linked == ["m1", "m2", "m3", "m4"])
+    }
+
     /// Lazy: a Mac nothing shows, and never shown, is not dialed.
     @Test func aMacNothingShowsIsNotLinked() {
         let decision = MacLinkPolicy().decide(macs: macs, focused: "m1", showing: ["m1"], lastShown: [:], now: now)

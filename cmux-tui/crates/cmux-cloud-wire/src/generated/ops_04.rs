@@ -4,6 +4,36 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParamsPeerVariant2 {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParamsPeerVariant3 {
+    pub phone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum DmOpenParamsPeer {
+    ParticipantId(ParticipantId),
+    Variant2(DmOpenParamsPeerVariant2),
+    Variant3(DmOpenParamsPeerVariant3),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParams {
+    pub peer: DmOpenParamsPeer,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenResult {
+    pub conversation: HomeConversationSummary,
+}
+
 wire_errors! {
     /// The error codes dm.open declares.
     DmOpenError {
@@ -872,21 +902,4 @@ pub struct FeedSnoozeResultItemsItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedSnoozeResult {
     pub items: Vec<FeedSnoozeResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.snooze declares.
-    FeedSnoozeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

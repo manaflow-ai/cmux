@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
@@ -92,8 +93,13 @@ const family = (id: string, name: string): QuickFamily => ({
   })),
 });
 
-type HarnessOptions = { onAddHarness?: () => void; noMore?: boolean; searchField?: QuickSearchField };
-function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolean } & HarnessOptions) {
+type HarnessOptions = {
+  onAddHarness?: () => void;
+  noMore?: boolean;
+  searchField?: QuickSearchField;
+  auth?: { verdict: SessionAuth; onLogin(): void };
+};
+function Harness({ newTab, onAddHarness, noMore, searchField, auth }: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -105,6 +111,7 @@ function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolea
         trigger={trigger}
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
+          auth,
           ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
@@ -141,6 +148,45 @@ async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
+
+for (const newTab of [false, true]) {
+  for (const state of ["expired", "signedOut"] as const) {
+    test(`${newTab ? "New Tab" : "chat"} keeps ${state} recovery available while searching before send`, async () => {
+      let logins = 0;
+      await openMenu(newTab, {
+        searchField: "always",
+        auth: {
+          verdict: {
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          },
+          onLogin: () => logins++,
+        },
+      });
+      const recovery = () =>
+        [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (row) => row.textContent?.trim() === "Sign in again",
+        );
+      expect(recovery()).toBeDefined();
+      const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+      expect(list().querySelectorAll('[role="menuitemradio"]').length).toBeGreaterThan(0);
+      for (const key of "opus")
+        await act(async () => {
+          list().dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true }));
+        });
+      await settle();
+      expect(input.value).toBe("opus");
+      expect(list().querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+      expect(recovery()).toBeDefined();
+      await act(async () => recovery()!.click());
+      expect(logins).toBe(1);
+    });
+  }
+}
 
 test("a chat's menu keeps its key hints and More models submenu", async () => {
   await openMenu(false);
@@ -806,6 +852,79 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   const text = document.querySelector(".acpmux-quick-note")?.textContent?.trim();
   expect(text).toBe("No models yet. Refresh to ask the agent again.");
   expect(text).not.toBe("No matching models");
+});
+
+// https://github.com/manaflow-ai/cmux/issues/29915: effort showed only as "Medium >" on the running
+// row; the chat's own tab drew a blank column on its other models until pointed at.
+test("every model row with levels names one at rest, on the chat's own tab too", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  function OwnTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          effort: {
+            current: "high",
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
+            onPick() {},
+          },
+          families: {
+            current: "claude",
+            onPick() {},
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [
+                  { id: "opus", name: "Opus", family: "claude", efforts: ["low", "high"] },
+                  {
+                    id: "sonnet",
+                    name: "Sonnet",
+                    family: "claude",
+                    efforts: ["low", "medium"],
+                    defaultEffort: "medium",
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OwnTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const rowOf = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+      node.querySelector(".acpmux-menu-label")?.textContent?.includes(name),
+    )!;
+  const opus = rowOf("Opus");
+  expect(opus.hasAttribute("data-running")).toBe(true);
+  expect(opus.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("High");
+  const sonnet = rowOf("Sonnet");
+  expect(sonnet.hasAttribute("data-held")).toBe(true);
+  expect(sonnet.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
 });
 
 // Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING FAST MODE FOR FUCKIGN CODEX". Another tab's

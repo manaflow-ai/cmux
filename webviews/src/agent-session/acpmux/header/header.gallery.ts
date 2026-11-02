@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
-// The pane header: an actionable title, tools and connection failures only.
+// The pane header: the chat's plain title, tools and connection failures only.
 // Where a started chat runs is Session Info's Environment; the header never repeats it.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -19,12 +19,12 @@ const inTabRow: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-status--inline"));
 };
 
-// The same row while connected: the title menu and tools, with no location line below the tab row.
+// The same row while connected: the plain title and tools, with no location line below the tab row.
 const inTabRowConnected: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");
   setTabRow({ height: 28, trailingInset: 0 });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header[data-tab-row]"));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title-trigger"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title"));
   if (ctx.document.querySelector(".acpmux-env-line, .acpmux-environment-row"))
     throw new Error("The chat header repeated the composer location");
 };

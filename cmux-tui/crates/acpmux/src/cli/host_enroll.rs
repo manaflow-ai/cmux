@@ -743,7 +743,7 @@ pub(super) fn platform_skew(
 /// The step for a host whose acpmux is cmux's own: its build is the app's
 /// business, so another build only warns, and nothing is pushed.
 fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
-    let want = crate::hub::BUILD;
+    let want = crate::hub::build();
     match used.build.as_deref() {
         Some(b) if b == want => StepResult::new(step, StepState::Ok, ok),
         b => StepResult::new(
@@ -770,7 +770,7 @@ fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
 
 fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     let host = r.host();
-    let want = crate::hub::BUILD;
+    let want = crate::hub::build();
     let from_app = INSTALL_FROM_APP.replace("{host}", host);
     let probed = match probe(r) {
         Ok(p) => p,

@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
 
 /// Real sidebar fixtures for the four insert choices. Capture the window during `insert` for motion proof;
 /// the PNGs are settled before/after states, not recordings of the transition.
-@MainActor @Suite(.serialized) struct AASidebarInsertMotionGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarInsertMotionGalleryTests {
     static func sections(inserted: Bool) -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let names = ["Home anchor"] + (inserted ? ["New workspace"] : []) + ["Editor", "Docs", "Terminal", "Review", "Preview"]
@@ -60,6 +61,7 @@ import Testing
             sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 420)
             let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            defer { window.closeAfterTest() }
             window.title = motion.tunableTitle + (motion == .snap ? " (selected)" : "")
             window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = sidebar
@@ -77,7 +79,6 @@ import Testing
             sidebar.list.reload(animated: true)
             RunLoop.current.run(until: Date(timeIntervalSinceNow: Motion.sidebar.spring(motion.token).settlingTime() + 0.1))
             try Self.render(sidebar, to: out.appending(path: "\(motion.rawValue)-after.png"))
-            window.close()
         }
         try "Selected: snap. Existing rows land immediately; only the new row fades. PNGs show settled states.\n"
             .write(to: out.appending(path: "README.txt"), atomically: true, encoding: .utf8)

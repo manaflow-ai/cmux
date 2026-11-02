@@ -1186,127 +1186,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to connect to this Mac?"
+            "value": "Allow “%1$@” (%2$@) to connect to this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تريد السماح لـ «%@» بالاتصال بهذا الـ Mac؟"
+            "value": "هل تريد السماح لـ «%1$@» (%2$@) بالاتصال بهذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da se „%@“ poveže s ovim Macom?"
+            "value": "Dozvoliti da se „%1$@“ (%2$@) poveže s ovim Macom?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillade, at “%@” forbinder til denne Mac?"
+            "value": "Vil du tillade, at “%1$@” (%2$@) forbinder til denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, sich mit diesem Mac zu verbinden?"
+            "value": "„%1$@“ (%2$@) erlauben, sich mit diesem Mac zu verbinden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” se conecte a este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à se connecter à ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à se connecter à ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di connettersi a questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di connettersi a questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac への接続を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac への接続を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” តភ្ជាប់ទៅ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) តភ្ជាប់ទៅ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» kobler til denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) kobler til denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na połączenie z tym Makiem?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na połączenie z tym Makiem?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” se conecte a este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» подключаться к этому Mac?"
+            "value": "Разрешить «%1$@» (%2$@) подключаться к этому Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’e bağlanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’e bağlanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» підключатися до цього Mac?"
+            "value": "Дозволити «%1$@» (%2$@) підключатися до цього Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” kết nối với máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) kết nối với máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”连接到这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）连接到这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」連線到這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）連線到這台 Mac 嗎？"
           }
         }
       }
@@ -1317,127 +1317,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to use this Mac?"
+            "value": "Allow “%1$@” (%2$@) to use this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "السماح لـ «%@» باستخدام هذا الـ Mac؟"
+            "value": "السماح لـ «%1$@» (%2$@) باستخدام هذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da „%@“ koristi ovaj Mac?"
+            "value": "Dozvoliti da „%1$@“ (%2$@) koristi ovaj Mac?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillade “%@” at bruge denne Mac?"
+            "value": "Tillade “%1$@” (%2$@) at bruge denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, diesen Mac zu verwenden?"
+            "value": "„%1$@“ (%2$@) erlauben, diesen Mac zu verwenden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” use este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) use este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à utiliser ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à utiliser ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di usare questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di usare questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac の使用を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac の使用を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” ប្រើ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) ប្រើ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» bruker denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) bruker denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na korzystanie z tego Maca?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na korzystanie z tego Maca?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” use este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) use este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» использовать этот Mac?"
+            "value": "Разрешить «%1$@» (%2$@) использовать этот Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” ใช้ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) ใช้ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’i kullanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’i kullanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» використовувати цей Mac?"
+            "value": "Дозволити «%1$@» (%2$@) використовувати цей Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” sử dụng máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) sử dụng máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”使用这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）使用这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」使用這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）使用這台 Mac 嗎？"
           }
         }
       }

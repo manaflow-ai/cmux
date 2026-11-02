@@ -289,13 +289,18 @@ impl Hub {
         }
         // Scan the whole log: a long turn can stream far more records
         // than any fixed tail window after its `turn_started`.
-        let mut open: Option<(u64, Value)> = None;
+        let mut open: Option<(u64, Value, Value, bool)> = None;
         let kinds = ["turn_started", "turn_result"];
         self.store
             .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                        open = Some((
+                            e.seq,
+                            e.msg.get("turnId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("promptId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("trigger") == Some(&Value::Bool(true)),
+                        ))
                     }
                     "turn_result" => open = None,
                     _ => {}
@@ -303,10 +308,20 @@ impl Hub {
                 true
             })
             .ok()?;
-        let (seq, turn_id) = open?;
+        let (seq, turn_id, prompt_id, trigger) = open?;
         let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
-        let error = "the daemon restarted before this turn settled";
-        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+        let error = if trigger {
+            "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
+        } else {
+            "the daemon restarted before this turn settled"
+        };
+        if trigger {
+            self.append(session, "mux", super::background_turn::RECORD_KIND, json!({
+                "state":"ended", "id":format!("bg-trigger-{}", turn_id.as_str().unwrap_or_default()),
+                "trigger":"system", "quiet":false, "reason":"exit"
+            }));
+        }
+        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error}));
         self.save_meta(session);
         continued
     }

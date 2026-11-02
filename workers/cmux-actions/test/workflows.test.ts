@@ -193,11 +193,14 @@ describe("fixture coverage", () => {
 describe("iOS kit picker fallback", () => {
   const workflow = () => load(".github/workflows/cmux-next-ios-kit.yml");
   const cases: Array<[string, Record<string, string>, string]> = [
-    ["unset variables", {}, "blacksmith-4vcpu-ubuntu-2404"],
-    ["empty pool", { RUNNER_POOLS: "", LINUX_RUNNER: "fleet-linux" }, "fleet-linux"],
-    ["fleet before paid pool", { LINUX_RUNNER: "fleet-linux", RUNNER_POOLS: '{"linux":"blacksmith-8vcpu-ubuntu-2404"}' }, "fleet-linux"],
-    ["live pool before paid fallback", { LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "fleet-linux"],
-    ["missing pool member", { RUNNER_POOLS: "{}", LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["unset variables uses the bounded default", {}, "blacksmith-8vcpu-ubuntu-2404"],
+    ["empty pool rejects the fleet label", { RUNNER_POOLS: "", LINUX_RUNNER: "fleet-linux" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["fleet before paid pool is rejected", { LINUX_RUNNER: "fleet-linux", RUNNER_POOLS: '{"linux":"blacksmith-8vcpu-ubuntu-2404"}' }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["four vCPU is accepted", { LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "blacksmith-4vcpu-ubuntu-2404"],
+    ["eight vCPU is accepted", { LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["sixteen vCPU is accepted", { LINUX_RUNNER: "blacksmith-16vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "blacksmith-16vcpu-ubuntu-2404"],
+    ["invalid pool member falls back to eight vCPU", { RUNNER_POOLS: '{"linux":"glaeda-std-xcode-26.6"}', LINUX_RUNNER: "glaeda-std-xcode-26.6" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["missing pool member keeps a bounded eight vCPU value", { RUNNER_POOLS: "{}", LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
   ];
 
   it.each(cases)("runs picker and tests with %s", (_name, vars, expected) => {

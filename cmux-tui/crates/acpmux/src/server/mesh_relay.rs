@@ -722,7 +722,7 @@ pub async fn deliver(
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {
-        return Some(Ack::refused("team messaging is disabled in Labs"));
+        return Some(Ack::refused("team messaging is off on this daemon"));
     }
     if let Err(why) = hub.mesh_for_here(&message.to, own_daemon) {
         return Some(Ack::refused(why));

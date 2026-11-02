@@ -62,26 +62,28 @@ extension AgentTabStore {
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        // No folder picked and none in its workspace: that machine's own work folder (`~/work`,
-        // `agent-session-folders`), never a dead end (Leo, 2026-10-31). An older daemon has none.
-        // Its own connection, so the start's owner-checked one is made for the start alone.
-        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
+        // Non-Cloud hosts retain the folder picker fallback. A Cloud host owns
+        // the no-folder choice in Rust and receives no cwd so it can create a
+        // fresh `~/chats/<chat-id>` folder on the machine.
+        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolder?(key) : nil)
+        var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            fallback = try? await lister.folders().work
+            if ownerLink != nil { supportsNoCwd = (try? await lister.supportsNoCwd()) == true }
+            if !supportsNoCwd { fallback = try? await lister.folders().work }
             await lister.close()
         }
-        guard let cwd = fallback else {
+        if fallback == nil && !supportsNoCwd {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
-        let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
+        let home = fallback.map { existingView(key)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: cwd, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -95,7 +97,7 @@ extension AgentTabStore {
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: cwd, detail: error.message,
+            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: fallback, detail: error.message,
                                           keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error

@@ -212,6 +212,19 @@ impl Hub {
         if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
     }
 
+    /// Before a first unix socket `initialize` binds its caller: a token that proves nothing yet
+    /// waits for this run's adoption of the hosts a restart left (`adopt_agent_hosts`). An
+    /// agent's MCP servers connect anew for each call, so right after an update they reach this
+    /// run with the earlier run's token before adoption knows it (`adopt_caller_token`); bound
+    /// then, the call was refused as another chat's (bg tasks lost on 2026-11-01). Waits for
+    /// nothing outside a restart; a token adoption does not know is still refused after it.
+    pub(crate) async fn settle_caller(&self, session_id: &str, token: &str) {
+        if caller_proves(session_id, token) || self.adopted_caller_proves(session_id, token) {
+            return;
+        }
+        let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
+    }
+
     /// Whether `token` is the caller token session `session_id`'s adopted
     /// host started its harness with under an earlier daemon run (constant time).
     fn adopted_caller_proves(&self, session_id: &str, token: &str) -> bool {

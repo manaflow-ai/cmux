@@ -8,6 +8,10 @@ use std::time::Instant;
 
 pub(in crate::server) struct ClientRecord {
     pub(in crate::server) transport: ClientTransport,
+    /// Authenticated Native role, set by remote entry before the first frame.
+    /// Outer None is a non-Native connection; Some(None) is a Native token
+    /// without an owner claim and must never fall back to request fields.
+    pub(in crate::server) native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     pub(in crate::server) connected_at: Instant,
     pub(in crate::server) name: Option<String>,
     pub(in crate::server) kind: Option<String>,

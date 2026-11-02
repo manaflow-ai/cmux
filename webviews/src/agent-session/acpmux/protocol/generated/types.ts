@@ -91,6 +91,8 @@ export type AttachResult = {
  * them, and accepted only from the unix socket or a peer forwarding for its own.
  */
 export interface Author {
+  /** A link guest's prompts wait for the chat owner's approval. */
+  approval?: (AuthorApproval | null);
   /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
   id: string;
   login?: (string | null);
@@ -98,6 +100,8 @@ export interface Author {
   name: string;
   node?: (string | null);
 }
+
+export type AuthorApproval = "owner";
 
 export type AuthorMeta = {
   acpmux?: (AuthorMetaFields | null);
@@ -204,6 +208,21 @@ export type EventsResult = {
    * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
    */
   pageThrough: number;
+} & Record<string, unknown>;
+
+/**
+ * `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+ * Before-prompt requests require requestId and omit both throughSeq and live.
+ */
+export type ForkParams = {
+  _meta?: unknown;
+  /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
+  beforePromptId?: (string | null);
+  live?: (boolean | null);
+  /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
+  requestId?: (string | null);
+  sessionId: string;
+  throughSeq?: (number | null);
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {
@@ -623,6 +642,12 @@ export type QueuedPromptSummary = {
    */
   author: (QueuedAuthor | null);
   /**
+   * A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+   * runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
+   * declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+   */
+  awaitingOwner: boolean;
+  /**
    * What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
    * `result` when it named none; null for the person's own prompt and from a peer on an older
    * acpmux.
@@ -658,6 +683,8 @@ export type QueuedPromptSummary = {
   prompt: string;
   promptId: string;
   queuedAt: number;
+  /** Its version for the owner's approval: 0 when queued, one more at each edit by its author. */
+  revision: number;
   /**
    * acpmux's own ask that the chat's agent resume a subagent that failed on a transient error
    * (`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that

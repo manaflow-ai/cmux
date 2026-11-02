@@ -34,6 +34,9 @@ Oracles (each a short name in the failure, `oracle:detail`):
   stall       no main-thread stall over 100 ms with a cmux frame (debug.hangs records since the last burst);
               stalls with no cmux frame (or no stack) are kept as notes
   crash       the app process lives and its daemon is connected (debug.crashes after a quit relaunch: clean)
+  quit        (set `quit`, ext_quitfuzz.py) after each quit kind and each kill -9 (app, daemon, both): every
+              acknowledged workspace, pane and terminal is back, scrollback intact, one daemon and at most one holder
+              run, no orphan daemon (End choices: what they end is gone, and the layout stays for End Sessions)
   leak        after close-all: the app's fd count, the bundle's process count and its PTY count are back at the
               baseline (taken at the first close-all, so browser helpers that stay warm are counted once); a later
               close-all above it is a leak
@@ -99,6 +102,14 @@ ACTIONS = {
     "paste": {"special": True},                                                   # Cmd-V of a short text
     "relaunch": {"special": True, "alone": True},                                 # Cmd-Q, then open again
     "close_all": {"special": True, "alone": True},                                # every workspace closed; leak check
+    # QUIT P0 (ext_quitfuzz.py): each quit kind and kill -9 of the app, of its daemon or of both. Each ENDS its burst,
+    # so it can come at once after a create, a resize or typed text (a kill during them); the `quit` oracle judges it.
+    "quit_keep": {"special": True, "ends": True},
+    "quit_end_sessions": {"special": True, "ends": True},
+    "quit_end_everything": {"special": True, "ends": True},
+    "kill_app": {"special": True, "ends": True},
+    "kill_daemon": {"special": True, "ends": True},
+    "kill_both": {"special": True, "ends": True},
 }
 # How often a plan picks each action: creates more often than closes, so the app keeps something to act on.
 WEIGHTS = {"new_column": 2, "split_type": 2, "new_tab": 3, "new_workspace": 2, "split_right": 3, "split_down": 2, "new_terminal": 4, "open_url": 1,
@@ -106,9 +117,13 @@ WEIGHTS = {"new_column": 2, "split_type": 2, "new_tab": 3, "new_workspace": 2, "
            "drag_divider": 2, "type_line": 3, "paste": 1, "relaunch": 0.3, "close_all": 1}
 # The action sets (journey option fuzz_set): `layout` (cmux-ad 06:42Z, fuzz-catalog row m, the first mode: the layout
 # invariants R3a and R3b under the actions that change the layout) and `full` (every action above).
+# `quit` (QUIT P0): creates, typing and resizes, then a quit of each kind or a kill -9, often at once after them.
 SETS = {"layout": {"new_column": 3, "split_right": 3, "split_down": 2, "split_type": 3, "new_terminal": 3, "close_pane": 1.5,
                    "drag_divider": 2, "resize_window": 2, "relaunch": 0.3},
-        "full": WEIGHTS}
+        "full": WEIGHTS,
+        "quit": {"new_workspace": 2, "new_terminal": 3, "split_right": 2, "split_down": 1, "type_line": 4, "resize_window": 1.5,
+                 "close_tab": 0.5, "relaunch": 0.5, "quit_keep": 1, "quit_end_sessions": 0.4, "quit_end_everything": 0.3,
+                 "kill_app": 1, "kill_daemon": 0.8, "kill_both": 0.6}}
 TIMINGS = {"now": 0.0, "pair": 0.06, "slow": 1.5}
 TIMING_WEIGHTS = {"now": 3, "pair": 2, "slow": 4}
 # A pair of creates is most often the same key twice (Cmd-D twice, Ctrl-` twice: what Lawrence hit).
@@ -125,14 +140,15 @@ HOLD_SECONDS = 2.5  # driver.CREATION_HOLD_SECONDS; repeated so fuzz.py can impo
 SPLIT_GAP = 0.03
 SPLIT_LINES_TIMEOUT = 15.0
 # Actions after which the model cannot predict counts (exact create checks and R3b are off for that burst).
-DISTURB = {"close_tab", "close_pane", "close_workspace", "switch_workspace", "relaunch", "close_all"}
+DISTURB = {"close_tab", "close_pane", "close_workspace", "switch_workspace", "relaunch", "close_all", "quit_keep",
+           "quit_end_sessions", "quit_end_everything", "kill_app", "kill_daemon", "kill_both"}
 # Actions that change pane sizes on purpose (R3b is off for that burst).
 RESIZE = {"resize_window", "drag_divider"}
 # Oracles that stop the sequence and are shrunk (a wrong layout, a lost create, a crash, a leak). The others (RECORD:
 # the app's own desync monitor, main-thread stalls, focus) are recorded once per signature with the seed and the
 # actions so far, and the run goes on, so one early finding (a cold CEF start, a page-window desync after Cmd-N) does
 # not hide the rest of the run. Both count in the verdict; fuzz.py compares each with the base build.
-STOP = {"create", "r3a", "r3b", "crash", "topology", "leak", "keys"}
+STOP = {"create", "r3a", "r3b", "crash", "topology", "leak", "keys", "quit"}
 RECORD = {"desync", "stall", "focus"}
 # Leak tolerances after close-all (see Fuzz.leak).
 LEAK_FDS = 48
@@ -236,7 +252,8 @@ def bursts(seq):
             out.append(cur)  # an `alone` action is a burst of its own: it never joins the actions before it
             cur = []
         cur.append(item)
-        if item.get("t", "slow") == "slow" or len(cur) >= MAX_BURST or ACTIONS.get(item["a"], {}).get("alone"):
+        if item.get("t", "slow") == "slow" or len(cur) >= MAX_BURST or ACTIONS.get(item["a"], {}).get("alone") \
+                or ACTIONS.get(item["a"], {}).get("ends"):
             out.append(cur)
             cur = []
     if cur:
@@ -541,6 +558,12 @@ class Fuzz:
             self.wait_hold()
             rec["at"] = D.now()
             rec["closed"] = self.close_all()
+        elif spec.get("ends"):
+            import ext_quitfuzz  # the quit and kill actions (same folder; loaded by the driver too)
+            rec.update(ext_quitfuzz.play(self, name, before))
+            if "relaunch" in rec:
+                rec["relaunch"] = _short(rec["relaunch"])
+            self.last_create = None
         if spec.get("creates"):
             self.last_create = rec.get("at", D.now())
         if spec.get("closes"):
@@ -1093,6 +1116,8 @@ class Fuzz:
     def run_burst(self, burst):
         j = self.j
         names = [i["a"] for i in burst]
+        # The quit oracle (ext_quitfuzz.merged): a close in this burst may be in flight at its end.
+        self.burst_closes = any(ACTIONS[a].get("closes") for a in names)
         before = state(j)
         # R3b: a burst whose only layout changes are its creates (no resize, drag, close or switch in it) and that
         # makes a column or splits inside one.
@@ -1143,13 +1168,23 @@ class Fuzz:
             pr = self.probe(before, require_new=exact)
             recs[-1]["new_probe"] = pr
             problems += pr.get("problems", [])
-        closed_all, relaunched = "close_all" in names, "relaunch" in names
+        closed_all = "close_all" in names
+        # A new app process (a quit or a kill of the app): new launch stalls and a new resource baseline. Only a quit
+        # must launch clean; a SIGKILL'd run restores without the crash notice (CrashNoticeTests), so it is not judged.
+        relaunched = "relaunch" in names or any(ACTIONS[a].get("ends") and a != "kill_daemon" for a in names)
+        quit_clean = "relaunch" in names or any(a.startswith("quit_") for a in names)
         if relaunched:
             # A new process: its launch stalls are not the burst's (skipped), and its resources are a new baseline.
             self.hang_seq = max([int(r.get("sequence") or 0) for r in hang_records(j, 0)] or [0])
             self.leak_base = None
         after = state(j)
-        problems += self.crash(after, relaunched)
+        for r in recs:
+            if ACTIONS[r["a"]].get("ends") and r.get("error"):
+                problems.append(("quit", f"{r['a']} failed: {r['error'][:200]}"))
+            elif ACTIONS[r["a"]].get("ends"):
+                import ext_quitfuzz
+                problems += ext_quitfuzz.oracle(self, r, after)
+        problems += self.crash(after, quit_clean)
         if not any(p[0] == "crash" for p in problems):
             tags, self.pty_tags = self.pty_tags, {}
             problems += self.settle_check(lambda: self.r3a(state(j), tags))
