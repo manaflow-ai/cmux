@@ -509,8 +509,13 @@ impl Hub {
                 }
             }
         }
+        // A provider route does not use the CLI's own subscription login. Its probe/turn
+        // evidence answers for it; a local file token expiring cannot block that route.
         if !facts.settled()
             && refresh
+            && route
+                .as_ref()
+                .is_none_or(|(r, _)| r.file.kind == routes::RouteKind::DirectSubscription)
             && let Some(mut profile) = profile
         {
             // A chat's own env as its spawn builds it (`route_account::spawn_env`); a target's
