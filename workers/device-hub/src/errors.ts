@@ -19,6 +19,16 @@ export type ErrorCode =
   | "rate_limited"
   | "host_scope"
   | "not_anchored"
+  | "not_self"
+  | "digest_mismatch"
+  | "approval_exists"
+  | "self_approval"
+  | "not_approver"
+  | "not_asker"
+  | "approval_not_pending"
+  | "approval_expired"
+  | "always_not_allowed"
+  | "bad_decision_signature"
   | "internal";
 
 export class ApiError extends Error {

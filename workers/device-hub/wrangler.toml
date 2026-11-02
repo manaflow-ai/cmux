@@ -11,6 +11,9 @@
 #   TICKET_KEY         private P-256 JWK (JSON) that signs session tickets
 #   TURN_KEY_ID        optional, Cloudflare Realtime TURN key id
 #   TURN_KEY_API_TOKEN optional, its API token. Without both, the cmux relay ICE is [].
+#   APNS_KEY_P8        optional, APNs auth key (PKCS#8 PEM) for Computer Use approval
+#   APNS_KEY_ID        pushes to phones; with APNS_TEAM_ID. Without all three, phones
+#   APNS_TEAM_ID       hear approval questions only on their User DO socket.
 # `npm run dev-secrets` writes a fresh .dev.vars with both keys.
 
 name = "cmux-device-hub"
@@ -38,6 +41,8 @@ BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com"
 # Optional public origin used in signalURL (e.g. https://hub.example). Empty:
 # derived from the request URL.
 PUBLIC_BASE_URL = ""
+# Bundle ids a phone may register an APNs token for (Computer Use approval pushes).
+APNS_TOPICS = "dev.cmux.mobile.prod,dev.cmux.app.internal"
 
 [[durable_objects.bindings]]
 name = "USER_DO"
@@ -73,6 +78,7 @@ STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845
 # web deployment (its Stack project is the development one).
 BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app"
 PUBLIC_BASE_URL = ""
+APNS_TOPICS = "dev.cmux.mobile,dev.cmux.mobile.demo,dev.cmux.mobile.prod,dev.cmux.app.internal"
 
 [[env.dev.durable_objects.bindings]]
 name = "USER_DO"

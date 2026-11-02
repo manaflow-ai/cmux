@@ -66,6 +66,10 @@ async function billingResponse(origin: string, headers: Headers, signal: AbortSi
   });
 }
 
+/** Every APNs request the hub made, and what the mocked APNs answers per token (default 200). */
+export const apnsCalls: { sandbox: boolean; token: string; headers: Record<string, string>; body: any }[] = [];
+export const apnsAnswers = new Map<string, { status: number; reason: string }>();
+
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
 
@@ -93,6 +97,15 @@ export function mockOutbound() {
       if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\"");
       const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
       return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
+    }
+    const apns = /^https:\/\/api\.(sandbox\.)?push\.apple\.com\/3\/device\/([0-9a-f]+)$/.exec(url);
+    if (apns) {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const body = JSON.parse(String(init?.body ?? "null"));
+      apnsCalls.push({ sandbox: !!apns[1], token: apns[2]!, headers: Object.fromEntries(headers.entries()), body });
+      const answer = apnsAnswers.get(apns[2]!);
+      if (answer) return Response.json({ reason: answer.reason }, { status: answer.status });
+      return new Response(null, { status: 200 });
     }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
       return Response.json({
@@ -196,6 +209,8 @@ export class Peer {
 
 // ---- devices ----
 
+export type Platform = "macos" | "ios" | "windows" | "linux";
+
 export class Device {
   id = crypto.randomUUID();
   signing!: CryptoKeyPair;
@@ -206,10 +221,10 @@ export class Device {
   private constructor(
     readonly account: { userId: string; session: string },
     readonly name: string,
-    readonly platform: "macos" | "ios",
+    readonly platform: Platform,
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" = "macos") {
+  static async create(account: { userId: string; session: string }, name = "Mac", platform: Platform = "macos") {
     const d = new Device(account, name, platform);
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));

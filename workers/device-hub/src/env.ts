@@ -25,6 +25,12 @@ export interface Env {
   /** Provisional window (ms) for socket-close end reasons; default 3000. */
   CLOSE_GRACE_MS?: string;
   TURN_KEY_API_TOKEN?: string;
+  /** APNs auth key (PKCS#8 PEM) for Computer Use approval pushes; without it phones hear them only on their socket. */
+  APNS_KEY_P8?: string;
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  /** Bundle ids a phone may register an APNs token for (comma list). */
+  APNS_TOPICS?: string;
 }
 
 export function csv(value: string | undefined): string[] {
