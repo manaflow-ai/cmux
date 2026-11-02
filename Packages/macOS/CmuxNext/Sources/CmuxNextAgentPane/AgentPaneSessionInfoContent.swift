@@ -8,7 +8,15 @@ struct SessionInfoInk {
     let act: (String, CGRect?) -> Void
     let rect: (NSView) -> CGRect?
     let move: (String, NSView, NSPoint) -> Void = { _, _, _ in }
-    let flush: () -> Void = {}
+    let flush: () -> Void
+
+    init(colors: AgentPaneSessionInfoColors, act: @escaping (String, CGRect?) -> Void, rect: @escaping (NSView) -> CGRect?, move: @escaping (String, NSView, NSPoint) -> Void = { _, _, _ in }, flush: @escaping () -> Void = {}) {
+        self.colors = colors
+        self.act = act
+        self.rect = rect
+        self.move = move
+        self.flush = flush
+    }
 }
 
 enum SessionInfoMetrics {
@@ -93,7 +101,7 @@ extension AgentPaneSessionInfoModel {
             let bare = section.bare == true
             if !bare {
                 items.append(.line(SessionInfoLine(
-                    id: section.id, identity: section.id, kind: .header, symbol: section.symbol, title: section.title, trailing: section.meta,
+                    id: section.id, kind: .header, symbol: section.symbol, title: section.title, trailing: section.meta,
                     trailingTone: section.metaTone, unfolded: section.foldable ? section.open : nil, meter: section.meter, segments: section.segments,
                     reorderable: section.reorderable == true, reorderLabel: section.reorderLabel,
                     action: section.foldable ? "fold:\(section.id):\(section.open ? 0 : 1)" : nil)))
@@ -101,8 +109,7 @@ extension AgentPaneSessionInfoModel {
             guard section.open || bare else { continue }
             for (index, row) in section.rows.enumerated() {
                 items.append(.line(SessionInfoLine(
-                    id: section.bare == true && index == 0 ? section.id : row.id,
-                    identity: "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness,
+                    id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness,
                     spins: row.tone == .running, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
@@ -110,7 +117,7 @@ extension AgentPaneSessionInfoModel {
                     hover: row.hover, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
             }
             if let more = section.more {
-                items.append(.line(SessionInfoLine(identity: "more:\(section.id)", kind: .more, title: more.label, titleInk: .secondary, action: more.action)))
+                items.append(.line(SessionInfoLine(id: "more:\(section.id)", kind: .more, title: more.label, titleInk: .secondary, action: more.action)))
             }
         }
         return items
@@ -235,7 +242,7 @@ final class SessionInfoListView: NSView {
         }
         let firstResponder = window?.firstResponder
         let focusedLine = firstResponder as? SessionInfoLineView
-        let focusedIdentity = focusedLine?.line.identity
+        let focusedIdentity = focusedLine?.line.id
         let focusedButton = firstResponder as? SessionInfoButtonView
         let focusedButtonLine = focusedButton.flatMap { button in
             subviews.compactMap { $0 as? SessionInfoLineView }.first { $0.buttons.contains { $0 === button } }
@@ -244,7 +251,7 @@ final class SessionInfoListView: NSView {
         let origin = enclosingScrollView?.contentView.bounds.origin
         let existingLines = subviews.compactMap { $0 as? SessionInfoLineView }
             .reduce(into: [String: SessionInfoLineView]()) { result, line in
-                guard let identity = line.line.identity, result[identity] == nil else { return }
+                guard let identity = line.line.id, result[identity] == nil else { return }
                 result[identity] = line
             }
         self.items = items
@@ -256,9 +263,9 @@ final class SessionInfoListView: NSView {
                 let label: NSView
                 if let action {
                     let line = SessionInfoLine(
-                        identity: "title", kind: .title, symbol: "chevron.left", title: backLabel ?? title,
+                        id: "title", kind: .title, symbol: "chevron.left", title: backLabel ?? title,
                         detail: nil, action: action)
-                    if let old = existingLines[line.identity ?? ""] {
+                    if let old = existingLines[line.id ?? ""] {
                         old.update(line: line, ink: ink)
                         label = old
                     } else {
@@ -278,7 +285,7 @@ final class SessionInfoListView: NSView {
                 line.layer?.backgroundColor = ink.colors.separator.cgColor
                 addSubview(line)
             case .line(let value):
-                if let identity = value.identity, let old = existingLines[identity] {
+                if let identity = value.id, let old = existingLines[identity] {
                     old.update(line: value, ink: ink)
                     addSubview(old)
                 } else {
@@ -292,11 +299,11 @@ final class SessionInfoListView: NSView {
             scroll.reflectScrolledClipView(scroll.contentView)
         }
         if let focusedButtonLine, let focusedButtonAction,
-           let line = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.identity == focusedButtonLine.line.identity }),
+           let line = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedButtonLine.line.id }),
            let button = line.buttons.first(where: { $0.button.action == focusedButtonAction }) {
             window?.makeFirstResponder(button)
         } else if let focusedIdentity,
-                  let focused = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.identity == focusedIdentity }) {
+                  let focused = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedIdentity }) {
             window?.makeFirstResponder(focused)
         }
         pendingItems = nil
@@ -465,7 +472,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     required init?(coder: NSCoder) { nil }
 
     /// Refreshes the values a page can stream without replacing the native row. The list keeps
-    /// this view keyed by `line.identity`, so focus and hover survive a live label update.
+    /// this view keyed by `line.id`, so focus and hover survive a live label update.
     func update(line: SessionInfoLine, ink: SessionInfoInk) {
         self.line = line
         self.ink = ink
