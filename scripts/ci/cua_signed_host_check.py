@@ -12,8 +12,9 @@ Each driver is checked as the build runs it: NIGHTLY carries no helper v2, so
 unsigned process are connected to each host socket and must be refused.  The
 helper v2 refuses them before reading, with the stable ``host_unverified``
 refusal.  The legacy helper answers their ``machine_consent_host`` request
-without the host token, which it checks before the code signature, so its
-refusal is a host-only error that never says attached.  The detailed
+with the agent-token error, which it checks before the host token and the
+code signature, so on legacy these probes prove token gating and that the
+refusal never says attached.  The detailed
 ``not Apple-signed (ad hoc or unsigned)`` reason is emitted by the helper's
 real code check (and is covered by the HostVerifier unit test); the wire reply
 deliberately exposes only the stable refusal reason.
@@ -216,8 +217,9 @@ def connect_refusal(path: Path, driver: str) -> str:
 
 
 def refused(reply: str, driver: str) -> bool:
-    """Helper v2 names host_unverified. Legacy checks the host token before the code
-    signature, so a peer without it gets a refusal that never says attached."""
+    """Helper v2 names host_unverified. Legacy checks the agent token before the host
+    token and the code signature, so a peer without them gets a refusal that never
+    says attached."""
     if driver == "upstream":
         return HOST_REFUSAL in reply
     try:
@@ -230,13 +232,59 @@ def refused(reply: str, driver: str) -> bool:
     return line.get("ok") is False and not attached
 
 
+# A socket peer for the ad hoc app. /usr/bin/python3 is the xcrun shim, which
+# picks its tool by its own name, so a copy named cmux would run the cmux CLI.
+#   probe connect PATH REQUEST   connect, send REQUEST (if any), print one line
+#   probe exec PATH REQUEST      connect, then exec itself to speak on the socket
+PROBE_SOURCE = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+static int speak(int fd, const char *request) {
+    char line[4096];
+    size_t used = 0;
+    if (*request && write(fd, request, strlen(request)) < 0) return 1;
+    while (used < sizeof line - 1) {
+        ssize_t got = read(fd, line + used, 1);
+        if (got <= 0 || line[used] == '\n') break;
+        used += 1;
+    }
+    line[used] = 0;
+    printf("%s\n", line);
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 4) return 2;
+    if (strcmp(argv[1], "fd") == 0) return speak(atoi(argv[2]), argv[3]);
+    struct sockaddr_un address = {0};
+    address.sun_family = AF_UNIX;
+    strncpy(address.sun_path, argv[2], sizeof address.sun_path - 1);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0 || connect(fd, (struct sockaddr *)&address, sizeof address) != 0) return 1;
+    if (strcmp(argv[1], "connect") == 0) return speak(fd, argv[3]);
+    usleep(200000);
+    char number[16];
+    snprintf(number, sizeof number, "%d", fd);
+    char *next[] = {argv[0], "fd", number, argv[3], NULL};
+    execv(argv[0], next);
+    return 1;
+}
+"""
+
+
 def ad_hoc_peer(root: Path) -> Path:
     """Make a tagged DEV-shaped, ad-hoc app whose process can be a socket peer."""
     app = root / "cmux DEV signed-host-probe.app"
     binary = app / "Contents/MacOS/cmux"
     binary.parent.mkdir(parents=True)
-    shutil.copyfile("/usr/bin/python3", binary)
-    binary.chmod(0o755)
+    source = root / "probe.c"
+    source.write_text(PROBE_SOURCE)
+    run(["/usr/bin/xcrun", "clang", "-O1", "-o", str(binary), str(source)], timeout=120)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": "com.cmuxterm.app.debug.signed-host-probe",
         "CFBundleExecutable": "cmux",
@@ -247,34 +295,23 @@ def ad_hoc_peer(root: Path) -> Path:
     return binary
 
 
-def ad_hoc_refusal(path: Path, binary: Path, driver: str) -> None:
-    script = (
-        "import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); "
-        "sys.argv[2] and s.sendall(sys.argv[2].encode()); "
-        "print(s.makefile('rb').readline().decode(), end=''); s.close()"
-    )
+def probe(binary: Path, mode: str, path: Path, driver: str) -> str:
     request = LEGACY_ATTACH.decode() if driver == "legacy" else ""
-    result = subprocess.run([str(binary), "-c", script, str(path), request],
-                            capture_output=True, text=True, timeout=20)
-    if not refused(result.stdout, driver):
-        raise Failure(f"ad hoc tagged DEV peer was not refused by {path}: {result.stdout!r}")
+    result = subprocess.run([str(binary), mode, str(path), request], capture_output=True, text=True, timeout=20)
+    return result.stdout
+
+
+def ad_hoc_refusal(path: Path, binary: Path, driver: str) -> None:
+    reply = probe(binary, "connect", path, driver)
+    if not refused(reply, driver):
+        raise Failure(f"ad hoc tagged DEV peer was not refused by {path}: {reply!r}")
 
 
 def exec_chain_refusal(path: Path, binary: Path, driver: str) -> None:
     """Connect, exec, then speak: the connection's audit token must not survive exec."""
-    script = (
-        "import os,socket,sys,time; s=socket.socket(socket.AF_UNIX); "
-        "s.set_inheritable(True); s.connect(sys.argv[1]); time.sleep(.2); "
-        "os.execv(sys.executable,[sys.executable,'-c',"
-        "\"import os,socket,sys; s=socket.socket(fileno=int(sys.argv[2])); "
-        "sys.argv[1] and s.sendall(sys.argv[1].encode()); "
-        "print(s.makefile('rb').readline().decode(), end='')\",sys.argv[2],str(s.fileno())])"
-    )
-    request = LEGACY_ATTACH.decode() if driver == "legacy" else ""
-    result = subprocess.run([str(binary), "-c", script, str(path), request],
-                            capture_output=True, text=True, timeout=20)
-    if not refused(result.stdout, driver):
-        raise Failure(f"exec-chain peer was not refused by {path}: {result.stdout!r}")
+    reply = probe(binary, "exec", path, driver)
+    if not refused(reply, driver):
+        raise Failure(f"exec-chain peer was not refused by {path}: {reply!r}")
 
 
 def main() -> int:
