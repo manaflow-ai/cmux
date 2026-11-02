@@ -92,7 +92,9 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
 
     /// Makes a sequence of the values of `emit`. `emit` runs on the main actor
     /// once when iteration starts and once after each change of an observable
-    /// value that it read.
+    /// value that it read. Disfavored: an `Equatable` element takes the initializer that knows its `==`
+    /// (without it Swift picked this one for every call site, ObservationStreamEqualityTests).
+    @_disfavoredOverload
     public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
         self.emit = emit
         primed = nil
@@ -112,7 +114,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// the value is computed once, not again by the stream's first `next()`. The first iterator
     /// gets the primed tracking; another starts as a plain stream. Always the
     /// `withObservationTracking` path (also with the native opt-in).
-    @MainActor
+    @MainActor @_disfavoredOverload
     public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
         let state = ChangeState()
         let value = LegacyIterator.track(emit, state: state)
@@ -326,7 +328,8 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
 /// An `Equatable` element's `==` is known where the stream is made, so no stream of one asks the runtime
 /// whether its element is `Equatable` (a conformance lookup that scans the binary's conformance records
 /// the first time per type: most of 26-31 ms on the main thread after a reopen's first window, REOPEN-F7).
-/// Swift picks these over the unconstrained ones for every call site whose element is `Equatable`.
+/// The unconstrained ones are `@_disfavoredOverload`, so Swift picks these for every call site whose element is
+/// `Equatable` (the plain ranking picked the unconstrained ones).
 extension ObservationStream where Element: Equatable {
     /// Makes a sequence of the values of `emit`, as the unconstrained initializer does; an equal
     /// re-evaluation wakes no consumer.
