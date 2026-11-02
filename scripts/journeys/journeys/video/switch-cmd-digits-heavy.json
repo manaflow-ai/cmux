@@ -1,0 +1,83 @@
+{
+ "id": "switch-cmd-digits-heavy",
+ "priority": "P2",
+ "title": "SWITCH FRAMES W1 HEAVY: Cmd-1..9 workspace switch by real HID keys, 9 workspaces of 12 beacon panes (4 redraw the whole pane each frame) in a 40-workspace, ~200-tab session, filmed at the display rate",
+ "why": "Lawrence 2026-11-02: changing workspaces must change frame perfect, even with a ton of stuff. Each switch: the target's complete frame in the next refresh, no old frame after it, no blank or half-drawn frame, current terminal content, the sidebar selection in the same frame. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie. HEAVY: 'even when there's a ton of stuff'.",
+ "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.02,
+    0.04,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 9 workspaces x 12 beacon panes (3 x 4, 4 full redraw at 120 Hz), 31 background workspaces x 3 tabs",
+   "workspaces": 9,
+   "grid": [
+    3,
+    4
+   ],
+   "fill_panes": 4,
+   "fill_hz": 120,
+   "hz": 240,
+   "background": 31,
+   "background_tabs": 3,
+   "prefix": "swh-${nonce}",
+   "beacon_timeout": 40
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "sw-w1-heavy",
+   "mbps": 25,
+   "seconds": 110
+  },
+  {
+   "do": "switch_keys",
+   "title": "Cmd-1..9 in order, then a fixed seeded order",
+   "via": "hid",
+   "gap": 1.2,
+   "digits": "234567891928374656"
+  },
+  {
+   "do": "video_stop",
+   "name": "sw-w1-heavy",
+   "tail": 0.8
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the last switch shows a beacon workspace: its beacon runs in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

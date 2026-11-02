@@ -1,0 +1,74 @@
+{
+ "id": "switch-cmd-digits-light",
+ "priority": "P2",
+ "title": "SWITCH FRAMES W1 light: Cmd-1..9 workspace switch by real HID keys, filmed at the display rate",
+ "why": "Lawrence 2026-11-02: changing workspaces must change frame perfect, even with a ton of stuff. Each switch: the target's complete frame in the next refresh, no old frame after it, no blank or half-drawn frame, current terminal content, the sidebar selection in the same frame. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie.",
+ "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 9 workspaces, 2 beacon panes each",
+   "workspaces": 9,
+   "panes": 2,
+   "prefix": "sw-${nonce}"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "sw-w1-light",
+   "mbps": 25,
+   "seconds": 110
+  },
+  {
+   "do": "switch_keys",
+   "title": "Cmd-1..9 in order, then a fixed seeded order",
+   "via": "hid",
+   "gap": 1.2,
+   "digits": "23456789172839415263748591"
+  },
+  {
+   "do": "video_stop",
+   "name": "sw-w1-light",
+   "tail": 0.8
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the last switch shows a beacon workspace: its beacon runs in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
