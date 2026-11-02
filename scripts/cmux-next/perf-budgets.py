@@ -117,6 +117,56 @@ def run_bench(name, argv, log_dir, timeout):
     return {"exit": code, "seconds": took, "log": log}
 
 
+# --load: the same benches under agent-like load (ask c-71825c54b5; Leo, 2026-10-29: "well somehow at "100% cpu" usage
+# claude code desktop still seems fast / how does that work? how can cmux next also do that? let's do that"). The mix is
+# scripts/measure/qos-load-bench.sh's: CPU spinners past every core, 2 dd writers, 2 find metadata storms, 2 readers.
+# `default` runs it at the default priority (a build or tool the person started); `agent` runs it in acpmux's agent tier
+# (taskpolicy -c utility -d utility, cmux#27587). Each worker is its own process group, ended after its bench.
+LOAD_TIERS = {"default": [], "agent": ["taskpolicy", "-c", "utility", "-d", "utility"]}
+
+
+def start_load(tier, scratch):
+    """The load workers for `tier`, started and given 5 s to ramp; stop_load ends them."""
+    os.makedirs(os.path.join(scratch, "tree"), exist_ok=True)
+    tree = os.path.join(scratch, "tree")
+    if not os.path.exists(os.path.join(tree, "done")):
+        for i in range(500):
+            with open(os.path.join(tree, f"f{i}"), "wb") as fh:
+                fh.write(os.urandom(65536))
+        open(os.path.join(tree, "done"), "w").close()
+    prefix = LOAD_TIERS[tier]
+    sh = lambda script, *args: prefix + ["/bin/sh", "-c", script, "sh", *args]  # noqa: E731
+    argvs = [prefix + ["yes"] for _ in range((os.cpu_count() or 8) * 5 // 4)]
+    argvs += [sh('while :; do dd if=/dev/zero of="$1/w$$" bs=1m count=256 2>/dev/null; rm -f "$1/w$$"; done', scratch)
+              for _ in range(2)]
+    argvs += [sh("while :; do find /System/Library /usr -type f -size +1k >/dev/null 2>&1; done") for _ in range(2)]
+    argvs += [sh('while :; do cat "$1"/f* | shasum >/dev/null; done', tree) for _ in range(2)]
+    procs = [subprocess.Popen(a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+             for a in argvs]
+    time.sleep(5)  # test harness: let the load ramp
+    return procs
+
+
+def stop_load(procs, scratch):
+    import signal
+    for proc in procs:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    for proc in procs:
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+    for name in os.listdir(scratch):
+        if name.startswith("w"):
+            try:
+                os.remove(os.path.join(scratch, name))
+            except OSError:
+                pass
+
+
 def load(path):
     try:
         return json.load(open(path))
@@ -270,6 +320,7 @@ def rows_anim(rep):
 
 
 def budget_for(name, budgets):
+    name = name.split("@", 1)[0]  # a --load phase's row keeps its interaction's budget
     anim = budgets.get("_animations", {}).get(name)
     if anim:
         return anim
@@ -360,6 +411,9 @@ def main():
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
+    ap.add_argument("--load", default="",
+                    help="phases to run every bench in: idle, default (agent-like load at the default priority) and "
+                         "agent (the same load in acpmux's agent tier); rows get @<phase>. Empty: idle only, no suffix")
     ap.add_argument("--profile", action="store_true",
                     help="also profile the sidebar (Time Profiler: scroll, ticks, switch, row drag) and the panes "
                          "(sample: split, New Column, divider drag) and split main-thread time into framework and our work")
@@ -398,6 +452,27 @@ def main():
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
     runs, values = {}, {}
+    phases = [p for p in opts.load.split(",") if p] or [""]
+    if any(p not in ("idle", "", *LOAD_TIERS) for p in phases):
+        sys.exit(f"perf-budgets: --load takes idle, default and agent, not {opts.load}")
+    base_plan = plan
+    for phase in phases:
+        if phase:
+            # Each phase writes under its own folder, so the reports of one bench never overwrite each other.
+            sub = os.path.join(opts.out, phase)
+            plan = {k: ([a.replace(opts.out, sub, 1) if a.startswith(opts.out) else a for a in argv], report, mapper)
+                    for k, (argv, report, mapper) in base_plan.items()}
+        run_phase(phase, only, plan, opts, runs, values)
+    finish(opts, budgets, only, runs, values)
+
+
+def run_phase(phase, only, plan, opts, runs, values):
+    """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
+    out = os.path.join(opts.out, phase) if phase else opts.out
+    o = lambda f: os.path.join(out, f)  # noqa: E731
+    suffix = f"@{phase}" if phase else ""
+    scratch = os.path.join(opts.out, "load-scratch")
+    os.makedirs(scratch, exist_ok=True)
     for name in only:
         argv, report, mapper = plan[name]
         # Some benches open files in their --out without making it.
@@ -407,16 +482,24 @@ def main():
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue
-        runs[name] = run_bench(name, argv, opts.out, opts.bench_timeout)
+        os.makedirs(out, exist_ok=True)
+        procs = start_load(phase, scratch) if phase in LOAD_TIERS else []
+        try:
+            runs[name + suffix] = run_bench(name + suffix.replace("@", "-"), argv, out, opts.bench_timeout)
+        finally:
+            stop_load(procs, scratch)
+        name = name + suffix
         if report is None:  # bench_idle names its file after the sha and label
             found = sorted(f for f in os.listdir(o("idle")) if f.endswith("-idle-budgets.json")) if os.path.isdir(o("idle")) else []
             report = os.path.join("idle", found[-1]) if found else "idle/missing.json"
         runs[name]["report"] = o(report)
         try:
-            values.update(mapper(load(o(report))))
+            values.update({row + suffix: v for row, v in mapper(load(o(report))).items()})
         except Exception as exc:  # a report from an older build with another shape: its rows stay n/a
             runs[name]["map_error"] = repr(exc)
 
+
+def finish(opts, budgets, only, runs, values):
     profile_split = profile_splits(opts.out) if opts.profile else None
 
     rows = []
