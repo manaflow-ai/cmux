@@ -22,6 +22,7 @@ import {
 import { COMMAND_STATE } from "../TasksSection";
 import { compactTokens } from "../../conversation/CompactionNote";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { nativeExternalUrl } from "./links";
 
 export type TasksSectionInput = {
   /// The section is unfolded (Session Info's `state.tasks`).
@@ -97,19 +98,19 @@ export function tasksSection(
     };
   };
   const rows: NativeInfoRow[] = [...workflowRows(input, actions, t, stop)];
+  const openUrl = nativeExternalUrl(input.onOpenUrl);
 
   // Servers, newest first: the command, the ports it names (each explicit port is its own button)
   // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
     const urls = server.ports.map((port) => `http://localhost:${port}`);
-    const onOpenUrl = input.onOpenUrl;
     const buttons: NativeInfoButton[] = [];
-    if (onOpenUrl)
+    if (urls.length > 0)
       for (const url of urls)
         buttons.push({
           label: t("sessionInfo.servers.open", { url }),
           symbol: "link",
-          action: actions.add(`tasks.openUrl:${server.id}:${url}`, () => onOpenUrl(url)),
+          action: actions.add(`tasks.openUrl:${server.id}:${url}`, () => openUrl(url)),
         });
     if (input.onStopProcess)
       buttons.push(stop(server.id, server.command, input.onStopProcess, `tasks.stop:${server.id}`));
