@@ -19,8 +19,8 @@ struct LinkHintTypingTests {
     /// the field, once each, in the order typed; the `f` that started the session reached it first (the page sees a
     /// letter before cmux hears it was unhandled).
     @Test func keysTypedWhileThePageAnswersGoToTheTextFieldOnceInOrder() {
-        var held = LinkHintHeldKeys<Character>()
-        for key in "ieldkeysok" { held.hold(key) }
+        var held = LinkHintHeldKeys<Character>(startedAt: 10)
+        for key in "ieldkeysok" { held.hold(key, typedAt: 11) }
         #expect(String(held.release(after: .passThrough)) == "ieldkeysok", "keys typed during the page's answer were lost or reordered")
         #expect(held.release(after: .passThrough).isEmpty, "a held key went to the page twice")
     }
@@ -30,10 +30,10 @@ struct LinkHintTypingTests {
     /// letter would run).
     @Test func hintLettersTypedBeforeTheLabelsShowPickAndNeverReachThePage() {
         var session = LinkHintSession(mode: .follow)
-        var held = LinkHintHeldKeys<Character>()
+        var held = LinkHintHeldKeys<Character>(startedAt: 10)
         let targets = (0..<30).map { LinkHintTarget(x: Double($0), y: 1, left: Double($0), top: 0) }
         let label = Array(LinkHintSession.labels(count: targets.count))[7]
-        for key in label { held.hold(key); _ = session.type(String(key)) }
+        for key in label { held.hold(key, typedAt: 11); _ = session.type(String(key)) }
         let outcome = session.show(targets, editing: false)
         #expect(outcome == .pick(targets[7]), "the letters typed before the labels showed did not pick: \(outcome)")
         #expect(held.release(after: outcome).isEmpty, "a hint letter reached the page")
@@ -45,15 +45,29 @@ struct LinkHintTypingTests {
     @Test func aKeySentBackToThePageIsLetThroughOnceAndNeverTakenAgain() {
         final class Key {}
         let typed = (0..<10).map { _ in Key() }
-        var held = LinkHintHeldKeys<Key>()
+        var held = LinkHintHeldKeys<Key>(startedAt: 10)
         var replays = LinkHintReplays<Key>()
-        typed.forEach { held.hold($0) }
+        typed.forEach { held.hold($0, typedAt: 11) }
         let sent = held.release(after: .passThrough)
         replays.mark(sent)
         let passed = sent.filter { replays.isReplay($0) }
         #expect(passed.count == typed.count, "a key sent back to the page was taken again: \(typed.count - passed.count) of \(typed.count)")
         #expect(sent.allSatisfy { !replays.isReplay($0) }, "a key sent back was let through twice")
         #expect(!replays.isReplay(Key()), "a key never sent back was let through")
+    }
+
+    /// v6 of #32537 doubled the first letters (REOPEN VIDEO 7710: "fieldfieldkeysok", "ffieldkeysok"): a key the page
+    /// already had (typed before the session started: the `f`, and the letters typed before the page reported the `f`)
+    /// came through the key route again while the session collected, was held, and was sent back. A key typed before
+    /// the session started is never sent back; the keys the PAGE receives equal the keys typed, once each, in order.
+    @Test func aKeyThePageAlreadyHadIsNeverSentBack() {
+        let typed = Array("fieldkeysok")
+        var page: [Character] = Array("fiel") // delivered before the session started at t = 10
+        var held = LinkHintHeldKeys<Character>(startedAt: 10)
+        for (index, key) in "fiel".enumerated() { held.hold(key, typedAt: 9 + Double(index) / 100) } // the same keys, again
+        for key in "dkeysok" { held.hold(key, typedAt: 11) }
+        page += held.release(after: .passThrough)
+        #expect(page == typed, "the page got \(String(page)), not \(String(typed))")
     }
 
     @Test func aSessionWhosePageIsNotEditingStillLabelsAndPicks() {

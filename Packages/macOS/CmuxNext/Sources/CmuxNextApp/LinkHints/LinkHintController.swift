@@ -18,7 +18,7 @@ final class LinkHintController {
         let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
-        var held = LinkHintHeldKeys<NSEvent>() // taken before the page answered: a text field's when one has the keyboard
+        var held = LinkHintHeldKeys<NSEvent>(startedAt: ProcessInfo.processInfo.systemUptime) // a text field's keys when one has the keyboard
     }
 
     private var session: Session?
@@ -63,7 +63,7 @@ final class LinkHintController {
             cancel()
             return false
         }
-        if current.keys.hints == nil { current.held.hold(event) }
+        if current.keys.hints == nil { current.held.hold(event, typedAt: event.timestamp) }
         session = current
         apply(outcome, on: tab)
         return true
