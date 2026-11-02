@@ -55,7 +55,9 @@ pub use fold_agent::{
 pub use fold_command::{COMMAND_JOURNAL_KIND, TerminalCommand, TerminalCommandFold};
 pub use hidden::{HiddenHistory, HiddenRange, hidden_id};
 pub use journal::EntryContext;
-pub use query::{HistoryQuery, HistoryRange, apply, is_displayable, matches, search_text};
+pub use query::{
+    HistoryQuery, HistoryRange, UntitledTitles, apply, is_displayable, matches, search_text,
+};
 pub use search_index::{
     Backfill, BackfillStep, SearchDoc, SearchFeed, SearchHit, SearchIndex, SearchKind,
 };

@@ -11638,7 +11638,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "Agent: the provider's own session id."
+          "description": "Agent, and a closed agent chat tab: the provider's own session id."
         },
         "provider": {
           "required": false,
@@ -11646,7 +11646,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "Agent: the hook adapter id, for the localized title."
+          "description": "Agent: the hook adapter id, for the localized title; a closed agent chat tab: its harness."
         },
         "window": {
           "required": false,
@@ -11932,6 +11932,32 @@
             "name": "uint32"
           },
           "description": "How many visits came in."
+        }
+      },
+      "extra": false
+    },
+    "HistoryUntitledTitles": {
+      "kind": "object",
+      "fields": {
+        "chat": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The title an untitled closed agent chat shows (a closed tab with session_id or provider)."
+        },
+        "terminal": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The title every other untitled closed row shows."
         }
       },
       "extra": false
@@ -20945,6 +20971,14 @@
               "name": "decimal"
             },
             "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          },
+          "untitled_titles": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryUntitledTitles"
+            },
+            "description": "The caller's titles of untitled closed rows, in the person's language; the search matches them (history-untitled-titles-v1). Omitted: no default title matches."
           }
         },
         "extra": false

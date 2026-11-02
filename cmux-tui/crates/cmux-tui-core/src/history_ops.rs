@@ -47,6 +47,10 @@ use pages::run;
 /// Advertised in identify: the daemon answers `history.*` and publishes
 /// `history-changed`.
 pub(crate) const CAPABILITY: &str = "history-v1";
+/// Advertised in identify: `history.entries.list` takes `untitled_titles`, the client's
+/// localized titles of untitled closed rows, and its search matches them; closed agent
+/// chat rows carry their session id and harness.
+pub(crate) const UNTITLED_TITLES_CAPABILITY: &str = "history-untitled-titles-v1";
 /// The one history operation only the user may run (request_origin.rs
 /// gate A2): it deletes the undo of a delete.
 pub(crate) const PURGE_OPERATION: &str = "history.backups.purge";

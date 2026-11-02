@@ -13,13 +13,16 @@ struct DaemonHistoryClient: Sendable {
     let relay: ResourceRelayClient
     /// The connection itself, for the trail document (``trail()``).
     let connection: DaemonConnection
+    /// The daemon serves `history-untitled-titles-v1` (``HistoryUntitledTitles``).
+    let servesUntitledTitles: Bool
 
-    init(connection: DaemonConnection) {
+    init(connection: DaemonConnection, servesUntitledTitles: Bool = false) {
         self.connection = connection
+        self.servesUntitledTitles = servesUntitledTitles
         relay = ResourceRelayClient(connection: connection)
     }
 
-    func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?) async throws -> [DaemonHistoryEntry] {
+    func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?, untitled: HistoryUntitledTitles? = nil) async throws -> [DaemonHistoryEntry] {
         var params: [String: JSONValue] = [
             "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
             "range": .string(range.rawValue),
@@ -27,6 +30,7 @@ struct DaemonHistoryClient: Sendable {
         ]
         if !text.isEmpty { params["text"] = .string(text) }
         if let limit { params["limit"] = .number(Double(min(max(limit, 1), 5_000))) }
+        if let fields = untitled?.wireFields(served: servesUntitledTitles) { params["untitled_titles"] = .object(fields.mapValues(JSONValue.string)) }
         let result = try await relay.send(operation: "history.entries.list", params: params, idempotencyKey: nil)
         return try await Self.decode(DaemonHistoryList.self, from: result).entries
     }

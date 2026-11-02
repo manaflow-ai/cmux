@@ -91,10 +91,12 @@ pub struct HistoryEntry {
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i64>,
-    /// Agent only: the provider's own session id (what `--resume` takes).
+    /// Agent, and a closed agent chat tab: the provider's own session id (what
+    /// `--resume` takes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// Agent only: the hook adapter id (`claude`, `codex`, ...).
+    /// Agent: the hook adapter id (`claude`, `codex`, ...); a closed agent chat
+    /// tab: its harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
