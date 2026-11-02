@@ -981,7 +981,7 @@ def one_run(tag, mode, timeout, profile=None):
                 launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if HANG_THRESHOLD_MS:
-            launch.stalls = launch_stalls(tag)
+            launch.stalls = launch_stalls(tag, launch.spawned_at)
     finally:
         launch.quit()
         launch.linger = watch_linger(tag, time.monotonic())
@@ -1007,14 +1007,18 @@ def one_run(tag, mode, timeout, profile=None):
     return marks
 
 
-def launch_stalls(tag):
+def launch_stalls(tag, spawned_at=None):
     """The launch's main-thread stalls, longest first, with their top frames."""
     client = app_client(tag)
     try:
         hangs = client.call("debug.hangs").get("result") or {}
     finally:
         client.close()
+    # REOPEN-F7 scratch: "at_ms" places the stall's start in the launch (ms after the bench's Popen, the same
+    # monotonic clock as the app's start_uptime_ns on macOS; within a few ms of the app's main_start - spawn).
     stalls = [{"ms": round(record.get("duration_ms", 0), 1), "cpu_ms": round(record.get("cpu_ms", 0), 1),
+               **({"at_ms": round(record["start_uptime_ns"] / 1e6 - spawned_at * 1000, 1)}
+                  if spawned_at is not None and "start_uptime_ns" in record else {}),
                "frames": [f for f in record.get("frames", []) if "cmux" in f or "CmuxNext" in f][:8]
                or record.get("frames", [])[:8]}
               for record in hangs.get("records", [])]
