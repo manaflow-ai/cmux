@@ -150,6 +150,9 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
             try await Self.turns()
             #expect(Self.question() != nil, "a Return typed during the read pressed the question's Close")
+            // The keys wait for the answer: while the question shows, the terminal it asks about has not got them.
+            let asking = (try? await t.connection.request(ReadScreenRequest(surface: t.tab.surface), timeout: .seconds(5)))?.text ?? ""
+            #expect(!asking.contains("kq\(nonce)"), "keys typed during the read ran in the closing terminal before the answer: \(asking.suffix(300))")
             #expect(t.store.tab(surface: t.tab.surface) != nil, "the terminal running cat closed with no answer")
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             // cat writes the line back after the terminal's own echo: the whole line, in order, in the terminal that stays.
