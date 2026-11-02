@@ -140,7 +140,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("stop_lock_holder()");
     expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
     expect(command).toContain('flock -n "$lock" true');
-    expect(command).toContain('readlink -f "/proc/$lock_pid/exe"');
+    expect(command).toContain('exe=${exe%" (deleted)"}');
+    expect(command).toContain('case "$exe" in */acpmux)');
     expect(command).toContain('kill -KILL "$lock_pid"');
   });
 
