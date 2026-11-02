@@ -472,16 +472,18 @@ fn zz_linux_probe_sizes() {
     let mut harness = production_harness("linux-probe");
     let home = harness.dir.clone();
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "probe", &home);
+    let socket = harness.socket.clone();
     let vt = |s: u64| {
-        let st = request(&harness.socket, serde_json::json!({"cmd":"vt-state","surface":s}));
+        let st = request(&socket, serde_json::json!({"cmd":"vt-state","surface":s}));
         format!("{}x{}", st["cols"], st["rows"])
     };
     let created = vt(surface);
     send_line(&harness.socket, surface, "printf 'probe-%s\\n' ready");
     wait_for_screen(&harness.socket, surface, "probe-ready\n");
     std::thread::sleep(Duration::from_millis(500));
-    let snap = |h: &RecoveryHarness| {
-        walk_files(&h.state)
+    let state_dir = harness.state.clone();
+    let snap = |_h: &RecoveryHarness| {
+        walk_files(&state_dir)
             .into_iter()
             .find(|p| p.extension().is_some_and(|e| e == "snap"))
             .and_then(|p| fs::read(p).ok())
