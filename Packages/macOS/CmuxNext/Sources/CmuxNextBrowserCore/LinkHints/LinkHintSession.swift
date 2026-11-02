@@ -116,9 +116,18 @@ public nonisolated struct LinkHintHeldKeys<Key> {
 
     public init(startedAt: TimeInterval) { self.startedAt = startedAt }
 
-    /// `key`, typed at `typedAt` (its event's timestamp). A key typed before the session started already went to the page
-    /// (this is its second pass through the key route): it is taken, never sent back.
-    public mutating func hold(_ key: Key, typedAt: TimeInterval) { if typedAt >= startedAt { keys.append(key) } }
+    /// Where a key goes: the page on its normal path, or this session.
+    public enum Route: Equatable, Sendable { case page, session }
+
+    /// Where a key typed at `typedAt` (its event's own timestamp, not when it is dispatched) goes. One typed before the
+    /// session started is no hint key and is never held: it goes on to the page on its normal path, once. That covers a
+    /// key still queued when the session started (it reaches the page now, before the keys typed after it) and a key
+    /// Chromium sent back after the page had it (the same event; it stays in Chromium's redispatch, as with no session).
+    /// A key without a time (a synthetic event, 0) is the session's.
+    public func route(typedAt: TimeInterval) -> Route { typedAt > 0 && typedAt < startedAt ? .page : .session }
+
+    /// `key` is the session's (``route(typedAt:)``): held until the page answers.
+    public mutating func hold(_ key: Key) { keys.append(key) }
 
     /// The held keys the page gets now, after `outcome`: all of them, once, for ``LinkHintSession/Outcome/passThrough``.
     public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
