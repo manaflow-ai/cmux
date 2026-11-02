@@ -1,4 +1,5 @@
 import AppKit
+import CoreVideo
 @testable import CmuxNextApp
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
@@ -242,6 +243,41 @@ struct RemoteVNCGenerationTests {
         // The worker drains in order: "b" was handled before "c", so had it leaked, it would be here.
         #expect(second.keyChunks.map(\.last) == [UInt8(ascii: "c")])
         #expect(first.keyChunks.map(\.last) == [UInt8(ascii: "a")])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func oldSessionCannotPublishAfterReconnectOrStop() async throws {
+        let source = RemoteVNCSource()
+        try await connect(source, over: RecordingRFBTransport())
+        let first = source.generationForTesting
+        // The same one-element stream is retained across both connections.
+        let output = source.decodedFrames()
+        try await connect(source, over: RecordingRFBTransport())
+        let second = source.generationForTesting
+        #expect(second > first)
+
+        var pixels: CVPixelBuffer?
+        let created = CVPixelBufferCreate(kCFAllocatorDefault, 1, 1, kCVPixelFormatType_32BGRA, nil, &pixels)
+        #expect(created == kCVReturnSuccess)
+        let buffer = try #require(pixels)
+        func frame(_ number: UInt32) -> RemoteDecodedFrame {
+            RemoteDecodedFrame(pixelBuffer: buffer, frame: number, tCaptureMicros: 0, decodedAtNanos: 0)
+        }
+        source.publishFrameForTesting(frame(42), generation: second)
+        // If this stale frame enters bufferingNewest(1), it replaces frame 42.
+        source.publishFrameForTesting(frame(13), generation: first)
+        source.publishStatusForTesting(RemoteViewStatus(path: .compatibility, state: .ended(.connectionLost)),
+                                     generation: first)
+        #expect(source.status.state == .streaming)
+
+        source.stop()
+        source.publishFrameForTesting(frame(14), generation: second)
+        source.publishStatusForTesting(RemoteViewStatus(path: .compatibility, state: .streaming),
+                                     generation: second)
+        #expect(source.status.state == .ended(.stoppedByViewer))
+
+        var iterator = output.makeAsyncIterator()
+        let received = await iterator.next()
+        #expect(received?.frame == 42)
     }
 
     @Test(.timeLimit(.minutes(1))) func stopEndsTheGenerationAtOnce() async throws {

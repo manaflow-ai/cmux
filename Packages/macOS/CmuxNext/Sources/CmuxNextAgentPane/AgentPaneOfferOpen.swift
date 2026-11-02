@@ -2,9 +2,11 @@
 /// sub-session its agent started (at any depth, a transcript card or the Subagents summary), the
 /// session that started this chat, or (`sender`) the chip of another agent's message to this chat,
 /// any chat its daemon lists, this Mac's or a peer's (Leo, ask-7325396234: "I THINK I WANNA BE ABLE
-/// TO CLICK ON THESE TO ACTUALLY GO TO THEM"). The tab that shows it already is shown and focused; else it opens on
-/// the chat's right where ``RightColumnPlacement`` says (``AgentSidePanes``), focused because a
-/// person asked for it. Allowed for a session `chat.sideChat` may open (``AgentPaneSideChat/holds``,
+/// TO CLICK ON THESE TO ACTUALLY GO TO THEM"). A tab that shows it already beside the chat (in its pane or
+/// its right column) is shown and focused; else it opens on the chat's right where
+/// ``RightColumnPlacement`` says (``AgentSidePanes``), focused because a person asked for it. A tab
+/// of it in another workspace is never jumped to (Leo, ask-c7a066ffa2: "We can just open them up in
+/// the right pane. ... Why are you sending me to a new workspace? Don't do that."). Allowed for a session `chat.sideChat` may open (``AgentPaneSideChat/holds``,
 /// which covers a Cloud VM chat's children), the Cloud VM chat's parent (``RemoteAgentSessionLinks``),
 /// of the chat's family (``AgentPaneHeaderHooks/isFamily``), or a message's sender: the page can
 /// already show any session of its daemon in its own tab, so opening one beside it grants nothing
