@@ -4898,9 +4898,11 @@ a.cv-sha:focus-visible {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. The liquid glass
-   (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
-   glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
-   lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
+   (.ui-glass, ui/glass/glass.css) is a fisheye lens (.ui-glass-fisheye, ui/glass/Fisheye.tsx): in
+   Chromium the disc magnifies and bends the transcript under it (Leo 2026-10-21: "I want more
+   fisheye!"). WebKit, which cannot run the fisheye, keeps the shared glass: the lens bends the
+   wallpaper across the whole disc, and Plain glass keeps the page at 72% through the shared blur.
+   Reduce Transparency makes it opaque. Its
    arrow stays static while a reply streams below. It fades in and out with the pane's motion tokens,
    in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
    2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
@@ -4959,6 +4961,13 @@ a.cv-sha:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Through the fisheye (Chromium: glass.css FISHEYE) the words under the disc read large behind the
+   arrow, so the arrow carries a soft halo of the surface and stays legible over them. */
+@supports not (-webkit-backdrop-filter: none) {
+  .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
+    filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 2.5px var(--glass-surface));
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
