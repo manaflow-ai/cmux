@@ -17,7 +17,6 @@ public final class ComputerUseApprovalService {
     private var phone: ComputerUseApprovalPhoneSink?
     private var settings: SettingsController?
     private var following: Task<Void, Never>?
-    private var listening: Task<Void, Never>?
 
     /// `client`: this app's bundle id (each build keeps its own saved list).
     public init(client: String, file: ComputerUseApprovalFile? = nil, cards: ComputerUseApprovalCards = ComputerUseApprovalCards()) {
@@ -29,8 +28,9 @@ public final class ComputerUseApprovalService {
 
     /// Answers `helper`'s approval questions and follows `computerUse.mode` (a change restarts
     /// the worker, which reads the new mode at start) and `computerUse.phoneAlwaysAllow`.
-    public func start(helper: ComputerUseHelperV2, settings: SettingsController) {
+    public func start(helper: ComputerUseHelperV2, settings: SettingsController, phone: (any ComputerUsePhoneHost)?) {
         self.settings = settings
+        if let phone { connectPhone(phone) }
         // task-owner: one read of the saved list, off the main actor.
         Task { await store.load() }
         helper.approvals = broker
@@ -55,16 +55,18 @@ public final class ComputerUseApprovalService {
         }
     }
 
-    /// Connects the owner's iPhone: `ask`/`done` reach cmux-mobile-host; answers come back
-    /// through ``phoneAnswered(phone:digest:decision:expiresAt:signature:)``, checked against
-    /// `approvalKey` (this Mac's own paired list).
-    public func connectPhone(ask: @escaping @MainActor (ComputerUseApprovalRequest, Bool) -> Void,
-                             done: @escaping @MainActor (String) -> Void,
-                             approvalKey: @escaping @MainActor (String) -> String?) {
-        let sink = ComputerUseApprovalPhoneSink(ask: ask, done: done)
+    /// Connects the owner's iPhone: questions go to its host (cmux-mobile-host), answers come back
+    /// checked against the host's paired approval keys (this Mac's own list, never hostd's word).
+    public func connectPhone(_ host: any ComputerUsePhoneHost) {
+        let sink = ComputerUseApprovalPhoneSink(ask: { [weak host] request, always in
+            host?.computerUseAsk(digest: request.digest, request: request.foundationObject, always: always)
+        }, done: { [weak host] digest in host?.computerUseDone(digest: digest) })
         phone = sink
         broker.phone = sink
-        broker.phoneApprovalKey = approvalKey
+        broker.phoneApprovalKey = { [weak host] in host?.computerUseApprovalKey(phoneDeviceID: $0) }
+        host.computerUseAnswered = { [weak self] phone, digest, decision, expiresAt, signature in
+            self?.phoneAnswered(phone: phone, digest: digest, decision: decision, expiresAt: expiresAt, signature: signature)
+        }
         broker.reaskPhone()
     }
 
@@ -74,20 +76,6 @@ public final class ComputerUseApprovalService {
         guard let decision = ComputerUseApprovalDecision(rawValue: decision) else { return false }
         return broker.phoneAnswered(ComputerUseApprovalPhoneAnswer(phoneDeviceID: phone, digest: digest, decision: decision,
                                                                    expiresAt: expiresAt, signature: signature))
-    }
-
-    /// Reads phone answers from `answers` for the app's lifetime.
-    public func listen<Answer: Sendable>(_ answers: AsyncStream<Answer>, map: @escaping @Sendable (Answer)
-        -> (phone: String, digest: String, decision: String, expiresAt: Int64, signature: String?)) {
-        listening?.cancel()
-        // task-owner: lives with the app; one main-actor hop per phone answer.
-        listening = Task { [weak self] in
-            for await element in answers {
-                let answer = map(element)
-                self?.phoneAnswered(phone: answer.phone, digest: answer.digest, decision: answer.decision,
-                                    expiresAt: answer.expiresAt, signature: answer.signature)
-            }
-        }
     }
 
     var mode: ComputerUseMode { settings?.snapshot.computerUse.mode ?? .ask }
@@ -108,4 +96,14 @@ final class ComputerUseApprovalPhoneSink: ComputerUseApprovalPhoneRelay {
 
     func ask(_ request: ComputerUseApprovalRequest, allowsAlways: Bool) { askPhone(request, allowsAlways) }
     func done(digest: String) { donePhone(digest) }
+}
+
+/// The owner's iPhone as the approvals see it (the App's iPhone host conforms).
+@MainActor
+public protocol ComputerUsePhoneHost: AnyObject {
+    func computerUseAsk(digest: String, request: [String: Any], always: Bool)
+    func computerUseDone(digest: String)
+    func computerUseApprovalKey(phoneDeviceID: String) -> String?
+    /// Set by the approvals: phone device id, digest, decision, expiry (Unix seconds), signature.
+    var computerUseAnswered: (@MainActor (String, String, String, Int64, String?) -> Void)? { get set }
 }

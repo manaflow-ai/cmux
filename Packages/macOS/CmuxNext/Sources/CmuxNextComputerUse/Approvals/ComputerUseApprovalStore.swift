@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 public import Foundation
 public import Observation
+import CmuxNextCompat
 import Darwin
 
 /// One saved approval: an app this cmux client lets agents use without asking.
@@ -60,7 +61,7 @@ public nonisolated struct ComputerUseApprovalFile: Sendable {
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFREG,
               info.st_mode & 0o077 == 0, info.st_size < 1 << 20,
-              let data = try? handle.readToEnd(),
+              let data = try? handle.blockingReadToEnd(),
               let document = try? JSONDecoder().decode(Document.self, from: data), document.v == 1,
               document.client == client else { return [] }
         return document.apps.filter { $0.app.identity != nil }

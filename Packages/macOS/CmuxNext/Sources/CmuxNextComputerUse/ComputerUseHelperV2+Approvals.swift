@@ -14,7 +14,8 @@ extension ComputerUseHelperV2 {
     /// Attaches `link` to the broker (nil without one: every question is refused on the link).
     func attachApprovals(to link: ComputerUseHelperV2HostLink) -> ApprovalAttachment? {
         guard let broker = approvals else { return nil }
-        let (outbox, sink) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
+        // A link carries one answer per question plus list updates: 1024 lines is far past any burst.
+        let (outbox, sink) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingOldest(1024))
         let id = broker.attach(sink)
         // task-owner: drains this link's outbox in order; it ends when the broker detaches the link.
         let writer = Task.detached(priority: .userInitiated) {

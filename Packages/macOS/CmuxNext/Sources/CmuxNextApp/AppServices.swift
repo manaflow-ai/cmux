@@ -284,7 +284,7 @@ final class AppServices {
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
-    /// Computer Use app approvals: this build's saved list, the cards, the phone (docs/computer-use-approvals.md).
+    /// Computer Use app approvals (docs/computer-use-approvals.md); the iPhone host is its phone.
     private(set) lazy var computerUseApprovals = ComputerUseApprovalService(client: environment.launch.bundleID ?? "com.cmuxterm.app.next")
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
@@ -855,3 +855,6 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
+
+/// The iPhone host is Computer Use approvals' phone collector (docs/computer-use-approvals.md, "Phone wire").
+extension IPhoneHostService: @retroactive ComputerUsePhoneHost {}
