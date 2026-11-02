@@ -47,12 +47,17 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         /// group, a kept group whose members closed): only in its own space (spaces.md). A group with no stored space
         /// is the default space's, unless an open workspace of it says otherwise (it lists where that one lists).
         /// `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces that
-        /// exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`).
+        /// exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`). A group that
+        /// follows its parent (`followsParent`) lists wherever that parent lists: the caller checks the parent.
         public func lists(inRoom room: String?, spaces: Set<String>? = nil) -> Bool {
-            guard let room else { return true }
+            guard let room, !followsParent else { return true }
             if let own = self.room { return SidebarDocItem.owningRoom(own, spaces: spaces) == room }
             return room == SidebarDocItem.defaultRoom && openMembers.isEmpty
         }
+
+        /// A group under another group that stores no space (a link-only child, a New Subgroup, one made before groups
+        /// carried one): its space is its parent's.
+        public var followsParent: Bool { room == nil && parent != nil }
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {

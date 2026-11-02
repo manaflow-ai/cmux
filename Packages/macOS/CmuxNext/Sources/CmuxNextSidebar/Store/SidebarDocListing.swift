@@ -214,24 +214,31 @@ extension SidebarDocProjection {
     }
 
     /// The band groups whose header this window leaves out when it lists none of their workspaces: the ones another
-    /// window lists (`bandGroupsListedElsewhere`) and the ones of another space than `drag.room` (spaces.md), with the
-    /// groups nested under those. `listedHere`: the groups this window lists a workspace of; one stays whatever space
-    /// it reads as, and so do the groups under it (a pre-space parent whose live workspace lists here keeps its
-    /// link-only child).
+    /// window lists (`bandGroupsListedElsewhere`) and the ones not of the window's space `drag.room` (spaces.md), with
+    /// the groups nested under those. `listedHere`: the groups this window lists a workspace of; they stay, and so do
+    /// the groups above them. A group that stores no space under another group follows that parent
+    /// (`Group.followsParent`: a link-only child, a New Subgroup).
     @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag, listedHere: Set<String> = []) -> Set<String> {
         let hidden = bandGroupsListedElsewhere(drag: drag)
         guard drag.room != nil else { return hidden }
-        var otherSpace = Set(bandGroups.filter { !$0.lists(inRoom: drag.room, spaces: drag.spaces) && !listedHere.contains($0.id) }.map(\.id))
-        // A group under another space's group leaves with it: a window never draws a child whose parent it leaves
-        // out. Repeat until no group changes, so a deeper descendant follows whatever order `bandGroups` has.
-        var changed = !otherSpace.isEmpty
-        while changed {
-            changed = false
-            for group in bandGroups where !otherSpace.contains(group.id) {
-                if let parent = group.parent, otherSpace.contains(parent) { changed = otherSpace.insert(group.id).inserted || changed }
-            }
+        let byID = Dictionary(bandGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var kept = Set<String>()
+        for id in listedHere {
+            var at: String? = id
+            while let current = at, kept.insert(current).inserted { at = byID[current].flatMap(\.parent) }
         }
-        return hidden.union(otherSpace)
+        var shows: [String: Bool] = [:]
+        // Whether `group` lists here: kept, or under a parent that lists and of this space (or following that parent).
+        // `depth` stops a parent cycle the reducer would refuse anyway.
+        func lists(_ group: Group, depth: Int) -> Bool {
+            if let known = shows[group.id] { return known }
+            let parentLists = group.parent.flatMap { byID[$0] }.map { lists($0, depth: depth + 1) } ?? true
+            let result = kept.contains(group.id) || depth > bandGroups.count
+                || (parentLists && group.lists(inRoom: drag.room, spaces: drag.spaces))
+            shows[group.id] = result
+            return result
+        }
+        return hidden.union(bandGroups.filter { !lists($0, depth: 0) }.map(\.id))
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
