@@ -13,9 +13,9 @@
 // Cost: nothing in WebKit (no listeners, no elements). In Chromium, while one surface is open: one
 // hidden <svg> with a filter per covered element, a ResizeObserver on the surface, its parent and
 // the candidates, a MutationObserver (direct children only, never the subtree) on the candidates'
-// parents, and a requestAnimationFrame loop that follows the surface while its rect, opacity or
-// visibility changes (its enter and exit, a resize, a banner or Find bar coming in) and stops after
-// STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// parents and on the surface's own inline style, and a requestAnimationFrame loop that follows the
+// surface while its rect, opacity or visibility changes (its enter and exit, a resize, a move, a
+// banner or Find bar coming in) and stops after STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
 
@@ -272,6 +272,9 @@ export function attachSeeThroughBlur(
 
   watch(surface, false);
   watch(parent, true);
+  // A surface placed by its own inline style (the rail's preview card follows the pointer from row
+  // to row by its transform) moves with no resize or child change: its style measures again.
+  mutations.observe(surface, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);

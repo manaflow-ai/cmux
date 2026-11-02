@@ -16,6 +16,7 @@ import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
+import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -71,6 +72,15 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
   scroller.dispatchEvent(new KeyboardEvent("keydown", { key: event.key, bubbles: false }));
   scroller.scrollTop += by;
 }
+
+/// What the card covers when it draws in the scroller's parent: the transcript scroller alone, never
+/// the rail or a Find bar beside it. In a see-through Chromium page the card's backdrop blur draws
+/// over the rows, not in their place, so they read sharp through its tint (Lawrence via Leo,
+/// 2026-10-28: "popovers in general need glassier bg blur"); the scroller blurs its own rows under
+/// the card instead (ui/glass/seeThroughBlur.ts). In place (no layer) the card is inside the
+/// scroller and covers nothing.
+const underCard: CoveredCandidates = (surface) =>
+  surface.parentElement?.querySelectorAll(":scope > .acpmux-scroll") ?? [];
 
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
@@ -131,6 +141,7 @@ export const PreviewCard = React.forwardRef<
   const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
+  useSeeThroughBlur(self, !!layer, underCard);
   /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
   const at = useRef({ x, center, viewportHeight, layer, side });
   at.current = { x, center, viewportHeight, layer, side };
