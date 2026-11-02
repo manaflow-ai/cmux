@@ -293,7 +293,7 @@ impl Mux {
                 // terminal that moved during its launch is a coarse change.
                 match delta {
                     Some((delta, selection_resync)) => {
-                        self.emit_tree_delta(delta, selection_resync)
+                        self.emit_tree_delta(delta, selection_resync);
                     }
                     None => self.emit(MuxEvent::TreeChanged),
                 }
