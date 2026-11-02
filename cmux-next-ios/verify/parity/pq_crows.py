@@ -180,11 +180,14 @@ def open_chat(j, st):
 
 
 def page_menu(j):
-    b = j.sim.wait(label="Page Menu", kind="Button", timeout=8)
-    check(b, "no page menu")
-    j.sim.tap_el(b)
-    time.sleep(1.2)
-    return labels(j)
+    """The page menu: a tap on the title capsule at the bottom (pq_panes.open_page_menu)."""
+    import pq_panes
+    return pq_panes.open_page_menu(j)
+
+
+def page_row(j, label):
+    import pq_panes
+    pq_panes.tap_row(j, label)
 
 
 def dismiss(j):
@@ -371,11 +374,12 @@ def video(j, label):
         return out
     check(lengths, "no video in the picker")
     x, y, w, h, _ = lengths[0]
-    j.sim.tap(x - 20, y - 30)
-    time.sleep(1)
-    if j.sim.ocr_find("Add", timeout=2):
-        ocr_tap(j, "Add")
-    time.sleep(6)
+    j.sim.tap(x - 30, y - 40)
+    time.sleep(1.5)
+    pq.shot("video-after-selected")
+    # The picker's Done: the check at its top right.
+    j.sim.tap(363, 144)
+    time.sleep(8)
     pq.shot("video-after-attached")
     out["chip"] = [e.label for e in j.sim.find(ident="attachment.thumb")]
     last = max([e.get("seq", 0) for e in events(st["session"])] or [0])
@@ -461,10 +465,34 @@ def pdf(j, label):
     return out
 
 
-def chief_messages():
-    """The Mac Chief conversation's latest messages (the Mac's own CLI)."""
-    res = pq.RemoteMac().cmux("chat", "history", "--to", "chief", "--limit", "5", check=False, json_out=True)
-    return res
+_CHIEF = r"""
+import glob, json, os, socket, subprocess, sys
+# The rig app's Chief session daemon: the headless cmux-tui the app runs with `--session cmux-chief-*`.
+ps = subprocess.run(["ps", "-axwwo", "command"], capture_output=True, text=True).stdout.splitlines()
+# The daemon's own command line (not this script's, which names the same words).
+line = next(l for l in ps if l.startswith(sys.argv[1]) and " --session cmux-chief-" in l)
+path = line.split("--socket ", 1)[1].split(" --")[0].strip()
+s = socket.socket(socket.AF_UNIX); s.connect(path); f = s.makefile("rw")
+def ask(i, req):
+    f.write(json.dumps(dict(req, id=i)) + "\n"); f.flush()
+    while True:
+        m = json.loads(f.readline())
+        if m.get("id") == i: return m.get("data", m)
+conv = ask(1, {"cmd": "conversation-list"})["conversations"]
+chief = next(c for c in conv if any(p.get("agent_class") == "mux" for p in c.get("participants", [])))
+hist = ask(2, {"cmd": "conversation-snapshot", "conversation": chief["id"], "tail": int(sys.argv[2])})
+print(json.dumps([{"author": m.get("author"), "seq": m.get("seq"),
+                   "text": " ".join(p.get("text", "") for p in m.get("parts", []) if p.get("type") == "text")[:400]}
+                  for m in hist.get("messages", [])]))
+"""
+
+
+def chief_messages(limit=6):
+    """The rig Mac Chief conversation's latest messages, read from its own session daemon."""
+    tag_app = os.path.expanduser(f"{pq.RBASE}/rig/mac")
+    res = pq.rsh(f"python3 -c {shlex.quote(_CHIEF)} {shlex.quote(tag_app)} {limit}", timeout=60)
+    check(res.returncode == 0, f"chief history: {res.stderr.strip()[:300]}")
+    return json.loads(res.stdout)
 
 
 def message(j, label):
@@ -506,7 +534,7 @@ def message(j, label):
     time.sleep(2)
     out["page_menu"] = page_menu(j)
     pq.shot("message-after-page-menu")
-    r.tap(j, "Send Message…")
+    page_row(j, "Send Message…")
     field = j.sim.wait(ident="chief.messageAbout.field", timeout=8)
     check(field, "no Message Chief sheet from the tab")
     j.sim.tap_el(field)

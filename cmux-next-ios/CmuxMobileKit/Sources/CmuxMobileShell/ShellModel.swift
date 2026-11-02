@@ -193,6 +193,17 @@ final class ShellModel {
             toast = CmuxMobileToast(symbol: "desktopcomputer", text: "Connect a Mac to start an agent chat")
             return
         }
+        tab = .workspaces
+        // task-owner: one wait for the Mac's agents (its link may be idle after a cold launch), then the start
+        Task { @MainActor [weak self] in
+            if let live = self?.live, !(self?.creator.options(on: mac.id).agents.contains("") ?? false) {
+                _ = await live.agentsReady(on: mac.id)
+            }
+            self?.createAgentChat(on: mac, prompt: prompt)
+        }
+    }
+
+    private func createAgentChat(on mac: MacDevice, prompt: String?) {
         guard creator.options(on: mac.id).agents.contains(""),
               let workspace = creator.create(start: .agent(""), directory: creator.recentDirectories(on: mac.id).first, macID: mac.id) else {
             toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "\(mac.name) can't start an agent chat from here")
