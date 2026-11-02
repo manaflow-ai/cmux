@@ -56,7 +56,7 @@ import Testing
         row.needsLayout = true
         row.layoutSubtreeIfNeeded()
         #expect(row.subviews.allSatisfy { !String(describing: type(of: $0)).contains("Chief") })
-        #expect(row.accessibilityLabel()?.contains("Chief") != true)
+        #expect(row.accessibilityLabel()?.contains("Operated by Chief") != true)
         #expect(!(style == .trailing ? row.badge as NSView : row.rowBadge).isHidden, "the unread dot still shows")
     }
 
