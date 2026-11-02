@@ -33,7 +33,11 @@ const running = [
   row("s1", "user", { text: "also the runners", steer: "landed" }),
   bash("b3"),
 ];
-const ended = [...running, row("r2", "assistant", { text: "All three are healthy." }), row("sum", "turnSummary", { status: "completed" })];
+const ended = [
+  ...running,
+  row("r2", "assistant", { text: "All three are healthy." }),
+  row("sum", "turnSummary", { status: "completed" }),
+];
 
 const notesIn = (rows: AcpmuxRow[]) =>
   rows.flatMap((each) => (each.items ?? []).filter((item) => item.kind === "note").map((item) => item.text));
