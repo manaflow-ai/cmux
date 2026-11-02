@@ -1034,6 +1034,84 @@ class NewTerminals(unittest.TestCase):
         with self.assertRaises(self.StepError):
             self.ext.step_smoke_type_now(j, {"text": "x"})
 
+    def make_key_on(self, j, reply, windows):
+        front = self.ext._front_app
+        self.ext._front_app = lambda: (None, "com.cmuxterm.app.debug.tipwatch.14a5e1b1.caphost")
+        try:
+            j.app.rpc = lambda method, params=None: reply if method == "debug.window.focus" else {"windows": windows}
+            return self.ext.step_smoke_make_key(j, {})
+        finally:
+            self.ext._front_app = front
+
+    REOPEN_WINDOW = "616cfb34-3e1b-4430-b6db-094072642970"
+    # Step 70 of tip-watcher-smoke-14a5e1b15367-20261102T054705Z-1 round 3 (job 06780151826af6270add4ff5): after the reopen
+    # the restored browser page keeps the keyboard (#31684): its CefNSWindow, a child of the one cmux window, is key, so
+    # debug.window.focus (controller windows only) says key null (reopen-f4, STATUS 5871).
+    REOPEN_REPLY = {"front": REOPEN_WINDOW, "key": None}
+    REOPEN_PAGE = [{"id": 44820, "kind": "main", "key": False, "visible": True, "parent": None},
+                   {"id": 44826, "kind": "panel", "key": False, "visible": True, "parent": 44820},
+                   {"id": 44901, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 44820}]
+
+    def test_make_key_holds_when_the_restored_page_of_the_journey_window_has_the_keys(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        result = self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
+        self.assertTrue(result["key_window_now"], result)
+        self.assertTrue(j.smoke_key_ok)
+        self.assertEqual(result["held_by_page"], {"page": 44901, "of_main": 44820})
+        # Steps 71-74: Cmd-N and Ctrl-` act on the shell, the new terminal's main window is key: the line is typed at once.
+        typed = []
+        j.key = lambda *a: typed.append(a)
+        j.app.rpc = lambda method, params=None: {"windows": [dict(self.REOPEN_PAGE[0], key=True), self.REOPEN_PAGE[1],
+                                                             dict(self.REOPEN_PAGE[2], key=False)]}
+        out = self.ext.step_smoke_type_now(j, {"text": "echo w4"})
+        self.assertTrue(out["at_once"], out)
+        self.assertEqual(len(typed), len("echo w4") + 1)
+
+    def test_a_page_that_still_has_the_keys_when_a_terminal_line_is_typed_is_a_fail(self):
+        # The make-key holds by the page, but if the page still has the keys after Ctrl-` made a terminal, the keys
+        # would go to the page, not the new terminal: the app's fault, never typed and never a pass.
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
+        typed = []
+        j.key = lambda *a: typed.append(a)
+        with self.assertRaises(self.StepError):
+            self.ext.step_smoke_type_now(j, {"text": "echo w4"})
+        self.assertEqual(typed, [])
+
+    def test_make_key_still_fails_without_a_page_of_the_one_journey_window(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        main, panel, page = self.REOPEN_PAGE
+        other_main = {"id": 50000, "kind": "main", "key": False, "visible": True, "parent": None}
+        cases = {
+            "no window key": [main, panel, dict(page, key=False)],
+            "a key panel": [main, dict(panel, key=True), dict(page, key=False)],
+            "a hidden page": [main, panel, dict(page, visible=False)],
+            "a page of no main window": [main, panel, dict(page, parent=9)],
+            "two main windows (which one is the journey's is unknown)": [main, other_main, panel, page],
+        }
+        for name, windows in cases.items():
+            result = self.make_key_on(j, self.REOPEN_REPLY, windows)
+            self.assertFalse(result["key_window_now"], name)
+            self.assertFalse(j.smoke_key_ok, name)
+        # Another controller window in front: not the journey's window, so no page rule.
+        result = self.make_key_on(j, {"front": "another", "key": None}, self.REOPEN_PAGE)
+        self.assertFalse(result["key_window_now"])
+        # The journey window itself key: holds as before, with no page.
+        result = self.make_key_on(j, {"front": self.REOPEN_WINDOW, "key": self.REOPEN_WINDOW}, self.REOPEN_PAGE)
+        self.assertTrue(result["key_window_now"])
+        self.assertNotIn("held_by_page", result)
+
+    def test_a_burst_needs_the_journey_window_itself_key_not_a_page(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
+        with self.assertRaises(self.NotRun) as caught:
+            self.ext.step_smoke_burst(j, {"burst": [{"key": "return"}]})
+        self.assertIn("page", str(caught.exception))
+
     def test_the_cmd_t_step_lets_the_new_tab_page_hold_the_keys(self):
         spec = json.loads((Path(__file__).resolve().parent / "journeys" / "dogfood" / "smoke-dogfood.json").read_text())
         cmdt = [s for s in spec["steps"] if s.get("since") == "cmdt" and s.get("do") == "expect"]
