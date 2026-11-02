@@ -273,7 +273,13 @@ impl Workspace<'_> {
     /// The selected tab of the most recently focused pane (the first stored
     /// one on a tie); none for a workspace with no tabs.
     pub fn front_tab(&self) -> Option<usize> {
-        None
+        let mut best: Option<(usize, &Pane)> = None;
+        for (first, pane) in self.panes_with_tabs() {
+            if best.is_none_or(|(_, current)| pane.focused_at > current.focused_at) {
+                best = Some((first, pane));
+            }
+        }
+        best.map(|(first, pane)| Self::selected(first, pane))
     }
 
     /// The tab a browser front tab yields its row's name to (a PR opened in
@@ -281,66 +287,126 @@ impl Workspace<'_> {
     /// pane that shows a chat or terminal (the first stored one on a tie).
     /// A Home, page or app tab gives no name, so it is passed over too.
     pub fn work_tab(&self) -> Option<usize> {
-        None
+        let mut work: Option<(usize, u64)> = None;
+        for (first, pane) in self.panes_with_tabs() {
+            if work.is_some_and(|(_, focused_at)| pane.focused_at <= focused_at) {
+                continue;
+            }
+            let index = Self::selected(first, pane);
+            let tab = &self.tabs[index];
+            let named =
+                tab.chat || (tab.kind != TabKind::Conversation && !tab.page && !tab.app_tab);
+            if tab.kind != TabKind::Browser && named {
+                work = Some((index, pane.focused_at));
+            }
+        }
+        work.map(|(index, _)| index)
     }
 
     /// The tab a row and its window's titlebar are named for: `front`,
     /// unless it is an idle shell or a New Tab page while the workspace has
     /// an agent chat; then that chat (a working or waiting one first).
     pub fn label_tab(&self, front: Option<usize>, home: &str) -> Option<usize> {
-        let _ = home;
-        front
+        let front = front?;
+        if !is_idle(&self.tabs[front], home, true) {
+            return Some(front);
+        }
+        let mut chats =
+            self.tabs.iter().enumerate().filter(|(_, tab)| tab.chat && !tab.new_tab_page);
+        let first = chats.clone().next().map(|(index, _)| index);
+        let busy = chats.find(|(_, tab)| tab.agent.is_some_and(AgentState::is_busy));
+        Some(busy.map(|(index, _)| index).or(first).unwrap_or(front))
     }
 
     /// The one tab the row and the window titlebar read their name and icon
     /// from: the label tab, or for a browser one the work it yields to.
     pub fn face_tab(&self, home: &str) -> Option<usize> {
-        let _ = home;
-        None
+        let label = self.label_tab(self.front_tab(), home);
+        if label.is_none_or(|index| self.tabs[index].kind != TabKind::Browser) {
+            return label;
+        }
+        self.work_tab().or(label)
     }
 
     /// The row's agent chat: `label`'s when it is one, else the first chat.
     pub fn chat_tab(&self, label: Option<usize>) -> Option<usize> {
-        label
+        if let Some(label) = label.filter(|index| self.tabs[*index].chat) {
+            return Some(label);
+        }
+        self.tabs.iter().position(|tab| tab.chat)
     }
 
     /// The first tab that reports a folder. While `label` is a chat, an idle
     /// shell at home gives none: its "~" never names the row.
     pub fn folder_tab(&self, label: Option<usize>, home: &str) -> Option<usize> {
-        let _ = (label, home);
-        None
+        let chat = label.is_some_and(|index| self.tabs[index].chat);
+        self.tabs.iter().position(|tab| {
+            let Some(cwd) = tab.cwd else { return false };
+            !chat || !(is_idle(tab, home, false) && abbreviate(cwd, home) == "~")
+        })
     }
 
     /// The tab whose agent the row names: a working or waiting branded one
     /// first, else the first branded one.
     pub fn agent_tab(&self) -> Option<usize> {
-        None
+        let mut branded = self.tabs.iter().enumerate().filter(|(_, tab)| tab.branded);
+        let first = branded.clone().next().map(|(index, _)| index);
+        branded
+            .find(|(_, tab)| tab.agent.is_some_and(AgentState::is_busy))
+            .map(|(index, _)| index)
+            .or(first)
     }
 
     /// Why the row is marked: the newest "needs you here" mark (the first
     /// on a tie), else the newest unread notification (the first on a tie).
     pub fn notice(&self) -> Option<Notice> {
-        None
+        let attention = first_max(
+            self.tabs
+                .iter()
+                .enumerate()
+                .filter_map(|(index, tab)| Some((index, tab.attention_at_ms?))),
+        );
+        if let Some(index) = attention {
+            return Some(Notice::Attention(index));
+        }
+        let unread = self.tabs.iter().enumerate().filter(|(_, tab)| tab.has_unread);
+        first_max(unread.map(|(index, tab)| (index, tab.notification))).map(Notice::Notification)
     }
 
     /// The row's unread mark: the unread count, else a dot for a workspace
     /// or tab marked unread or a tab that needs the person; none while the
     /// sidebar hides unread state.
     pub fn unread(&self, shows_unread: bool) -> Unread {
-        let _ = shows_unread;
-        Unread::None
+        if !shows_unread {
+            return Unread::None;
+        }
+        if self.unread_count > 0 {
+            return Unread::Count(self.unread_count);
+        }
+        let marked = self.marked_unread
+            || self.tabs.iter().any(|tab| tab.marked_unread || tab.attention_at_ms.is_some());
+        if marked { Unread::Dot } else { Unread::None }
     }
 
     /// The workspace's reported progress, else the first terminal progress
     /// of its tabs.
     pub fn progress(&self) -> Option<Bar> {
-        None
+        if let Some(value) = self.reported_progress {
+            return Some(Bar { value, is_error: false });
+        }
+        self.tabs.iter().find_map(|tab| tab.progress).and_then(terminal_progress)
     }
 
     /// What the tabs are: one kind, or mixed; a workspace without tabs is a
     /// terminal one.
     pub fn row_kind(&self) -> RowKind {
-        RowKind::Terminal
+        let mut kinds = self.tabs.iter().map(|tab| match kind(Some(tab)) {
+            Kind::Harness => RowKind::Agent,
+            Kind::Browser => RowKind::Browser,
+            Kind::Terminal => RowKind::Terminal,
+        });
+        let Some(first) = kinds.next() else { return RowKind::Terminal };
+        if kinds.all(|other| other == first) { first } else { RowKind::Mixed }
     }
 }
 
@@ -365,24 +431,50 @@ fn first_max(items: impl Iterator<Item = (usize, u64)>) -> Option<usize> {
 /// What a tab shows: an agent (chat, Home conversation or agent terminal),
 /// a page, else a terminal; a workspace with no tab is a terminal one.
 pub fn kind(tab: Option<&Tab<'_>>) -> Kind {
-    let _ = tab;
-    Kind::Terminal
+    let Some(tab) = tab else { return Kind::Terminal };
+    if tab.kind == TabKind::Conversation || tab.agent.is_some() {
+        Kind::Harness
+    } else if tab.kind == TabKind::Browser {
+        Kind::Browser
+    } else {
+        Kind::Terminal
+    }
 }
 
 /// A New Tab page (when `new_tab_pages` counts them), or a terminal with no
 /// agent and no running command whose title is empty, a bare shell or its
 /// own folder.
 pub fn is_idle(tab: &Tab<'_>, home: &str, new_tab_pages: bool) -> bool {
-    let _ = (tab, home, new_tab_pages);
-    false
+    if new_tab_pages && tab.new_tab_page {
+        return true;
+    }
+    if tab.kind != TabKind::Pty || tab.agent.is_some() || tab.command_running || tab.title_activity
+    {
+        return false;
+    }
+    let title = trim_whitespace(tab.title);
+    let shell = title.strip_prefix('-').unwrap_or(title);
+    if title.is_empty() || BARE_SHELLS.contains(&shell) {
+        return true;
+    }
+    tab.cwd.is_some_and(|cwd| title == cwd || abbreviate(cwd, home) == title)
 }
 
 /// The front terminal's program as the shell or program titles it (OSC
 /// 0/2); none for other tabs, an untitled terminal, or a title that only
 /// repeats the folder (against this Mac's home, on every machine).
 pub fn process<'a>(tab: &Tab<'a>, home: &str) -> Option<&'a str> {
-    let _ = (tab, home);
-    None
+    if tab.kind != TabKind::Pty || tab.agent.is_some() {
+        return None;
+    }
+    let title = trim_whitespace(tab.title);
+    if title.is_empty() {
+        return None;
+    }
+    if tab.cwd.is_some_and(|cwd| title == cwd || abbreviate(cwd, home) == title) {
+        return None;
+    }
+    Some(title)
 }
 
 /// A terminal tab titled by its own folder reads as its prompt writes it:
@@ -390,28 +482,45 @@ pub fn process<'a>(tab: &Tab<'a>, home: &str) -> Option<&'a str> {
 /// another path, a name the person gave the tab and an agent's tab stay as
 /// they are.
 pub fn shortened_title<'a>(title: &'a str, tab: &Tab<'a>, local: bool, home: &str) -> Cow<'a, str> {
-    let _ = (tab, local, home);
-    Cow::Borrowed(title)
+    let shell = !tab.chat
+        && tab.agent.is_none()
+        && matches!(tab.kind, TabKind::Pty | TabKind::RemoteTerminal)
+        && !tab.named;
+    match tab.cwd {
+        Some(cwd) if shell && trim_slash(title) == trim_slash(cwd) => {
+            shorten(trim_slash(cwd), local, home)
+        }
+        _ => Cow::Borrowed(title),
+    }
 }
 
 /// A terminal's OSC 9;4 progress as a bar; none for a paused one with no
 /// value.
 pub fn terminal_progress(report: TerminalProgress) -> Option<Bar> {
-    let _ = report;
-    None
+    let value = report.value.map(|value| value as f64 / 100.0);
+    match report.state {
+        ProgressState::Normal => Some(Bar { value, is_error: false }),
+        ProgressState::Error => Some(Bar { value: Some(value.unwrap_or(1.0)), is_error: true }),
+        ProgressState::Indeterminate => Some(Bar { value: None, is_error: false }),
+        ProgressState::Paused => value.map(|value| Bar { value: Some(value), is_error: false }),
+    }
 }
 
 /// A tab's kind in the tab list: a New Tab page, an agent chat, else its
 /// record's kind.
 pub fn listed_kind(tab: &Tab<'_>) -> ListedKind {
-    let _ = tab;
-    ListedKind::Record
+    if tab.new_tab_page {
+        ListedKind::NewTab
+    } else if tab.chat {
+        ListedKind::AgentChat
+    } else {
+        ListedKind::Record
+    }
 }
 
 /// The newest agent update or notification of one tab; 0 for none.
 pub fn last_activity(tab: &Tab<'_>) -> u64 {
-    let _ = tab;
-    0
+    tab.agent_updated_ms.max(tab.notification_created_ms)
 }
 
 /// The face of `workspace`'s row.
