@@ -61,6 +61,7 @@ import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
+import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { Artifact } from "../conversation/artifactPreview";
@@ -1258,6 +1259,16 @@ export function SessionInfo({
     [showsCalls, rows],
   );
   const body = useRef<HTMLDivElement>(null);
+  // Rows scrolled past the body's top or bottom fade at that edge (scrollEdges.ts, sessionInfo.css)
+  // instead of being cut off. It stops following when the body unmounts.
+  const edges = useScrollEdges();
+  const bodyRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      body.current = node;
+      edges(node);
+    },
+    [edges],
+  );
   // Once: then it is done, so the palette or another pane opening Session Info again does not jump
   // back to this section.
   // The section lights for a moment (sessionInfo.css `[data-revealed]`), so a reveal of a section already
@@ -1514,7 +1525,7 @@ export function SessionInfo({
     </SessionInfoSection>
   );
   return (
-    <div ref={body} className="acpmux-session-info__body" data-layout={layout}>
+    <div ref={bodyRef} className="acpmux-session-info__body" data-layout={layout}>
       {banner}
       {/* Where it runs, what it made, what it runs: one order the person drags (SessionInfoGroup.tsx). */}
       <SessionInfoSectionList
