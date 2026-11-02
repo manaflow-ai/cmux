@@ -78,6 +78,7 @@ struct CodexResumePermissionPolicyTests {
     @Test("Declared or unparseable table networking remains authoritative", arguments: [
         "{writable_roots=[], network_access=false}", "{'network_access'=false}",
         "{\"network_access\"=false}", "{\"network\\u005faccess\"=false}",
+        "{\"network\\U0000005Faccess\"=false}",
         "{writable_roots=['unterminated}"
     ])
     func explicitTableNetwork(value: String) {
