@@ -801,7 +801,7 @@ def _clean_markers(j, before, marks):
     return errors
 
 
-def _settle(j, timeout=20):
+def _settle(j, timeout=20, allow_none=False):
     """After the film: until the reopened app answers and every visible terminal is live."""
     end = D.now() + timeout
     info = None
@@ -821,7 +821,7 @@ def _settle(j, timeout=20):
             shown = [p for p in j.app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]
             if shown and all(p.get("attach") == "live" for p in shown):
                 return True
-            if not shown and j.topology().get("loaded"):
+            if allow_none and not shown and j.topology().get("loaded"):
                 return "no visible terminal"
         except (D.StepError, OSError, ValueError):
             pass
@@ -898,7 +898,7 @@ def step_reopen_video(j, step):
         finally:
             keys.close()
             cua.close()
-        settled = _settle(j)
+        settled = _settle(j, allow_none=not before["visible_terminals"])
         record["settled"] = settled
         record["pid_matches"] = record.get("new_pid") == j.app.pid
         try:
@@ -1291,7 +1291,7 @@ def step_reopen_browser_keys(j, step):
     finally:
         keys.close()
         cua.close()
-    record["settled"] = _settle(j)
+    record["settled"] = _settle(j, allow_none=True)
     record["pid_matches"] = record.get("new_pid") == j.app.pid
     try:
         marks = (j.app.rpc("debug.timings", timeout=10) or {}).get("launch_ms_since_process_start") or {}
