@@ -65,6 +65,7 @@ def main():
     ap.add_argument("--journey", action="append", required=True)
     ap.add_argument("--label", required=True, help="the folder name under PUBLISH (the build's name)")
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--hog-swap-gb", type=float, default=0.0, help="run.py --hog-swap-gb (the 15 GB memory hog case)")
     ap.add_argument("--spec-file", help="a lease-round spec JSON to hand to the mini scheduler once the build is done")
     ap.add_argument("--vdisplay", default="120x1", help="HZxSCALE of the lease's own main display (run.py --vdisplay); "
                     "'none' keeps the mini's own 60 Hz display (geometry only, never pacing evidence)")
@@ -106,6 +107,8 @@ def main():
         # --frame-interval 60: the driver's clip snapshots run on the app's main thread; none may fall in a recording.
         cmd = [sys.executable, str(HERE / "run.py"), "--build", opts.build, "--whole-host", "--exclusive", "--frame-interval", "60",
                "--hosts", host, "--out", str(out)]
+        if opts.hog_swap_gb > 0:
+            cmd += ["--hog-swap-gb", str(opts.hog_swap_gb)]
         if opts.vdisplay != "none":
             cmd += ["--vdisplay", opts.vdisplay]
         for jid in opts.journey:
