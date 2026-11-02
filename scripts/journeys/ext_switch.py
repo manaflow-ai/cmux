@@ -585,7 +585,16 @@ def step_switch_keys(j, step):
                     out[str(p["terminal_id"])] = {k: p.get(k) for k in ("surface_swaps", "snapshots", "last_frame_holds",
                                                                           "frame_held", "attach", "local_snapshots")}
         return out
+    def cache_report():
+        try:
+            rows = j.app.rpc("debug.surfaces", {}) or {}
+        except D.StepError:
+            return {}
+        keys = ("last_frames", "live_terminals", "warm_terminal_capacity", "blank_panes", "parked_workspaces",
+                "hibernated_workspaces", "workspaces_hibernated_total")
+        return {k: rows.get(k) for k in keys if k in rows}
     counts_before = surface_counts()
+    cache_before = cache_report()
     sent = []
     for entry in keys:
         mods, key, case = entry[0], entry[1], entry[2]
@@ -606,9 +615,10 @@ def step_switch_keys(j, step):
         time.sleep(gap / 2)
         shown = _shown_workspace(j)
         after_key = surface_counts()
+        after_cache = cache_report()
         sent.append({"case": case, "keys": mods + [key], "action": action, "sent_host_s": t_sent, "send_returned_host_s": t_done,
                      "wall_sent": wall_sent, "wall_offset": wall_sent - t_sent,
-                     "shown": shown, "shown_tab": list(_shown_tab(j)), "surfaces": after_key,
+                     "shown": shown, "shown_tab": list(_shown_tab(j)), "surfaces": after_key, "cache": after_cache,
                      "expect": (digits.get(key) or {}).get("workspace") if action == "selectWorkspaceByNumber" and mods == ["cmd"] else None})
         time.sleep(gap / 2)
     wanted = {s["action"] for s in sent}
@@ -671,7 +681,8 @@ def step_switch_keys(j, step):
     (j.out / "video").mkdir(exist_ok=True)
     (j.out / "video" / (name + "-keys.events.json")).write_text(json.dumps({"events": events, "runs": runs,
                                                                             "app_timers": app_timers,
-                                                                            "surfaces_before": counts_before}, indent=1))
+                                                                            "surfaces_before": counts_before,
+                                                                            "cache_before": cache_before}, indent=1))
     missing = [e["case"] for e in events if e.get("t_source") == "sent"]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,
