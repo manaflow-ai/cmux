@@ -2218,6 +2218,22 @@
           ]
         },
         {
+          "key": "appearance.displayBackgroundRotations",
+          "title": "Per-display Background Rotation",
+          "help": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.displayBackgrounds",
+          "title": "Per-display Backgrounds",
+          "help": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.experimentalControls",
           "title": "Experimental Appearance Controls",
           "help": "Applies Hue and Saturation to the window's tint. Off, they have no effect.",

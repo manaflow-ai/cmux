@@ -48,6 +48,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
     private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
@@ -433,7 +434,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func showSelected() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
-        let key = stripModel.selectedID?.rawValue
+        let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
@@ -462,9 +463,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // alpha transition does not reach Chromium's separate child window.
             view.refreshChromiumVisibility()
         }
-        // The content view exists now: the coordinator re-applies focus if
-        // this pane has it (content is shown a frame after selection).
-        if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        // What shows changed (a frame after selection): focus applies again if this pane has it; a re-show of the same content reports nothing.
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away

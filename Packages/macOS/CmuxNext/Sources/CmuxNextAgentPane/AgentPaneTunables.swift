@@ -171,17 +171,23 @@ public nonisolated struct AgentPaneTunables {
     /// put the old summary card back in every build (Leo, 2026-10-31: "omfg we already previouls
     /// yfucking built that shit").
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
-    /// Its key stays `agent.inspector`: it is the saved Debug Settings key, and renaming it would drop a saved choice.
+    /// It was `agent.inspector`, the panel's old name; ``registerRenames(_:)`` keeps a saved choice.
     public static let sessionInfo = Tunable<Bool>.toggle(
-        "agent.inspector", PageTunables.section, "Session Info",
+        "agent.sessionInfo", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: true, code: "AgentPaneTunables.sessionInfo")
 
-    /// Native drawing stays opt-in while the current web panel remains the fallback.
+    /// Native drawing is the shipped Session Info path; the page remains the fallback when this
+    /// Debug Settings switch is turned off. Leo ordered the native port to ship on by default.
     public static let nativeSessionInfo = Tunable<Bool>.toggle(
         "agent.sessionInfo.native", PageTunables.section, "Session Info drawn natively",
         help: "The App draws Session Info over the agent pane; off, the chat page draws it.",
-        default: false, code: "AgentPaneTunables.nativeSessionInfo")
+        default: true, code: "AgentPaneTunables.nativeSessionInfo")
+
+    /// `sessionInfo` was `agent.inspector`, the panel's old name: a file that still holds it keeps its choice.
+    public static func registerRenames(_ store: TunableStore) {
+        store.registerRename(from: "agent.inspector", to: sessionInfo.key) { $0 as? Bool }
+    }
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every

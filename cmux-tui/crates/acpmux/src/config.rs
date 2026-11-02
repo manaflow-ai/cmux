@@ -934,10 +934,21 @@ pub struct WebSocketConfig {
     /// builds did, in `_acpmux/status`). Set, it never rotates again.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub token_rotated: u32,
+    /// `allowInsecureNetwork`: bind a network (non-loopback) `listen`
+    /// address. The listener speaks plain ws://, so the token crosses that
+    /// network in clear; without it such an address stops the daemon
+    /// (`server/ws_auth.rs`). `--insecure-network-listen` is the same for
+    /// one run.
+    #[serde(default, alias = "allow_insecure_network", skip_serializing_if = "is_false")]
+    pub allow_insecure_network: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_palette_prefix() -> String {
@@ -1090,6 +1101,46 @@ impl TitlesConfig {
     }
 }
 
+/// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
+/// The feature is disabled unless `enabled` is explicitly set to true.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactsSyncConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// cmux-platform origin. Defaults to the development Worker.
+    #[serde(default = "default_artifacts_base_url")]
+    pub base_url: String,
+    /// Poll period for callers that run the sync loop. A loop must still have
+    /// an explicit stop condition; this value only controls its cadence.
+    #[serde(default = "default_artifacts_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+}
+
+fn default_artifacts_base_url() -> String {
+    "https://cmux-platform-development.debussy.workers.dev".into()
+}
+
+fn default_artifacts_poll_interval_ms() -> u64 {
+    30_000
+}
+
+impl Default for ArtifactsSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: default_artifacts_base_url(),
+            poll_interval_ms: default_artifacts_poll_interval_ms(),
+        }
+    }
+}
+
+impl ArtifactsSyncConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1098,6 +1149,9 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// Optional platform artifact and memory synchronization.
+    #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
+    pub artifacts_sync: ArtifactsSyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
