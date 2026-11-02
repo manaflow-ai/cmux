@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4144418416001",
+  "notes": "notes/4144418416001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32147,
+      "title": "cmux NEXT Needs you: a row expands, answers inline, shows its context, and opens where you pick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32196,
+      "title": "Transcript: no spinners on tool-call rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32204,
+      "title": "fix(next): #31894's browser tab reuse rules leave CmuxNextApp (arch red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32103,
+      "title": "Leaders list: acpmux ls --leads and a Leads list on New Tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28745,
+      "title": "cmux NEXT: Chief Home chat is 1.5x larger by default (#28715)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32194,
+      "title": "cmux NEXT: render native Session Info activity waves and progress",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32188,
+      "title": "bench(keep-frames-disk): the rusage struct is the full RUSAGE_INFO_V4 plus spare room (the short struct segfaulted at the first read)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32206,
+      "title": "ci(nightly): a pool-signed cmux NIGHTLY copy counts only once its DMG verified",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32200,
+      "title": "cmux NEXT Cloud: Open Machine waits for the link it started instead of \"not connected\"",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
