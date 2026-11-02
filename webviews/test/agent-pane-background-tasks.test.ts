@@ -4,7 +4,7 @@
 // shell stands (running in the background, then stopped or finished), in whichever turn it ended;
 // a shell whose call is not in the transcript is noted where it ended, in a few words
 // ("Background task finished: pytest -x"). Session Info's Background tasks (Debug Settings
-// `agent.inspector`; with it off, the header's summary) lists the chat's background tasks with how
+// `agent.sessionInfo`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
 // A click on a task's row in Session Info or the summary opens the task's terminal
 // (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
@@ -283,7 +283,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
-  /// Settings `agent.inspector` with the header state; Session Info opens by default), or, with it
+  /// Settings `agent.sessionInfo` with the header state; Session Info opens by default), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {

@@ -83,10 +83,26 @@ public final class CmuxDialogCenter {
         return id
     }
 
-    /// Shows `spec` in `scope` and waits for the answer.
+    /// Shows `spec` in `scope` and waits for the answer. Cancelling the waiting task dismisses the
+    /// dialog, which answers its cancel (nobody waits on it any more).
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope) async -> CmuxDialogAnswer {
-        await withCheckedContinuation { continuation in
-            present(spec, in: scope) { continuation.resume(returning: $0) }
+        let shown = Shown()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                shown.id = present(spec, in: scope) { continuation.resume(returning: $0) }
+                if Task.isCancelled { shown.dismiss(from: self) }
+            }
+        } onCancel: {
+            // task-owner: one hop to the main actor to dismiss the dialog this cancelled wait showed
+            Task { @MainActor in shown.dismiss(from: self) }
+        }
+    }
+
+    /// The dialog an awaited ``present(_:in:)`` showed, for its cancellation.
+    @MainActor private final class Shown {
+        var id: Int?
+        func dismiss(from center: CmuxDialogCenter) {
+            if let id { center.dismiss(id) }
         }
     }
 

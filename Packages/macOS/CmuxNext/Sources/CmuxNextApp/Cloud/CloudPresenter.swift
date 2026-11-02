@@ -65,10 +65,13 @@ enum CloudPresenter {
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
                         in window: NSWindow?, done: @escaping (Bool) -> Void) {
-        let spec = CmuxDialogSpec(title: title, lines: [body],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: identifier)
-        present(spec, in: window) { answer in done(answer?.button == "confirm") }
+        present(confirmSpec(title, body, button: button, identifier: identifier), in: window) { answer in done(answer?.button == "confirm") }
+    }
+
+    /// The yes/no question ``confirm(_:_:button:identifier:in:done:)`` shows; its yes button's id is `confirm`.
+    static func confirmSpec(_ title: String, _ body: String, button: String, identifier: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: title, lines: [body], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                       identifier: identifier)
     }
 
     /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
