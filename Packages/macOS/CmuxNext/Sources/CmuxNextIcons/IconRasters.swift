@@ -8,8 +8,13 @@ import CmuxNextCompat
 /// (37-43 ms of AppKit work before the first frame). Each key here is drawn once, from any thread, and every image
 /// of it wraps the same bitmap. Chrome glyphs are templates (black ink, tinted by their view), so the light/dark
 /// appearance is not part of a key; the drawing (pack layers or SF Symbol), the side and the scale are.
+///
+/// Bounded: at most `limit` bitmaps and `byteLimit` bytes, the least recently used dropped first; all of them dropped
+/// on a memory pressure warning. Thread-safe: one unfair lock held only to look up or store (drawing runs outside it),
+/// never a hop to the main thread.
 nonisolated final class IconRasters: Sendable {
-    /// The app-wide cache.
+    /// The app-wide cache: immutable bitmaps keyed by value, no app state (arch exception
+    /// plans/cmux-next/arch-exceptions/icon-rasters.json: ~105 callers of the static `NSImage.icon` API).
     static let shared = IconRasters()
 
     /// The scales a chrome glyph is drawn at: every Mac display is 1x or 2x.
@@ -29,18 +34,78 @@ nonisolated final class IconRasters: Sendable {
         let scale: CGFloat
     }
 
-    private let bitmaps = Mutex<[Key: CGImage]>([:])
+    private struct Entry {
+        let bitmap: CGImage
+        var used: UInt64
+        var bytes: Int { bitmap.bytesPerRow * bitmap.height }
+    }
+
+    private struct State {
+        var entries: [Key: Entry] = [:]
+        var bytes = 0
+        /// A use counter: the entry with the lowest `used` is the least recently used.
+        var clock: UInt64 = 0
+        var pressure: (any DispatchSourceMemoryPressure)?
+    }
+
+    private let state = Mutex(State())
+    private let limit: Int
+    private let byteLimit: Int
+
+    /// - Parameters:
+    ///   - limit: The most bitmaps kept.
+    ///   - byteLimit: The most bitmap bytes kept.
+    ///   - dropsOnMemoryPressure: Drop every bitmap on a memory pressure warning (tests pass false).
+    init(limit: Int = 512, byteLimit: Int = 8 << 20, dropsOnMemoryPressure: Bool = true) {
+        self.limit = limit
+        self.byteLimit = byteLimit
+        guard dropsOnMemoryPressure else { return }
+        state.withLock { state in
+            let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
+            source.setEventHandler { [weak self] in self?.removeAll() }
+            source.activate()
+            state.pressure = source
+        }
+    }
+
+    /// The number of bitmaps kept.
+    var count: Int { state.withLock { $0.entries.count } }
+
+    /// Drops every bitmap (they are drawn again when next asked for).
+    func removeAll() {
+        state.withLock { state in
+            state.entries.removeAll()
+            state.bytes = 0
+        }
+    }
 
     /// The bitmap of `glyph` at `side` points and `scale`, drawn the first time it is asked for (`resolve` gives its
     /// drawing then).
     func bitmap(_ glyph: Glyph, side: CGFloat, scale: CGFloat, resolve: () -> IconResolution) -> CGImage? {
         let key = Key(glyph: glyph, side: side, scale: scale)
-        if let drawn = bitmaps.withLock({ $0[key] }) { return drawn }
+        let kept = state.withLock { state -> CGImage? in
+            guard state.entries[key] != nil else { return nil }
+            state.clock &+= 1
+            state.entries[key]?.used = state.clock
+            return state.entries[key]?.bitmap
+        }
+        if let kept { return kept }
         // Drawn outside the lock: two threads may draw one key at once; the first stored wins, both are equal.
         guard let drawn = Self.draw(resolve(), side: side, scale: scale) else { return nil }
-        return bitmaps.withLock { stored in
-            if let first = stored[key] { return first }
-            stored[key] = drawn
+        return state.withLock { state in
+            state.clock &+= 1
+            if let first = state.entries[key]?.bitmap {
+                state.entries[key]?.used = state.clock
+                return first
+            }
+            let entry = Entry(bitmap: drawn, used: state.clock)
+            state.entries[key] = entry
+            state.bytes += entry.bytes
+            while state.entries.count > limit || state.bytes > byteLimit,
+                  let oldest = state.entries.min(by: { $0.value.used < $1.value.used }), oldest.key != key {
+                state.entries[oldest.key] = nil
+                state.bytes -= oldest.value.bytes
+            }
             return drawn
         }
     }
