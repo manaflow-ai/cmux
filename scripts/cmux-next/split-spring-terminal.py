@@ -269,6 +269,48 @@ if "--suite=perf-gate" in sys.argv:
     print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# MEASURE-ONLY (lane/ux-cef-api30-measure, never for feat-cmux-next): `--suite=cef-api30` runs every layer-hosting
+# check and bench on the step's app in one step and packs <out> into <out>/bundle.tar.gz (the step's one artifact):
+# verify on (hid), verify on (debug), verify off (debug), cef-layer-ab.py off vs on, cef-resize-sync-bench.py.
+if "--suite=cef-api30" in sys.argv:
+    import tarfile
+    here = os.path.dirname(os.path.abspath(__file__))
+    argv = sys.argv[1:]
+    value = lambda name: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == name), None)
+    app, tag, out = value("--app"), value("--tag"), value("--out") or "/tmp/cmux-next-cef-api30"
+    want = next((a.split("=", 1)[1] for a in argv if a.startswith("--parts=")), "verify-on,verify-off,ab,resize,split,verify-on-hid")
+    table = {
+        "verify-on-hid": ["cef-layer-verify.py", "--mode", "on"],
+        "verify-on": ["cef-layer-verify.py", "--mode", "on", "--input", "debug"],
+        "verify-off": ["cef-layer-verify.py", "--mode", "off", "--input", "debug"],
+        "verify-on-late": ["cef-layer-verify.py", "--mode", "on", "--input", "debug"],
+        "verify-off-late": ["cef-layer-verify.py", "--mode", "off", "--input", "debug"],
+        "ab": ["cef-layer-ab.py"],
+        "resize": ["cef-resize-sync-bench.py", "--label", "api30"],
+        "split": ["split-resize-bench.py", "--variants=live,hold,synced,resizeSync,live-hosted,resizeSync-hosted"],
+        **{f"split{i}": ["split-resize-bench.py", "--variants=live,resizeSync,live-hosted,resizeSync-hosted"] for i in range(2, 9)},
+    }
+    results = {}
+    for name in want.split(","):
+        script, *extra = table[name]
+        part_out = os.path.join(out, name)
+        os.makedirs(part_out, exist_ok=True)
+        print(f"== cef-api30 {name}", flush=True)
+        with open(os.path.join(part_out, "part-log.txt"), "w") as log:
+            env = dict(os.environ, CMUX_VERIFY_SHOW_AGAIN_LAST="1") if name.endswith("-late") else None
+            results[name] = subprocess.call([sys.executable, os.path.join(here, script), "--app", app, "--tag", tag,
+                                             "--out", part_out] + extra, stdout=log, stderr=subprocess.STDOUT, env=env)
+        print(f"== cef-api30 {name} exit {results[name]}", flush=True)
+        with open(os.path.join(out, "cef-api30.json"), "w") as f:
+            json.dump(results, f, indent=1)
+    with open(os.path.join(out, "report.json"), "w") as f:
+        json.dump({"suite": "cef-api30", "parts": results}, f, indent=1)
+    with tarfile.open(os.path.join(out, "bundle.tar.gz"), "w:gz") as tar:
+        for name in list(results) + ["cef-api30.json", "report.json"]:
+            path = os.path.join(out, name)
+            if os.path.exists(path):
+                tar.add(path, arcname=name)
+    sys.exit(0)
 # `--suite=cef-resize-sync`: Chromium layer hosting and its resize wait (plans/cmux-next/cef-layer-hosting-DESIGN.md) on
 # the step's app: cef-layer-verify.py --mode on and --mode off (debug input; hosted.fork, show.again, pixels, input),
 # then cef-resize-sync-bench.py (off, on, on0; light and STRESS). `--label=NAME` names the bench run (api26, api27),
