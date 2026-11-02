@@ -548,7 +548,8 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
-          skip-token-revoke: true
+          # No skip-token-revoke: checks:read is outside the narrow read set that may stay
+          # unrevoked (tests/test_glaeda_route_app_budget.py), so the post step revokes it.
 
       - name: Decide the promotion
         id: decide
