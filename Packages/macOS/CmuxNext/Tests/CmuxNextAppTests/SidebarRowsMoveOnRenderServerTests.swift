@@ -364,12 +364,16 @@ struct SidebarRowsMoveOnRenderServerTests {
 
         model.noteUserIntent()
         model.sections = Self.sections([1, 0] + Array(2...30))
+        // The reload reads the media time once, somewhere between these two reads; on a loaded runner the reload
+        // itself took 38 ms (run 41358792657), so a fixed 20 ms window around the read after it measured the host.
+        let beforeReload = CACurrentMediaTime()
         list.reload(animated: true)
-        let inserted = CACurrentMediaTime()
+        let afterReload = CACurrentMediaTime()
         let view = try #require(list.rowViews[key])
         let until = try #require(list.openingRows[key]?.until)
         let open = Motion.sidebar.spring(SidebarInsertMotion.nudge.token).settlingTime()
-        #expect(abs(until - inserted - open) < 0.02, "the open lasts \(until - inserted) s, its spring settles in \(open) s")
+        #expect(until >= beforeReload + open - 0.001 && until <= afterReload + open + 0.001,
+                "the open ends \(until - beforeReload) s after the reload began (\(afterReload - beforeReload) s long), its spring settles in \(open) s")
         #expect(open < Motion.sidebar.spring(.move).settlingTime())
 
         RunLoop.current.run(until: Date(timeIntervalSinceNow: max(0, until - CACurrentMediaTime()) + 0.01))
@@ -547,45 +551,57 @@ struct SidebarRowsMoveOnRenderServerTests {
     })
     func aNewRowPlacedWithoutMotionShowsAtItsSlotWhenScrolledTo() throws {
         for path in ["display sleep", "reload without motion", "Reduce Motion"] {
-            let (model, list, _, restore) = try Self.sidebar(count: 60)
-            defer { restore() }
-            // The full spring at normal speed: the longest open, so the scroll below comes well inside it.
-            let reset = Self.insertMotion(.spring)
-            defer { reset() }
-            DesignSettings.shared.animationSpeed = .normal
-            let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
-            let opensUntil = CACurrentMediaTime() + Motion.sidebar.spring(.move).settlingTime()
-
-            if path == "Reduce Motion" { Motion.reduceMotionOverride = true }
-            // A new row in view (it moves the rows below it) and one far below the realized rows.
-            model.noteUserIntent()
-            model.sections = Self.sections([1, 500] + Array(2...54) + [0] + Array(55...60))
-            list.reload(animated: true)
-            try #require(list.rowViews[key] == nil, "\(path): the new row was realized at the insert")
-            switch path {
-            case "display sleep":
-                try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
-                let workspace = NSWorkspace.shared.notificationCenter
-                workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
-                workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared)
-            case "reload without motion":
-                try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
-                list.reload(animated: false)
-            default:
-                Motion.reduceMotionOverride = false
-            }
-            #expect(list.openingRows[key] == nil, "\(path): the new row is still opening")
-
-            let slot = try #require(list.displayed.row(for: key).map(list.frame(for:)))
-            let clip = try #require(list.enclosingScrollView?.contentView)
-            clip.scroll(to: NSPoint(x: 0, y: max(0, slot.minY - 100)))
-            list.enclosingScrollView?.reflectScrolledClipView(clip)
-            list.realizeVisibleRows()
-            try #require(CACurrentMediaTime() < opensUntil, "\(path): the scroll came after the open would have ended anyway")
-            let view = try #require(list.rowViews[key], "\(path): the scroll did not realize the new row")
-            #expect(view.frame == slot && view.alphaValue == 1, "\(path): the row is at \(view.frame) alpha \(view.alphaValue), slot \(slot)")
-            #expect(Self.sizeSprings(view) + Self.positionSprings(view) == 0, "\(path): the row opened again")
+            // The scroll must come inside the open's wall-clock window (the `.move` spring, under a second). A loaded
+            // runner missed it by 6 ms (run 41358792657, Reduce Motion), so a late attempt runs again on a new sidebar.
+            var inTime = false
+            for _ in 0..<3 where !inTime { inTime = try Self.placeWithoutMotionThenScroll(path) }
+            #expect(inTime, "\(path): in 3 tries the scroll never came before the open would have ended anyway")
         }
+    }
+
+    /// One try of `aNewRowPlacedWithoutMotionShowsAtItsSlotWhenScrolledTo` by `path`: false when the scroll came after
+    /// the open's deadline, so the try showed nothing.
+    private static func placeWithoutMotionThenScroll(_ path: String) throws -> Bool {
+        let (model, list, _, restore) = try Self.sidebar(count: 60)
+        defer { restore() }
+        // The full spring at normal speed: the longest open, so the scroll below comes well inside it.
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
+        DesignSettings.shared.animationSpeed = .normal
+        let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
+        let opensUntil = CACurrentMediaTime() + Motion.sidebar.spring(.move).settlingTime()
+
+        if path == "Reduce Motion" { Motion.reduceMotionOverride = true }
+        // A new row in view (it moves the rows below it) and one far below the realized rows.
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 500] + Array(2...54) + [0] + Array(55...60))
+        list.reload(animated: true)
+        try #require(list.rowViews[key] == nil, "\(path): the new row was realized at the insert")
+        switch path {
+        case "display sleep":
+            try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
+            let workspace = NSWorkspace.shared.notificationCenter
+            workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+            workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared)
+        case "reload without motion":
+            try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
+            list.reload(animated: false)
+        default:
+            Motion.reduceMotionOverride = false
+        }
+        #expect(list.openingRows[key] == nil, "\(path): the new row is still opening")
+
+        let slot = try #require(list.displayed.row(for: key).map(list.frame(for:)))
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        clip.scroll(to: NSPoint(x: 0, y: max(0, slot.minY - 100)))
+        list.enclosingScrollView?.reflectScrolledClipView(clip)
+        list.realizeVisibleRows()
+        // Only a scroll before the open's deadline can replay it; a later one proves nothing, so the caller tries again.
+        guard CACurrentMediaTime() < opensUntil else { return false }
+        let view = try #require(list.rowViews[key], "\(path): the scroll did not realize the new row")
+        #expect(view.frame == slot && view.alphaValue == 1, "\(path): the row is at \(view.frame) alpha \(view.alphaValue), slot \(slot)")
+        #expect(Self.sizeSprings(view) + Self.positionSprings(view) == 0, "\(path): the row opened again")
+        return true
     }
 
     /// A second insert while the first one's rows still move: each row keeps the first spring and adds one

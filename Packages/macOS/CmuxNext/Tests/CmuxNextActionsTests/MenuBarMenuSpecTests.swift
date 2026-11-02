@@ -26,7 +26,7 @@ struct MenuBarMenuSpecTests {
         #expect(ids == [
             "palette.auth.signIn", "-",
             "showMainWindow", "newTab", "home.show", "home.messageChiefPet", "palette.quickAgentChat", "-",
-            "sendFeedback", "help.documentation", "help.troubleshooting", "-",
+            "help.setupGuide", "sendFeedback", "help.documentation", "help.troubleshooting", "-",
             "help.discord", "help.followOnX", "help.github", "updates.whatsNew", "-",
             "about", "palette.checkForUpdates", "openSettings", "-",
             "help.revealLogs", "help.copyLogs", "-",
