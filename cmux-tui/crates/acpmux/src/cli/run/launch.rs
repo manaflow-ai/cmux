@@ -381,8 +381,14 @@ pub(super) fn default_workspace_name(
     session_id: &str,
     peer: Option<&str>,
 ) -> Option<String> {
-    let _ = (name, session_id, peer);
-    None
+    let name = name.trim();
+    if name.is_empty() || name == session_id {
+        return None;
+    }
+    match peer.map(str::trim).filter(|peer| !peer.is_empty()) {
+        Some(peer) if !name.starts_with(&format!("{peer}/")) => Some(format!("{peer}/{name}")),
+        _ => Some(name.to_owned()),
+    }
 }
 
 /// The words of `cmux agent open` for session `id` in group `group`. `title`
@@ -401,8 +407,9 @@ fn group_open_args(
     let mut args = vec!["agent".to_owned(), "open".to_owned(), id.to_owned()];
     if let Some(title) = title {
         args.extend(["--name".to_owned(), title.to_owned()]);
+    } else if let Some(default_name) = default_name {
+        args.extend(["--default-name".to_owned(), default_name.to_owned()]);
     }
-    let _ = default_name;
     args.extend(["--key".to_owned(), key.to_owned(), "--group".to_owned(), group.to_owned()]);
     args
 }
