@@ -24,6 +24,11 @@ struct LanguageCatalogTests {
         #expect(catalog.language(forExtension: "hrl") == "erlang")
     }
 
+    @Test("Maps Terraform and HCL extensions to the bundled hcl grammar", arguments: ["tf", "tfvars", "hcl", "tofu", "TF"])
+    func mapsHCLExtensions(fileExtension: String) {
+        #expect(catalog.language(forExtension: fileExtension) == "hcl")
+    }
+
     @Test("Unknown extensions return nil")
     func unknownExtensionIsNil() {
         #expect(catalog.language(forExtension: "bin") == nil)
