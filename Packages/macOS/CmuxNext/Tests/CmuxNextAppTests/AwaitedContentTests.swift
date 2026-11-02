@@ -39,6 +39,18 @@ import Testing
         #expect(AwaitedContent(tab: "t", kind: .terminal).hasTerminalLane)
     }
 
+    /// reopen-browser-plain-keys cycle B (STATUS 7493): after a reopen the restored Chromium tab is shown in its pane
+    /// (its browser content exists) 200 ms before Chromium creates its browser; plain keys typed then went to the cmux
+    /// window and were lost (the first page attach came 257.5 ms after the first key). The page is awaited until its
+    /// browser exists.
+    @Test func aShownBrowserTabIsAwaitedUntilItsPageIsReady() {
+        let shownNotReady = AwaitedContent.Pane(selectedTab: "b", shownTab: "b", shownKind: .browser, selectedIsLiveTerminal: false, shownPageReady: false)
+        #expect(AwaitedContent.awaited(.browser, tab: "b", pane: shownNotReady, paneInTopology: true) == AwaitedContent(tab: "b", kind: .browser),
+                "a shown browser tab whose page is not created yet is not awaited: plain keys typed then are lost")
+        let ready = AwaitedContent.Pane(selectedTab: "b", shownTab: "b", shownKind: .browser, selectedIsLiveTerminal: false, shownPageReady: true)
+        #expect(AwaitedContent.awaited(.browser, tab: "b", pane: ready, paneInTopology: true) == nil)
+    }
+
     /// Review of #32030: a cold Chromium tab (Ctrl-Tab onto a tab never shown) also has no page for 100-400 ms. While
     /// its hold has no keys, an app shortcut that does not need the page (Ctrl-Tab, Cmd-T, Cmd-1) acts at once; a page
     /// action (Cmd-L) and every plain key wait for the page; once a key is held, every later one waits behind it.

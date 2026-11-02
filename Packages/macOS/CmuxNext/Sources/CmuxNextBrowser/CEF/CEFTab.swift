@@ -278,6 +278,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
+    /// Chromium created this tab's browser (``attach(browser:)``): a key may reach the page from now on.
+    @ObservationIgnored public var onAttached: (@MainActor () -> Void)?
+
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false

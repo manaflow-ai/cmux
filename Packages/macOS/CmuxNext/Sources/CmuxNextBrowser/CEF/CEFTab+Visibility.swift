@@ -35,3 +35,8 @@ extension CEFTab: BrowserContentVisibilityReporting {
             && abs(frame.width - rect.width) <= 2 && abs(frame.height - rect.height) <= 2
     }
 }
+
+public extension BrowserTab {
+    /// The page can take keys: Chromium created its browser (a non-Chromium page always can). Stub for the red commit.
+    var pageReady: Bool { true }
+}
