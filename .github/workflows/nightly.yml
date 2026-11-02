@@ -4679,8 +4679,24 @@ jobs:
       # ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
-      - name: Download final DMG
+      # The same parallel-range read as signer-dmg-image's: one download-artifact stream took a p50 of 89 s
+      # and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
+      # when it fails.
+      - name: Download final DMG (parallel ranges)
+        id: fetch-final-dmg
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
+          FETCH_DEST: final-dmg
+        with:
+          script: |
+            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
+            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+      - name: Download final DMG
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && steps.fetch-final-dmg.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
@@ -4973,9 +4989,31 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
+      # download-artifact reads the blob in one stream with no stall timeout. On the nightly's Macs that
+      # took a p50 of 133 s for the 355 MB app (hosted Linux: 9 s) and ran out its 5 minutes in 4 of 26
+      # runs; run 41478567483 ran out both tries and its tip never published. This reads it in parallel
+      # ranges, asks again for a range that stalls, and checks the zip's upload digest. When it fails,
+      # download-artifact below takes over as before (and is the only route in signer-dmg).
+      - name: Download the signed app (parallel ranges)
+        continue-on-error: true
+        timeout-minutes: 5
+        # A JavaScript step, so the script gets the job's runtime token for the artifact service in its
+        # own environment (download-artifact's route, no GITHUB_TOKEN permission); nothing goes to $GITHUB_ENV
+        # but the flag.
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          FETCH_DEST: signer-app
+        with:
+          script: |
+            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
+            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+            else core.exportVariable('SIGNER_APP_FETCHED', 'true')
+      # An env flag, not a step outcome: signer-dmg reuses these two steps and has no ranged step.
       - &signer-download-app
         name: Download the signed app
         id: signer-download-app
+        if: env.SIGNER_APP_FETCHED != 'true'
         continue-on-error: true
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
