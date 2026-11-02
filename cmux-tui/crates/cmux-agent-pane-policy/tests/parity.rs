@@ -484,11 +484,9 @@ fn the_built_in_policy_parses() {
     let v: Value = serde_json::from_str(&text).unwrap();
     let p = policy();
     assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
-    assert_eq!(
-        p.reply_shapes.len(),
-        v["reply_shapes"].as_object().unwrap().len(),
-        "every reply shape parsed"
-    );
+    // Whether each shape parsed is every_reply_shape_parses's question (a
+    // shape that does not parse is kept as an empty filter).
+    assert_eq!(p.reply_shapes.len(), v["reply_shapes"].as_object().unwrap().len());
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
@@ -551,5 +549,24 @@ fn question_answer_keys() {
             .as_array()
             .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
         assert_eq!(options.question_keys("p"), want, "{}", name(c));
+    }
+}
+
+/// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
+/// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
+/// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,
+/// fileName}` when it is a valid reference with no bytes; every other block
+/// `_meta`, at every depth, goes (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979).
+#[test]
+fn prompt_upload_references() {
+    let all = cases("prompt_uploads.json");
+    for c in all.as_array().unwrap() {
+        assert_eq!(
+            stripping_prompt_meta(&object(&c["frame"])).map(Value::Object),
+            c["prompt_stripped"].as_object().cloned().map(Value::Object),
+            "{}",
+            name(c)
+        );
     }
 }

@@ -10,6 +10,7 @@ enum AgentPaneHandshakeReply {
         // Its native tools were the old page's: they go too, so no stale button sends an old id to the new page.
         if request == .ready {
             model.tabRow.pageLoaded()
+            model.sessionInfo.pageLoaded()
             model.setTabRowTools([])
         }
         model.setCheckpointAvailable(false)

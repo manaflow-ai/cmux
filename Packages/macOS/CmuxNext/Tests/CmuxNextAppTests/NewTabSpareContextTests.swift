@@ -85,7 +85,7 @@ struct NewTabSpareContextTests {
             let spare = try #require(pool.spare?.view)
             // The pool prepares only a page that finished its handshake and first paint (an adopt event before
             // React listens is lost). The inert page has neither: the pool must leave it alone until then.
-            try await Task.sleep(for: NewTabSparePool.fitSettle * 3)
+            try await PasswordManagerRouteTests.until({ pool.deferredPrepares > 0 }, report: { "the pool never looked at the parked spare" })
             #expect(spare.model.newTab?.cwd == nil, "the pool prepared a page that had no handshake and no first paint")
             spare.model.hasHandshake = true
             spare.model.markPainted()

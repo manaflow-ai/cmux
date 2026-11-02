@@ -1463,6 +1463,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                "CmuxNextDictation",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
@@ -1480,7 +1481,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
         .testTarget(
             name: "CmuxNextTerminalTests",
-            dependencies: ["CmuxNextTerminal", "CmuxNextTestSupport", "CmuxNextCompat", "CmuxNextDesign"],
+            dependencies: ["CmuxNextTerminal", "CmuxNextDictation", "CmuxNextTestSupport", "CmuxNextCompat", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

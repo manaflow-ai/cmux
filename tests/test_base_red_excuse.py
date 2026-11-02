@@ -52,13 +52,19 @@ class FakeGitHub:
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            # The base runs here test the merge-base itself unless a test says otherwise (before_merge_base).
+            return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
+        if f"/compare/{BASE_SHA}..." in route:
+            # Any other base commit a test names is newer than that merge-base.
+            return {"status": "ahead"}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
-            # The dispatch fallback lists every status (deferred_first_runs); the window only completed runs.
-            assert "branch=feat-cmux-next" in route and ("status=completed" in route
-                                                         or "event=workflow_dispatch" in route), route
+            # Both list every status: the dispatch fallback for deferred_first_runs, the window because a finished
+            # job in a running base run is already a verdict.
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
@@ -1180,6 +1186,55 @@ jobs:
 """
 
 
+NEW_BASE_SHA = "d" * 40
+
+
+class StaleBasePass(unittest.TestCase):
+    """cmux#31338 at 222ab6e3 (2026-11-02): 'cmux-next guards / defaults-snapshot' was red on feat-cmux-next from
+    #31930 on, but every base run from #31930 on was still running its slower jobs, so the newest completed run was
+    41418052327 at c47a99fcb9, before #31930 and before the PR's merge-base. Its pass refused the real base red."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        # The old completed run passed; the newest run, at the merge-base's successor, still runs but its job failed.
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.jobs[3] = failed_job(3, 30, NEW_BASE_SHA)
+        self.gh.logs[3] = self.gh.logs[1]
+        self.gh.base_runs = [{"id": 30, "event": "push", "head_branch": "feat-cmux-next", "status": "in_progress",
+                              "conclusion": None, "head_sha": NEW_BASE_SHA},
+                             {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                              "conclusion": "success", "head_sha": BASE_SHA}]
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_a_finished_job_in_a_running_base_run_is_the_newest_verdict(self):
+        self.assertIn("run 30", self.judge())
+
+    def test_a_pass_before_the_merge_base_waits_for_a_newer_verdict(self):
+        # The running run's job has not finished: the only verdict is the old pass, before the merge-base.
+        self.gh.jobs[3].update(status="in_progress", conclusion=None)
+        merge_base = NEW_BASE_SHA
+        json = self.gh.json
+
+        def answer(route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{HEAD}" in route:
+                return {"merge_base_commit": {"sha": merge_base}, "files": []}
+            if f"/compare/{merge_base}...{BASE_SHA}" in route:
+                return {"status": "behind"}
+            return json(route, paginate=paginate)
+
+        self.gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet: "
+                                    "the newest, a pass in run 20, tested bbbbbbbbbbbb, which is behind"):
+            self.judge()
+
+    def test_a_pass_at_or_after_the_merge_base_still_blocks(self):
+        self.gh.jobs[3].update(status="in_progress", conclusion=None)
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge()
+
+
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
@@ -1725,8 +1780,11 @@ class FixedOnBase(unittest.TestCase):
             self.judge(github)
 
     def test_a_base_pass_not_after_the_merge_base_is_not_excused(self):
-        for status in ("identical", "behind", "diverged"):
-            with self.subTest(status=status), self.assertRaisesRegex(excuse.Refused, "not after the merge-base"):
+        # A pass at the merge-base itself proves no fix; one before it is no base verdict for this PR yet.
+        for status, said in (("identical", "not after the merge-base"),
+                             ("behind", "no feat-cmux-next verdict at or after this PR's merge-base yet"),
+                             ("diverged", "no feat-cmux-next verdict at or after this PR's merge-base yet")):
+            with self.subTest(status=status), self.assertRaisesRegex(excuse.Refused, said):
                 self.judge(FixedOnBaseGitHub(status=status))
 
     def test_a_crash_is_never_fixed_on_base(self):
@@ -1763,7 +1821,8 @@ class FixedOnBase(unittest.TestCase):
         github.jobs[2]["conclusion"] = "success"
         with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
-        self.assertFalse([route for route in github.routes if "/compare/" in route])
+        # Only the merge-base itself is read (before_merge_base, one file), never the PR's diff.
+        self.assertFalse([route for route in github.routes if "/compare/" in route and "per_page=1" not in route])
 
     def test_a_guard_test_line_printed_by_another_job_is_never_fixed_on_base(self):
         github = FixedOnBaseGitHub()

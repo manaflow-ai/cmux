@@ -16,6 +16,10 @@ export function panelAction(id: string, sections: readonly NativeInfoSection[] =
     setSessionInfoOpen(false);
     return true;
   }
+  if (id === "width:reset") {
+    setSessionInfoWidth(SESSION_INFO_WIDTH.fallback);
+    return true;
+  }
   const width = /^width:(\d{1,4})$/.exec(id);
   if (width) {
     setSessionInfoWidth(Math.min(SESSION_INFO_WIDTH.max, Math.max(SESSION_INFO_WIDTH.min, Number(width[1]))));

@@ -29,6 +29,8 @@ export type ManagedInfo = { source: string; reason: string; team?: string | null
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
 export type ListRow = {
   key: string;
+  /** Raw user preference, null when unset; distinguishes an explicit default from absence. */
+  stored?: unknown;
   value: unknown;
   default: unknown;
   customized: boolean;
@@ -191,6 +193,8 @@ export type DevicesJoinState = {
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** Existing Debug preference, forwarded unchanged for the normal picker placement fallback. */
+  harness_placement?: string;
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
   rooms: HostListRow[] | null;
