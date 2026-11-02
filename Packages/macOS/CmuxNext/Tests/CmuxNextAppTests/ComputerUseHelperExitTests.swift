@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextComputerUse
+import CmuxNextSettings
 import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
@@ -176,6 +177,45 @@ struct ComputerUseHelperExitTests {
     }
 
     // MARK: Helper v2
+
+    /// NIGHTLY builds carry no helper v2. With driver "upstream" nothing started: the
+    /// legacy helper was stopped, the helper v2 was "unavailable", every agent's computer use
+    /// found no socket, and setup said "starting" forever (2026-10-29). The legacy helper runs
+    /// in its place, agents get its socket, and the stored setting is not touched.
+    @Test func upstreamWithoutTheHelperV2InThisBuildRunsTheLegacyHelper() async throws {
+        let launcher = ExitingHelperLauncher()
+        let spawner = ExitingV2Spawner()
+        let root = FileManager.default.temporaryDirectory.appending(path: "cua-fallback-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: { nil },
+                                           staging: .passing(root: root), spawner: spawner, clock: ManualClock(), exitGrace: .zero)
+        let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
+                                             candidates: { [root.appending(path: "missing/cmux Computer Use.app")] },
+                                             launcher: launcher, staging: .passing(root: root),
+                                             socketPath: root.appending(path: "s/cua.sock").path,
+                                             stateDirectory: root.appending(path: "state"), upstream: upstream)
+        try #require(!upstream.isInBuild)
+        var settings = ComputerUseSettings()
+        settings.enabled = true
+        settings.driver = .upstream
+
+        let route = ComputerUseHelperDaemon.route(settings, disabledByPolicy: false, upstreamInBuild: false)
+        #expect(route.legacy && !route.upstream)
+        let inBuild = ComputerUseHelperDaemon.route(settings, disabledByPolicy: false, upstreamInBuild: true)
+        #expect(!inBuild.legacy && inBuild.upstream, "a build with the helper v2 still runs it")
+        #expect(daemon.effectiveDriver(.upstream) == .legacy)
+        #expect(daemon.effectiveDriver(.legacy) == .legacy)
+
+        await daemon.apply(settings, disabledByPolicy: false)
+        #expect(daemon.state == .running(601), "the legacy helper runs in place of the missing helper v2")
+        #expect(spawner.spawned.isEmpty, "the missing helper v2 never starts")
+        #expect(!daemon.childEnvironment.isEmpty, "agents get the legacy helper's socket and token")
+
+        settings.enabled = false
+        await daemon.apply(settings, disabledByPolicy: false)
+        #expect(daemon.state == .off)
+        #expect(launcher.terminated == [601])
+    }
 
     private func makeV2(_ spawner: ExitingV2Spawner) -> (ComputerUseHelperV2, URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "cua-v2-exit-\(UUID().uuidString.prefix(8))")

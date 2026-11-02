@@ -23,6 +23,8 @@ extension SidebarViewComponents {
         // Uninstalled, the view empties too, which stops its minute ticker.
         priorityPanelView.show(panel ?? SidebarPriorityPanel(entries: []))
         if old?.shown != panel?.shown || old == nil || panel == nil { needsLayout = true }
+        // The bell takes a slot in the titlebar row, so the narrowest sidebar follows it.
+        if (old == nil) != (panel == nil) { titlebarReserveChanged() }
     }
 
     /// The person's choices in the Priority view and on its bell. Nil drops them.
@@ -32,6 +34,13 @@ extension SidebarViewComponents {
     }
 
     func buildPriority() {
+        list.onPointerKeyDown = { [weak self] event in
+            self?.priorityPanelView.keyEventSeen(event)
+        }
+        list.onPointerEvent = { [weak self] event in
+            self?.priorityPanelView.pointerEventSeen(event.type, in: event.window)
+        }
+        list.onPointerFocusLost = { [weak self] in self?.priorityPanelView.pointerFocusLost() }
         priorityButton.isHidden = true
         priorityButton.setAccessibilityIdentifier("cmux.sidebar.priority")
         priorityButton.onPress = { [weak self] in self?.priorityPanelView.onAction?(.toggleShown) }

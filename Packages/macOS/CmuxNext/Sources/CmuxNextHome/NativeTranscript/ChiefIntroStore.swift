@@ -21,6 +21,9 @@ public struct ChiefIntroStore: Sendable {
         self.defaults = defaults
     }
 
+    /// Whether this install has not had its welcome yet (it shows on the only Chief's empty conversation).
+    public var welcomePending: Bool { !defaults.bool(forKey: Self.shownKey) }
+
     /// The intro `conversation` shows now, or nil when it has nothing to show.
     /// - Parameters:
     ///   - conversation: The empty Chief conversation on screen.

@@ -23,10 +23,12 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::byo_endpoint;
-use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::cli::command::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
+use crate::stderr::clean_stderr_lines;
+use cmux_json::JsonSet as _;
 
 mod claude_turn;
 mod program;
@@ -44,6 +46,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("muse", include_str!("../../harnesses/muse.toml")),
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
+    ("hermes", include_str!("../../harnesses/hermes.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -58,6 +61,7 @@ pub fn example(name: &str) -> Option<&'static str> {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
         "muse-code" => "muse",
+        "hermes-agent" => "hermes",
         "aider-terminal" | "terminal" => "aider",
         other => other,
     };
@@ -66,6 +70,19 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
+        HarnessCmd::CodexRuntime { action } => {
+            let value = match action {
+                // A running daemon read its harness profiles before the runtime existed: it
+                // reads them again, so the managed Codex is offered without a restart.
+                CodexRuntimeCmd::Install => {
+                    let installed = crate::managed_codex::install().await?;
+                    with_daemon_reloaded(installed, reload_daemon().await)
+                }
+                CodexRuntimeCmd::Status => crate::managed_codex::status(),
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }
         HarnessCmd::List { folder: None } => list(json_out),
         HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
         HarnessCmd::Enable { id, folder, yes } => {
@@ -408,6 +425,14 @@ async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) 
         );
     }
     Ok(())
+}
+
+/// An install's result with whether a running daemon reloaded after it.
+fn with_daemon_reloaded(mut installed: serde_json::Value, reloaded: bool) -> serde_json::Value {
+    if let Some(fields) = installed.as_object_mut() {
+        fields.insert("daemonReloaded".to_owned(), json!(reloaded));
+    }
+    installed
 }
 
 /// Ask a running daemon to reload its catalog; false when none runs.
@@ -931,7 +956,8 @@ async fn run_short(
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        Err(format!("{}: {}", out.status, err.lines().last().unwrap_or("").trim()))
+        let detail = clean_stderr_lines(&err).into_iter().rev().find(|line| !line.is_empty());
+        Err(format!("{}: {}", out.status, detail.unwrap_or_default()))
     }
 }
 
@@ -996,7 +1022,7 @@ async fn acp_steps(
         r.push("launch", StepStatus::Fail, "no stdio pipes", None);
         return;
     };
-    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(StderrTail::default()));
     let tail = stderr_tail.clone();
     let mut drain = tokio::spawn(async move {
         let mut stderr = stderr;
@@ -1006,11 +1032,7 @@ async fn acp_steps(
                 break;
             }
             if let Ok(mut t) = tail.lock() {
-                t.extend_from_slice(&buf[..n]);
-                let len = t.len();
-                if len > 64 * 1024 {
-                    t.drain(..len - 64 * 1024);
-                }
+                t.push(buf.get(..n).unwrap_or_default());
             }
         }
     });
@@ -1055,9 +1077,9 @@ async fn acp_steps(
     if tokio::time::timeout(Duration::from_secs(2), &mut drain).await.is_err() {
         drain.abort();
     }
-    let text =
-        stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().collect();
+    let text = stderr_tail.lock().map(|t| t.text()).unwrap_or_default();
+    let lines: Vec<String> =
+        clean_stderr_lines(&text).into_iter().filter(|line| !line.is_empty()).collect();
     let last = lines[lines.len().saturating_sub(15)..].join("\n");
     let silent = opts.prompt && wire.reply.trim().is_empty();
     if let Some(kind) = endpoint
@@ -1176,7 +1198,7 @@ async fn handshake(
                 step.reason = Some("harness_protocol_mismatch");
                 let mut data = json!({"try": "acpmux daemon harnesses"});
                 if codex {
-                    data["next"] = json!("acpmux new --host HOST -m codex -d");
+                    data.set("next", json!("acpmux new --host HOST -m codex -d"));
                 }
                 step.data = Some(data);
             }
@@ -1228,3 +1250,149 @@ async fn handshake(
 #[cfg(all(test, unix))]
 #[path = "harness_tests.rs"]
 mod tests;
+
+/// The last 64 KiB of a harness's cleaned stderr, for the doctor's "last harness output". Bytes
+/// are cleaned a whole line at a time through one [`StderrStream`](crate::stderr::StderrStream),
+/// so a string control's payload stays hidden wherever the 64 KiB cut falls.
+#[derive(Default)]
+struct StderrTail {
+    stream: crate::stderr::StderrStream,
+    /// The current line, not yet ended by a newline.
+    pending: Vec<u8>,
+    lines: std::collections::VecDeque<String>,
+    bytes: usize,
+}
+
+impl StderrTail {
+    const CAP: usize = 64 * 1024;
+
+    fn push(&mut self, chunk: &[u8]) {
+        self.pending.extend_from_slice(chunk);
+        while let Some(end) = self.pending.iter().position(|&b| b == b'\n') {
+            let mut line: Vec<u8> = self.pending.drain(..=end).collect();
+            line.pop();
+            self.take(&line);
+        }
+        // A line longer than the cap goes on in pieces. A piece never ends inside a UTF-8
+        // character or right after an ESC, so no sequence's start is split from its rest.
+        if self.pending.len() > Self::CAP {
+            let mut cut = match std::str::from_utf8(&self.pending) {
+                Ok(_) => self.pending.len(),
+                Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                Err(_) => self.pending.len(),
+            };
+            // Never back up to the very start: the piece must take something, or the pending
+            // bytes would grow without bound (an ESC at byte 0 is then cut after its sequence).
+            let head = self.pending.get(..cut).unwrap_or_default();
+            if let Some(esc) = head.iter().rposition(|&b| b == 0x1b)
+                && esc > 0
+                && cut.saturating_sub(esc) <= 64
+            {
+                cut = esc;
+            }
+            if cut == 0 {
+                cut = self.pending.len();
+            }
+            let piece: Vec<u8> = self.pending.drain(..cut).collect();
+            self.take(&piece);
+        }
+    }
+
+    fn take(&mut self, line: &[u8]) {
+        let clean = self.stream.clean_line(&String::from_utf8_lossy(line));
+        if clean.is_empty() {
+            return;
+        }
+        self.bytes = self.bytes.saturating_add(clean.len().saturating_add(1));
+        self.lines.push_back(clean);
+        while self.bytes > Self::CAP
+            && let Some(old) = self.lines.pop_front()
+        {
+            self.bytes = self.bytes.saturating_sub(old.len().saturating_add(1));
+        }
+    }
+
+    /// The kept lines, the unfinished one last, within the cap: the oldest go first.
+    fn text(&self) -> String {
+        let mut stream = self.stream.clone();
+        let rest = stream.clean_line(&String::from_utf8_lossy(&self.pending));
+        let mut text: std::collections::VecDeque<&str> =
+            self.lines.iter().map(String::as_str).collect();
+        let mut bytes = self.bytes;
+        if !rest.is_empty() {
+            text.push_back(&rest);
+            bytes = bytes.saturating_add(rest.len().saturating_add(1));
+        }
+        while bytes > Self::CAP
+            && let Some(old) = text.pop_front()
+        {
+            bytes = bytes.saturating_sub(old.len().saturating_add(1));
+        }
+        text.into_iter().collect::<Vec<_>>().join("\n")
+    }
+}
+
+#[cfg(test)]
+mod stderr_tail_tests {
+    use super::StderrTail;
+
+    #[test]
+    fn a_payload_whose_opener_was_cut_off_stays_hidden() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..20 {
+            tail.push(&[b'A'; 4096]);
+        }
+        tail.push(b"secret\x1b\\error: request timed out\n");
+        assert_eq!(tail.text(), "error: request timed out");
+    }
+
+    #[test]
+    fn a_cut_between_esc_and_its_next_byte_reads_the_sequence_whole() {
+        let mut tail = StderrTail::default();
+        let mut long = vec![b'x'; StderrTail::CAP];
+        long.push(0x1b);
+        tail.push(&long);
+        tail.push(b"]8;;https://x\x07after\nerror: boom\n");
+        let text = tail.text();
+        assert!(text.ends_with("after\nerror: boom"), "{text:?}");
+        assert!(!text.contains("https"), "{text:?}");
+    }
+
+    #[test]
+    fn an_unfinished_line_keeps_the_text_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
+        }
+        tail.push(&[b'y'; StderrTail::CAP - 100]);
+        let text = tail.text();
+        assert!(text.len() <= StderrTail::CAP, "{}", text.len());
+        assert!(text.ends_with('y'));
+    }
+
+    #[test]
+    fn an_endless_line_that_starts_a_control_stays_bounded() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..40 {
+            tail.push(&[b'A'; 4096]);
+            assert!(tail.pending.len() <= StderrTail::CAP + 4096, "{}", tail.pending.len());
+        }
+        tail.push(b"\x1b\\error: request timed out\n");
+        assert_eq!(tail.text(), "error: request timed out");
+    }
+
+    #[test]
+    fn the_kept_text_stays_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
+        }
+        tail.push(b"error: boom\n");
+        assert!(tail.text().len() <= StderrTail::CAP);
+        assert!(tail.text().ends_with("error: boom"));
+    }
+}

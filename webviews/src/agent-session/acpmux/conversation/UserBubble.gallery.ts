@@ -183,9 +183,21 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
       snapshot: yesterday(),
-      play: hoverTime("time.cv-turn-time"),
+      play: async (ctx) => {
+        const selector = "time.cv-turn-time";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(() => {
+          const time = ctx.document.querySelector<HTMLElement>(selector);
+          return (
+            time !== null &&
+            /\d:\d\d/.test(time.textContent ?? "") &&
+            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
+          );
+        });
+      },
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",
@@ -249,6 +261,20 @@ export default agentPaneEntry({
           ),
           assistant("The list, code and link remain formatted after sending.", 5),
           summary(5, { seq: 6, status: "completed" }),
+        ]),
+      ),
+    },
+    "markdown-long-tokens": {
+      note: "A delivered review with inline code, paths and a 40-character SHA range: the code draws as code, and the range ends a line after its `..` or a path after a `/`, never mid-hash.",
+      snapshot: claude(
+        chat([
+          user(
+            "Review of manaflow-ai/cmux:4f1c2a9be07d3e6f58a1b2c3d4e5f60718293a4b..8e0c5dda55f4d5d0821cf21a4b520c2397145d00 by review-box/review-27240-2c1e: SHIP\n\n`repeatsPrompt` now stays false for a queued prompt; `webviews/src/agent-session/acpmux/conversation/PromptText.tsx` and `webviews/test/user-prompt-markdown.test.ts` cover it.",
+            9,
+            { id: "markdown-long-tokens", seq: 1 },
+          ),
+          assistant("Landing it at that head.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
         ]),
       ),
     },

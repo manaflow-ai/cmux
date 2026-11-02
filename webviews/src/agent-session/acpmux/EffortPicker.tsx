@@ -82,17 +82,14 @@ export function EffortPicker({
   const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  // Base UI initially focuses the popup while it measures its anchor. Move focus to the selected
+  // The slider focuses on mount in EffortTrack, so a delayed opening frame cannot take focus
+  // back from a speed row reached by Down. For the list, Base UI initially focuses its popup; move
+  // focus to the selected
   // reasoning row on the next frame, after the popup is mounted and positioned, so ArrowDown starts
   // from the visible choice for both a click and automation opening by label.
   useEffect(() => {
-    if (!open) return;
+    if (!open || sliding) return;
     const frame = requestAnimationFrame(() => {
-      const range = document.querySelector<HTMLElement>(".acpmux-effort-menu .acpmux-effort-range");
-      if (range) {
-        range.focus({ preventScroll: true });
-        return;
-      }
       const reasoningGroup = document.querySelector<HTMLElement>('.acpmux-effort-menu [role="group"]');
       const selectedReasoning =
         reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
@@ -100,7 +97,7 @@ export function EffortPicker({
       selectedReasoning?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, sliding]);
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
   // One line per row, as a native menu: the label, a hint, and a short note (Ultracode) in secondary
@@ -300,6 +297,7 @@ function ReasoningSlider({
         onEscape={onClose}
         onRangeKey={onRangeKey}
         onRangeClick={commitResting}
+        focusOnMount
       />
     </fieldset>
   );

@@ -377,7 +377,9 @@ export class KeybindingsStore {
         // The keys stay the other action's: the recorder says why.
         const current = this.snapshot.recording;
         const shown = failure(error);
-        if (current?.target === "row" && shown.notice?.kind === "failed") {
+        // Only the recorder that asked says why: another row's, opened while the removal ran, has
+        // its own keys, and the failure goes to the page's notice instead.
+        if (current?.target === "row" && current.session === recording.session && shown.notice?.kind === "failed") {
           this.set({ recording: { ...current, refusal: shown.notice.message, warned: current.warned + 1 } });
         } else this.set(shown);
         await this.reload();

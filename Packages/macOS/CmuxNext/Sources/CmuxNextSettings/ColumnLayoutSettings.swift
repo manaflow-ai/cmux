@@ -5,7 +5,7 @@ public import CoreGraphics
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
 /// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`, `layout.scrollAreas`,
-/// `layout.scrollModifier`. A missing key is the default with no
+/// `layout.scrollModifier`, `layout.pagesHandleCommandScroll`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -23,9 +23,12 @@ public nonisolated enum ColumnLayoutSettings {
     public static let focusFollowsMousePath = ["layout", "focusFollowsMouse"]
     public static let scrollAreasPath = ["layout", "scrollAreas"]
     public static let scrollModifierPath = ["layout", "scrollModifier"]
+    public static let pagesHandleCommandScrollPath = ["layout", "pagesHandleCommandScroll"]
 
     public static let splitSizingFallback: SplitSizing = .even
-    public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
+    /// `layout.newColumnWidth` defaults to fixed at `layout.defaultColumnWidth` (two thirds): a
+    /// new column is never full width just because the column beside it is (Lawrence 2026-10-28).
+    public static let newColumnWidthFallback: NewColumnWidthMode = .fixed
     public static let dockEdgeFallback: DockDefaultEdge = .nearest
     public static let dockModeFallback: DockDefaultMode = .docked
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
@@ -39,6 +42,9 @@ public nonisolated enum ColumnLayoutSettings {
     /// `layout.scrollModifier` defaults to Command: Command + scroll moves the layout, a plain
     /// scroll goes to the pane under the pointer (Lawrence 2026-10-24).
     public static let scrollModifierFallback: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll` defaults on: Figma and Excalidraw keep their Command +
+    /// scroll zoom, every other page lets it pan the columns (Lawrence 2026-10-28).
+    public static let pagesHandleCommandScrollFallback = true
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
@@ -136,6 +142,17 @@ public nonisolated enum ColumnLayoutSettings {
             }
         } else {
             snapshot.layoutScrollAreas = scrollAreasFallback
+        }
+        if let value = root.value(at: pagesHandleCommandScrollPath) {
+            if let on = value.boolValue {
+                snapshot.pagesHandleCommandScroll = on
+            } else {
+                snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.pagesHandleCommandScroll",
+                                                      message: "expected true or false"))
+            }
+        } else {
+            snapshot.pagesHandleCommandScroll = pagesHandleCommandScrollFallback
         }
         snapshot.diagnostics += diagnostics
     }

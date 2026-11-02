@@ -19,8 +19,15 @@ public final class WebKitPageHostBridge: PageHostBridge {
             WebKitPageHostReceiver(webView: webView, handler: handler), contentWorld: .page, name: PageHostTrust.handlerName)
     }
 
+    /// Runs `script` in the loaded document. Nothing runs before the first load: WebKit launches a
+    /// web content process to run script in a view that never loaded (an about:blank the load
+    /// replaces anyway), so every Chromium page's hidden WebKit view held an idle process (WebKit
+    /// logs about 32 MB for an idle one) that WebKit's GPU process served and that
+    /// WebKit ended, in all of them at once, when that GPU process stopped answering (Leo's Mac,
+    /// 2026-11-01: 19 chats).
     public func evaluate(_ script: String) {
-        webView?.evaluateJavaScript(script, completionHandler: nil)
+        guard let webView, webView.url != nil else { return }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     public func uninstall() {

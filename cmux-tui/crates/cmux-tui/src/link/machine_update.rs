@@ -28,7 +28,8 @@
 //!    shipped there, or downloaded once from the immutable per-commit release
 //!    and checked against the pin. A payload that does not match is refused
 //!    before anything reaches the machine. A build without a manifest (dev
-//!    builds) cannot update machines.
+//!    builds) pins its own commit's published manifest, or that of the commit
+//!    that published its cmux-tui tree.
 //! 3. It is written beside the daemon's binary through `fs-v1`, then run once
 //!    in a detached terminal of the machine's own daemon, as the daemon's own
 //!    user, with a fixed argv ([`apply`]): it checks its own checksum again,
@@ -42,6 +43,8 @@
 //!    "previous_build":..}`, `{"ok":true,"updated":false,..}` for a machine
 //!    that needs nothing, or `{"ok":false,"error":..,"error_code":..}` (exit 1;
 //!    bad usage exits 64).
+
+use cmux_json::JsonSet as _;
 
 pub(crate) mod apply;
 
@@ -101,14 +104,14 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match update(&request) {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(build) = failed.build {
-                line["build"] = json!(build);
+                line.set("build", json!(build));
             }
             println!("{line}");
             1
@@ -211,7 +214,13 @@ fn update(request: &Request) -> Result<Value, Failed> {
     let daemon_pid = before["pid"].as_u64().ok_or_else(|| {
         Failed::new("machine_update_unsupported", "the machine daemon named no pid").about(&before)
     })?;
-    let (payload, sha256) = pinned_payload()?;
+    let (payload, sha256, pinned_commit) = pinned_payload()?;
+    // A tree-mode DEV bundle pins the build its tree's publishing commit
+    // made, which identifies as that commit: a machine already on it runs
+    // this client's tree, and updating it again would never end.
+    if previous.as_deref() == Some(pinned_commit.as_str()) {
+        return Ok(json!({"updated": false, "build": previous, "same_tree": true}));
+    }
     let folder = install.rsplit_once('/').map_or("", |(folder, _)| folder).to_owned();
     let nonce = nonce();
     // Both named by this update alone, so two updates never share a file.
@@ -260,8 +269,8 @@ fn install_path(identity: &Value) -> Option<String> {
     plain.then(|| path.to_owned())
 }
 
-/// This client's pinned Linux build and its SHA-256.
-fn pinned_payload() -> Result<(PathBuf, String), Failed> {
+/// This client's pinned Linux build, its SHA-256 and the commit that built it.
+fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -270,13 +279,15 @@ fn pinned_payload() -> Result<(PathBuf, String), Failed> {
         CLOUD_ARCH,
         cmux_build_identity::BUILD_IDENTITY,
     )) {
-        Ok(Some((path, sha256))) if apply::is_sha256(&sha256) => Ok((path, sha256)),
+        Ok(Some(pinned)) if apply::is_sha256(&pinned.sha256) => {
+            Ok((pinned.path, pinned.sha256, pinned.commit))
+        }
         Ok(Some(_)) => {
             Err(Failed::new("machine_update_payload_rejected", "the pinned checksum is malformed"))
         }
         Ok(None) => Err(Failed::new(
             "machine_update_unavailable",
-            "this cmux build carries no pinned machine build (dev builds cannot update machines)",
+            "this cmux build carries no pinned machine build, and none is published for its commit or cmux-tui tree yet",
         )),
         Err(cmux_remote::ssh_bootstrap::BootstrapError::PayloadDownload(why)) => {
             Err(Failed::new("machine_update_download_failed", why))

@@ -1,12 +1,13 @@
 // A Claude workflow's card in the transcript, where it started (Labs `workflowLabs`; the row is
 // subagents/runningTray.ts `WORKFLOW_CARD`): its name, state, progress, current phase and latest
 // line, live while it runs. A click opens Session Info's Background tasks, which lists its phases
-// and agents (inspector/WorkflowTasks.tsx). Its height is fixed, so a clock or latest line never
+// and agents (session-info/WorkflowTasks.tsx). Its height is fixed, so a clock or latest line never
 // moves the transcript.
 import { useMemo, useSyncExternalStore } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
@@ -59,6 +60,7 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
       return t("plan.status.pending");
   }
 };
+const ROW_ICON = rowIconSize(12);
 const compactTokens = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const latestAgentLine = (node: Subagent, agent: WorkflowAgent | undefined): string | undefined => {
@@ -113,7 +115,7 @@ export function WorkflowCard({
       >
         <span className="acpmux-workflow-card__head">
           <span className="acpmux-workflow-card__name">{workflow.title}</span>
-          <Icon name="disclosure.collapsed" size={11} />
+          <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
         <span className="acpmux-workflow-card__meta">
           <span>{localizedState(t, workflow.state)}</span>

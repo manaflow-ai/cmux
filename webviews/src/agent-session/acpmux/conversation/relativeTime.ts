@@ -50,3 +50,15 @@ export function exactTime(at: number, locale?: string): string {
     return new Date(at).toLocaleString(undefined, EXACT);
   }
 }
+
+/// A reply's time in its action row, as ChatGPT writes it there on hover: "Oct 18, 5:41 AM", the
+/// year added only when it is not `now`'s ("Oct 18, 2025, 5:41 AM"), in `locale`'s order and words.
+export function replyTime(at: number, now: number, locale?: string): string {
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const fields: Intl.DateTimeFormatOptions = sameYear ? { ...EXACT, year: undefined } : EXACT;
+  try {
+    return new Date(at).toLocaleString(locale, fields);
+  } catch {
+    return new Date(at).toLocaleString(undefined, fields);
+  }
+}

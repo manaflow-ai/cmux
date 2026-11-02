@@ -103,6 +103,7 @@ struct AgentPaneMenuLookTests {
             "-",
             AgentPaneMenuStrings.pinAsChapter,
             AgentPaneMenuStrings.forkFromHere,
+            AgentForkMenu.title,
             "-",
             AgentPaneMenuStrings.searchTheWeb,
             AgentPaneMenuStrings.askAboutThis,
@@ -136,6 +137,22 @@ struct AgentPaneMenuLookTests {
         try Self.click(item)
         Self.drainRunLoop { !ran.isEmpty }
         #expect(ran == ["chat.side"])
+    }
+
+    /// Quote in Reply on selected text sends the quote to the composer's append path (the page's
+    /// `chat.quoteReply`), never Edit and Resend's `chat.editPrompt`, which would replace the draft.
+    @Test func quoteInReplyAppendsInsteadOfEditing() throws {
+        var quoted: [String] = []
+        var edited: [String] = []
+        let menu = Self.webKitMenu(MenuLookWebKitTarget())
+        AgentPaneContextMenu.rebuild(menu, target: nil, selection: "the build\nis green", devTools: false, scope: ThemeScope.app.fullStrength,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, edit: { edited.append($0) },
+                                                    quoteReply: { quoted.append($0) }))
+        let item = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.quoteInReply })
+        try Self.click(item)
+        Self.drainRunLoop { !quoted.isEmpty || !edited.isEmpty }
+        #expect(quoted == ["> the build\n> is green\n\n"])
+        #expect(edited.isEmpty)
     }
 
     /// WebKit's Copy runs as the menu closes, not after: WebKit's target drops the menu once its

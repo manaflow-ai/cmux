@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include "artifact_page.h"
+
 namespace cmux_shim {
 
 inline constexpr char kCmuxPageScheme[] = "cmux-page";
@@ -201,6 +203,7 @@ inline bool GrantsCmuxPageLocalNetwork(const std::string& requesting_origin, uin
 inline bool PageRequestAllowed(bool main_frame, const std::string& frame_url, const std::string& parent_url,
                                const std::string& domain) {
   if (main_frame) return true;
+  if (ArtifactContextRestricted(frame_url, parent_url)) return false;
   const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
   auto same = [&](const std::string& url) {
     return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&

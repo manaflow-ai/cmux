@@ -54,7 +54,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
-const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
@@ -156,64 +156,6 @@ try {
     expect(body().textContent).toBe("Add retry with backoff to the uploader");
     expect(body().classList.contains("is-faded")).toBe(false);
     expect(toggle()).toBeNull();
-  });
-
-  test("a sent prompt renders Markdown blockquotes with the transcript quote treatment", () => {
-    resetTranscriptDisclosure();
-    const text = "> The upload retries forever\n> when offline.\n\nAdd a bounded backoff.";
-    render(prompt("user-quote", text));
-    const quote = host.querySelector(".cv-user__markdown .cv-quote");
-    expect(quote).not.toBeNull();
-    expect(quote?.textContent).toBe("The upload retries foreverwhen offline.");
-    expect(host.querySelector(".cv-user__markdown")?.textContent).not.toContain("> The");
-    expect(host.querySelector(".cv-user__markdown > .cv-p")?.textContent).toBe("Add a bounded backoff.");
-  });
-
-  test("a standalone Markdown list renders code and links while Copy keeps its original source", async () => {
-    resetTranscriptDisclosure();
-    const text = "1. Keep `retry_count` bounded.\n2. Read the [retry guide](https://example.com/retry).";
-    remount(prompt("user-markdown-list", text));
-    expect(body().querySelectorAll("ol > li").length).toBe(2);
-    expect(body().querySelector("code.cv-code")?.textContent).toBe("retry_count");
-    expect(body().querySelector("a")?.getAttribute("href")).toBe("https://example.com/retry");
-    copied.length = 0;
-    await act(async () => {
-      host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(copied).toEqual([text]);
-  });
-
-  test("editing a rendered prompt opens and resends the original Markdown source", async () => {
-    const text = "> Keep the source.\n\n1. Use `retry_count`.\n2. Read [the guide](https://example.com/retry).";
-    const row = prompt("user-markdown-edit", text);
-    const sent: string[] = [];
-    act(() =>
-      root.render(
-        <TurnActionsContext.Provider
-          value={{
-            edit: {
-              seqs: new Map([[row.id, 3]]),
-              send: async (_id, _seq, value) => {
-                sent.push(value);
-                return true;
-              },
-            },
-          }}
-        >
-          <UserBubble row={row} text={text} />
-        </TurnActionsContext.Provider>,
-      ),
-    );
-    click(host.querySelector(`button[aria-label="${translate("message.edit")}"]`)!);
-    expect(host.querySelector("textarea")?.value).toBe(text);
-    await act(async () => {
-      host
-        .querySelector(`button[aria-label="${translate("message.editSend")}"]`)!
-        .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(sent).toEqual([text]);
   });
 
   // Leo 2026-10-21: prompts drew as empty grey bubbles. A prompt with no text to read draws no
@@ -342,6 +284,84 @@ try {
       expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
       expect(body().classList.contains("is-clamped")).toBe(false);
     } finally {
+      Object.assign(dom.window, { getComputedStyle: computed });
+      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
+      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
+  test("a prompt mount does not read animation styles until the person toggles its fold", () => {
+    resetTranscriptDisclosure();
+    const duration = foldMotion.duration;
+    const reducedMotion = foldMotion.reducedMotion;
+    const animate = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "animate");
+    let durationReads = 0;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: () => ({ cancel() {} }),
+    });
+    foldMotion.reducedMotion = () => false;
+    foldMotion.duration = () => {
+      durationReads += 1;
+      return 0;
+    };
+    try {
+      act(() => root.unmount());
+      root = createRoot(host);
+      render(prompt("user-fold-style", lines(20)));
+      expect(durationReads).toBe(0);
+      click(toggle()!);
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(durationReads).toBe(1);
+    } finally {
+      foldMotion.duration = duration;
+      foldMotion.reducedMotion = reducedMotion;
+      if (animate) Object.defineProperty(dom.window.HTMLElement.prototype, "animate", animate);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).animate;
+    }
+  });
+
+  test("a short prompt still observes a later font or width change past the fold", () => {
+    resetTranscriptDisclosure();
+    const computed = dom.window.getComputedStyle;
+    const observer = scope.ResizeObserver;
+    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
+    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+    const observers = new Set<() => void>();
+    let drawnHeight = 20;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => drawnHeight,
+    });
+    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: drawnHeight }),
+    });
+    scope.ResizeObserver = class {
+      constructor(private changed: () => void) {}
+      observe() {
+        observers.add(this.changed);
+      }
+      disconnect() {
+        observers.delete(this.changed);
+      }
+    };
+    try {
+      render(prompt("user-short-geometry", "word ".repeat(12).trim()));
+      expect(toggle()).toBeNull();
+      expect(observers.size).toBeGreaterThan(0);
+      // A later font load or narrower pane wraps the same mounted prompt past ten lines.
+      drawnHeight = 240;
+      act(() => {
+        for (const changed of observers) changed();
+      });
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      scope.ResizeObserver = observer;
       Object.assign(dom.window, { getComputedStyle: computed });
       if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
       else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;

@@ -2,7 +2,8 @@ name: cmux-next crash-class rules
 
 # The crash classes found by the socket action sweep (cx-t7hu, cx-bpcj,
 # cx-050n): isolated deinits, task locals bound outside a task, and
-# synchronous NSWorkspace opens. The full check-concurrency.sh also blocks
+# synchronous NSWorkspace opens; and availableData in a pipe's
+# readabilityHandler (cmuxterm-hq#4753). The full check-concurrency.sh also blocks
 # through the cmux-next checks job's final outcome aggregate. This narrower
 # blocking Linux check runs on every pull request and push that touches
 # CmuxNext Sources or the rules (about ten seconds, no build). It also runs
@@ -18,6 +19,7 @@ on:
       - "scripts/cmux-next/check-main-actor-work.py"
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
+      - "tests/test_check_concurrency_pipe_reads.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -36,6 +38,7 @@ on:
       - "scripts/cmux-next/check-main-actor-work.py"
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
+      - "tests/test_check_concurrency_pipe_reads.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -56,7 +59,7 @@ permissions:
 jobs:
   crash-class:
     name: cmux-next crash-class rules
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -72,6 +75,7 @@ jobs:
             scripts/ci/crash-class-gate.sh
             scripts/ci/pr_owned_findings.py
             tests/test_check_concurrency_generic_deinit.py
+            tests/test_check_concurrency_pipe_reads.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
@@ -83,6 +87,11 @@ jobs:
       - name: Crash-class rule tests
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_check_concurrency_generic_deinit.py
+
+      # The pipe-read rule is red on availableData in a readabilityHandler and green with readReady().
+      - name: Pipe-read rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_pipe_reads.py
 
       # Every `super.<member>` must reach a selector its framework superclass
       # answers on each macOS recorded in the table, or be guarded.

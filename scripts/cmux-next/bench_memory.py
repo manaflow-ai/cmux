@@ -44,6 +44,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -219,13 +220,14 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, *, focus: bool = False, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, wait: bool = True, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
         the app through it. `focus` moves the app's focus to what the action
         opens or selects, as the user's shortcut would; without it a new tab
-        opens in the background and does not load until it is shown."""
-        params = {"action": action, "args": args, "wait": True, "origin": "script",
+        opens in the background and does not load until it is shown. `wait`
+        False answers once the handler ran, before the work it started ends."""
+        params = {"action": action, "args": args, "wait": wait, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
@@ -277,8 +279,10 @@ class FakeChats:
 
     def __init__(self, app: App, bundle: str, script: str):
         self.app = app
+        # The app splits `args` into words like a shell: a fleet step's checkout is under
+        # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(script), protocol="acp", replace="true")
+                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -416,26 +420,46 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     return None
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this
+# helper (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the
+# clone about 1 s later. Ended with the app, it leaves the clone until reboot: 29 GB
+# on cmux18 (2026-11-02). A teardown lets it finish, up to CLONE_CLEANUP_WAIT_S.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
+def is_clone_cleanup(cmd: str) -> bool:
+    return CLONE_CLEANUP in cmd
+
+
 def end_bundle(bundle: str):
     """Ends every process of the bundle, the app first: a live app (it can
     ignore SIGTERM) respawns daemons ended before it. No process of this
-    bundle ran before the launch (`launch`), so every one is this run's."""
+    bundle ran before the launch (`launch`), so every one is this run's.
+    Chromium's clone cleanup helper is ended last, and only when it is still
+    there after CLONE_CLEANUP_WAIT_S."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
-    end_processes(bundle_pids(bundle))
+    cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
+    end_processes(bundle_pids(bundle) - cleanups)
+    deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
+    """True once `pid` is gone; it is checked at least once, also with no time left."""
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    while True:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.5)  # test script: waiting for the app to quit
-    return False
 
 
 def merged(base: dict, extra: dict) -> dict:

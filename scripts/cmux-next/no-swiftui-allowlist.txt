@@ -14,7 +14,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionListView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
@@ -75,10 +74,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGlyph.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedIconLabel.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxHeader.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxRow.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxSection.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedListView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedNoticeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryCookieBackupsView.swift
@@ -102,7 +99,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/View+Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/MachineSection.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/AddedServerBlock.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ChiefPlacementRow.swift
