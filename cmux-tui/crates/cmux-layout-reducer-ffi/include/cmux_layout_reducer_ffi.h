@@ -322,7 +322,7 @@ void cmux_focus_string_free(char *text);
  * Tab kind: 0 pty 1 browser 2 remoteTerminal 3 conversation 4 other
  * Tab agent: 0 none 1 working 2 blocked 3 other
  * Tab progress_state: 0 none 1 normal 2 error 3 indeterminate 4 paused
- *     (progress_value 0...100, below 0 for no value)
+ *     (progress_value 0...100 as reported, CMUX_SIDEBAR_FACE_NO_VALUE for no value)
  * Face tab fields index the workspace's own tabs, entry fields its own
  * entries; CMUX_SIDEBAR_FACE_NONE for none.
  * Face kind: 0 terminal 1 browser 2 harness
@@ -333,6 +333,7 @@ void cmux_focus_string_free(char *text);
  * Listed kind: 0 the record's kind 1 new tab 2 agent chat
  */
 #define CMUX_SIDEBAR_FACE_NONE UINT32_MAX
+#define CMUX_SIDEBAR_FACE_NO_VALUE INT32_MIN
 #define CMUX_SIDEBAR_FACE_TAB_NAMED 1u
 #define CMUX_SIDEBAR_FACE_TAB_CHAT 2u
 #define CMUX_SIDEBAR_FACE_TAB_COMMAND_RUNNING 4u
@@ -478,10 +479,10 @@ typedef struct CmuxSidebarFaceText {
 CmuxSidebarFace *cmux_sidebar_face_new(void);
 void cmux_sidebar_face_free(CmuxSidebarFace *faces);
 const CmuxSidebarFaceReply *cmux_sidebar_face_rows(CmuxSidebarFace *faces, const CmuxSidebarFaceRequest *request, const uint8_t *strings, size_t strings_len);
-/* The daemon's next default workspace name: names[0 ..< existing_count] are the
- * machine's listed names (its home left out), the rest the reserved ones. */
 /* path with this Mac's home as ~ (both byte ranges of strings). */
 const CmuxSidebarFaceText *cmux_sidebar_face_abbreviate(CmuxSidebarFace *faces, CmuxSidebarFaceRange path, CmuxSidebarFaceRange home, const uint8_t *strings, size_t strings_len);
+/* The daemon's next default workspace name: names[0 ..< existing_count] are the
+ * machine's listed names (its home left out), the rest the reserved ones. */
 const CmuxSidebarFaceText *cmux_sidebar_face_default_name(CmuxSidebarFace *faces, const CmuxSidebarFaceRange *names, uint32_t count, uint32_t existing_count, const uint8_t *strings, size_t strings_len);
 
 #endif

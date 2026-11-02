@@ -12,6 +12,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// No index or no string.
 pub const NONE: u32 = u32::MAX;
+/// No progress value (`CTab::progress_value`).
+pub const NO_VALUE: i32 = i32::MIN;
 
 pub const TAB_NAMED: u32 = 1;
 pub const TAB_CHAT: u32 = 2;
@@ -58,7 +60,7 @@ pub struct CTab {
     /// 0 none 1 normal 2 error 3 indeterminate 4 paused.
     pub progress_state: u8,
     pub reserved: u8,
-    /// 0...100; below 0 for no value.
+    /// 0...100; [`NO_VALUE`] for no value.
     pub progress_value: i32,
     pub reserved2: u32,
     pub notification: u64,
@@ -276,7 +278,7 @@ fn tab<'a>(strings: &'a [u8], tab: &CTab) -> Result<Tab<'a>, Invalid> {
         4 => Some(ProgressState::Paused),
         _ => return Err(Invalid),
     };
-    let value = (tab.progress_value >= 0).then_some(i64::from(tab.progress_value));
+    let value = (tab.progress_value != NO_VALUE).then_some(i64::from(tab.progress_value));
     Ok(Tab {
         kind,
         title: required(strings, tab.title)?,
@@ -450,6 +452,17 @@ impl Faces {
         self.strings.clear();
         let ok =
             catch_unwind(AssertUnwindSafe(|| self.fill(request, strings).is_ok())).unwrap_or(false);
+        self.finish(ok)
+    }
+
+    /// A reply that answers no faces (`ok` 0): the request did not decode.
+    fn fail(&mut self) -> *const CReply {
+        self.finish(false)
+    }
+
+    /// The reply over the current buffers; with `ok` false the buffers are
+    /// emptied first.
+    fn finish(&mut self, ok: bool) -> *const CReply {
         if !ok {
             self.faces.clear();
             self.listed.clear();
@@ -471,9 +484,16 @@ impl Faces {
     }
 
     /// `path` with this Mac's home `home` as `~`.
-    pub fn abbreviate(&mut self, path: CRange, home: CRange, strings: &[u8]) -> *const CText {
-        let ok = match (required(strings, path), required(strings, home)) {
-            (Ok(path), Ok(home)) => {
+    /// `strings` none: the caller's buffer did not decode (`ok` 0).
+    pub fn abbreviate(
+        &mut self,
+        path: CRange,
+        home: CRange,
+        strings: Option<&[u8]>,
+    ) -> *const CText {
+        let decoded = strings.map(|strings| (required(strings, path), required(strings, home)));
+        let ok = match decoded {
+            Some((Ok(path), Ok(home))) => {
                 self.name = rules::abbreviate(path, home).into_owned();
                 true
             }
@@ -621,22 +641,7 @@ pub unsafe extern "C" fn cmux_sidebar_face_rows(
     let decoded = unsafe { decode(request, strings, strings_len) };
     match decoded {
         Ok((request, strings)) => faces.rows(&request, strings),
-        Err(Invalid) => {
-            let empty = Request {
-                workspaces: &[],
-                panes: &[],
-                tabs: &[],
-                entries: &[],
-                home: CRange::ABSENT,
-                shows_unread: 0,
-                new_tab_titled: 0,
-            };
-            let reply = faces.rows(&empty, &[]);
-            if let Some(reply) = faces.reply.as_mut() {
-                reply.ok = 0;
-            }
-            reply
-        }
+        Err(Invalid) => faces.fail(),
     }
 }
 
@@ -696,6 +701,5 @@ pub unsafe extern "C" fn cmux_sidebar_face_abbreviate(
     // SAFETY: a live handle, used by one thread.
     let faces = unsafe { &mut *faces };
     // SAFETY: the caller's buffer holds `strings_len` bytes.
-    let strings = unsafe { bytes(strings, strings_len) }.unwrap_or(&[]);
-    faces.abbreviate(path, home, strings)
+    faces.abbreviate(path, home, unsafe { bytes(strings, strings_len) })
 }
