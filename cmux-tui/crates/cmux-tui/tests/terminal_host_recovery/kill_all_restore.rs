@@ -476,3 +476,100 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         std::thread::sleep(Duration::from_millis(200));
     }
 }
+
+/// A host reconnect inside a running daemon (its admin tap overflowed while
+/// the daemon was stopped) replaces the daemon's screen with the host's:
+/// bytes the host wrote meanwhile never went through the output store. A kill
+/// of everything right after the reconnect must still restore them (the
+/// tail must not continue across that gap; review of #31643: the reconnect
+/// did not tell the output store, so the restore lacked the gap's output
+/// until the next coalesced checkpoint, up to 30 s).
+#[test]
+fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-reconnect-gap");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "gap", &home);
+    let trigger = harness.dir.join("flood");
+    send_line(&harness.socket, surface, "printf 'gap-%s\\n' before");
+    wait_for_screen(&harness.socket, surface, "gap-before\n");
+    // Over the host's 8 MiB queued-output budget for the daemon's tap: the
+    // host closes the tap while the daemon is stopped, and the daemon
+    // reconnects from the host's snapshot.
+    send_line(
+        &harness.socket,
+        surface,
+        &format!(
+            "while [ ! -e '{}' ]; do sleep 0.05; done; head -c 12000000 /dev/zero; printf 'gap-%s\\n' during",
+            trigger.display()
+        ),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    harness.signal_daemon(libc::SIGSTOP);
+    fs::write(&trigger, b"").unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    harness.signal_daemon(libc::SIGCONT);
+    let shown = wait_for_screen(&harness.socket, surface, "gap-during\n");
+    assert!(shown.contains("gap-during"), "the reconnect never showed the gap's output: {shown}");
+    // Well inside the checkpoint interval, after one writer pass.
+    std::thread::sleep(Duration::from_millis(800));
+
+    kill_everything_and_restart(&mut harness);
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    let restored = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+    assert!(
+        restored.contains("gap-during"),
+        "the output written while the daemon had no tap is not restored: {restored}"
+    );
+}
+
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
+/// kill_all_restore_time_of_12_terminals -- --ignored --nocapture`): the time
+/// from the new daemon's spawn to each respawned terminal's restored text,
+/// for 12 terminals killed at once, each with about 600 KB of output in its
+/// tail (a restore rebuilds snapshot plus tail per terminal). Prints
+/// `kill-all-restore-time: {...}` (ms per terminal, sorted).
+#[test]
+#[ignore = "measurement: run it with --ignored"]
+fn kill_all_restore_time_of_12_terminals() {
+    const TERMINALS: usize = 12;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-restore-time");
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let (terminal_id, incarnation, surface) =
+            start_shell_in(&harness, &format!("time{index}"), &home);
+        terminals.push((terminal_id, incarnation, surface));
+    }
+    // The first snapshot of each (a new generation) is written first; the
+    // output after it is in the tail.
+    std::thread::sleep(Duration::from_secs(1));
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        send_line(&harness.socket, *surface, &format!("seq -f 't{index}-%g' 1 90000"));
+    }
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        wait_for_screen(&harness.socket, *surface, &format!("t{index}-90000\n"));
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    let spawned = Instant::now();
+    harness.restart();
+    let mut restored_ms = Vec::new();
+    for (index, (terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+        let surface = respawned_surface(&harness, terminal_id, incarnation);
+        let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+        assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
+        restored_ms.push(spawned.elapsed().as_millis());
+    }
+    restored_ms.sort_unstable();
+    eprintln!(
+        "kill-all-restore-time: {}",
+        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
+    );
+}

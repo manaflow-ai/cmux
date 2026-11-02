@@ -18,7 +18,8 @@ source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
 fake_clock_install "$TMP/clock"
 fail=0
 check() { if eval "$1"; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 # A repository with three commits: base, then `own` changes the tree, then `app` keeps it.
 git_q init "$TMP/src"

@@ -67,7 +67,7 @@ export default agentPaneEntry({
       play: shown,
     },
     finished: {
-      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
+      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
       native,
       workflowLabs: true,

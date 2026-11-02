@@ -83,8 +83,15 @@ public final class TerminalSession {
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
-        didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
+        didSet {
+            surfaceView.isRenderingSuspended = isRenderingSuspended
+            if isRenderingSuspended != oldValue { frameChanges.bump() } // shown or hidden: its kept frame follows
+        }
     }
+    /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
+    nonisolated let frameChanges = TerminalFrameChanges()
+    /// ``close()`` ran: the launch frame keeper forgets this terminal.
+    private(set) var isClosed = false
 
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
@@ -208,7 +215,7 @@ public final class TerminalSession {
             }
         }
 
-        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, for: self)
+        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, changes: frameChanges, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -414,6 +421,8 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        isClosed = true
+        frameChanges.bump() // its kept frame goes (TerminalLaunchFrameKeeper)
         let onClose = view.onClose
         view.onClose = nil
         onClose?()
@@ -438,10 +447,11 @@ public final class TerminalSession {
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
     /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
     private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
-                                            for session: TerminalSession) -> Task<Void, Never> {
+                                            changes: TerminalFrameChanges, for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
+                changes.bump()
                 if case .output(let data) = event, let lane {
                     TypingLatencyProbe.shared.mark(.outputReceived, source: probeSource, next: .object(ObjectIdentifier(lane)))
                     ExpectedActivity.shared.note(.terminalOutput)
