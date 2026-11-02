@@ -165,7 +165,7 @@ public actor MobileHostSupervisor {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
     }
 
-    public enum SessionExposureError: Error, LocalizedError, Sendable {
+    public enum SessionExposureError: Error, LocalizedError, Equatable, Sendable {
         case hostUnavailable
         case rejected(String)
         case timedOut
