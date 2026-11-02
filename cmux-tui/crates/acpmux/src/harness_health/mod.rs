@@ -231,6 +231,17 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 None => crate::claude_auth::find(&env),
             };
             if found.expired_file_login {
+                // An endpoint can authenticate independently, including without a client
+                // token. Its auth is not established by the subscription credential file.
+                if found.endpoint.is_some() {
+                    return Some((
+                        Auth::Unknown,
+                        Some(
+                            "Claude file login expired; custom endpoint credentials not verified"
+                                .into(),
+                        ),
+                    ));
+                }
                 if !found.credential_sources_complete {
                     return Some((
                         Auth::Unknown,
