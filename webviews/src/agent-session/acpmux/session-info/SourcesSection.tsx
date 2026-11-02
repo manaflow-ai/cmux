@@ -60,7 +60,11 @@ export function SourcesSection({
     <>
       <ul className="acpmux-session-info-list" data-section="sources">
         {shown.map((source) => (
-          <SourceRow key={`${source.kind}:${source.url ?? source.label}`} source={source} {...navigation} />
+          <SourceRow
+            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+            source={source}
+            {...navigation}
+          />
         ))}
       </ul>
       {folds && (

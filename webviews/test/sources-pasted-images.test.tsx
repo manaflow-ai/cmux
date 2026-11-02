@@ -38,6 +38,8 @@ afterAll(() => {
 
 const shot = { id: "a".repeat(64), mimeType: "image/png", name: "Screenshot 2026-10-28.png" };
 const unnamed = { id: "b".repeat(64), mimeType: "image/png" };
+// Two different screenshots pasted from the clipboard both come as image.png.
+const twin = { id: "f".repeat(64), mimeType: "image/png", name: "image.png" };
 const prompt = (id: string, extra: Partial<AcpmuxRow>) => ({ ...extra, id, kind: "user", text: "look" }) as AcpmuxRow;
 
 test("the person's pasted images are Sources, each once, and another agent's are not", () => {
@@ -46,6 +48,7 @@ test("the person's pasted images are Sources, each once, and another agent's are
     prompt("u2", { images: [shot, unnamed] }),
     prompt("u3", { images: [{ id: "c".repeat(64), mimeType: "image/png" }], untyped: true }),
     prompt("u4", { images: [{ id: "d".repeat(64), mimeType: "image/png" }], from: "chief" }),
+    prompt("u5", { images: [{ id: "e".repeat(64), mimeType: "image/png" }], failed: true }),
   ];
   const sources = sessionSummary(rows).sources;
   expect(sources).toEqual([
@@ -59,12 +62,20 @@ test("an image source's row reads its bytes by id and opens the viewer", async (
   const { SourcesSection } = await import("../src/agent-session/acpmux/session-info/SourcesSection");
   act(() => root?.unmount());
   root = createRoot(host);
+  const errors: string[] = [];
+  const consoleError = console.error;
+  console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
   const opened: [string, string][] = [];
   const read: string[] = [];
   await act(async () =>
     root!.render(
       <SourcesSection
-        sources={sessionSummary([prompt("u1", { images: [shot, unnamed] })]).sources}
+        sources={
+          sessionSummary([
+            prompt("u1", { images: [shot, unnamed, twin] }),
+            prompt("u2", { images: [{ ...twin, id: "9".repeat(64) }] }),
+          ]).sources
+        }
         expanded={false}
         onExpandedChange={() => {}}
         onOpenImage={(src, alt) => opened.push([src, alt])}
@@ -72,8 +83,11 @@ test("an image source's row reads its bytes by id and opens the viewer", async (
       />,
     ),
   );
+  console.error = consoleError;
+  // Each image is its own row even when two share a name.
+  expect(errors.filter((error) => error.includes("same key"))).toEqual([]);
   const rows = [...host.querySelectorAll("li")];
-  expect(rows.map((row) => row.textContent)).toEqual([shot.name, "Image"]);
+  expect(rows.map((row) => row.textContent)).toEqual([shot.name, "Image", "image.png", "image.png"]);
   await act(async () => rows[0]!.querySelector("button")!.click());
   expect(read).toEqual([shot.id]);
   expect(opened).toEqual([["data:image/png;base64,AA==", shot.name]]);

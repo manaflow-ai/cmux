@@ -187,8 +187,9 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   };
   for (const [rowIndex, row] of rows.entries()) {
     if (row.kind === "user") {
-      // The person's own images only: another agent's or the Chief's prompt is not what they pasted.
-      if (!row.untyped && !row.from)
+      // The person's own sent images only: another agent's or the Chief's prompt is not what they
+      // pasted, and a prompt that failed to send gave the agent nothing.
+      if (!row.untyped && !row.from && !row.failed)
         for (const image of row.images ?? [])
           add({ label: image.name ?? "", kind: "image", image: { id: image.id, src: image.src } }, rowIndex);
       continue;
