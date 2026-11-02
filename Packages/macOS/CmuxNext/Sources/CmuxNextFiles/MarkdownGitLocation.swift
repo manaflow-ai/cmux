@@ -32,6 +32,12 @@ public struct MarkdownGitLocation: Equatable, Sendable {
     public var githubRepository: String?
     public var state: State
 
+    public init(root: String, relativePath: String, branch: String?, oid: String?, upstream: String?, ahead: Int,
+                githubRepository: String?, state: State) {
+        (self.root, self.relativePath, self.branch, self.oid, self.upstream, self.ahead) = (root, relativePath, branch, oid, upstream, ahead)
+        (self.githubRepository, self.state) = (githubRepository, state)
+    }
+
     /// The repository's folder name.
     public var repositoryName: String { (root as NSString).lastPathComponent }
 
@@ -67,14 +73,5 @@ public struct MarkdownGitLocation: Equatable, Sendable {
         case .untracked, .ignored: "?"
         }
         return glyph.map { "\(repositoryName) · \(branch) \($0)" } ?? "\(repositoryName) · \(branch)"
-    }
-}
-
-/// Construction from the App's location reader (a memberwise init, public across the module boundary).
-extension MarkdownGitLocation {
-    public init(root: String, relativePath: String, branch: String?, oid: String?, upstream: String?, ahead: Int,
-                githubRepository: String?, state: State) {
-        (self.root, self.relativePath, self.branch, self.oid, self.upstream, self.ahead) = (root, relativePath, branch, oid, upstream, ahead)
-        (self.githubRepository, self.state) = (githubRepository, state)
     }
 }

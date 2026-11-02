@@ -2499,7 +2499,6 @@ CmuxNextApp	class	FlushAnswer	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextApp	struct	MarkdownFileLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownFileLocation.swift	MarkdownFileLocation value
 CmuxNextApp	struct	MarkdownFileLocationReader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownFileLocationReader.swift	reads git location of a file
 CmuxNextFiles	struct	MarkdownGitLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownGitLocation.swift	file state vs upstream (pushed, modified, ...)
-CmuxNextFiles	extension	MarkdownGitLocation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownGitLocation.swift	public memberwise init across the module boundary (no logic)
 CmuxNextApp	protocol	MarkdownGitRunning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	from struct MarkdownGitOutput:5: process runner for read-only git (OS process API)
 CmuxNextApp	struct	MarkdownGitOutput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	process runner for read-only git (OS process API)
 CmuxNextApp	struct	ProcessMarkdownGitRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift	from struct MarkdownGitOutput:5: process runner for read-only git (OS process API)
