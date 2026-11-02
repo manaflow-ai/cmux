@@ -318,16 +318,24 @@ pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<
     fn clean(value: &mut Value, state: &SessionExposure) {
         match value {
             Value::Object(object) => {
+                if object
+                    .pointer("/agent_session/session")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| state.blocked.contains(id))
+                {
+                    *value = Value::Null;
+                    return;
+                }
                 for rows in object.values_mut() {
                     clean(rows, state);
                 }
             }
-            Value::Array(items) => items.retain(|item| {
-                let Some(id) = item.pointer("/agent_session/session").and_then(Value::as_str) else {
-                    return true;
-                };
-                !state.blocked.contains(id)
-            }),
+            Value::Array(items) => {
+                for item in items.iter_mut() {
+                    clean(item, state);
+                }
+                items.retain(|item| !item.is_null());
+            }
             _ => {}
         }
     }

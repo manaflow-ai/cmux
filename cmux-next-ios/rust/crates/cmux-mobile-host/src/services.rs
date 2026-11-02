@@ -586,6 +586,7 @@ async fn splice(
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
     let daemon_exposure = exposure.clone();
+    let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
@@ -609,7 +610,6 @@ async fn splice(
                                     .as_ref()
                                     .map(|receiver| receiver.borrow().clone())
                                     .unwrap_or_default(),
-                                &HashSet::new(),
                             ) {
                                 Some(filtered) => format!("{filtered}\n").into_bytes(),
                                 None => continue,
@@ -734,7 +734,7 @@ async fn splice(
                     continue;
                 }
                 let exposure_state =
-                    daemon_exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    request_exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
                 if crate::acpmux_policy::daemon_request_blocked(
                     &String::from_utf8_lossy(&line),
                     &exposure_state,
@@ -1125,6 +1125,7 @@ async fn acpmux(
             message = ws_source.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) { break; }
                     for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
                         if pending_new.remove(&id) { bound_sessions.insert(session); }
                     }
