@@ -1449,17 +1449,6 @@ impl WorkspaceRegistry {
         ))
     }
 
-    /// The topology's frame only: its revision, generation, active
-    /// workspace and active screens, without screens, panes, tabs or
-    /// browsers (a workspace list and a session ping need no more).
-    pub(crate) fn resource_topology_frame(&self) -> anyhow::Result<ResourceTopologySnapshot> {
-        load_topology_frame(
-            &self.connection.get(),
-            self.session_id.clone(),
-            self.generation.clone(),
-        )
-    }
-
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
         load_resource_topology(
             &self.connection.get(),

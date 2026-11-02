@@ -196,7 +196,7 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     let pane = mux.with_state(|state| {
         state.resource_indexes.pane_ids.get(&state.pane_of(first.id).unwrap()).unwrap().to_string()
     });
-    let call = |mux: &Arc<Mux>, operation: &str, params: serde_json::Value| {
+    let call = |mux: &Arc<Mux>, operation: &str, params: Value| {
         let mut params = params;
         params["machine"] = serde_json::json!("current");
         params["session"] = serde_json::json!("current");
