@@ -8018,6 +8018,12 @@ function AcpmuxPane() {
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
+  /// The New Tab context whose leftover the field already showed (``takeNewChatLeftover``).
+  const leftoverShownFor = useRef<NewTabHost | undefined>(undefined);
+  /// The New Tab field's text while it holds a leftover it showed, as edited since: what a pick
+  /// from the page leaves again. undefined while the field holds no leftover (a query typed to
+  /// find a chat is not left).
+  const leftoverInField = useRef<string | undefined>(undefined);
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen
   // unless the spare already draws that context (sameNewTabScreen).
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
@@ -8025,6 +8031,7 @@ function AcpmuxPane() {
   // project on its first frame instead of "Choose folder".
   const adoptNewTab = useCallback((host: NewTabHost) => {
     newTabStartGeneration.current += 1;
+    leftoverInField.current = undefined;
     setNewTabAdoptions((count) => count + 1);
     setNewTab(host);
     const cwd = host.cwd;
@@ -9081,8 +9088,6 @@ function AcpmuxPane() {
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void } | undefined>(() => undefined);
-  /// The New Tab context whose leftover the field already showed (``takeNewChatLeftover``).
-  const leftoverShownFor = useRef<NewTabHost | undefined>(undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -9164,7 +9169,7 @@ function AcpmuxPane() {
   /// window's next New Tab page and takes the held prompts out of the hold, so none is sent after.
   newChatLeftover.current = () => {
     if (snapshotRef.current?.sessionId) return undefined;
-    const typed = composerHandle.current?.draftText() ?? newChatDraft.typed;
+    const typed = leftoverInField.current ?? composerHandle.current?.draftText() ?? newChatDraft.typed;
     const held = trustHeldNow.current.newChatTexts;
     const text = [...newChatDraft.kept, ...held, typed].filter((part) => part.trim()).join("\n\n");
     if (!text) return undefined;
@@ -9174,6 +9179,7 @@ function AcpmuxPane() {
         newChatDraft.kept = [];
         newChatDraft.held = [];
         newChatDraft.typed = "";
+        leftoverInField.current = undefined;
         void callNative("chat.leftover", { text }).catch(() => undefined);
       },
     };
@@ -12399,6 +12405,8 @@ function AcpmuxPane() {
   /// place: the tab's run, found by a read, or the chat view standing in before the handshake (a
   /// host that failed early). The draft goes to the chat view's composer.
   const leaveNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    // The chat view's composer holds what the field held from here.
+    leftoverInField.current = undefined;
     // A Sandboxed send from the page already took its prompt (or held it back).
     const handed = newTabSandboxSent.current;
     newTabSandboxSent.current = false;
@@ -12415,12 +12423,17 @@ function AcpmuxPane() {
     if (handshakenRef.current || pendingSubmits.current.length > 0) return;
     restoreComposerDraft(composerHandle, heldBack, draft.text, draft.attachments);
   };
+  /// The New Tab field's text changed: a leftover it shows follows the edit (``leftoverInField``).
+  const newTabFieldEdited = useCallback((text: string) => {
+    if (leftoverInField.current !== undefined) leftoverInField.current = text;
+  }, []);
   /// What a new chat of this window left (cmux#32276), handed with the page's context: the field
   /// shows it once per context, and the host's slot gives it up only now that a page shows it.
   const takeNewChatLeftover = () => {
     const host = newTabNow.current;
     if (!host?.draft || leftoverShownFor.current === host) return undefined;
     leftoverShownFor.current = host;
+    leftoverInField.current = host.draft;
     void callNative("chat.leftoverTaken", { text: host.draft }).catch(() => undefined);
     return { text: host.draft, attachments: [] };
   };
@@ -12638,12 +12651,14 @@ function AcpmuxPane() {
     [newChatPrewarm],
   );
   const onNewTabPromptTyped = useCallback(
-    (text: string, target?: { harness?: string; cwd?: string }) =>
+    (text: string, target?: { harness?: string; cwd?: string }) => {
+      newTabFieldEdited(text);
       newChatPrewarm.typed(
         text,
         target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
-      ),
-    [newChatPrewarm],
+      );
+    },
+    [newChatPrewarm, newTabFieldEdited],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -14206,6 +14221,7 @@ function AcpmuxPane() {
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
               onLeaveDraft={leaveNewTabDraft}
               takeDraft={takeNewTabDraft}
+              onFieldEdit={newTabFieldEdited}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen

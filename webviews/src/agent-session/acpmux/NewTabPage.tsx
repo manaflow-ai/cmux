@@ -346,6 +346,8 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
+  onFieldEdit?(text: string): void;
   now?: number;
 };
 
@@ -380,6 +382,7 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  onFieldEdit,
 }: Props) {
   const t = useT();
   const { plainFooter, spellChecking } = useComposerSettings();
@@ -766,6 +769,7 @@ export function NewTabPage({
     setTouched(true);
     setOpenFailed(false);
     const plain = field.current?.agentText(next) ?? next;
+    onFieldEdit?.(plain);
     const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : typed, plain);
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {

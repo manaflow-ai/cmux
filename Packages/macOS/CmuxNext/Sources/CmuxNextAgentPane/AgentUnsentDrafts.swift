@@ -76,7 +76,10 @@ public final class AgentUnsentDrafts {
             guard let self, let window = windowOfTab(key()) else { return }
             leave(text, inWindow: window)
         }
-        model.onNewChatLeftoverTaken = { [weak self] text in self?.tookLeftover(text) }
+        model.onNewChatLeftoverTaken = { [weak self] text in
+            guard let self, let window = windowOfTab(key()) else { return }
+            tookLeftover(text, inWindow: window)
+        }
         // A New Tab page the host gave no leftover (the first page of a workspace, a restored one)
         // reads its window's as its context reaches it.
         model.newChatLeftoverDraft = { [weak self] in
@@ -100,24 +103,26 @@ public final class AgentUnsentDrafts {
     }
 
     /// What new chats of `window` left, for the New Tab page about to show there. It stays in the
-    /// slot until a page reports it showed it (``tookLeftover(_:)``): a page that never shows (its
+    /// slot until a page reports it showed it (``tookLeftover(_:inWindow:)``): a page that never shows (its
     /// tab failed to open) leaves it for the next one.
     public func leftover(inWindow window: String) -> String? { drafts[Self.leftoverKey(window)] }
 
-    /// A New Tab page showed `text` from a window's slot as its draft (`chat.leftoverTaken`): the slot
-    /// gives it up, once, keeping what another new chat left after it was read.
-    public func tookLeftover(_ text: String) {
-        guard !text.isEmpty else { return }
-        for (slot, left) in drafts where slot.hasPrefix(Self.leftoverPrefix) {
-            if left == text { set("", for: slot); return }
-            let shown = Array((text + "\n\n").utf8)
-            if left.utf8.starts(with: shown) { set(String(decoding: left.utf8.dropFirst(shown.count), as: UTF8.self), for: slot); return }
+    /// A New Tab page of `window` showed `text` from the window's slot as its draft
+    /// (`chat.leftoverTaken`): the slot gives it up, once, keeping what another new chat left after
+    /// it was read. Other windows' slots are never touched.
+    public func tookLeftover(_ text: String, inWindow window: String) {
+        let slot = Self.leftoverKey(window)
+        guard !text.isEmpty, let left = drafts[slot] else { return }
+        let shown = Array((text + "\n\n").utf8)
+        if left == text {
+            set("", for: slot)
+        } else if left.utf8.starts(with: shown) {
+            set(String(decoding: left.utf8.dropFirst(shown.count), as: UTF8.self), for: slot)
         }
     }
 
     /// A window's slot among the tabs' drafts: no tab id has this prefix.
-    static func leftoverKey(_ window: String) -> String { leftoverPrefix + window }
-    private static let leftoverPrefix = "left-in-new-chat:"
+    static func leftoverKey(_ window: String) -> String { "left-in-new-chat:" + window }
 
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }

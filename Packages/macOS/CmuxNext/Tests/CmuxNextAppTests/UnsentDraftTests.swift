@@ -69,9 +69,11 @@ struct UnsentDraftTests {
         #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
         // A page that never shows (its tab failed to open) gives nothing up: the next page gets it.
         #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
-        // A page reports it showed the first part; what was left after it was read stays.
+        // A page reports it showed the first part; what was left after it was read stays. Another
+        // window's slot with the same text is never its to give up.
+        relaunched.leave("second", inWindow: "window-2")
         let page = AgentPaneModel(host: MockAgentPaneHost())
-        relaunched.windowOfTab = { _ in "window-1" }
+        relaunched.windowOfTab = { $0 == "tab-5" ? "window-2" : "window-1" }
         relaunched.wire(page) { "tab-3" }
         #expect(page.newTabForPage == nil, "only a New Tab page gets it")
         // A New Tab page its host gave none (a workspace's first page, a restored one) reads its window's.
@@ -82,7 +84,12 @@ struct UnsentDraftTests {
         #expect(relaunched.leftover(inWindow: "window-1") == "second")
         _ = await page.respond(to: Self.request("chat.leftoverTaken", ["text": "second"]))
         #expect(relaunched.leftover(inWindow: "window-1") == nil, "a leftover seeds one new chat")
+        #expect(relaunched.leftover(inWindow: "window-2") == "second", "window 2's slot is its own")
         #expect(AgentUnsentDrafts(file: file, files: files).leftover(inWindow: "window-1") == nil)
+        let elsewhere = AgentPaneModel(host: MockAgentPaneHost())
+        relaunched.wire(elsewhere) { "tab-5" }
+        _ = await elsewhere.respond(to: Self.request("chat.leftoverTaken", ["text": "second"]))
+        #expect(relaunched.leftover(inWindow: "window-2") == nil)
         withExtendedLifetime(relaunched) {}
         withExtendedLifetime(drafts) {}
     }
