@@ -39,6 +39,13 @@ test("events reads every page of a log longer than one page", async () => {
   expect(fake.calls.filter((c) => c.method === "_acpmux/events").length).toBe(3);
 });
 
+// A hasMore page without an advancing cursor is a failed read, not completed history.
+test("events rejects an empty page that still has more records", async () => {
+  const { client, fake, sessionId } = await fakeWithLog(2);
+  fake.pageEvents = 0;
+  await expect(client.events(sessionId)).rejects.toThrow("_acpmux/events: hasMore without cursor progress");
+});
+
 test("events stops at its limit even when more pages remain", async () => {
   const { client, fake, sessionId } = await fakeWithLog(24);
   fake.pageEvents = 10;
