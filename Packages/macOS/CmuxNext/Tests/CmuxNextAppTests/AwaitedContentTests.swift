@@ -24,4 +24,18 @@ import Testing
         #expect(AwaitedContent.awaited(.terminal, tab: "t", pane: Self.pane(selected: "t", shown: nil, kind: nil, live: false), paneInTopology: true) == nil)
         #expect(AwaitedContent.awaited(.terminal, tab: "t", pane: Self.pane(selected: "other", shown: nil, kind: nil), paneInTopology: true) == nil)
     }
+
+    /// REOPEN-F4 browser case (STATUS 5871; journey reopen-browser-first-key, 3 of 5 cycles lost): a restored Chromium
+    /// tab gets its page from an async start, 300-400 ms after main; meanwhile the focus names the browser page and the
+    /// pane shows no browser content. A Cmd-L then took the "not a browser" branch of Focus Location Bar and opened a
+    /// New Tab page, and the marker typed after it went there. The page is awaited until its content shows.
+    @Test func aRestoredBrowserTabIsAwaitedUntilItsPageExists() {
+        #expect(AwaitedContent.awaited(.browser, tab: "b", pane: Self.pane(selected: "b", shown: "b", kind: nil, live: false), paneInTopology: true)
+                == AwaitedContent(tab: "b", kind: .browser), "a browser tab with no page yet is not awaited: a Cmd-L opens a New Tab page")
+        #expect(AwaitedContent.awaited(.browser, tab: "b", pane: Self.pane(selected: "b", shown: "b", kind: .browser, live: false), paneInTopology: true) == nil)
+        #expect(AwaitedContent.awaited(.browser, tab: "b", pane: Self.pane(selected: "other", shown: nil, kind: nil, live: false), paneInTopology: true) == nil)
+        // Keys held for a page have no terminal lane: they run again as typed once it shows (Cmd-L then reaches its address bar).
+        #expect(!AwaitedContent(tab: "b", kind: .browser).hasTerminalLane)
+        #expect(AwaitedContent(tab: "t", kind: .terminal).hasTerminalLane)
+    }
 }

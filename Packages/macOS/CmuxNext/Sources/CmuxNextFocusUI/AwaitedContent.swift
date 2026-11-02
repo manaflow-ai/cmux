@@ -5,11 +5,16 @@ public struct AwaitedContent: Equatable, Sendable {
     /// What the focus names.
     public enum Kind: Equatable, Sendable {
         case terminal
+        /// A browser tab: Chromium makes its page after the window shows (an async start at a relaunch).
+        case browser
     }
 
     /// The focused tab.
     public let tab: String
     public let kind: Kind
+
+    /// Its held keys go to its terminal by a lane (also at the hold's bound, by the daemon when its view never came).
+    public var hasTerminalLane: Bool { true }
 
     public init(tab: String, kind: Kind) {
         (self.tab, self.kind) = (tab, kind)
