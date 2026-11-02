@@ -19,7 +19,7 @@ extension TabContentCache {
     /// its strip first, so the pane that withdrew it is asked too.
     func holdsForClose(_ key: String) -> Bool {
         let withdrew = withdrawnBy.removeValue(forKey: key)?.value
-        guard terminals[key] != nil, browsers[key] == nil, let pane = withdrew ?? presenter(of: key) else { return false }
+        guard terminals[key] != nil, browsers[key] == nil, let pane = (withdrew ?? presenter(of: key)) as? PaneController else { return false }
         return pane.holdsRelease(of: key) { [weak self] in self?.release(key) }
     }
 

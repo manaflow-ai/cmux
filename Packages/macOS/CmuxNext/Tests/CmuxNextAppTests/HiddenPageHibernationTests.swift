@@ -489,7 +489,6 @@ import CmuxNextTestSupport
     }
 
     @MainActor final class Pane: SurfacePresenter {
-        func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { false }
         func surfaceWasDisplaced(_ key: String) {}
     }
 }

@@ -484,7 +484,6 @@ final class TabContentCache {
     func key(of page: any BrowserTab) -> String? {
         browsers.first { $0.value.tab === page }?.key
     }
-
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         if displacing, holdsForClose(key) { return } // a closing pane's terminal goes after the landing (F1)
@@ -516,8 +515,6 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
-    /// True when this pane is closing in a motion and holds `release` of `key` until it goes (`LayoutRootView.afterClosing`).
-    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool
 }
 
 struct WeakPresenter {
