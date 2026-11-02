@@ -18,7 +18,15 @@ final class NotificationsPanelController {
     private let context: AppActionContext
     private var panel: NotificationsPanel?
     private let motion = CornerPanelMotion()
-    private var card: NotificationsPanelView { cardView ?? makeCard() } // made on first open (REOPEN-F7: 13 ms at launch)
+    /// The panel's view, made on first open (REOPEN-F7: building it in AppActions.bind cost 13 ms before the first frame).
+    private var card: NotificationsPanelView {
+        if let cardView { return cardView }
+        let card = NotificationsPanelView()
+        card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
+        card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
+        cardView = card
+        return card
+    }
     private(set) var cardView: NotificationsPanelView?
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
@@ -28,17 +36,7 @@ final class NotificationsPanelController {
     /// Bumped per reload, so a slow reply never replaces a newer one.
     private var generation = 0
 
-    init(context: AppActionContext) {
-        self.context = context
-    }
-
-    private func makeCard() -> NotificationsPanelView {
-        let card = NotificationsPanelView()
-        card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
-        card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
-        cardView = card
-        return card
-    }
+    init(context: AppActionContext) { self.context = context }
 
     var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
 
