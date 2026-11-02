@@ -124,6 +124,8 @@ impl Hub {
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
         self.peer_notices_stop.send_replace(true);
+        // Reads of peer chats ahead of an open end too, before the last flush (`peer_snapshot/warm.rs`).
+        self.peer_snapshots.stop_warming();
         self.idle_wake.notify_one();
     }
 
@@ -289,7 +291,7 @@ impl Hub {
                 session = %session.id,
                 cause = "idle",
                 idle_secs = idle_for / 1_000_000_000,
-                exit_ms = began.elapsed().as_millis() as u64,
+                exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
                 "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
                  servers running under it; the harness and its MCP servers exited and the session \
                  wakes on its next prompt"
@@ -350,7 +352,7 @@ impl Hub {
     ) {
         // `at`: the mark when the wake began (a stop meanwhile clears the session's).
         let Some((began, at)) = began else { return };
-        let took_ms = began.elapsed().as_millis() as u64;
+        let took_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);
         let slept_secs = (at != 0).then(|| crate::store::now_ms().saturating_sub(at) / 1000);
         let cause = *session.wake_cause.lock().unwrap_or_else(|e| e.into_inner());
         let cause = cause.unwrap_or("request");

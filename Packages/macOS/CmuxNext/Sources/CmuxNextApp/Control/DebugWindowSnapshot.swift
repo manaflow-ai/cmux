@@ -115,6 +115,11 @@ enum DebugWindowSnapshot {
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
+#if DEBUG || CMUX_BENCH_HOOKS
+        // An inactive floating palette can have a blank standalone window-server image.
+        // Its existing renderer captures the panel's content without Screen Recording.
+        if services.palette.owns(window) { return DebugPaletteCapture.capture(params.merging(["path": .string(path)]) { $1 }, services: services) }
+#endif
         do {
             let webViews = visibleWebViews(in: window)
             // The window server's image first: the window as on screen, WebKit
@@ -162,7 +167,8 @@ enum DebugWindowSnapshot {
                     // page, the whole New Tab page) show the window there, as
                     // on screen.
                     let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes))
+                    let clip = WindowImageClip(page.pageWindowClip)
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
                 } catch {
                     pagesFailed += 1
                 }
@@ -171,7 +177,7 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {

@@ -120,6 +120,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "group",
+        &[
+            ("List sidebar groups, duplicates marked", "acpmux group ls"),
+            ("Put a session in the Leads group", "acpmux group move coord Leads"),
+            ("Merge same-named groups", "acpmux group tidy --apply"),
+        ],
+    ),
+    ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
+    ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "group tidy",
+        &[
+            ("See which groups a tidy would merge", "acpmux group tidy"),
+            ("Merge them", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),
@@ -203,7 +220,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Link a session to a tracker bead", "acpmux bead link fix-27310 cx-cus7j"),
             (
-                "Link a peer's session to two beads",
+                "Link another machine's session to two beads",
                 "acpmux bead link mini-3/review-27 cx-cus7j cx-ncc.112",
             ),
         ],
@@ -271,6 +288,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux chats list --harness codex --folder ~/wt/cmux",
             ),
             ("Find chats about the resize lag", "acpmux chats list -q resize -n 10"),
+        ],
+    ),
+    (
+        "chats search",
+        &[
+            ("Find chats that talked about the resize lag", "acpmux chats search resize lag"),
+            (
+                "Search only Codex chats in one folder",
+                "acpmux chats search flaky test --harness codex --folder ~/wt/cmux -n 5",
+            ),
         ],
     ),
     (

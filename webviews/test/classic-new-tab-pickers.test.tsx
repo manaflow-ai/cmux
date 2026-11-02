@@ -1,6 +1,7 @@
 // The classic New Tab must use the same deferred picker path as the other templates.
 // Mount the real app boundary so choosing the active-chat fallback cannot pass unnoticed.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -156,7 +157,7 @@ async function mount(
                       template: "classic",
                       cwd: "/tmp/classic-project",
                       lastAgent: "claude",
-                      projects: ["/tmp/classic-project", "/tmp/other-project"],
+                      projects: ["/tmp/classic-project", "/Users/sample/other-project"],
                     },
                   }
                 : undefined,
@@ -288,10 +289,10 @@ test("a classic New Tab preserves the registry's composer chip override", async 
 test("classic Return keeps the selected harness and model when opening its deferred chat", async () => {
   const { chatCalls, report } = await mount();
   await report("codex", "gpt-6-astra");
-  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(".acpmux-newtab-field")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, "fix this test");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type("fix this test");
   });
   await act(async () =>
     host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
@@ -312,10 +313,10 @@ test("classic Return sends its prompt in the same turn as the chat start, as the
     void record(params);
     return new Promise(() => undefined);
   };
-  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(".acpmux-newtab-field")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, "hello");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type("hello");
   });
   await act(async () =>
     host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
@@ -329,25 +330,25 @@ test("classic composer plugins receive the page's selected folder", async () => 
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const other = dom.window.document.querySelector<HTMLElement>(
-    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+    '.acpmux-project-menu [role="option"][aria-label$="/Users/sample/other-project"]',
   );
   expect(other).not.toBeNull();
   await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/other-project");
+  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/Users/sample/other-project");
 });
 
 test("a classic model pick starts in the project selected on the page", async () => {
   const { chatCalls } = await mount();
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const other = dom.window.document.querySelector<HTMLElement>(
-    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+    '.acpmux-project-menu [role="option"][aria-label$="/Users/sample/other-project"]',
   );
   expect(other).not.toBeNull();
   await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   await open();
   await pick("Sonnet 5.5");
   expect(chatCalls()).toEqual([
-    { method: "chat.new", params: { ...deferred, cwd: "/tmp/other-project" } },
+    { method: "chat.new", params: { ...deferred, cwd: "/Users/sample/other-project" } },
     { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
   ]);
 });

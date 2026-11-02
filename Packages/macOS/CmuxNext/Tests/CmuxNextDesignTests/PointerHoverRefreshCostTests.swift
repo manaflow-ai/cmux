@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// 2026-10-30, #27632's full Swift test run (job 123760619585): `swift test` hung for 1500 s with the
@@ -8,7 +9,7 @@ import Testing
 /// refreshes hover, and each refresh read, filed again and sorted every target of the window and
 /// every target whose view had no window, so a layout pass cost every hover view the process kept.
 /// A refresh now reads the hovering targets and the targets of the views under the pointer only.
-@MainActor @Suite(.serialized) struct PointerHoverRefreshCostTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PointerHoverRefreshCostTests {
     /// Counts the reads of its `window`, as the old index's filing did for every windowless target.
     private final class WindowReadCountingView: NSView {
         var windowReads = 0

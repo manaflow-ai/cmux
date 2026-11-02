@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb";
+inline constexpr std::string_view kProtocolIrSha256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -295,6 +295,7 @@ struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
 struct CloudConversationTypingRequest;
 struct CloudConversationUnsubscribeRequest;
+struct CloudEnvironmentRequest;
 struct CloudHostReplicaClearRequest;
 struct CloudHostReplicaSetRequest;
 struct CloudHostReplicaStatusRequest;
@@ -506,6 +507,8 @@ struct SendRequest;
 struct SendResult;
 struct SendKeyRequest;
 struct ServerStatsRequest;
+struct SetAttachVisibilityRequest;
+struct SetAttachVisibilityResult;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
@@ -1773,6 +1776,14 @@ struct CloudConversationTypingRequest {
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudEnvironmentRequest {
+    std::string access_token{};
+    std::string action{};
+    std::optional<JsonValue> params{};
+    std::string platform_origin{};
+    friend bool operator==(const CloudEnvironmentRequest&, const CloudEnvironmentRequest&) = default;
 };
 
 struct CloudHostReplicaClearRequest {
@@ -4996,6 +5007,17 @@ struct ServerStatsResult {
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
+struct SetAttachVisibilityRequest {
+    Id surface{};
+    bool visible{};
+    friend bool operator==(const SetAttachVisibilityRequest&, const SetAttachVisibilityRequest&) = default;
+};
+
+struct SetAttachVisibilityResult {
+    std::uint32_t viewers{};
+    friend bool operator==(const SetAttachVisibilityResult&, const SetAttachVisibilityResult&) = default;
+};
+
 struct SetCellPixelsRequest {
     std::uint16_t height_px{};
     std::uint16_t width_px{};
@@ -7735,6 +7757,12 @@ struct Codec<CloudConversationUnsubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudEnvironmentRequest> {
+    static Result<Json> encode(const CloudEnvironmentRequest& value);
+    static Result<CloudEnvironmentRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudHostReplicaClearRequest> {
     static Result<Json> encode(const CloudHostReplicaClearRequest& value);
     static Result<CloudHostReplicaClearRequest> decode(const Json& value);
@@ -8998,6 +9026,18 @@ template <>
 struct Codec<ServerStatsRequest> {
     static Result<Json> encode(const ServerStatsRequest& value);
     static Result<ServerStatsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetAttachVisibilityRequest> {
+    static Result<Json> encode(const SetAttachVisibilityRequest& value);
+    static Result<SetAttachVisibilityRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetAttachVisibilityResult> {
+    static Result<Json> encode(const SetAttachVisibilityResult& value);
+    static Result<SetAttachVisibilityResult> decode(const Json& value);
 };
 
 template <>

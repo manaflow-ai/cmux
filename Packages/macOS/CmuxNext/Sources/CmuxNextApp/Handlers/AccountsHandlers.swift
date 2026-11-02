@@ -16,7 +16,6 @@ enum AccountsHandlers {
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)
             guard provider.reauthPlan != .none else { throw ActionFailure(message: AccountsAppStrings.nothingToSignIn) }
-            guard services.windows.active?.focusedPane != nil else { throw ActionFailure(message: AccountsAppStrings.noWindow) }
             registry.track(Task { @MainActor [model = services.accounts.model] in await model.performReauthenticate(provider).map { ActionWorkFailure($0) } })
         })
         registry.bind("accounts.connect", run: { invocation in

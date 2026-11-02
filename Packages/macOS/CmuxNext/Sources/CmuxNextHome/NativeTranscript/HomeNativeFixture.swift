@@ -22,6 +22,8 @@ public final class HomeNativeFixture {
     /// The Chief's streamed turn (`debugStream`) and its last draft seq.
     private var streamTurn: IdempotencyKey?
     private var streamSeq: UInt64 = 0
+    /// The Chief reply key of the last `debugAgentMessages` run (its fold's anchor), and whether it was the notes run.
+    private var lastAgentRun: (turn: IdempotencyKey, notes: Bool)?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -135,17 +137,28 @@ public final class HomeNativeFixture {
     /// Shows the Chief's messages to its agents and their reports as a real run brings them: my
     /// question, the Chief's reply, then one run with five messages to agents and one report, which
     /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
-    public func debugAgentMessages() -> Bool {
+    /// With `notes`, the run is instead five agents that stopped with no report (their session
+    /// Disconnected, the Chief producer's note) and one real report.
+    /// With `open`, nothing is posted: the fold (or, after a notes run, the notes row) of the last such
+    /// run opens or closes, as a click on it does.
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false) -> Bool {
         guard let shown else { return false }
+        if open {
+            guard let last = lastAgentRun else { return false }
+            let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
+            store.toggleAgentMessages(last.notes ? HomeAgentMessageRow.notesGroup(group) : group, in: shown.conversation)
+            return true
+        }
         let source = self.source
         let turn = IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
+        lastAgentRun = (turn, notes)
         let start = Date()
         // task-owner: three mock events, ends when the mock source has published them
         Task {
             let me = await source.me.id
             _ = await source.post("What did you tell the agents just now?", from: me, in: shown.conversation, key: .make())
             _ = await source.post("I sent five messages and got one report back.", from: shown.chief, in: shown.conversation, key: turn)
-            let messages = Self.agentMessages.enumerated().map { index, m in
+            let messages = (notes ? Self.agentNotes : Self.agentMessages).enumerated().map { index, m in
                 HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
                                      outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
             }
@@ -156,6 +169,11 @@ public final class HomeNativeFixture {
         }
         return true
     }
+
+    /// The notes fixture run: five status notes in the Chief producer's words, a real report.
+    private static let agentNotes: [(peer: String, outgoing: Bool, text: String)] =
+        ["a931", "a933", "a936", "a939", "a940"].map { ($0, false, "(stopped without a report: its session is Disconnected)") }
+        + [("a891", false, "Fixed the stuck nightly feed: the feed and the installed NIGHTLY are on the same build. [run 41156389247](https://github.com/manaflow-ai/cmux/actions/runs/41156389247)")]
 
     /// The fixture run's messages (made-up agents and work, in the Chief's real wording).
     private static let agentMessages: [(peer: String, outgoing: Bool, text: String)] = [
