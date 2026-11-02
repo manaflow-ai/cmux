@@ -6,7 +6,6 @@
 // click comes back as `sessionInfoAction {id}` and runs the action the page registered for that id.
 import type { SessionInfoGroupId } from "../sectionOrder";
 import type { SessionInfoSectionId } from "../sessionInfoState";
-import type { NativeInfoWave } from "./wave";
 
 /// How a row or a section's value reads: running rows draw a spinner, failed ones the error ink.
 export type NativeInfoTone = "running" | "waiting" | "failed" | "done" | "muted" | "accent";
@@ -31,16 +30,10 @@ export type NativeInfoRow = {
   title: string;
   /// The row's existing harness mark, when it is an agent.
   harness?: string;
-  /// A retrying agent uses the native spinner instead of its harness glyph.
-  working?: boolean;
-  /// A regular running row's shared Session Info wave position and cadence.
-  wave?: NativeInfoWave;
   /// Dimmer text after the title on the same line (a command's folder, a subagent's prompt).
   detail?: string;
   /// A second line under the title.
   subtitle?: string;
-  /// Progress parts such as workflow counts and queued/failed agents.
-  progress?: string;
   /// Per-agent state marks in a workflow phase, in the page's current order.
   marks?: readonly NativeInfoTone[];
   /// Right-aligned text (a time, a count, a state).

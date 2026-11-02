@@ -271,8 +271,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+            // The line's box is the reply footer's slot, so the end-of-turn swap moves nothing
+            // (#31690, transcriptGrid.ts MARK_FOOTER_SLOT).
+            oneLine: px("--cv-footer-button"),
           };
         });
         await page.close();
@@ -280,8 +281,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
+      // One 20px line, even in a narrow pane: the line's box is the footer slot (fec3ac0e5125,
+      // #31690); a second line would grow it by 20px.
       expect(busyBox.height).toBe(busyBox.oneLine);
       expect(busyBox.labelHeight).toBe(20);
     }
