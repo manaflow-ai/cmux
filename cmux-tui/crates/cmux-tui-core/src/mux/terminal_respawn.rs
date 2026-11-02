@@ -273,17 +273,18 @@ impl Mux {
         // workspace first at a start). A retry after a backoff takes none:
         // it must not hold the line for its delay.
         let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
-        // A terminal hidden when it took its place, and shown while it waits
-        // (the person selected its workspace), goes first: the person now
-        // waits on it. One shown already is first in line (the start sorts
-        // the visible workspace first) and keeps its bounded wave.
-        let hidden_at_ticket = ticket.is_some() && !self.respawn_slot_shown(plan.slot);
         let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
-            let shown_now = || hidden_at_ticket && mux.respawn_slot_shown(plan.slot);
+            // A terminal the person sees never waits behind hidden ones: when
+            // it cannot take its turn at once (turn_or_jump checks that first),
+            // it goes without one. That holds however it got its place: shown
+            // when it took it, or selected while it waits, or lost while the
+            // hidden respawns of a kill of everything still wait. The cap
+            // bounds the hidden respawns only.
+            let shown_now = || mux.respawn_slot_shown(plan.slot);
             let turn = match ticket {
                 Some(ticket) => match gate.turn_or_jump(ticket, stopping, shown_now) {
                     startup_adoption_gate::Admission::Turn(turn) => Some(turn),

@@ -129,9 +129,10 @@ impl StartupAdoptionGate {
         }
     }
 
-    /// [`Self::turn`], and `jump` may let the waiter go first, with no turn:
-    /// it runs with the gate's lock released (it may take the mux's locks),
-    /// at the start and after each wake-up. A wake-up while it runs is not
+    /// [`Self::turn`], and `jump` may let the waiter go first, with no turn,
+    /// whenever it cannot take its turn at once: it runs with the gate's lock
+    /// released (it may take the mux's locks), at the start and after each
+    /// wake-up. A wake-up while it runs is not
     /// lost: the waiter checks again before it sleeps.
     pub(super) fn turn_or_jump(
         &self,
