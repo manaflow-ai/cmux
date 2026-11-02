@@ -400,11 +400,17 @@ impl ClientRegistry {
         (!input.is_dead()).then_some(input)
     }
 
-    /// Keeps `surface` as the terminal `client`'s keys go to, when the client is attached to it.
-    pub(super) fn remember_attached_input(&self, client: u64, surface: &Arc<crate::Surface>) {
+    /// Keeps `surface` as the terminal `client`'s keys to `id` go to, when the client is attached to `id` (the id the
+    /// keys name: a runtime found through the terminal catalog has another id).
+    pub(super) fn remember_attached_input(
+        &self,
+        client: u64,
+        id: SurfaceId,
+        surface: &Arc<crate::Surface>,
+    ) {
         let mut state = self.state.lock().recover_poison();
         if let Some(attached) =
-            state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface.id))
+            state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&id))
         {
             attached.input = Arc::downgrade(surface);
         }

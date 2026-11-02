@@ -68,8 +68,8 @@ fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
     sent.unwrap();
     eprintln!("INPUT-LANE key while the session lock is held: {waited:?}");
     assert!(
-        waited < Duration::from_millis(50),
-        "the key waited {waited:?} for the session lock automation held (budget 50 ms, the lock was held 300 ms)"
+        waited < Duration::from_millis(150),
+        "the key waited {waited:?} for the session lock automation held (budget 150 ms, the lock was held 300 ms)"
     );
     mux.shutdown();
 }

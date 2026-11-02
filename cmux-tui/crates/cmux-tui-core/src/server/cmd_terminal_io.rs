@@ -130,7 +130,7 @@ fn input_surface(
         return Ok(surface);
     }
     let surface = get_surface(mux, id)?;
-    mux.control_clients.remember_attached_input(client, &surface);
+    mux.control_clients.remember_attached_input(client, id, &surface);
     Ok(surface)
 }
 
