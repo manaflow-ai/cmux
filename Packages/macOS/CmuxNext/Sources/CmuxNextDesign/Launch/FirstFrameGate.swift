@@ -40,4 +40,9 @@ public final class FirstFrameGate {
         guard !isOpen else { return }
         backstop.schedule(after: delay) { @MainActor [weak self] in self?.open() }
     }
+
+    /// Returns once the gate is open (at once when it already is).
+    public func opened() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in whenOpen { done.resume() } }
+    }
 }
