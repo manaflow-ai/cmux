@@ -162,6 +162,9 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
       if (NSWindow* window = DevToolsOwnWindow(browser, parent_view_)) {
         HiddenDevTools().insert(browser->GetIdentifier());
         window.alphaValue = 0;
+        // A frontend whose renderer ends, or whose load never ends, still shows: the backstop counts from creation
+        // too (the load-end backstop below only exists once the load ended).
+        CefPostDelayedTask(TID_UI, base::BindOnce(&RevealDevTools, browser), kDevToolsRevealBackstopMs * 3);
       }
     }
     auto& map = devtools_browsers();
