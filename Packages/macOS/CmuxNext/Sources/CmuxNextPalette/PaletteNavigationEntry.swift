@@ -51,10 +51,13 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
     public var isCurrent: Bool
     /// When the user last settled on it (the location trail), nil when never.
     public var lastUsed: Date?
+    /// The machine whose daemon holds the pane or tab; nil for this Mac's. Forks keep
+    /// ids, so choosing the row acts on this machine's object only (cmux#30755).
+    public var machineID: String?
 
     public init(id: String, kind: Kind, title: String, workspaceTitle: String? = nil, groupTitle: String? = nil,
                 cwd: String? = nil, url: String? = nil, agent: String? = nil, sessionID: String? = nil, keywords: [String] = [],
-                color: GroupColor? = nil, isCurrent: Bool = false, lastUsed: Date? = nil) {
+                color: GroupColor? = nil, isCurrent: Bool = false, lastUsed: Date? = nil, machineID: String? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -68,6 +71,7 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
         self.color = color
         self.isCurrent = isCurrent
         self.lastUsed = lastUsed
+        self.machineID = machineID
     }
 
     /// The prefix `cmux agent message` reads as an acpmux session (`acp:<session id>`).
@@ -77,7 +81,8 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
     public var itemID: String {
         switch kind {
         case .group: "group:\(id)"
-        case .pane: "pane:\(id)"
+        // Another machine's pane is qualified by it: forks share pane ids (cmux#30755).
+        case .pane: machineID.map { "pane:\($0):\(id)" } ?? "pane:\(id)"
         case .tab: "tab:\(id)"
         }
     }
