@@ -1402,7 +1402,8 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
+  "needs.legacy-signer-dmg.outputs.signed_ok != 'true'" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
@@ -1487,8 +1488,8 @@ if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || grep -Ev '^[[:space:]]*
   exit 1
 fi
 for expected in \
-  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner]" \
-  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, legacy-signer-dmg, verify-nightly-identity-legacy-pool]" \
+  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "group: nightly-next-legacy-identity-publish" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \

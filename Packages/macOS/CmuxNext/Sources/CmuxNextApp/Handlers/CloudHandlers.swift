@@ -349,16 +349,18 @@ enum CloudHandlers {
     /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
     /// waits for its daemon instead of refusing with "not connected". A
     /// legacy machine with no connection reads its record again first, since
-    /// the app's copy may still say running. A machine that is not paused
-    /// returns at once, as before.
+    /// the app's copy may still say running. `waitsForLink` (Open Machine, Leo 2026-11-01: "when i tried to
+    /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
-                         within limit: Duration = .seconds(300)) async throws {
+                         within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
         try requireAttachableState(session)
         await session.refreshIfMaybePaused()
         try requireAttachableState(session)
         session.attach(origin: connectOrigin(for: invocation))
-        guard session.resuming else { return }
         let daemon = session.daemon
+        if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
+            within: limit, connected: { daemon.connection != nil }, failure: { session.stage.failure }, deadline: CloudStrings.notConnected) { throw ActionFailure(message: reason) }
+        guard session.resuming else { return }
         _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -379,15 +381,12 @@ enum CloudHandlers {
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
-        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) {
-            throw ActionFailure(message: reason)
-        }
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-            throw ActionFailure(message: CloudStrings.commandRequired)
-        }
+        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
     }
 }
