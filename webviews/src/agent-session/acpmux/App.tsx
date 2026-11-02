@@ -60,6 +60,7 @@ import {
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
   LANE_NOTICE_BATCH,
+  MESSAGE_RUN,
   isLineRow,
   restRoom,
 } from "./model";
@@ -376,6 +377,7 @@ import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
+import { MessageRunLine } from "./conversation/MessageRunLine";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -405,7 +407,7 @@ import {
   useBackgroundKey,
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
-import { withSkillDollars } from "./slashCommands";
+import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import {
   editableKey,
@@ -438,7 +440,7 @@ import {
   openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
-  turnFoldFor,
+  hiddenRowFolds,
   turnFooterFrom,
   WORKING,
   type TurnView,
@@ -468,6 +470,12 @@ import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import {
+  artifactVersionsForSession,
+  changeArtifactPin,
+  visibleArtifact,
+  type OpenedArtifact,
+} from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
@@ -539,7 +547,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
-import { cloudAgentLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -554,7 +562,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import { NewestSteerContext, PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -619,6 +627,8 @@ import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
+import { PaneNotices } from "./PaneNotices";
+import { setPaneNotices } from "./paneNoticeStore";
 import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -763,6 +773,8 @@ declare global {
       applySuggestedTasks?(on: boolean): void;
       /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
       applyRemoteControl?(value: unknown): void;
+      /// The app's notices about the chat's agent service (paneNoticeStore.ts), on the legacy host.
+      applyPaneNotices?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
@@ -1441,6 +1453,19 @@ const BackgroundTurnRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// A run of one-line rows that carries messages between agents, folded to one line
+/// (conversation/messageRuns.ts); opening it lists its rows below.
+const MessageRunRow = memo(
+  function MessageRunRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <MessageRunLine row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 /// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
 const DateRow = memo(
   function DateRow({ row }: RowProps) {
@@ -1840,6 +1865,7 @@ const defaultRegistry: NativeRegistry = {
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
   [BACKGROUND_TURN]: BackgroundTurnRow,
+  [MESSAGE_RUN]: MessageRunRow,
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
@@ -2094,6 +2120,7 @@ const RowFrame = React.memo(function RowFrame({
   replyActions,
   status,
   lastFooter,
+  finalFooter,
   continuationFooter,
   lastTurn,
   index,
@@ -2131,6 +2158,10 @@ const RowFrame = React.memo(function RowFrame({
   status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
+  /// The footer that ends the chat (nothing drawn after it): its turn has ended, so its Copy row
+  /// shows without a hover (Leo, 2026-11-02: "i should be able to see the copy buttons on your
+  /// responses when your things end").
+  finalFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
   continuationFooter: boolean;
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
@@ -2240,7 +2271,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -2428,6 +2459,8 @@ const DRAWN_SEARCH_ROWS = 64;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 /// Viewports of rows kept mounted either side of the reader, built between frames.
 const WARM_VIEWPORTS = 1;
+/// How far the reader scrolls, in viewports, before the warm rows move with them.
+const WARM_STEP_VIEWPORTS = 0.5;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
 /// How long a scroll event can be attributed to the reader's most recent input. Expiring this
@@ -3826,7 +3859,13 @@ export function VirtualTranscript({
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(unplacedScroll.top - origin) + placementDelta;
+  // The deferred offset moves in steps of WARM_STEP_VIEWPORTS: an offset that changed every pixel
+  // gave each scroll frame a second render of the whole transcript (often restarted by the next
+  // scroll event) that drew the same warm rows. A step leaves at least WARM_VIEWPORTS less half a
+  // step warm on either side.
+  const warmStep = Math.max(1, height * WARM_STEP_VIEWPORTS);
+  const warmAt = Math.round((unplacedScroll.top - origin) / warmStep) * warmStep;
+  const warmTop = useDeferredValue(warmAt) + placementDelta;
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -5373,6 +5412,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
+                      finalFooter={row.kind === "turnSummary" && !next}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
@@ -5927,10 +5967,11 @@ function AcpmuxPane() {
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
   if (btwFailure && snapshot.sessionId !== btwFailure.sessionId) setBtwFailure(undefined);
-  // The side preview panel (cx-ncc.63) shows a document from the open chat; another chat closes it.
-  // Each open is its own panel (`opened`), which starts on its preview.
-  const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
-  if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
+  // A preview follows its source chat. A deliberate Pin keeps an immutable snapshot visible when
+  // browsing other chats, while the original chat remains its only source of new versions.
+  // Each Open is a fresh panel (`opened`), which starts on its preview.
+  const [artifact, setArtifact] = useState<OpenedArtifact>();
+  if (artifact && !visibleArtifact(artifact, snapshot.sessionId)) setArtifact(undefined);
   // The Background tasks panel (backgroundTasks/BackgroundTasksPanel.tsx), opened from the chat's ⋯
   // menu: the chat's right column, docked under the side panel when that is open. It is the open
   // chat's, as the side panel is; another chat closes it. `dismissed` holds the ended groups Clear
@@ -5948,27 +5989,31 @@ function AcpmuxPane() {
   const artifactRows = artifact ? snapshot.rows : undefined;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
   const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
-  const artifactVersionList = useMemo(
-    () =>
-      artifact && artifactRows
-        ? artifact.path
-          ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
-          : (renderVersions(pages, artifact) ??
-            artifactVersions(
-              artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-              artifact,
-            ))
-        : undefined,
-    [artifact, artifactRows, pages],
-  );
+  const artifactVersionList = useMemo(() => {
+    if (!artifact) return undefined;
+    // A pinned preview from another chat must not use this chat's rows: two unrelated documents
+    // can have the same <title>. Preserve the source's versions captured at Pin instead.
+    if (artifact.sessionId !== snapshot.sessionId) return artifactVersionsForSession(artifact, snapshot.sessionId);
+    const versions = artifactRows
+      ? artifact.path
+        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
+        : (renderVersions(pages, artifact) ??
+          artifactVersions(
+            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
+            artifact,
+          ))
+      : undefined;
+    return artifactVersionsForSession(artifact, snapshot.sessionId, versions);
+  }, [artifact, artifactRows, pages, snapshot.sessionId]);
   const openArtifact = useCallback(
     (next: Artifact) =>
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
+        sourceTitle: snapshot.summary?.title || snapshot.summary?.name,
         opened: (current?.opened ?? 0) + 1,
       })),
-    [artifactSession],
+    [artifactSession, snapshot.summary?.title, snapshot.summary?.name],
   );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
@@ -7427,9 +7472,8 @@ function AcpmuxPane() {
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
-  // The agent's commands, for an edited prompt's Codex skills (`edit.send`), read at the send.
-  const agentCommands = useRef(snapshot.commands);
-  agentCommands.current = snapshot.commands;
+  // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
+  const skillWords = useSkillWords(snapshot.commands);
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7450,13 +7494,8 @@ function AcpmuxPane() {
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
-          // A Codex skill typed `/name` in the editor goes as `/$name` (slashCommands.ts).
           send: (rowId: string, throughSeq: number, text: string) =>
-            callNative<boolean>("chat.editResend", {
-              rowId,
-              throughSeq,
-              text: withSkillDollars(text, agentCommands.current),
-            }).then(
+            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
               (sent) => sent === true,
               () => false,
             ),
@@ -7590,7 +7629,13 @@ function AcpmuxPane() {
       ),
       // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
       // important"): its own login, never this Mac's. Its page opens as a link click does here.
-      cloudSignIn: cloudAgentLogin({
+      // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
+      // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
+      // credits or add their own api key").
+      ...((login: Parameters<typeof cloudAgentLogin>[0]) => ({
+        cloudSignIn: cloudAgentLogin(login),
+        apiKeySignIn: localApiKeyLogin(login),
+      }))({
         connected,
         machineID: cloudMachineID,
         sessionId: snapshot.sessionId,
@@ -8044,14 +8089,22 @@ function AcpmuxPane() {
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
   const trackBackground = background.track;
+  // The calls in the foreground now, read when a move is checked (backgroundNotice.ts "kept").
+  const foregroundNow = useRef<readonly string[]>([]);
   const runInBackground = useCallback(
-    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    (toolCallId?: string) => {
+      const asked = toolCallId ? [toolCallId] : foregroundNow.current;
+      trackBackground(directClient.current?.backgroundWork(toolCallId), () =>
+        asked.some((id) => foregroundNow.current.includes(id)),
+      );
+    },
     [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
+  foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
@@ -8533,6 +8586,7 @@ function AcpmuxPane() {
     const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
+    if (target.run !== undefined) openFold(target.run);
     const key = Date.now();
     setRevealRow({ rowId: target.rowId, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
@@ -8548,8 +8602,7 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row || !toolId) return false;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const fold = turnFoldFor(rows, index);
-        if (fold) openFold(fold);
+        for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId });
@@ -8568,8 +8621,7 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row) return;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const fold = turnFoldFor(rows, index);
-        if (fold) openFold(fold);
+        for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId: "" });
@@ -9619,6 +9671,9 @@ function AcpmuxPane() {
       },
       applyRemoteControl(value) {
         setRemoteControl(value);
+      },
+      applyPaneNotices(value) {
+        setPaneNotices(value);
       },
       applyHeaderState(state) {
         setHeaderState(state);
@@ -12177,137 +12232,142 @@ function AcpmuxPane() {
         <ImageViewerContext.Provider value={openImage}>
           <ShellActionsContext.Provider value={shellActions}>
             <TurnActionsContext.Provider value={turnActions}>
-              <RunInBackgroundContext.Provider value={backgroundHint}>
-                <TurnCountsContext.Provider value={turnCountsFor}>
-                  <SessionEditsContext.Provider value={editRows}>
-                    <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
-                      <SubagentNavContext.Provider value={setSubagentView}>
-                        <SubagentPaneContext.Provider value={showSubagent}>
-                          <WorkingCountsContext.Provider value={workingCounts}>
-                            <WaitingOnContext.Provider value={waiting}>
-                              <SubagentStopContext.Provider value={stopSubagent}>
-                                <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                                  <SubagentHarnessContext.Provider
-                                    value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                                  >
-                                    <SessionHoverContext.Provider value={sessionHover}>
-                                      <SubsessionContext.Provider value={subsessions}>
-                                        <StartedMentionsContext.Provider value={startedMentions}>
-                                          <FailedSendsContext.Provider value={failedSends}>
-                                            <ChatFindScope
-                                              rows={
-                                                chatPresentation === "messages"
-                                                  ? transcriptRows
-                                                  : (childRows ?? findRows)
-                                              }
-                                              shown={childRows ? undefined : transcriptRows}
-                                              openFold={openFold}
-                                              findRef={findRef}
-                                            >
-                                              {(find) => (
-                                                <VirtualTranscript
-                                                  key={chatPresentation}
-                                                  rows={transcriptRows}
-                                                  earlier={!childRows ? snapshot.earlierPrompts : undefined}
-                                                  promptCount={!childRows ? snapshot.promptCount : undefined}
-                                                  loadThrough={
-                                                    !childRows
-                                                      ? (seq) =>
-                                                          directClient.current?.loadThrough(seq) ??
-                                                          Promise.resolve(false)
-                                                      : undefined
+              <SkillWordsContext.Provider value={skillWords}>
+                <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
+                  <RunInBackgroundContext.Provider value={backgroundHint}>
+                    <TurnCountsContext.Provider value={turnCountsFor}>
+                      <SessionEditsContext.Provider value={editRows}>
+                        <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                          <SubagentNavContext.Provider value={setSubagentView}>
+                            <SubagentPaneContext.Provider value={showSubagent}>
+                              <WorkingCountsContext.Provider value={workingCounts}>
+                                <WaitingOnContext.Provider value={waiting}>
+                                  <SubagentStopContext.Provider value={stopSubagent}>
+                                    <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                      <SubagentHarnessContext.Provider
+                                        value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                      >
+                                        <SessionHoverContext.Provider value={sessionHover}>
+                                          <SubsessionContext.Provider value={subsessions}>
+                                            <StartedMentionsContext.Provider value={startedMentions}>
+                                              <FailedSendsContext.Provider value={failedSends}>
+                                                <ChatFindScope
+                                                  rows={
+                                                    chatPresentation === "messages"
+                                                      ? transcriptRows
+                                                      : (childRows ?? findRows)
                                                   }
-                                                  sourceRows={childRows ? undefined : sourceRows}
-                                                  endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
-                                                  working={snapshot.isWorking}
-                                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                  jumpButton={!quick}
-                                                  needsYou={needsYou.pill}
-                                                  focusComposer={() => composerHandle.current?.focus()}
-                                                  // Quick Chat's panel stacks its composer below the transcript.
-                                                  dock={quick ? undefined : dock}
-                                                  queueWithdrawn={snapshot.queueWithdrawn}
-                                                  queueIds={quick ? undefined : queueIds}
-                                                  queuedTail={queuedRows}
-                                                  find={quick ? undefined : find}
-                                                  sessionId={
-                                                    childRows
-                                                      ? `${shownSessionId}:subagent:${subagentView}`
-                                                      : shownSessionId
-                                                  }
-                                                  canLoadOlder={
-                                                    workflowTranscript.rows
-                                                      ? workflowTranscript.canLoadOlder
-                                                      : !childRows && snapshot.canLoadOlder
-                                                  }
-                                                  historyFrom={
-                                                    workflowTranscript.rows
-                                                      ? workflowTranscript.historyFrom
-                                                      : childRows
-                                                        ? undefined
-                                                        : snapshot.historyFrom
-                                                  }
-                                                  onLoadOlder={
-                                                    workflowTranscript.rows
-                                                      ? workflowTranscript.loadOlder
-                                                      : !childRows
-                                                        ? () => directClient.current?.loadOlder() ?? Promise.resolve()
-                                                        : undefined
-                                                  }
-                                                  openAt={
-                                                    !childRows &&
-                                                    shownSessionId &&
-                                                    scrollAnchor?.sessionId === shownSessionId
-                                                      ? scrollAnchor
-                                                      : undefined
-                                                  }
-                                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                  // A prompt goes to the chat, not to the subagent shown in its place.
-                                                  sends={childRows ? undefined : sends}
-                                                  onFollowingChange={
-                                                    childRows ? undefined : onTranscriptFollowingChange
-                                                  }
-                                                  onAnchor={
-                                                    quick || childRows || !shownSessionId
-                                                      ? undefined
-                                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                  }
-                                                  expanded={folds}
-                                                  showMinimap={minimapVisible}
-                                                  reveal={childRows ? undefined : revealRow}
-                                                  coldOpen={!childRows && opened.cold ? opened.open : undefined}
-                                                  onColdOpenShown={coldOpenShown}
-                                                  afterLatest={
-                                                    !childRows && trayPlacement === "after-latest-message"
-                                                      ? trayNode
-                                                      : undefined
-                                                  }
-                                                  registry={registry}
-                                                  githubRepository={githubRepository}
-                                                  fallbackRepository={
-                                                    pullRequestRef(headerPullRequest?.url ?? "")?.repo
-                                                  }
-                                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                  onOpenDiff={quick ? undefined : openDiff}
-                                                  onToggleActivity={toggleActivity}
-                                                />
-                                              )}
-                                            </ChatFindScope>
-                                          </FailedSendsContext.Provider>
-                                        </StartedMentionsContext.Provider>
-                                      </SubsessionContext.Provider>
-                                    </SessionHoverContext.Provider>
-                                  </SubagentHarnessContext.Provider>
-                                </SubagentClockContext.Provider>
-                              </SubagentStopContext.Provider>
-                            </WaitingOnContext.Provider>
-                          </WorkingCountsContext.Provider>
-                        </SubagentPaneContext.Provider>
-                      </SubagentNavContext.Provider>
-                    </SessionCwdContext.Provider>
-                  </SessionEditsContext.Provider>
-                </TurnCountsContext.Provider>
-              </RunInBackgroundContext.Provider>
+                                                  shown={childRows ? undefined : transcriptRows}
+                                                  openFold={openFold}
+                                                  findRef={findRef}
+                                                >
+                                                  {(find) => (
+                                                    <VirtualTranscript
+                                                      key={chatPresentation}
+                                                      rows={transcriptRows}
+                                                      earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                      promptCount={!childRows ? snapshot.promptCount : undefined}
+                                                      loadThrough={
+                                                        !childRows
+                                                          ? (seq) =>
+                                                              directClient.current?.loadThrough(seq) ??
+                                                              Promise.resolve(false)
+                                                          : undefined
+                                                      }
+                                                      sourceRows={childRows ? undefined : sourceRows}
+                                                      endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
+                                                      working={snapshot.isWorking}
+                                                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                      jumpButton={!quick}
+                                                      needsYou={needsYou.pill}
+                                                      focusComposer={() => composerHandle.current?.focus()}
+                                                      // Quick Chat's panel stacks its composer below the transcript.
+                                                      dock={quick ? undefined : dock}
+                                                      queueWithdrawn={snapshot.queueWithdrawn}
+                                                      queueIds={quick ? undefined : queueIds}
+                                                      queuedTail={queuedRows}
+                                                      find={quick ? undefined : find}
+                                                      sessionId={
+                                                        childRows
+                                                          ? `${shownSessionId}:subagent:${subagentView}`
+                                                          : shownSessionId
+                                                      }
+                                                      canLoadOlder={
+                                                        workflowTranscript.rows
+                                                          ? workflowTranscript.canLoadOlder
+                                                          : !childRows && snapshot.canLoadOlder
+                                                      }
+                                                      historyFrom={
+                                                        workflowTranscript.rows
+                                                          ? workflowTranscript.historyFrom
+                                                          : childRows
+                                                            ? undefined
+                                                            : snapshot.historyFrom
+                                                      }
+                                                      onLoadOlder={
+                                                        workflowTranscript.rows
+                                                          ? workflowTranscript.loadOlder
+                                                          : !childRows
+                                                            ? () =>
+                                                                directClient.current?.loadOlder() ?? Promise.resolve()
+                                                            : undefined
+                                                      }
+                                                      openAt={
+                                                        !childRows &&
+                                                        shownSessionId &&
+                                                        scrollAnchor?.sessionId === shownSessionId
+                                                          ? scrollAnchor
+                                                          : undefined
+                                                      }
+                                                      anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                      // A prompt goes to the chat, not to the subagent shown in its place.
+                                                      sends={childRows ? undefined : sends}
+                                                      onFollowingChange={
+                                                        childRows ? undefined : onTranscriptFollowingChange
+                                                      }
+                                                      onAnchor={
+                                                        quick || childRows || !shownSessionId
+                                                          ? undefined
+                                                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                      }
+                                                      expanded={folds}
+                                                      showMinimap={minimapVisible}
+                                                      reveal={childRows ? undefined : revealRow}
+                                                      coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                      onColdOpenShown={coldOpenShown}
+                                                      afterLatest={
+                                                        !childRows && trayPlacement === "after-latest-message"
+                                                          ? trayNode
+                                                          : undefined
+                                                      }
+                                                      registry={registry}
+                                                      githubRepository={githubRepository}
+                                                      fallbackRepository={
+                                                        pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                      }
+                                                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                      onOpenDiff={quick ? undefined : openDiff}
+                                                      onToggleActivity={toggleActivity}
+                                                    />
+                                                  )}
+                                                </ChatFindScope>
+                                              </FailedSendsContext.Provider>
+                                            </StartedMentionsContext.Provider>
+                                          </SubsessionContext.Provider>
+                                        </SessionHoverContext.Provider>
+                                      </SubagentHarnessContext.Provider>
+                                    </SubagentClockContext.Provider>
+                                  </SubagentStopContext.Provider>
+                                </WaitingOnContext.Provider>
+                              </WorkingCountsContext.Provider>
+                            </SubagentPaneContext.Provider>
+                          </SubagentNavContext.Provider>
+                        </SessionCwdContext.Provider>
+                      </SessionEditsContext.Provider>
+                    </TurnCountsContext.Provider>
+                  </RunInBackgroundContext.Provider>
+                </NewestSteerContext.Provider>
+              </SkillWordsContext.Provider>
             </TurnActionsContext.Provider>
           </ShellActionsContext.Provider>
         </ImageViewerContext.Provider>
@@ -12560,6 +12620,7 @@ function AcpmuxPane() {
             failed={recapCard.failed}
           />
         )}
+        <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -13507,7 +13568,7 @@ function AcpmuxPane() {
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
-              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
+              onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
@@ -13897,6 +13958,16 @@ function AcpmuxPane() {
             key={artifact.opened}
             artifact={artifact}
             versions={artifactVersionList}
+            pinned={!!artifact.pinned}
+            sourceTitle={artifact.sourceTitle}
+            onPinChange={
+              artifact.sessionId
+                ? (pinned) =>
+                    setArtifact((current) =>
+                      changeArtifactPin(current, pinned, snapshot.sessionId, artifactVersionList),
+                    )
+                : undefined
+            }
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}
           />

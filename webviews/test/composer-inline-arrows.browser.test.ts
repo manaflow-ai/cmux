@@ -9,15 +9,15 @@ import { chromium, type Page, webkit } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/** The text right before and after the placed attachment, and whether the chip is node-selected. */
-const around = (page: Page) =>
-  page.locator(".acpmux-md [data-inline-attachment]").evaluate((chip) => ({
-    before: chip.previousSibling?.textContent ?? "",
-    after: chip.nextSibling?.textContent ?? "",
-    selected: chip.classList.contains("ProseMirror-selectednode"),
-  }));
-
 await requireBrowserLane("composer-inline-arrows.browser.test.ts", async () => {
+  /** The text right before and after the placed attachment, and whether the chip is node-selected. */
+  const around = (page: Page) =>
+    page.locator(".acpmux-md [data-inline-attachment]").evaluate((chip) => ({
+      before: chip.previousSibling?.textContent ?? "",
+      after: chip.nextSibling?.textContent ?? "",
+      selected: chip.classList.contains("ProseMirror-selectednode"),
+    }));
+
   test("arrow keys step over a placed attachment as one character", async () => {
     const { createServer } = await import("vite");
     const vite = await createServer({

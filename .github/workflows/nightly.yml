@@ -2561,6 +2561,7 @@ jobs:
           NIGHTLY_WAIT_FOR_FLEET: "1"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
@@ -3420,7 +3421,7 @@ jobs:
     # The picker itself has no signing key. Keep its routing job on the
     # allowlisted Blacksmith Linux set even when RUNNER_POOLS is stale or
     # points at a non-Blacksmith fleet member.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0] }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
@@ -3524,6 +3525,8 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          # The all-nightly reservation first, while two of its runners are idle (nightly_build_runner.py).
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the
           # verify jobs on the watched owned pool, not blind on Blacksmith macOS.
@@ -5253,7 +5256,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != '' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off'
     # Credentials stay on the validated ephemeral set until exclusive owned-Mac admission exists.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || github.run_attempt > 1 && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || github.run_attempt > 1 && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
     environment: ci-routing-agent
@@ -6433,7 +6436,7 @@ jobs:
     # same build to Apple; the "Skip a build the old feed already has" step
     # here and the publish job's order check keep the old feed right, and the
     # extra submission only costs Apple time (cx-vws1x).
-    concurrency: &sign-nightly-identity-legacy-concurrency
+    concurrency:
       group: nightly-next-legacy-identity-${{ github.run_id }}
       cancel-in-progress: false
     # Signs and notarizes only. It holds signing and notarization secrets, so
@@ -6441,12 +6444,12 @@ jobs:
     # the stapled DMG on a fresh secret-free runner, and
     # publish-nightly-identity-legacy publishes only the DMG whose sha256 that
     # job verified (cx-vws1x).
-    permissions: &sign-nightly-identity-legacy-permissions
+    permissions:
       contents: read
       # Read the pending-submission artifacts of earlier runs, and retire
       # metadata whose bundle is gone (nightly-next-legacy-orphan-meta.sh).
       actions: write
-    outputs: &sign-nightly-identity-legacy-outputs
+    outputs:
       # owned when the claim gate passed on an owned Mac; the Blacksmith twin signs when it did not.
       claim: ${{ steps.claim-gate.outputs.claim }}
       # The old feed already has this build (or a newer one): nothing ran.
@@ -6473,7 +6476,7 @@ jobs:
     # never counted as a failure. The DMG around the stapled app adds one more
     # submission with the same 20 min wait (CMUX_STAPLE_APP_IN_DMG).
     timeout-minutes: 160
-    env: &sign-nightly-identity-legacy-env
+    env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
@@ -6498,7 +6501,7 @@ jobs:
       # prunes them itself.
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
-    steps: &sign-nightly-identity-legacy-steps
+    steps:
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
       - *hold-the-whole-mac

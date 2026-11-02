@@ -6,31 +6,6 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// One window's spare, as a pure slot (property-tested): at most one spare,
-/// handed out once; only an empty slot asks for a new one.
-nonisolated struct NewTabSpareSlot<Spare> {
-    private var spare: Spare?
-
-    var shouldWarm: Bool { spare == nil }
-    var count: Int { spare == nil ? 0 : 1 }
-
-    /// Callers park only when ``shouldWarm``; a second spare is refused.
-    mutating func parked(_ value: Spare) {
-        guard spare == nil else { return }
-        spare = value
-    }
-
-    mutating func take() -> Spare? {
-        defer { spare = nil }
-        return spare
-    }
-
-    mutating func drop() -> Spare? { take() }
-
-    /// The spare, left in the slot.
-    var peek: Spare? { spare }
-}
-
 /// Instant new tab (plans/cmux-next/new-tab.md section 2): ONE prewarmed new
 /// tab page per app (Lawrence: "a pool of 1"), loaded, rendered and connected
 /// to acpmux, parked out of sight in the key main window. When another main
@@ -65,7 +40,7 @@ final class NewTabSparePool {
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
-    private var slot = NewTabSpareSlot<AgentPaneView>()
+    private var slot = AgentPaneSpareSlot<AgentPaneView>()
     private let parking = PageOffscreenParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
@@ -152,20 +127,17 @@ final class NewTabSparePool {
             return spare?.view
         }
         // A tab opening an existing chat of this Mac adopts it only once its client is connected
-        // (SpareSessionAdoption): it switches to the chat in place. One still connecting stays here,
+        // (AgentPaneSpareAdoption): it switches to the chat in place. One still connecting stays here,
         // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
         services.agentTabs.takeConnectedSpare = { [weak self] in
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                Self.traceSpare(.empty)
+                AgentPaneSpareOutcome.empty.trace()
                 return nil
             }
-            guard Self.servesChat(handshake: spare.model.hasHandshake, painted: spare.model.hasPainted,
-                                  clientReady: spare.model.clientReady,
-                                  lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
-                                  thermal: ProcessInfo.processInfo.thermalState) else {
-                Self.traceSpare(.unready)
+            guard spare.model.servesExistingChat else {
+                AgentPaneSpareOutcome.unready.trace()
                 return nil
             }
             return take(for: window, size: nil, refill: .whenQuiet)?.view
@@ -261,49 +233,12 @@ final class NewTabSparePool {
         fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
     }
 
-    /// What an existing chat's open found in the pool.
-    enum SpareOutcome { case adopted, empty, unready, refused }
-
-    /// The chat-open trace's account of `outcome` (bench and debug builds only; a no-op in Release,
-    /// which has no ``ChatOpenTrace``).
-    static func traceSpare(_ outcome: SpareOutcome, note: @autoclosure () -> String? = nil) {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        let mark: ChatOpenTrace.Mark = switch outcome {
-        case .adopted: .spareAdopted
-        case .empty: .spareEmpty
-        case .unready: .spareUnready
-        case .refused: .spareRefused
-        }
-        ChatOpenTrace.shared.mark(mark)
-        if let note = note() { ChatOpenTrace.shared.note(note) }
-        #endif
-    }
-
-    /// When the next spare is made after one is handed out.
-    enum Refill {
-        /// On the next main-actor turn: a New Tab or new workspace, so the next Cmd-T finds one.
-        case now
-        /// Once input is quiet (``idleInput``): an existing chat took it, and its page is still
-        /// attaching that chat. A new page's load on the main thread would land in that open,
-        /// and in the next clicks of someone going down the sidebar.
-        case whenQuiet
-    }
-
-    /// Whether the parked spare may serve a tab opening an existing chat (``SpareSessionAdoption``):
-    /// it answered its handshake, drew, and its client is connected (`pane.clientReady`). Not in
-    /// Low Power Mode or at serious thermal state: each such open would take the spare and make
-    /// another page; the tab opens cold instead, and the spare stays for New Tab.
-    nonisolated static func servesChat(handshake: Bool, painted: Bool, clientReady: Bool, lowPower: Bool,
-                                       thermal: ProcessInfo.ThermalState) -> Bool {
-        handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
-    }
-
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows as `refill` says.
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
-    func take(for window: NSWindow?, size: NSSize?, refill: Refill = .now) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
+    func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }

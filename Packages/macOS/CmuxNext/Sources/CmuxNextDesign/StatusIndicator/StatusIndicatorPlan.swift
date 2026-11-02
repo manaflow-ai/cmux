@@ -8,6 +8,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case arc
         /// Faint full track plus an arc of `progress`.
         case ring(progress: Double)
+        /// Faint full track plus a short bright sweep (`sweepLength` of the circle, round caps) that
+        /// `spin` turns: the agent working-state mark, as Claude and ChatGPT draw theirs.
+        case sweep
         /// The AppKit spinner's spokes. Determinate progress in the native
         /// style draws `ring`, which is what the AppKit determinate circular
         /// indicator is (a track and an arc).
@@ -80,12 +83,15 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
-    /// The agent working-state mark's glyph: the settled thin arc (`6388291c7c3`, 2026-10-02, and
-    /// #20410's Codex-like default), turning smoothly on the shared clock. Never the macOS activity
-    /// indicator's segmented spokes: #29903 swapped them in and Leo answered "why the f*** did you
-    /// make the spinner into this????" (2026-11-01). The spokes stay only as the explicit
-    /// "macOS Spinner" loading style.
-    public static let workingGlyph: Glyph = .arc
+    /// The agent working-state mark's glyph: a faint full ring with a short bright sweep turning
+    /// smoothly on the shared clock, as in Claude and ChatGPT. Neither the 3/4 arc (Leo 2026-10-31:
+    /// "who even decided to put that 3/4 circle") nor the macOS activity indicator's segmented spokes
+    /// (#29903; Leo 2026-11-01: "why the f*** did you make the spinner into this????"). The spokes
+    /// stay only as the explicit "macOS Spinner" loading style and the arc as loading's "Thin Arc".
+    public static let workingGlyph: Glyph = .sweep
+
+    /// The share of the circle the working sweep covers (about 80°).
+    public static let sweepLength: Double = 0.22
 
     /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
     /// working row moves in phase (#29903).

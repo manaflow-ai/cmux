@@ -126,6 +126,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .displaySetting: "displaySetting"
         case .featureTips: "featureTips"
         case .remoteControl: "remoteControl"
+        case .paneNoticeAction: "paneNoticeAction"
         case .toolCard: "toolCard"
         case .computerUsePreview: "computerUsePreview"
         case .upload: "upload"
