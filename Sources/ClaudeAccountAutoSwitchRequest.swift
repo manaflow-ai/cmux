@@ -76,12 +76,15 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///   - isTrusted: Whether an account already trusts the session's folder.
     ///   - sourceScreen: The pane's screen now. Anything but Claude's empty prompt holds the
     ///     switch back: a typed message the restart would discard, or a screen cmux can't read.
+    ///   - sourceTextBoxHasDraft: Whether the pane's text box holds an unsent draft, which the
+    ///     restart would also discard.
     func action(
         pane: Pane,
         isEnabled: Bool,
         storedExhaustion: [String: Date],
         ledger: ClaudeAccountAutoSwitchLedger,
         sourceScreen: AgentAutoResumeCoordinator.ScreenState,
+        sourceTextBoxHasDraft: Bool,
         isUsable: (ClaudeAccount) -> Bool,
         isTrusted: (ClaudeAccount) -> Bool,
         now: Date,
@@ -127,7 +130,8 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
             if pendingWork { return .holdBack(exhaustion, .backgroundWork) }
             if let inUse = ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
                 receivedInputSinceReport: ledger.receivedInput(panelId: panelId, since: occurredAtMs),
-                screen: sourceScreen
+                screen: sourceScreen,
+                textBoxHasDraft: sourceTextBoxHasDraft
             ) {
                 return .holdBack(exhaustion, inUse)
             }

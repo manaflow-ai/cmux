@@ -128,8 +128,8 @@ extension Workspace {
     /// turn is the caller's job; this never asks.
     ///
     /// - Parameter paneIsFree: For the unattended automatic switch: asked synchronously right
-    ///   before the pane restarts, after every await. `false` (the pane got input, or Claude's
-    ///   input box holds a typed message) leaves the pane alone and returns
+    ///   before the pane restarts, after every await. `false` (the pane got input, holds an unsent
+    ///   message, or doesn't show Claude's empty prompt) leaves the pane alone and returns
     ///   ``ClaudeAccountSwitchResult/paneInUse``. A manual switch passes nothing.
     @MainActor
     func switchClaudeAccount(

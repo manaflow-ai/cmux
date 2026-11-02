@@ -151,7 +151,7 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
         case .draftPending:
             format = String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.draftPending",
-                defaultValue: "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+                defaultValue: "%@ hit its usage limit while a message was typed but not sent. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
             )
         case .promptUnconfirmed:
             format = String(

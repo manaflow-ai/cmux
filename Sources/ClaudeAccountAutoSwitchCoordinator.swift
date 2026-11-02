@@ -130,6 +130,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
             storedExhaustion: exhaustionStore.exhaustedUntil(now: now),
             ledger: ledger,
             sourceScreen: Self.screenState(of: workspace, panelId: panelId),
+            sourceTextBoxHasDraft: Self.textBoxHasDraft(of: workspace, panelId: panelId),
             isUsable: { candidates.usable.contains($0.exhaustionKey(homeDirectory: home)) },
             isTrusted: { candidates.trusted.contains($0.exhaustionKey(homeDirectory: home)) },
             now: now,
@@ -242,8 +243,15 @@ final class ClaudeAccountAutoSwitchCoordinator {
     ) -> ClaudeAccountAutoSwitchAction.HoldBack? {
         ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
             receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, since: request.occurredAtMs),
-            screen: Self.screenState(of: workspace, panelId: request.panelId)
+            screen: Self.screenState(of: workspace, panelId: request.panelId),
+            textBoxHasDraft: Self.textBoxHasDraft(of: workspace, panelId: request.panelId)
         )
+    }
+
+    /// Whether the pane's text box holds an unsent draft. The switch's restart replaces the
+    /// pane's terminal panel, and the draft with it.
+    private static func textBoxHasDraft(of workspace: Workspace, panelId: UUID) -> Bool {
+        workspace.terminalPanel(for: panelId)?.sessionTextBoxDraftSnapshot() != nil
     }
 
     /// The pane's screen as the shared prompt classifier reads it; `.unknown`, which holds the

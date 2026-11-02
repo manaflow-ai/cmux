@@ -676329,55 +676329,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+            "value": "%@ hit its usage limit while a message was typed but not sent. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بلغ %@ حد الاستخدام بينما كانت رسالة مكتوبة في حقل إدخال Claude. تبديل الحساب يعيد تشغيل الطرفية وسيحذفها، لذا لم يبدّل cmux. بدّل الحساب يدويًا للمتابعة."
+            "value": "بلغ %@ حد الاستخدام بينما كانت هناك رسالة مكتوبة لم تُرسَل بعد. تبديل الحساب يعيد تشغيل الطرفية وسيحذفها، لذا لم يبدّل cmux. بدّل الحساب يدويًا للمتابعة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ hat das Nutzungslimit erreicht, während eine Nachricht in Claudes Eingabefeld getippt war. Ein Kontowechsel startet das Terminal neu und würde sie verwerfen, daher hat cmux nicht gewechselt. Wechsle das Konto manuell, um fortzufahren."
+            "value": "%@ hat das Nutzungslimit erreicht, während eine getippte Nachricht noch nicht gesendet war. Ein Kontowechsel startet das Terminal neu und würde sie verwerfen, daher hat cmux nicht gewechselt. Wechsle das Konto manuell, um fortzufahren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ alcanzó su límite de uso mientras había un mensaje escrito en el cuadro de entrada de Claude. Cambiar de cuenta reinicia el terminal y lo descartaría, así que cmux no cambió. Cambia de cuenta manualmente para continuar."
+            "value": "%@ alcanzó su límite de uso mientras había un mensaje escrito sin enviar. Cambiar de cuenta reinicia el terminal y lo descartaría, así que cmux no cambió. Cambia de cuenta manualmente para continuar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ a atteint sa limite d’utilisation alors qu’un message était saisi dans le champ de Claude. Changer de compte redémarre le terminal et le supprimerait, donc cmux n’a pas changé. Changez de compte manuellement pour continuer."
+            "value": "%@ a atteint sa limite d’utilisation alors qu’un message était saisi mais pas encore envoyé. Changer de compte redémarre le terminal et le supprimerait, donc cmux n’a pas changé. Changez de compte manuellement pour continuer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が使用量の上限に達したとき、Claude の入力欄に入力中のメッセージがありました。アカウントを切り替えるとターミナルが再起動してメッセージが失われるため、cmux は切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
+            "value": "%@ が使用量の上限に達したとき、入力済みで未送信のメッセージがありました。アカウントを切り替えるとターミナルが再起動してメッセージが失われるため、cmux は切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 계정이 사용량 한도에 도달했을 때 Claude 입력란에 입력한 메시지가 있었습니다. 계정을 전환하면 터미널이 다시 시작되어 메시지가 사라지므로 cmux가 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
+            "value": "%@ 계정이 사용량 한도에 도달했을 때 입력했지만 보내지 않은 메시지가 있었습니다. 계정을 전환하면 터미널이 다시 시작되어 메시지가 사라지므로 cmux가 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 达到用量上限时，Claude 的输入框中有已输入的消息。切换账号会重启终端并丢弃该消息，因此 cmux 没有切换。请手动切换账号以继续。"
+            "value": "%@ 达到用量上限时，有一条已输入但尚未发送的消息。切换账号会重启终端并丢弃该消息，因此 cmux 没有切换。请手动切换账号以继续。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 達到用量上限時，Claude 的輸入框中有已輸入的訊息。切換帳號會重新啟動終端機並捨棄該訊息，因此 cmux 沒有切換。請手動切換帳號以繼續。"
+            "value": "%@ 達到用量上限時，有一則已輸入但尚未送出的訊息。切換帳號會重新啟動終端機並捨棄該訊息，因此 cmux 沒有切換。請手動切換帳號以繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja dok je jedna poruka bila upisana, ali ne i poslana. Promjena računa ponovo pokreće terminal i odbacila bi je, pa cmux nije promijenio račun. Promijenite račun ručno da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse, mens en besked var skrevet, men ikke sendt. Et kontoskift genstarter terminalen og ville kassere den, så cmux skiftede ikke. Skift konto manuelt for at fortsætte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo mentre c’era un messaggio scritto ma non inviato. Cambiare account riavvia il terminale e lo eliminerebbe, quindi cmux non ha cambiato account. Cambia account manualmente per continuare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់ ខណៈដែលមានសារមួយបានវាយ ប៉ុន្តែមិនទាន់ផ្ញើ។ ការប្ដូរគណនីនឹងចាប់ផ្ដើមទែមីណាល់ឡើងវិញ ហើយនឹងបោះបង់សារនោះ ដូច្នេះ cmux មិនបានប្ដូរទេ។ សូមប្ដូរគណនីដោយដៃដើម្បីបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen mens en melding var skrevet, men ikke sendt. Et kontobytte starter terminalen på nytt og ville forkaste den, så cmux byttet ikke. Bytt konto manuelt for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia, gdy wpisana wiadomość nie była jeszcze wysłana. Przełączenie konta uruchamia terminal ponownie i usunęłoby ją, więc cmux nie przełączył konta. Przełącz konto ręcznie, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso enquanto havia uma mensagem digitada, mas não enviada. Trocar de conta reinicia o terminal e a descartaria, então o cmux não trocou. Troque de conta manualmente para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования, когда было набрано, но не отправлено сообщение. Смена учётной записи перезапускает терминал и удалила бы его, поэтому cmux не переключился. Переключите учётную запись вручную, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานขณะที่มีข้อความที่พิมพ์ไว้แต่ยังไม่ได้ส่ง การสลับบัญชีจะเริ่มเทอร์มินัลใหม่และทำให้ข้อความนั้นหายไป cmux จึงไม่ได้สลับ สลับบัญชีด้วยตนเองเพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştığında yazılmış ama gönderilmemiş bir mesaj vardı. Hesap değiştirmek terminali yeniden başlatır ve mesajı silerdi, bu yüzden cmux hesap değiştirmedi. Devam etmek için hesabı elle değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання, коли було набране, але не надіслане повідомлення. Перемикання облікового запису перезапускає термінал і видалило б його, тому cmux не перемкнув. Перемкніть обліковий запис вручну, щоб продовжити."
           }
         }
       }

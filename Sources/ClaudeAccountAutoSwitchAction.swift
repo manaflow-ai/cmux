@@ -34,7 +34,8 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
     enum HoldBack: Equatable, Sendable {
         /// The pane received input after the limit: someone is using it.
         case userInput
-        /// Claude's input box holds a typed message, which restarting the pane would discard.
+        /// A typed message waits unsent, in Claude's input box or the pane's text box, and
+        /// restarting the pane would discard it.
         case draftPending
         /// The pane's screen didn't show Claude's empty input box: cmux couldn't read the screen,
         /// couldn't place it, or it showed a dialog. A terminal cmux can't see as idle is not
@@ -48,21 +49,24 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         /// this account again.
         case notRecorded
 
-        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box
-        /// holds a typed message, the pane received input after the limit, or its screen isn't
-        /// Claude's empty prompt. Only that prompt shows the pane is idle, so a screen cmux can't
-        /// read or place fails closed. Checked when the switch is decided and again,
-        /// synchronously, right before the pane restarts.
+        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box or
+        /// the pane's text box holds a typed message, the pane received input after the limit, or
+        /// its screen isn't Claude's empty prompt. Only that prompt shows the pane is idle, so a
+        /// screen cmux can't read or place fails closed. Checked when the switch is decided and
+        /// again, synchronously, right before the pane restarts.
         ///
         /// - Parameters:
         ///   - receivedInputSinceReport: Whether the pane got input since the limit was reported,
         ///     including in the report's own millisecond.
         ///   - screen: The pane's screen as the shared prompt classifier reads it.
+        ///   - textBoxHasDraft: Whether the pane's text box holds an unsent draft. Typing there
+        ///     never reaches the input ledger, and the restart replaces the panel that holds it.
         static func paneInUse(
             receivedInputSinceReport: Bool,
-            screen: AgentAutoResumeCoordinator.ScreenState
+            screen: AgentAutoResumeCoordinator.ScreenState,
+            textBoxHasDraft: Bool
         ) -> HoldBack? {
-            if screen == .draft { return .draftPending }
+            if screen == .draft || textBoxHasDraft { return .draftPending }
             if receivedInputSinceReport { return .userInput }
             return screen == .emptyPrompt ? nil : .promptUnconfirmed
         }
