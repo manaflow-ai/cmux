@@ -13,8 +13,11 @@ public import CmuxNextWakeups
 /// - bounded: one file per visible terminal; a terminal hidden or closed loses its file, and files of terminals this
 ///   run does not show are dropped once the launch read has ended (at most ``TerminalLaunchFrames/maximumFiles``).
 ///
+/// A resize (a split, a window resize) or a file removed while hidden saves again as soon as the terminal is quiet,
+/// with no ``interval``: the launch refuses a frame of another size, so an old one is as good as none.
 /// Worst-case staleness at a kill: ``interval`` + ``busyWait`` + one encode while a terminal keeps changing (6 s and
-/// the encode); after its last change, at most ``interval`` + ``idle`` (``idle`` when its last save is older). The quit path still saves every visible frame fresh (and stops the keeper first).
+/// the encode); after its last change, at most ``interval`` + ``idle`` (``idle`` when its last save is older). The
+/// quit path still saves every visible frame fresh (and stops the keeper first).
 /// It keeps the app's rendered frame for the window's first frame only; the text itself is the daemon's.
 @MainActor
 final class TerminalLaunchFrameKeeper {
@@ -49,6 +52,9 @@ final class TerminalLaunchFrameKeeper {
         var lastSave: ContinuousClock.Instant?
         /// Since when a due save waits for the terminal to go quiet.
         var waitingSince: ContinuousClock.Instant?
+        /// The terminal's size at the last save: a frame of another size is refused at launch, so a resize saves again
+        /// without waiting for ``interval``.
+        var savedSize: CGSize?
         var onDisk = false
     }
 
@@ -99,11 +105,18 @@ final class TerminalLaunchFrameKeeper {
             remove(key)
             return
         }
+        // Laid out at no size for a moment (a split's layout pass): look again, keep the file.
+        guard session.surfaceView.bounds.width > 0, session.surfaceView.bounds.height > 0 else {
+            entry.timer.schedule(after: Self.idle) { @MainActor [weak self] in await self?.check(key) }
+            return
+        }
         let now = ContinuousClock.now
         let generation = entry.changes.generation
         let changedSinceCheck = generation != entry.seen
         entry.seen = generation
-        if let last = entry.lastSave, now - last < Self.interval {
+        // Nothing usable on disk (removed while hidden, or saved at another size): save as soon as it is quiet.
+        let stale = !entry.onDisk || entry.savedSize != session.surfaceView.bounds.size
+        if !stale, let last = entry.lastSave, now - last < Self.interval {
             kept[key] = entry
             entry.timer.schedule(after: Self.interval - (now - last)) { @MainActor [weak self] in await self?.check(key) }
             return
@@ -128,7 +141,7 @@ final class TerminalLaunchFrameKeeper {
 
     /// Writes the session's presented frame under `key` (off the main thread), once its own content has drawn.
     private func save(_ key: String, _ session: TerminalSession?) async {
-        guard let session, Self.isOnScreen(session) else { return }
+        guard let session, Self.isOnScreen(session), session.surfaceView.bounds.width > 0 else { return }
         // Its own content drawn: never a blank surface over the saved frame, nor the held frame of the last quit.
         guard session.surfaceHasContent, !session.frameHold.isHolding else {
             kept[key]?.lastSave = nil
@@ -142,6 +155,7 @@ final class TerminalLaunchFrameKeeper {
         let scale = max(1, min(3, Int((CGFloat(frame.width) / size.width).rounded())))
         let directory = directory, prune = readEnded() ? Set(kept.keys) : nil
         kept[key]?.onDisk = true
+        kept[key]?.savedSize = size
         // Posted, not awaited: nothing waits for it, so it stays at best effort (BackgroundWork, priority inversion).
         let written = onWritten
         work.post(.bestEffort, mayBlock: .files) {
@@ -152,7 +166,7 @@ final class TerminalLaunchFrameKeeper {
 
     private static func isOnScreen(_ session: TerminalSession) -> Bool {
         !session.isRenderingSuspended && session.surfaceView.window?.isVisible == true
-            && !session.surfaceView.isHiddenOrHasHiddenAncestor && session.surfaceView.bounds.width > 0
+            && !session.surfaceView.isHiddenOrHasHiddenAncestor
     }
 
     private func remove(_ key: String) {

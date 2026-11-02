@@ -126,4 +126,25 @@ import Testing
         #expect(keys > 50)
         #expect(extra <= 1, "\(extra) saves for \(keys) changes in 3 s: the keeper saves per change, not once per 5 s")
     }
+
+    /// REOPEN VIDEO on build d77b7cfc (6 of 30 kill cycles): a split resized a terminal after its frame was saved, the
+    /// 5 s interval blocked a new save, and the kill 3-4 s later left a frame of the old size (refused at launch) or
+    /// none. A resize saves again as soon as the terminal is quiet, with no interval.
+    @Test func aResizedTerminalIsSavedAgainWithoutWaitingForTheInterval() async throws {
+        let shown = try await Shown()
+        defer { shown.close() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-resize-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = TerminalLaunchFrames(directory: directory)
+        frames.keep("tab_resized", session: shown.session, work: Self.work)
+        try #require(try await Self.eventually { !Self.files("tab_resized", in: directory).isEmpty }, "the first frame was never kept")
+        let saves = frames.keepSaves
+        // The pane halves (Cmd-D beside it): the terminal gets a new size.
+        var frame = shown.window.frame
+        frame.size.width /= 2
+        shown.window.setFrame(frame, display: true)
+        shown.session.view.layoutSubtreeIfNeeded()
+        let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
+        #expect(resaved, "a resized terminal was not saved again within 3 s: a kill now leaves a frame the launch refuses")
+    }
 }

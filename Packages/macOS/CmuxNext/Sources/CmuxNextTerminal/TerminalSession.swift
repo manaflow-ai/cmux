@@ -191,12 +191,13 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, frameChanges] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
                 case .resize(let grid, let width, let height):
+                    frameChanges.bump() // a new size: its kept frame is saved again (TerminalLaunchFrameKeeper)
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
