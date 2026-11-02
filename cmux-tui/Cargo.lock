@@ -1940,6 +1940,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-updater-core"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+]
+
+[[package]]
 name = "cmux-vm"
 version = "0.1.0"
 dependencies = [

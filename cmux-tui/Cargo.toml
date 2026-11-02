@@ -97,6 +97,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
+    "crates/cmux-updater-core",
 ]
 default-members = [
     "crates/acpmux",
@@ -167,6 +168,7 @@ default-members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
+    "crates/cmux-updater-core",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
