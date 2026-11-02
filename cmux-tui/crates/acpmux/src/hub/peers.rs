@@ -1200,21 +1200,11 @@ impl Hub {
     }
 
     /// The index-backed projection for lookups that usually target an active chat. A miss falls
-    /// back to [`Self::all_session_summaries_including_closed`] in `locate` so closed history is
+    /// back to the closed rows in `locate` (`located_summaries`) so closed history is
     /// still discoverable by an explicit request.
     pub(crate) fn live_session_summaries(&self) -> Vec<Value> {
         let mut v = Vec::new();
         self.visit_live_session_summaries(true, |row| v.push(row));
-        super::session_pages::sort_session_summaries(&mut v);
-        v
-    }
-
-    /// The complete list used only after an explicit lookup misses the live index. It preserves
-    /// history access without making closed records part of repeated list/locate scans.
-    pub(super) fn all_session_summaries_including_closed(&self) -> Vec<Value> {
-        let mut v: Vec<Value> =
-            self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect();
-        v.extend(self.remote_sessions());
         super::session_pages::sort_session_summaries(&mut v);
         v
     }

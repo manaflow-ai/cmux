@@ -69,6 +69,7 @@ impl RemoteRows {
         Some(row)
     }
 
+    #[cfg(test)]
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&String, &RemoteSession) -> bool) {
         let gone: Vec<String> =
             self.rows.iter().filter(|(k, r)| !keep(k, r)).map(|(k, _)| k.clone()).collect();

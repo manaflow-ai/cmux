@@ -110,7 +110,7 @@ fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
 /// One full list: what each `_acpmux/resolve` built before, and its fallbacks again.
 fn full_list_cost(hub: &Hub) -> Duration {
     let started = Instant::now();
-    std::hint::black_box(hub.all_session_summaries_including_closed());
+    std::hint::black_box(hub.all_session_summaries());
     started.elapsed()
 }
 
