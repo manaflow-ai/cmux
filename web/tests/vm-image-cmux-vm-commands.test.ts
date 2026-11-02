@@ -91,6 +91,7 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=30");
     expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
     expect(payload).toBeDefined();
