@@ -150,6 +150,42 @@ struct TranscriptTailReaderTests {
         #expect(await tailer.didAbandonInitialLoad == false)
     }
 
+    @Test("a backlog larger than the batch size arrives in several batches with contiguous seqs")
+    func longBacklogPublishesInBatches() async throws {
+        let url = try makeFile("")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (batches, continuation) = AsyncStream.makeStream(of: AgentChatTranscriptTailer.Batch.self)
+        let tailer = AgentChatTranscriptTailer(
+            sessionID: "session",
+            agentKind: .codex,
+            path: url.path,
+            maxInitialBytes: 1024 * 1024,
+            maxRecordBytes: 1024 * 1024
+        ) { batch in
+            continuation.yield(batch)
+        }
+        await tailer.start()
+
+        let text = String(repeating: "z", count: 16 * 1024)
+        let line = #"{"timestamp":"2026-06-11T21:38:05.381Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"\#(text)"}]}}"#
+        let lineCount = 256
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.write(contentsOf: Data(String(repeating: line + "\n", count: lineCount).utf8))
+        try handle.close()
+
+        var seqs: [Int] = []
+        var batchCount = 0
+        for await batch in batches {
+            seqs.append(contentsOf: batch.appended.map(\.seq))
+            batchCount += 1
+            if seqs.last == lineCount - 1 { break }
+        }
+        await tailer.stop()
+        continuation.finish()
+        #expect(seqs == Array(0..<lineCount))
+        #expect(batchCount > 1)
+    }
+
     @Test("an oversized record appended live keeps its seq and its row")
     func oversizedAppend() async throws {
         let url = try makeFile("")
@@ -183,6 +219,82 @@ struct TranscriptTailReaderTests {
         } else {
             Issue.record("expected an oversized row")
         }
+    }
+}
+
+@Suite("Agent chat artifact index builds", .timeLimit(.minutes(2)))
+struct AgentChatArtifactIndexBuildTests {
+    private func makeFile(sparseBytes: UInt64 = 0, contents: String = "") throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("artifact-index-\(UUID().uuidString).jsonl")
+        try Data(contents.utf8).write(to: url)
+        if sparseBytes > 0 {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.truncate(atOffset: sparseBytes)
+            try handle.close()
+        }
+        return url
+    }
+
+    @Test("concurrent misses for one session share one build")
+    func concurrentMissesShareOneBuild() async throws {
+        let url = try makeFile(sparseBytes: 2 * 1024 * 1024 * 1024)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let index = AgentChatArtifactIndex()
+        let path = url.path
+        await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    _ = try await index.snapshot(
+                        sessionID: "session",
+                        agentKind: .codex,
+                        transcriptPath: path,
+                        workingDirectory: nil
+                    )
+                }
+            }
+            while let result = await group.nextResult() {
+                #expect(throws: Never.self) { try result.get() }
+            }
+        }
+        #expect(await index.startedBuildCount == 1)
+    }
+
+    @Test("an unchanged transcript answers from the cache")
+    func unchangedTranscriptUsesCache() async throws {
+        let url = try makeFile(contents: "{}\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let index = AgentChatArtifactIndex()
+        for _ in 0..<2 {
+            _ = try await index.snapshot(
+                sessionID: "session",
+                agentKind: .codex,
+                transcriptPath: url.path,
+                workingDirectory: nil
+            )
+        }
+        #expect(await index.startedBuildCount == 1)
+    }
+
+    @Test("one cancelled request doesn't fail another waiting on the same build")
+    func cancelledWaiterLeavesOthers() async throws {
+        let url = try makeFile(sparseBytes: 8 * 1024 * 1024 * 1024)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let index = AgentChatArtifactIndex()
+        let path = url.path
+        let request: @Sendable () async throws -> AgentChatArtifactIndex.Snapshot = {
+            try await index.snapshot(
+                sessionID: "session",
+                agentKind: .codex,
+                transcriptPath: path,
+                workingDirectory: nil
+            )
+        }
+        let kept = Task { try await request() }
+        let cancelled = Task { try await request() }
+        cancelled.cancel()
+        _ = try await kept.value
+        _ = try? await cancelled.value
     }
 }
 
