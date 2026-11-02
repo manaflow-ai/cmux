@@ -290,6 +290,7 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
+}
 
 /// Review of #32326: a progress publish that drops the session lock early
 /// must keep the registry connection pinned until its commit, or the
