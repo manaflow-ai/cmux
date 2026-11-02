@@ -194,9 +194,7 @@ impl Hub {
         // Never substitute default retries for a config currently being changed. Wait for
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {
-            Ok(config) => {
-                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-            }
+            Ok(config) => settings::read(config.auto_resume_delays_ms.as_ref()),
             Err(_) => {
                 let (hub, session) = (self.clone(), session.clone());
                 tokio::spawn(async move {
@@ -340,7 +338,8 @@ impl Hub {
         tokio::spawn(async move {
             // As with a restored queued prompt, wait for login environment and catalog.
             hub.wait_startup().await;
-            if hub.config.read().await.auto_resume_delays_ms.as_ref().is_some_and(Vec::is_empty) {
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            if settings::read(configured.as_ref()).is_empty() {
                 if hub.take_pending(&session, &turn_id) {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }

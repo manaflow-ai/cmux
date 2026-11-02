@@ -18,8 +18,8 @@ async fn app_retry_settings_control_delay_success_cancel_and_disabled() {
     daemon.env.push(("CMUX_NEXT_CONFIG_FILE".into(), settings.display().to_string()));
     daemon.start();
 
-    for mode in ["success", "cancel", "disabled"] {
-        if mode == "cancel" {
+    for mode in ["success", "cancel", "disabled", "restart-disabled"] {
+        if mode == "cancel" || mode == "restart-disabled" {
             // Leave enough time to cancel even on a loaded fleet runner.
             configure(true, 30);
         } else if mode == "disabled" {
@@ -51,7 +51,22 @@ async fn app_retry_settings_control_delay_success_cancel_and_disabled() {
                 "configured seconds plus existing stagger must set the timer: {scheduled}"
             );
             assert_eq!(scheduled["msg"]["of"], 4, "default attempt count is unchanged");
-            if mode == "cancel" {
+            if mode == "restart-disabled" {
+                daemon.sigkill();
+                drop(rpc);
+                configure(false, 30);
+                daemon.start();
+                rpc = daemon.rpc().await;
+                // Attaching loads the session and its persisted retry journal after restart.
+                rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+                daemon.wait_event(&session, "disabled persisted retry decision", |e| {
+                    e["kind"] == "auto_resume_settled" && e["msg"]["why"] == "off"
+                });
+                assert!(
+                    !daemon.events(&session).iter().any(|e| e["kind"] == "auto_resume_restored"),
+                    "disabled retry must not restore its pending attempt"
+                );
+            } else if mode == "cancel" {
                 rpc.call("session/cancel", json!({"sessionId": session})).await;
                 daemon.wait_event(&session, "cancelled retry decision", |e| {
                     e["kind"] == "auto_resume_settled" && e["msg"]["why"] == "stopped"

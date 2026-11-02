@@ -31,7 +31,9 @@
 //! happen gives it back to the queue here. #5846 item 1: a chat moves between a laptop and a
 //! Cloud machine mid-turn and keeps working.
 
-use super::{DEFAULT_DELAYS_MS, SUFFIX, split_attempt};
+#[cfg(test)]
+use super::DEFAULT_DELAYS_MS;
+use super::{SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use cmux_json::JsonSet as _;
@@ -465,9 +467,8 @@ impl Hub {
     ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
-        let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            super::settings::read(c.auto_resume_delays_ms.as_ref()).len()
-        });
+        let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+        let attempts = super::settings::read(configured.as_ref()).len();
         if attempts == 0 {
             return None;
         }

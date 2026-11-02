@@ -42,15 +42,14 @@ fn resolve(configured: Option<&Vec<u64>>, doc: Option<&Value>) -> Vec<u64> {
     }
     let range = &row(INTERVAL)["range"];
     let seconds = value(INTERVAL)
-        .and_then(|v| v.as_u64())
-        .filter(|n| {
-            *n >= range["min"].as_u64().unwrap_or(0) && *n <= range["max"].as_u64().unwrap_or(0)
-        })
-        .or_else(|| row(INTERVAL)["default"].as_u64())
-        .unwrap_or(0);
+        .and_then(|v| v.as_f64())
+        .filter(|n| n.is_finite())
+        .or_else(|| row(INTERVAL)["default"].as_f64())
+        .unwrap_or(0.0)
+        .clamp(range["min"].as_f64().unwrap_or(0.0), range["max"].as_f64().unwrap_or(0.0));
     let mut delays = configured.cloned().unwrap_or_else(|| super::DEFAULT_DELAYS_MS.to_vec());
-    if seconds > 0 {
-        delays.fill(seconds * 1000);
+    if seconds > 0.0 {
+        delays.fill((seconds * 1000.0).round() as u64);
     }
     delays
 }
@@ -88,9 +87,22 @@ mod tests {
     }
 
     #[test]
+    fn retry_settings_numbers_match_the_settings_ui() {
+        for (seconds, millis) in [(3.0, 3000), (1.5, 1500), (3601.0, 3_600_000)] {
+            assert_eq!(
+                resolve(
+                    Some(&vec![10_000]),
+                    Some(&json!({"agents.retry.intervalSeconds":seconds}))
+                ),
+                vec![millis]
+            );
+        }
+    }
+
+    #[test]
     fn retry_settings_invalid_interval_retains_previous_schedule() {
         let configured = vec![10_000, 40_000];
-        for value in [json!(-1), json!(3601), json!("20"), json!(1.5), json!(null)] {
+        for value in [json!(-1), json!("20"), json!(null)] {
             assert_eq!(
                 resolve(Some(&configured), Some(&json!({"agents.retry.intervalSeconds":value}))),
                 configured
