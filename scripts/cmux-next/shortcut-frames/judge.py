@@ -357,6 +357,14 @@ def movie_display_ns(path: str) -> list[int]:
     return [int(float(r["display_ns"])) for r in read_rows(path)]
 
 
+def in_window(window: list, key_ns: int, s: Settings) -> list:
+    """Frames from --pre-ms before the key to --post-ms after it, plus the newest frame before that span (on a still
+    screen it is what the screen showed at the key)."""
+    lo, hi = key_ns - s.pre_ms * 1e6, key_ns + s.post_ms * 1e6
+    older = [f for f in window if f[0] < lo]
+    return older[-1:] + [f for f in window if lo <= f[0] <= hi]
+
+
 def run(args: argparse.Namespace, s: Settings) -> dict:
     crop = tuple(int(v) for v in args.crop.split(",")) if args.crop else None
     keys = [r for r in read_rows(args.hid) if r.get("phase", "down") == "down" and r.get("label")]
@@ -373,15 +381,18 @@ def run(args: argparse.Namespace, s: Settings) -> dict:
         all_times.append(t)
         window.append((t, pts, rgb))
         lo = (pending[k][0] if k < len(pending) else t) - s.pre_ms * 1e6
-        window = [f for f in window if f[0] >= lo or f is window[-1]]
+        # Keep the newest frame before the window too: ScreenCaptureKit gives no frame while nothing changes, so on a
+        # still screen the last frame before the key may be seconds old and is still what the screen shows.
+        older = [f for f in window if f[0] < lo]
+        window = older[-1:] + [f for f in window if f[0] >= lo]
         while k < len(pending) and t > pending[k][0] + s.post_ms * 1e6:
             key_ns, label = pending[k]
-            frames = [f for f in window if key_ns - s.pre_ms * 1e6 <= f[0] <= key_ns + s.post_ms * 1e6]
+            frames = in_window(window, key_ns, s)
             rows.append(judge_press(key_ns, label, frames, s, Vsync(all_times[-2000:], s.refresh_hz), crop or (0, 0)))
             k += 1
     while k < len(pending):
         key_ns, label = pending[k]
-        frames = [f for f in window if key_ns - s.pre_ms * 1e6 <= f[0] <= key_ns + s.post_ms * 1e6]
+        frames = in_window(window, key_ns, s)
         rows.append(judge_press(key_ns, label, frames, s, Vsync(all_times[-2000:], s.refresh_hz), crop or (0, 0)))
         k += 1
     return {"video": args.video, "refresh_hz": s.refresh_hz, "presses": rows, "summary": summarize(rows)}

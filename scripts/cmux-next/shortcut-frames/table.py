@@ -39,6 +39,7 @@ def main() -> int:
     p.add_argument("--cases", required=True)
     p.add_argument("--judged")
     p.add_argument("--out", required=True)
+    p.add_argument("--notes", help="a Markdown file put after the measured cases (findings, recorder caveats)")
     a = p.parse_args()
     listing = json.load(open(a.list, encoding="utf-8"))
     summary = listing["summary"]
@@ -66,6 +67,8 @@ def main() -> int:
                      f"{row['refreshes_p95']} / {row['refreshes_max']} | {defects} | {videos.get(case, '')} |")
     if not judged:
         lines.append("| | | no case judged yet | | | | |")
+    if a.notes and os.path.exists(a.notes):
+        lines += ["", open(a.notes, encoding="utf-8").read().rstrip()]
     lines += ["", "## Not run yet", "", "| P | Stroke | Action | Effect | Context |", "|---|---|---|---|---|"]
     for r in listing["rows"]:
         if f"{r['action']}[{r['stroke']}]" not in ran:

@@ -5,12 +5,10 @@
 
 Each `hid_key` step (the HARNESS kit's real key through CuaDriver) is titled "the measured press STROKE (LABEL)",
 where LABEL is "<action>[<stroke>]/<condition>/<n>". The next `debug.action_budget` read after it holds the run of
-the pressed action: the first unused run with that action id, entrypoint `key`, and a key-down time between the
-step's `sent` and `returned` host times (10 ms slack). Key-down = start_uptime_ns - input_age_ms * 1e6: the HID
+the pressed action: the first unused run (by sequence) with that action id and entrypoint `key` (the kit's `sent` and
+`returned` are journey-relative driver times, so they cannot place the run). Key-down = start_uptime_ns - input_age_ms * 1e6: the HID
 event's own NSEvent.timestamp on CLOCK_UPTIME_RAW, the clock of the recorder's frames.json `t` (STATUS 4300).
 A press with no such run (the key ran nothing, or ran another action) is written with "missing" and no time.
-Each row also keeps `sent` (the kit's time just before CuaDriver posted the key): key-down - sent is the input
-path's own delay, not the app's.
 """
 from __future__ import annotations
 
@@ -36,8 +34,6 @@ def presses(result: dict) -> list[dict]:
         res = step.get("result") or {}
         sent = res.get("sent")
         returned = res.get("returned")
-        lo = int(float(sent) * 1e9) - SLACK_NS if sent is not None else None
-        hi = int(float(returned) * 1e9) + SLACK_NS if returned is not None else None
         run, t_ns = None, None
         for later in steps[i + 1:]:
             if later.get("do") in ("hid_key", "real_key"):
@@ -50,7 +46,9 @@ def presses(result: dict) -> list[dict]:
                 if float(r.get("input_age_ms", -1)) < 0:
                     continue
                 down = int(float(r["start_uptime_ns"]) - float(r["input_age_ms"]) * 1e6)
-                if (lo is None or down >= lo) and (hi is None or down <= hi):
+                # The kit's `sent`/`returned` are journey-relative (driver now()), not host time: the press's run is
+                # the first unused key run of the action after the press, in sequence order.
+                if True:
                     run, t_ns = r, down
                     used.add(seq)
                     break
@@ -60,8 +58,6 @@ def presses(result: dict) -> list[dict]:
         if run:
             row["t_ns"] = t_ns
             row["run"] = {k: run.get(k) for k in ("sequence", "id", "commit_ms", "input_age_ms", "outcome")}
-            if sent is not None:
-                row["input_path_ms"] = round((t_ns - float(sent) * 1e9) / 1e6, 3)
         else:
             row["missing"] = f"no key run of {action} with its key-down between the press's sent and returned times"
         rows.append(row)
