@@ -7,7 +7,7 @@ struct SessionInfoInk {
     let colors: AgentPaneSessionInfoColors
     let act: (String, CGRect?) -> Void
     let rect: (NSView) -> CGRect?
-    let move: (String, NSView, NSPoint) -> Void = { _, _, _ in }
+    let move: (String, NSView, NSPoint) -> Void
     let flush: () -> Void
 
     init(colors: AgentPaneSessionInfoColors, act: @escaping (String, CGRect?) -> Void, rect: @escaping (NSView) -> CGRect?, move: @escaping (String, NSView, NSPoint) -> Void = { _, _, _ in }, flush: @escaping () -> Void = {}) {
