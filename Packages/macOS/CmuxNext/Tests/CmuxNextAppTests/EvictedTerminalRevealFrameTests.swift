@@ -57,6 +57,8 @@ import Testing
         session.view.removeFromSuperview()
         session.close()
         #expect(frames["tab"] != nil, "the warm set kept no last frame of an evicted one-line terminal: \(frames.report)")
+        // The hover card rule stands: a one-line screen's kept frame is not pictured (Leo 2026-10-13).
+        #expect(frames.preview("tab") == nil, "the kept frame of a one-line screen must not be a hover picture")
 
         // Shown again: a new session in the pane shows the last frame until its replay draws.
         let fresh = TerminalSession(io: freshIO)

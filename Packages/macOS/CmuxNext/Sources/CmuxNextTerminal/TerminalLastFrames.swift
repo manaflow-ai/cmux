@@ -17,6 +17,10 @@ public struct TerminalLastFrames {
 
     public subscript(key: String) -> TerminalLastFrame? { frames[key] }
 
+    /// `key`'s frame for a hover card or drag thumbnail: only one whose terminal had output (a new
+    /// shell's prompt has no picture, Leo 2026-10-13); every kept frame still shows at the reveal.
+    public func preview(_ key: String) -> TerminalLastFrame? { frames[key].flatMap { $0.showsOutput ? $0 : nil } }
+
     /// Keeps `frame` for `key`; returns the frames the bound dropped.
     mutating func insert(_ frame: TerminalLastFrame, for key: String, capacity: Int) -> [(key: String, frame: TerminalLastFrame)] {
         _ = remove(key)
@@ -44,12 +48,14 @@ public struct TerminalLastFrames {
     public mutating func note(_ outcome: String) { outcomes[outcome, default: 0] += 1 }
 
     /// The warm set evicts `session` (`key`), still in its window: keeps its frame, unless the
-    /// eviction is a pressure drop (`atOnce`) or the terminal shows no output yet.
+    /// eviction is a pressure drop (`atOnce`). Whatever the screen holds: the frame is what the pane
+    /// shows when a switch shows it again (SWITCH FRAMES SF-2: a one-line screen kept no frame, so the
+    /// switch frame showed an empty pane). Whether it is worth a hover picture is the frame's own
+    /// ``TerminalLastFrame/showsOutput``.
     public mutating func evict(_ session: TerminalSession, key: String, capacity: Int, atOnce: Bool) {
         remove(key)
         guard !atOnce, capacity > 0 else { return note("evicted_at_once") }
-        guard session.showsOutput else { return note("evicted_no_output") }
-        guard let frame = TerminalLastFrame(of: session) else { return note("evicted_no_frame") }
+        guard let frame = TerminalLastFrame(of: session, showsOutput: session.showsOutput) else { return note("evicted_no_frame") }
         note("kept")
         for _ in insert(frame, for: key, capacity: capacity) { note("dropped") }
     }
