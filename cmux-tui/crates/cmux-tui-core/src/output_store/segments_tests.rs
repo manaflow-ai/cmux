@@ -399,3 +399,36 @@ fn a_failing_write_keeps_at_most_the_unwritten_bound_and_a_read_reports_the_gap(
     assert_eq!(window.bytes.as_slice(), &bytes[extra..]);
     fs::remove_dir_all(&directory).unwrap();
 }
+
+/// A flood's flush writes frames no larger than the wake threshold and
+/// leaves the rest dirty for an immediate next pass, so a frame never grows
+/// past what a reader accepts and a flood never waits out the flush
+/// interval in RAM (review of #31643 at 77a38ad8a31: with the wake only on
+/// the threshold crossing, pending above it after a pass waited 3 s and
+/// grew into frames past MAX_FRAME_RAW_BYTES).
+#[test]
+fn a_flood_flush_writes_bounded_frames_and_asks_for_the_next_pass_at_once() {
+    let directory = store_directory("flood");
+    let threshold = super::super::FULL_PENDING_WAKE_BYTES;
+    let bytes = vec![b'x'; threshold * 2 + 1024];
+    let log = pending_log(&bytes);
+    let policy = PersistencePolicy::resolve(Some("full"), None, None);
+    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    let (pending, dirty) = {
+        let state = log.state.lock().unwrap();
+        (state.pending.len(), state.dirty)
+    };
+    let file = only_file(&directory);
+    let (frames, _) = frame_headers(&file).unwrap();
+    fs::remove_dir_all(&directory).unwrap();
+    assert!(
+        frames.iter().all(|frame| u64::from(frame.raw) <= threshold as u64),
+        "a frame of {:?} raw bytes is over the {threshold} threshold",
+        frames.iter().map(|frame| frame.raw).collect::<Vec<_>>()
+    );
+    assert!(
+        pending >= threshold,
+        "{pending} bytes left: the flush wrote more than one frame's worth"
+    );
+    assert!(dirty, "the bytes left wait for a pass without being marked dirty");
+}

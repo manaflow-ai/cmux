@@ -358,3 +358,51 @@ fn kill_all_heavy_load_disk_writes_per_pane() {
         })
     );
 }
+
+/// The tail file of `harness`'s only terminal: its size, 0 when absent.
+fn tail_file_bytes(harness: &RecoveryHarness) -> u64 {
+    walk_files(&harness.state)
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "tail"))
+        .filter_map(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .sum()
+}
+
+/// A screen that cannot be replayed (an unterminated Kitty upload larger
+/// than the snapshot's replay budget) must not stop the tail: when the
+/// tail asks for its compaction and the snapshot fails, its bytes still go
+/// to the tail (review of #31643 at 77a38ad8a31: the pass skipped the tail
+/// and kept every later byte in memory, unbounded).
+#[test]
+fn an_unreplayable_screen_does_not_stop_the_tail() {
+    let _exclusive = exclusive_process_test();
+    let harness = production_harness("unreplayable-tail");
+    let home = harness.dir.clone();
+    let (_terminal_id, _incarnation, surface) = start_shell_in(&harness, "unreplayable", &home);
+    send_line(&harness.socket, surface, "printf 'before-upload\\n'");
+    wait_for_screen(&harness.socket, surface, "before-upload\n");
+    std::thread::sleep(Duration::from_secs(1));
+    // An upload that never ends: every later byte is inside it, and the
+    // replay cannot hold it. Over 1 MiB: the tail asks for its snapshot.
+    send_line(
+        &harness.socket,
+        surface,
+        "printf '\\033_Ga=t,f=100,m=1;'; head -c 1500000 /dev/urandom | base64 | tr -d '\\n'",
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    let before = tail_file_bytes(&harness);
+    send_line(&harness.socket, surface, "head -c 1500000 /dev/urandom | base64 | tr -d '\\n'");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let now = tail_file_bytes(&harness);
+        if now > before + 1_000_000 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the tail stopped at {before} bytes ({now} now) once its snapshot could not be taken"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
