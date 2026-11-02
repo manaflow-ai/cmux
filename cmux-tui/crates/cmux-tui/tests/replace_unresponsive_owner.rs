@@ -238,6 +238,9 @@ fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later()
     let again = fixture.server("ensure", &[]);
     assert_eq!(again["status"], "running", "{again}");
     assert_eq!(pid_of(&again), pid_of(&first), "{again}");
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
+    assert!(alive, "status refused a healthy owner: {status}");
 }
 
 #[test]
@@ -308,8 +311,13 @@ fn ensure_replaces_an_owner_whose_registry_lock_is_wedged() {
     let identity = Fixture::request(&mut BufReader::new(stream), "identify");
     assert_eq!(pid_of(&identity), old, "{identity}");
 
-    // Past the (shortened) wedge bound, a plain ensure replaces it.
+    // Past the (shortened) wedge bound, `server status` (the app's first
+    // probe) reports it not running, and a plain ensure replaces it.
     std::thread::sleep(Duration::from_millis(500));
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "200")]);
+    assert!(!alive, "status called the wedged owner running: {status}");
+    assert_eq!(status["code"], "server.wedged", "{status}");
     let (ensured, replaced) =
         fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "200")]);
     assert!(ensured, "ensure failed: {replaced}");
@@ -327,8 +335,11 @@ fn ensure_keeps_an_owner_whose_registry_lock_is_free() {
     let first = fixture.server("ensure", &[]);
     std::thread::sleep(Duration::from_millis(100));
     let (ensured, again) =
-        fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "0")]);
+        fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
     assert!(ensured, "ensure failed: {again}");
     assert_eq!(again["status"], "running", "{again}");
     assert_eq!(pid_of(&again), pid_of(&first), "{again}");
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
+    assert!(alive, "status refused a healthy owner: {status}");
 }
