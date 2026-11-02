@@ -66,9 +66,9 @@ def tab_sessions(ws_key):
     ws = t.mac_workspace(key=ws_key)
     out = {}
     for _, tab in t.ws_tabs(ws):
-        sess = (tab.get("agent_session") or {}).get("session") or tab.get("session")
-        if tab.get("kind") in ("conversation", "agent") or sess:
-            out[tab.get("title") or tab.get("surface")] = sess
+        sess = ((tab.get("conversation") or {}).get("agent_session") or {}).get("session")
+        if sess:
+            out[f"{tab.get('surface')}: {tab.get('title')}"] = sess
     return out
 
 
@@ -79,7 +79,14 @@ def labels(j):
 
 
 def composer(j):
-    f = j.sim.wait(kind="TextArea", timeout=10)
+    f = j.sim.wait(kind="TextArea", timeout=4)
+    if not f:
+        # A chat with turns shows the composer collapsed ("Reply to <agent>"): a tap opens it.
+        cap = [e for e in j.sim.find(kind="Button") if (e.label or "").startswith(("Reply to", "Ask "))]
+        check(cap, f"no chat composer: {labels(j)[:20]}")
+        j.sim.tap_el(cap[0])
+        time.sleep(1)
+        f = j.sim.wait(kind="TextArea", timeout=8)
     check(f, "no chat composer")
     return f
 
@@ -163,7 +170,7 @@ def chat_seed(j, key="crows_chat", turns=("ONE", "TWO", "THREE")):
 def open_chat(j, st):
     """The seeded chat's page in its workspace."""
     t.open_ws(j, st["name"])
-    if j.sim.find(kind="TextArea"):
+    if j.sim.find(kind="TextArea") or [e for e in j.sim.find(kind="Button") if (e.label or "").startswith("Reply to")]:
         return
     pq.open_grid(j)
     cards = [e for e in j.sim.find(suffix=", tab") if not (e.label or "").startswith("p2tabs-t")]
@@ -207,8 +214,10 @@ def slash(j, label):
     time.sleep(2)
     out["status_fields"] = [e.label for e in j.sim.find(ident="chat.status.*")]
     pq.shot("slash-after-status")
-    info = r.acpmux("_acpmux/info", {"sessionId": st["session"]})
-    out["mac_info"] = {"sessionId": info.get("sessionId"), "cwd": info.get("cwd"), "model": info.get("model")}
+    shown = next((f.split(", ", 1)[1] for f in out["status_fields"] if f.startswith("Session, ")), None)
+    info = r.acpmux("_acpmux/info", {"sessionId": shown or st["session"]})
+    out["mac_info"] = {"sessionId": info.get("sessionId"), "cwd": info.get("cwd"), "model": info.get("model"),
+                       "effort": info.get("effort")}
     j.sim.tap_el(j.sim.wait(label="Done", kind="Button", timeout=5))
     time.sleep(1)
     # /fork
@@ -241,7 +250,7 @@ def edit(j, label):
     a copy of the chat through the first turn (acpmux `acp.session.fork {throughSeq}`) opens
     in a new tab and runs the edited prompt; the Mac's new session holds the first prompt and
     the edited one, the original chat is unchanged."""
-    st = chat_seed(j)
+    st = chat_seed(j, key="crows_edit")
     open_chat(j, st)
     original = prompts(st["session"])
     out = {"original_prompts": [p["text"] for p in original]}
@@ -296,20 +305,20 @@ def queue(j, label):
     open_chat(j, st)
     sid = st["session"]
     last = max([e.get("seq", 0) for e in events(sid)] or [0])
-    type_in_composer(j, "Count from 1 to 400, one number per line, then reply DONE.")
+    type_in_composer(j, "Write a detailed 2500-word story about a lighthouse keeper, then reply DONE.")
     send(j)
     time.sleep(4)
     type_in_composer(j, "Reply with exactly the word QUEUED and nothing else.")
     send(j)
     time.sleep(2)
-    # The Mac ends the turn's agent (rig setup): the turn fails and acpmux holds the queue.
-    pids = pq.rsh(f"pgrep -f 'claude.*{sid}' || true").stdout.split()
-    if not pids:
-        info = r.acpmux("_acpmux/info", {"sessionId": sid})
-        pid = (info.get("state") or {}).get("pid") or info.get("pid")
-        pids = [str(pid)] if pid else []
-    out = {"killed": pids}
-    r.acpmux("_acpmux/kill", {"sessionId": sid})
+    # The turn's agent process dies on the Mac (rig setup: SIGKILL of the chat's Claude Code, by
+    # its own session id): the turn fails and acpmux holds the prompts behind it.
+    agent = (session(sid) or {}).get("agentSessionId")
+    check(agent, "no agent session id")
+    pids = pq.rsh(f"pgrep -f {shlex.quote(agent)} || true").stdout.split()
+    out = {"agent_pids": pids}
+    check(pids, "the chat's agent process is not running")
+    pq.rsh("kill -9 " + " ".join(pids))
 
     def paused():
         rows = events(sid, {"queue_paused", "queue_resumed", "turn_result"}, after=last)
@@ -337,86 +346,101 @@ def queue(j, label):
 
 
 def video(j, label):
-    """+ > Photos: the picker. After: a video (added to the simulator's library) is picked; the
-    prompt reaches acpmux with the video's link, its frames note and its frames (image names)."""
-    st = chat_seed(j)
+    """+ > Photos: the picker. Before: images only (the simulator's library holds a video, rig
+    setup, which it does not list). After: the video is picked; the prompt reaches acpmux with
+    the video's link, its frames note and its frames (image names)."""
+    st = chat_seed(j, key="crows_media", turns=("ONE",))
     udid = pq.load()["udid"]
     clip = os.path.expanduser("~/cmux-next-ios-e2e/crows/clip.mp4")
-    if not os.path.exists(clip):
-        subprocess.run(["/opt/homebrew/bin/ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=6:size=640x360:rate=30",
-                        "-pix_fmt", "yuv420p", clip], capture_output=True, check=True)
-    subprocess.run(["xcrun", "simctl", "addmedia", udid, clip], capture_output=True)
+    if not pq.load().get("clip_added"):
+        subprocess.run(["xcrun", "simctl", "addmedia", udid, clip], capture_output=True)
+        full = pq.load()
+        full["clip_added"] = True
+        pq.save(full)
     open_chat(j, st)
-    j.sim.tap_el(j.sim.wait(label="Add", timeout=8))
+    j.sim.tap_el(j.sim.wait(label="Add", kind="PopUpButton", timeout=8))
     time.sleep(1.2)
     r.tap(j, "Photos")
-    time.sleep(4)
-    out = {"picker": [e.label for e in j.sim.find() if e.label][:40]}
+    time.sleep(5)
     pq.shot(f"video-{label}-picker")
-    vids = [e for e in j.sim.find() if (e.label or "").startswith("Video")]
-    out["videos_listed"] = len(vids)
+    # A video's cell shows its length (0:NN) over the thumbnail.
+    lengths = [h for h in j.sim.ocr() if h[4].strip().startswith("0:") and len(h[4].strip()) <= 5]
+    out = {"video_cells": [h[4] for h in lengths]}
     if label == "before":
-        cancel = j.sim.wait(label="Cancel", timeout=3) or j.sim.wait(label="Close", timeout=2)
-        if cancel:
-            j.sim.tap_el(cancel)
+        ocr_tap(j, "Cancel", timeout=3) if j.sim.ocr_find("Cancel") else j.sim.tap(363, 110)
         return out
-    check(vids, "no video in the picker")
-    j.sim.tap_el(vids[0])
+    check(lengths, "no video in the picker")
+    x, y, w, h, _ = lengths[0]
+    j.sim.tap(x - 20, y - 30)
     time.sleep(1)
-    add = j.sim.wait(label="Add", kind="Button", timeout=5)
-    if add and add.frame[1] < 140:
-        j.sim.tap_el(add)
+    if j.sim.ocr_find("Add", timeout=2):
+        ocr_tap(j, "Add")
     time.sleep(6)
     pq.shot("video-after-attached")
     out["chip"] = [e.label for e in j.sim.find(ident="attachment.thumb")]
     last = max([e.get("seq", 0) for e in events(st["session"])] or [0])
-    type_in_composer(j, "What is in this video? Answer in one short sentence.")
+    type_in_composer(j, "What app is shown in this video? Answer in one short sentence.")
     send(j)
 
     def sent():
         rows = [e for e in events(st["session"], {"user_message"}, after=last)]
         return rows[-1]["msg"] if rows else None
-    msg, took = t.until(sent, timeout=180, what="the video prompt on the Mac")
-    out["mac_prompt"] = {"text": msg.get("text"), "images": [i.get("name") for i in msg.get("images") or []]}
+    msg, took = t.until(sent, timeout=240, what="the video prompt on the Mac")
+    out["mac_parts"] = [{k: p.get(k) for k in ("kind", "name", "text", "mimeType", "size") if p.get(k) is not None}
+                        for p in msg.get("inlineParts") or []]
+    out["mac_images"] = [i.get("name") for i in msg.get("images") or []]
     out["sent_s"] = round(took, 1)
-    time.sleep(8)
+    time.sleep(15)
     pq.shot("video-after-sent")
+    out["bubble"] = [e.label for e in j.sim.find(kind="StaticText") if e.label][-6:]
     return out
 
 
+def ocr_tap(j, needle, timeout=8.0, below=0):
+    """Taps text in an out-of-process screen (the system's Files or Photos picker, whose
+    views are not in the app's accessibility tree), read with Vision."""
+    hits = [h for h in j.sim.ocr_find(needle, timeout=timeout) if h[1] >= below]
+    check(hits, f"no {needle!r} on screen")
+    x, y, w, h, _ = hits[0]
+    j.sim.tap(x + w / 2, y + h / 2)
+    time.sleep(1.5)
+
+
 def pdf(j, label):
-    """A PDF on the phone (put in the app's Files folder, rig setup) attached from Files. After: the
-    prompt reaches acpmux with a `document` part (acpmux's record names it)."""
-    st = chat_seed(j)
+    """A PDF in the simulator's On My iPhone (rig setup), attached from + > Files. Before and
+    after the same gesture; acpmux's record of the prompt says how it went: before, a link to
+    an uploaded copy (`file` part); after, a `document` part the model reads."""
+    st = chat_seed(j, key="crows_media", turns=("ONE",))
     udid = pq.load()["udid"]
     src = os.path.expanduser("~/cmux-next-ios-e2e/crows/brief.pdf")
     if not os.path.exists(src):
-        subprocess.run(["/usr/sbin/cupsfilter", "-i", "text/plain", "-m", "application/pdf", "/etc/hosts"],
-                       stdout=open(src, "wb"), stderr=subprocess.DEVNULL)
-    data = subprocess.run(["xcrun", "simctl", "get_app_container", udid, pq.BUNDLE, "data"], capture_output=True, text=True).stdout.strip()
-    os.makedirs(f"{data}/Documents", exist_ok=True)
-    subprocess.run(["cp", src, f"{data}/Documents/brief.pdf"])
+        with open(src, "wb") as out_pdf:
+            subprocess.run(["/usr/sbin/cupsfilter", "-i", "text/plain", "-m", "application/pdf", "/etc/hosts"],
+                           stdout=out_pdf, stderr=subprocess.DEVNULL)
+    groups = subprocess.run(["xcrun", "simctl", "get_app_container", udid, "com.apple.DocumentsApp", "groups"],
+                            capture_output=True, text=True).stdout
+    local = next(line.split("\t", 1)[1] for line in groups.splitlines() if line.startswith("group.com.apple.FileProvider.LocalStorage"))
+    os.makedirs(f"{local}/File Provider Storage", exist_ok=True)
+    subprocess.run(["cp", src, f"{local}/File Provider Storage/brief.pdf"])
     open_chat(j, st)
-    j.sim.tap_el(j.sim.wait(label="Add", timeout=8))
+    j.sim.tap_el(j.sim.wait(label="Add", kind="PopUpButton", timeout=8))
     time.sleep(1.2)
     r.tap(j, "Files")
     time.sleep(4)
     out = {}
-    browse = j.sim.wait(label="Browse", timeout=5)
-    if browse:
-        j.sim.tap_el(browse)
-        time.sleep(2)
-    f = j.sim.wait(contains="brief", timeout=8)
-    if not f:
-        for name in ("On My iPhone", "cmux"):
-            e = j.sim.wait(contains=name, timeout=4)
-            if e:
-                j.sim.tap_el(e)
-                time.sleep(2)
-        f = j.sim.wait(contains="brief", timeout=8)
+    ocr_tap(j, "Browse", below=700)
+    if not j.sim.ocr_find("brief", timeout=2):
+        ocr_tap(j, "On My iPhone")
     pq.shot(f"pdf-{label}-files")
-    check(f, f"no brief.pdf in Files: {labels(j)[:20]}")
-    j.sim.tap_el(f)
+    # The file's tile: its size line reads clearly ("15 KB"); the name over it is small.
+    size = [h for h in j.sim.ocr_find(" KB", timeout=8) if h[1] > 200]
+    check(size, "no file tile in On My iPhone")
+    x, y, w, h, _ = size[0]
+    j.sim.tap(x + w / 2, y - 80)
+    time.sleep(1.5)
+    # The composer's Files takes several files: a tap selects, Open attaches.
+    if j.sim.ocr_find("Open", timeout=3):
+        ocr_tap(j, "Open")
     time.sleep(3)
     out["chip"] = [e.label for e in j.sim.find(ident="attachment.thumb")]
     pq.shot(f"pdf-{label}-attached")
@@ -428,13 +452,12 @@ def pdf(j, label):
         rows = [e for e in events(st["session"], {"user_message"}, after=last)]
         return rows[-1]["msg"] if rows else None
     msg, took = t.until(sent, timeout=180, what="the PDF prompt on the Mac")
-    out["mac_prompt"] = {"text": msg.get("text"), "parts": [{k: p.get(k) for k in ("kind", "name", "mimeType", "size")}
-                                                            for p in msg.get("inlineParts") or msg.get("parts") or []],
-                         "files": msg.get("files")}
-    out["mac_msg_keys"] = sorted(msg.keys())
+    out["mac_parts"] = [{k: p.get(k) for k in ("kind", "name", "mimeType", "size", "uri", "path") if p.get(k) is not None}
+                        for p in msg.get("inlineParts") or []]
     out["sent_s"] = round(took, 1)
-    time.sleep(10)
+    time.sleep(12)
     pq.shot(f"pdf-{label}-sent")
+    out["answer"] = [e.label for e in j.sim.find(kind="StaticText") if e.label][-4:]
     return out
 
 

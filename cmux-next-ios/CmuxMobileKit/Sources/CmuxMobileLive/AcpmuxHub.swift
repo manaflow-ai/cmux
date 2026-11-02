@@ -699,8 +699,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func handoffTargets() async throws -> [AgentHandoffTarget] {
         guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
-        let reply = try await hub.request("_acpmux/harnesses", .object(["cwd": .string(summary.cwd)]))
-        return Self.handoffTargets(reply, excluding: summary.harness)
+        // A workspace tab's folder is the Mac's as the sidebar spells it (`~/code/app`); acpmux
+        // takes only an absolute one, and lists every harness without it.
+        let params: JSONValue = summary.cwd.hasPrefix("/") ? .object(["cwd": .string(summary.cwd)]) : .object([:])
+        do {
+            let reply = try await hub.request("_acpmux/harnesses", params)
+            return Self.handoffTargets(reply, excluding: summary.harness)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        }
     }
 
     /// `_acpmux/harnesses` → targets: every harness but the session's own; unavailable ones keep their reason.
