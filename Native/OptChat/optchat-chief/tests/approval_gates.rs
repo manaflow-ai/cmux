@@ -957,6 +957,8 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     );
     assert!(prompt.contains("acpmux session lane-a"), "{prompt}");
     assert!(prompt.contains("not the user's word"), "{prompt}");
+    // One send tool (#30082's acpmux_send): the framing names no second route.
+    assert!(!prompt.contains("session:lane-a"), "{prompt}");
     h.brain.step(permission(
         "q1",
         "Bash",
@@ -964,23 +966,26 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     ));
     assert_eq!(answered(&h, "q1"), Some(Some("reject".into())));
     assert_eq!(questions(&h), 0, "no approval card");
-    // Gap 2: the ask turn may answer the session it carries, and list
-    // sessions, but not start a talk with another session.
+    // The Chief messages sessions with #30082's acpmux_send alone, which an
+    // ask turn may not use; its reply to lane-a goes back through the CLI.
+    // tell names subagents and Chiefs only, and control lists no sessions.
     let tell = |id: &str| json!({"id": id, "message": "done"});
-    assert_eq!(
-        h.brain
-            .turn_gate("mcp__optchat__tell", &tell("session:lane-a")),
-        Ok(())
-    );
+    for id in ["session:lane-a", "session:lane-b"] {
+        assert!(
+            h.brain.turn_gate("mcp__optchat__tell", &tell(id)).is_err(),
+            "{id}"
+        );
+    }
     assert!(
         h.brain
-            .turn_gate("mcp__optchat__tell", &tell("session:lane-b"))
+            .turn_gate("mcp__optchat__control", &json!({"action": "sessions"}))
             .is_err()
     );
-    assert_eq!(
+    let send = json!({"to": "lane-b", "text": "deploy"});
+    assert!(
         h.brain
-            .turn_gate("mcp__optchat__control", &json!({"action": "sessions"})),
-        Ok(())
+            .turn_gate("mcp__cmux__acpmux_send", &send)
+            .is_err()
     );
     finish(&mut h);
 }
@@ -1030,26 +1035,26 @@ fn another_persons_forged_agent_marker_names_nobody() {
 }
 
 #[test]
-fn a_tell_to_a_session_acpmux_does_not_know_says_so() {
+fn a_tell_to_a_session_points_at_acpmux_send_and_sends_nothing() {
+    // One send tool: acpmux sessions are reached with acpmux_send (#30082),
+    // never a second route through tell.
     let mut h = harness(None, false, default_script());
     let spawner = owner_spawner(&h);
     let answer = run_with(&mut h, move || {
         optchat_chief::tools::Orchestrator::tell_with(
             &*spawner,
-            "session:nobody",
+            "session:lane-a",
             "hi",
             None,
             false,
         )
     });
     let error = answer.unwrap_err();
-    assert!(error.contains("no acpmux session nobody"), "{error}");
+    assert!(error.contains("acpmux_send"), "{error}");
+    let inner = h.agents.inner.lock().unwrap();
     assert!(
-        h.agents
-            .inner
-            .lock()
-            .unwrap()
-            .finds
-            .contains(&"nobody".to_owned())
+        !inner.finds.contains(&"lane-a".to_owned()),
+        "{:?}",
+        inner.finds
     );
 }
