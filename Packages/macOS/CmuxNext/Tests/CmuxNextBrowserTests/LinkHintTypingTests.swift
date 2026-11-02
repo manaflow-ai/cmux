@@ -12,8 +12,17 @@ struct LinkHintTypingTests {
 
     @Test func aSessionWhosePageIsEditingEndsAndPassesItsLettersOn() {
         var session = LinkHintSession(mode: .follow)
-        for letter in "ieldkeys" { _ = session.type(String(letter)) }
         #expect(session.show([Self.field], editing: true) == .passThrough, "link hints took the letters typed into a text field")
+        #expect(!session.takesKeys)
+    }
+
+    /// Review of #32537: keys typed while the page's answer is out are never held, sent again, reordered or doubled.
+    /// The session takes no key before its labels show; the page gets each one as typed, in order.
+    @Test func aSessionTakesNoKeyBeforeItsLabelsShow() {
+        var session = LinkHintSession(mode: .follow)
+        #expect(!session.takesKeys, "a key typed during the collect was taken from the page")
+        _ = session.show([Self.field], editing: false)
+        #expect(session.takesKeys)
     }
 
     @Test func aSessionWhosePageIsNotEditingStillLabelsAndPicks() {
