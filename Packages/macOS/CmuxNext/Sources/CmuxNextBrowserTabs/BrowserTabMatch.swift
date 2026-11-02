@@ -10,7 +10,7 @@ import CmuxNextDaemon
 public nonisolated struct BrowserTabMatch: Equatable, Sendable {
     /// One live browser tab of the pane: its record id, engine (nil: WebKit, the record's
     /// default), browser profile id and the page it shows (the live page's, else the record's).
-    public struct Candidate: Equatable, Sendable {
+    public nonisolated struct Candidate: Equatable, Sendable {
         public let id: String
         public let engine: String?
         public let profile: String

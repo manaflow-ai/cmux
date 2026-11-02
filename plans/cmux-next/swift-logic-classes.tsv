@@ -1345,7 +1345,6 @@ CmuxNextApp	extension	BookmarkService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	extension	BookmarkService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+FolderIcons.swift	Folder icons for bars
 CmuxNextApp	class	BookmarkService	0	MIXED	22	78	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService.swift	from class BookmarkService:19: Per-profile trees copy of daemon 144; file store/migration 40 (legacy); no platform
 CmuxNextApp	enum	BookmarkSuggestionFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkSuggestionFeed.swift	from enum BookmarkSuggestionFeed:12: Feeds omnibar suggestion engine
-CmuxNextApp	struct	BrowserAvailability	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserAvailability.swift	rule: which URLs open as tabs (cmux://, cmux-page://)
 CmuxNextApp	class	BrowserDownloadHistory	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift	download history rows and persistence; incognito never written
 CmuxNextApp	extension	BrowserDownloadHistory.Row	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift	from class BrowserDownloadHistory:9: download history rows and persistence; incognito never written
 CmuxNextApp	class	BrowserDownloadList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadList.swift	from struct BrowserDownloadNotice:9: download list model: add, progress, prune, retry, restore, toolbar summary
@@ -2726,7 +2725,6 @@ CmuxNextApp	enum	MachineBrowserStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	struct	MachineBrowserPages	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserPages.swift	from struct MachineBrowserPages:13: machine browser pages list from machines
 CmuxNextApp	enum	BrowserPlacement	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserRecord.swift	from struct MachineBrowserRecord:9: hand-written machine browser record (wire type)
 CmuxNextApp	enum	MachineBrowserState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserRecord.swift	from struct MachineBrowserRecord:9: hand-written machine browser record (wire type)
-CmuxNextApp	struct	MachineBrowserRecord	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserRecord.swift	hand-written machine browser record (wire type)
 CmuxNextApp	class	MachineLoopbackCarrier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineLoopbackCarrier.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	RemoteLocalhostService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineLoopbackCarrier.swift	from class MachineLoopbackCarrier:12: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	RemoteBrowserPages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteBrowserPages+Machine.swift	AppKit/SwiftUI view, host or thin daemon call site
@@ -4633,6 +4631,9 @@ CmuxNextBrowserTabs	extension	BrowserEngineKind	0	LOGIC	100	0	Packages/macOS/Cmu
 CmuxNextBrowserTabs	extension	CmuxNextDaemon.BrowserEngine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/BrowserEngineResolver.swift	from struct BrowserEngineResolver:23: browser engine / route selection rule
 CmuxNextBrowserTabs	struct	BrowserEngineResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/BrowserEngineResolver.swift	browser engine / route selection rule
 CmuxNextBrowserTabs	enum	BrowserTabRoute	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/BrowserTabRoute.swift	browser engine / route selection rule
+CmuxNextBrowserTabs	struct	BrowserAvailability	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/BrowserAvailability.swift	rule: which URLs open as tabs (cmux://, cmux-page://)
+CmuxNextBrowserTabs	struct	BrowserTabMatch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/BrowserTabMatch.swift	rule: which live browser tab of a pane a page-requested tab reuses (#17444); Rust needs the live page URL over FFI
+CmuxNextBrowserTabs	struct	MachineBrowserRecord	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/MachineBrowserRecord.swift	hand-written machine browser record (wire type)
 CmuxNextCLIInstall	struct	CLIPathInstaller	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/CLIPathInstaller.swift	Symlink install with admin prompt (osascript)
 CmuxNextChiefMemory	struct	ChiefMemoryChange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChange.swift	chief memory change journal entry copy
 CmuxNextChiefMemory	struct	ChiefMemoryChangeRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChangeRow.swift	AppKit/SwiftUI view or platform code
