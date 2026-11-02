@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// Each asked live terminal's foreground program (nil: its shell only, or no
 /// answer in time). A terminal missing from it was not asked.

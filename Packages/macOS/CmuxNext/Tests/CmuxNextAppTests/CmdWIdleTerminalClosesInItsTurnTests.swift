@@ -24,9 +24,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue).contains(tab.id) })
             pane.select(TabID(tab.id))
             try #require(services.windows.active?.focusedPane === pane, "the terminal's pane is not the focused one")
-            // The shell sits at its prompt: the daemon reports OSC 133's prompt and no running command.
-            try await PinnedPageTests.until({ tab.promptSinceMs != nil && tab.commandSinceMs == nil }, within: .seconds(30),
-                                            report: { "prompt \(String(describing: tab.promptSinceMs)), command \(String(describing: tab.commandSinceMs))" })
+            // The shell sits at its prompt. A person's zsh, bash or fish reports it (OSC 133, cmux-tui's shell integration)
+            // and the store mirrors it (`extra.prompt.since_ms`); the harness's /bin/sh has no integration, so the test
+            // puts that report in the store as a snapshot would. No command runs.
+            try #require(tab.commandSinceMs == nil, "a command runs in the new terminal")
+            tab.promptSinceMs = 1_762_000_000_000
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
             // The app read what the terminal runs while it had the focus, before the key (TerminalProcessReadAhead).
             try await PinnedPageTests.until({ services.terminalReadAhead.fresh([tab]) != nil }, within: .seconds(10),

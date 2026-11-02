@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// What a closing terminal runs, read before the close (SHORTCUT LATENCY SL-3, 2026-11-02): Cmd-W on a
