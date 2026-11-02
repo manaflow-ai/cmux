@@ -56,6 +56,33 @@ import Testing
         let parked = try #require(children.first { window.convertFromScreen($0.frame) != catchers.framesInWindow["a"] })
         #expect(parked.frame.size == .zero, "a parked panel has no size: \(parked.frame)")
         #expect(parked.ignoresMouseEvents, "a parked panel takes no mouse")
-        #expect(catchers.windowNumbers == [catchers.framesInWindow.isEmpty ? -1 : children.first { !$0.ignoresMouseEvents }!.windowNumber])
+        let shown = try #require(children.first { !$0.ignoresMouseEvents })
+        #expect(catchers.windowNumbers == [shown.windowNumber])
+    }
+
+    /// A panel parked while its pointer was over it (an enter with its cursor set still queued) forgets that enter:
+    /// the next divider that reuses it starts from no enter and no queued cursor.
+    @Test func aParkedPanelForgetsItsEnter() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.orderFrontRegardless()
+        let catchers = DividerMouseCatchers(window: window)
+        defer { catchers.teardown() }
+        let a = LayoutMouseArea(id: "a", rect: CGRect(x: 200, y: 0, width: 8, height: 400), resizesColumns: true)
+        let b = LayoutMouseArea(id: "b", rect: CGRect(x: 500, y: 0, width: 8, height: 400), resizesColumns: true)
+        catchers.update([a, b], active: true)
+        let panels = (window.childWindows ?? []).compactMap { $0 as? DividerMousePanel }
+        let panelB = try #require(panels.first { window.convertFromScreen($0.frame) == catchers.framesInWindow["b"] })
+        panelB.catcher.isPointerOver = { true }
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: CGPoint(x: 4, y: 100), modifierFlags: [],
+                                                        timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                                        trackingNumber: 0, userData: nil))
+        panelB.catcher.mouseEntered(with: enter)
+        try #require(panelB.catcher.pendingCursorSet != nil, "the enter queues a cursor set")
+        catchers.update([a], active: true) // b's divider leaves while the pointer is over its panel
+        #expect(panelB.catcher.pendingCursorSet == nil, "a parked panel kept its queued cursor set from the old divider")
     }
 }
