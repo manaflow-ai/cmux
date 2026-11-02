@@ -20,6 +20,7 @@ use crate::SurfaceId;
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 impl ClientRegistry {
     /// Ends `client`'s connection at once, both ways (a link guest whose share or guest ended):
@@ -383,6 +384,29 @@ impl ClientRegistry {
             if let Some(expired) = record.retired_surface_order.pop_front() {
                 record.retired_surfaces.remove(&expired);
             }
+        }
+    }
+
+    /// The terminal `client`'s keys to `surface` go to, while the client is attached to it and the terminal lives
+    /// (`AttachedSurface::input`). Reads this registry only, never the session lock.
+    pub(super) fn attached_input_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<Arc<crate::Surface>> {
+        let state = self.state.lock().recover_poison();
+        let input = state.clients.get(&client)?.attached.get(&surface)?.input.upgrade()?;
+        drop(state);
+        (!input.is_dead()).then_some(input)
+    }
+
+    /// Keeps `surface` as the terminal `client`'s keys go to, when the client is attached to it.
+    pub(super) fn remember_attached_input(&self, client: u64, surface: &Arc<crate::Surface>) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(attached) =
+            state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface.id))
+        {
+            attached.input = Arc::downgrade(surface);
         }
     }
 
