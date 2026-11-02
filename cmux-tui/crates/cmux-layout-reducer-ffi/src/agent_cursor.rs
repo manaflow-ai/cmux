@@ -136,8 +136,8 @@ unsafe fn items<'a, T>(ptr: *const T, count: usize) -> Option<&'a [T]> {
 
 /// The range `offset..offset + count` of `all`, when it lies inside it.
 fn range<T>(all: &[T], offset: u32, count: u32) -> Option<&[T]> {
-    let start = offset as usize;
-    all.get(start..start.checked_add(count as usize)?)
+    let start = usize::try_from(offset).ok()?;
+    all.get(start..start.checked_add(usize::try_from(count).ok()?)?)
 }
 
 fn present(id: u32) -> Option<u32> {
@@ -179,9 +179,9 @@ impl<'a> Typed<'a> {
         Some(typed)
     }
 
-    fn window_record(&self, window: usize) -> &'a CmuxCursorWindow {
+    fn window_record(&self, window: usize) -> Option<&'a CmuxCursorWindow> {
         let windows: &'a [CmuxCursorWindow] = self.windows;
-        &windows[window]
+        windows.get(window)
     }
 }
 
@@ -200,25 +200,25 @@ impl SnapshotView for Typed<'_> {
         self.windows.len()
     }
 
-    fn window(&self, window: usize) -> WindowFacts<u32> {
-        let record = self.window_record(window);
-        WindowFacts {
+    fn window(&self, window: usize) -> Option<WindowFacts<u32>> {
+        let record = self.window_record(window)?;
+        Some(WindowFacts {
             minimized: record.flags & WINDOW_MINIMIZED != 0,
             on_active_space: record.flags & WINDOW_ON_ACTIVE_SPACE != 0,
             overlay: record.overlay,
             shown_workspace: present(record.shown_workspace),
             sidebar_hidden: record.flags & WINDOW_SIDEBAR_HIDDEN != 0,
-        }
+        })
     }
 
     fn lists(&self, window: usize, workspace: u32) -> bool {
-        let record = self.window_record(window);
-        range(self.ids, record.listed_offset, record.listed_count)
+        self.window_record(window)
+            .and_then(|record| range(self.ids, record.listed_offset, record.listed_count))
             .is_some_and(|listed| listed.contains(&workspace))
     }
 
     fn sidebar_row(&self, window: usize, workspace: u32) -> Option<Rect> {
-        let record = self.window_record(window);
+        let record = self.window_record(window)?;
         range(self.rows, record.rows_offset, record.rows_count)?
             .iter()
             .find(|row| row.key == workspace)
@@ -226,17 +226,19 @@ impl SnapshotView for Typed<'_> {
     }
 
     fn pane(&self, window: usize, pane: u32) -> Option<(usize, PaneFacts<u32>)> {
-        let record = self.window_record(window);
+        let record = self.window_record(window)?;
         let panes = range(self.panes, record.panes_offset, record.panes_count)?;
-        let index = panes.iter().position(|candidate| candidate.id == pane)?;
-        let found = &panes[index];
+        let (index, found) =
+            panes.iter().enumerate().find(|(_, candidate)| candidate.id == pane)?;
+        // A handle into all panes, so `chip` reads the pane without the window.
+        let handle = usize::try_from(record.panes_offset).ok()?.checked_add(index)?;
         let page = (found.flags & PANE_HAS_PAGE != 0).then_some(Page {
             viewport: found.viewport,
             zoom: found.zoom,
             scale: (found.flags & PANE_HAS_SCALE != 0).then_some(found.scale),
         });
         Some((
-            record.panes_offset as usize + index,
+            handle,
             PaneFacts {
                 frame: rect_if(found.flags, PANE_HAS_FRAME, found.frame),
                 clip: rect_if(found.flags, PANE_HAS_CLIP, found.clip),
@@ -280,11 +282,14 @@ pub fn reason_number(reason: NotDrawnReason) -> u32 {
     }
 }
 
-fn answer(typed: &Typed<'_>, outcome: Outcome) -> CmuxCursorVisibility {
-    match outcome {
+/// The answer for `outcome`; None when it names a window past the list (the
+/// rules name only windows they read, so never).
+fn answer(typed: &Typed<'_>, outcome: Outcome) -> Option<CmuxCursorVisibility> {
+    let window_id = |window: usize| typed.windows.get(window).map(|record| record.id);
+    Some(match outcome {
         Outcome::Visible { window, viewport, clip, zoom, scale } => CmuxCursorVisibility {
             kind: KIND_VISIBLE,
-            window: typed.windows[window].id,
+            window: window_id(window)?,
             viewport,
             clip,
             zoom,
@@ -293,7 +298,7 @@ fn answer(typed: &Typed<'_>, outcome: Outcome) -> CmuxCursorVisibility {
         },
         Outcome::Hidden { window, anchor, rect } => CmuxCursorVisibility {
             kind: KIND_HIDDEN,
-            window: typed.windows[window].id,
+            window: window_id(window)?,
             anchor: anchor_number(anchor),
             rect,
             ..CmuxCursorVisibility::default()
@@ -303,7 +308,7 @@ fn answer(typed: &Typed<'_>, outcome: Outcome) -> CmuxCursorVisibility {
             reason: reason_number(reason),
             ..CmuxCursorVisibility::default()
         },
-    }
+    })
 }
 
 /// Where the agent cursor for `snapshot.target` draws: writes `out` and
@@ -336,7 +341,7 @@ pub unsafe extern "C" fn cmux_agent_cursor_visibility(
         }
         // SAFETY: every array points to its count of items (checked non-null above).
         let typed = unsafe { Typed::from_snapshot(snapshot) }.ok_or(ERR_INVALID)?;
-        Ok(answer(&typed, resolve_view(snapshot.target, &typed)))
+        answer(&typed, resolve_view(snapshot.target, &typed)).ok_or(ERR_INVALID)
     }));
     match result {
         Ok(Ok(visibility)) => {

@@ -331,14 +331,19 @@ pub enum Visibility {
 
 /// Where the cursor for `target` draws in `snapshot`.
 pub fn resolve<'a>(target: &'a str, snapshot: &'a Snapshot) -> Visibility {
-    let window_id = |window: usize| snapshot.windows[window].id.clone();
-    match resolve_view::<Owned<'a>>(target, &Owned(snapshot)) {
-        Outcome::Visible { window, viewport, clip, zoom, scale } => {
-            Visibility::Visible { window: window_id(window), viewport, clip, zoom, scale }
-        }
-        Outcome::Hidden { window, anchor, rect } => {
-            Visibility::Hidden { window: window_id(window), anchor, rect }
-        }
+    let outcome = resolve_view::<Owned<'a>>(target, &Owned(snapshot));
+    // The rules name only windows they read, so every index is in range.
+    let window_id = |window: usize| snapshot.windows.get(window).map(|w| w.id.clone());
+    let not_in_any_window = Visibility::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
+    match outcome {
+        Outcome::Visible { window, viewport, clip, zoom, scale } => match window_id(window) {
+            Some(window) => Visibility::Visible { window, viewport, clip, zoom, scale },
+            None => not_in_any_window,
+        },
+        Outcome::Hidden { window, anchor, rect } => match window_id(window) {
+            Some(window) => Visibility::Hidden { window, anchor, rect },
+            None => not_in_any_window,
+        },
         Outcome::NotDrawn { reason } => Visibility::NotDrawn { reason },
     }
 }
@@ -380,7 +385,8 @@ pub trait SnapshotView {
     fn tab(&self) -> Option<(Self::Id, Self::Id)>;
     /// Windows, front to back.
     fn window_count(&self) -> usize;
-    fn window(&self, window: usize) -> WindowFacts<Self::Id>;
+    /// None for an index past [`Self::window_count`].
+    fn window(&self, window: usize) -> Option<WindowFacts<Self::Id>>;
     /// Whether `window` lists `workspace` in its sidebar.
     fn lists(&self, window: usize, workspace: Self::Id) -> bool;
     /// The sidebar row anchor of `workspace` in `window`.
@@ -406,31 +412,33 @@ impl<'s> SnapshotView for Owned<'s> {
         self.0.windows.len()
     }
 
-    fn window(&self, window: usize) -> WindowFacts<&'s str> {
+    fn window(&self, window: usize) -> Option<WindowFacts<&'s str>> {
         let snapshot: &'s Snapshot = self.0;
-        let window = &snapshot.windows[window];
-        WindowFacts {
+        let window = snapshot.windows.get(window)?;
+        Some(WindowFacts {
             minimized: window.minimized,
             on_active_space: window.on_active_space,
             overlay: window.overlay,
             shown_workspace: window.shown_workspace.as_deref(),
             sidebar_hidden: window.sidebar_hidden,
-        }
+        })
     }
 
     fn lists(&self, window: usize, workspace: &'s str) -> bool {
-        self.0.windows[window].listed_workspaces.iter().any(|listed| listed.as_str() == workspace)
+        self.0.windows.get(window).is_some_and(|window| {
+            window.listed_workspaces.iter().any(|listed| listed.as_str() == workspace)
+        })
     }
 
     fn sidebar_row(&self, window: usize, workspace: &'s str) -> Option<Rect> {
-        self.0.windows[window].sidebar_rows.get(workspace).copied()
+        self.0.windows.get(window)?.sidebar_rows.get(workspace).copied()
     }
 
     fn pane(&self, window: usize, pane: &'s str) -> Option<(usize, PaneFacts<&'s str>)> {
         let snapshot: &'s Snapshot = self.0;
-        let panes = &snapshot.windows[window].panes;
-        let index = panes.iter().position(|candidate| candidate.id == pane)?;
-        let found = &panes[index];
+        let panes = &snapshot.windows.get(window)?.panes;
+        let (index, found) =
+            panes.iter().enumerate().find(|(_, candidate)| candidate.id == pane)?;
         Some((
             index,
             PaneFacts {
@@ -444,7 +452,7 @@ impl<'s> SnapshotView for Owned<'s> {
     }
 
     fn chip(&self, window: usize, pane: usize, tab: &'s str) -> Option<Rect> {
-        self.0.windows[window].panes[pane].chips.get(tab).copied()
+        self.0.windows.get(window)?.panes.get(pane)?.chips.get(tab).copied()
     }
 }
 
@@ -456,13 +464,12 @@ pub fn resolve_view<V: SnapshotView>(target: V::Id, view: &V) -> Outcome {
     };
     // The front-most window that shows the workspace, else one that lists it.
     let count = view.window_count();
-    let Some(window) = (0..count)
-        .find(|&w| view.window(w).shown_workspace == Some(workspace))
-        .or_else(|| (0..count).find(|&w| view.lists(w, workspace)))
-    else {
+    let shows = |w: usize| view.window(w).is_some_and(|f| f.shown_workspace == Some(workspace));
+    let found =
+        (0..count).find(|&w| shows(w)).or_else(|| (0..count).find(|&w| view.lists(w, workspace)));
+    let Some((window, facts)) = found.and_then(|w| Some((w, view.window(w)?))) else {
         return Outcome::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
     };
-    let facts = view.window(window);
     // CURSOR-SCREENS: another display draws; minimized or another Space does not.
     if facts.minimized {
         return Outcome::NotDrawn { reason: NotDrawnReason::Minimized };
