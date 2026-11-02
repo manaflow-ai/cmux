@@ -498,7 +498,7 @@ impl Hub {
                         .map(str::to_owned)
                         .or(turn_id.take());
                     let mut failure = rec.msg;
-                    failure["status"] = json!("failed");
+                    failure.set("status", json!("failed"));
                     ended = Some(failure);
                     return false;
                 }
