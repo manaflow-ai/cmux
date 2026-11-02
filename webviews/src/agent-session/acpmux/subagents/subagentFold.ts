@@ -1032,7 +1032,9 @@ export class SubagentFold {
       this.resolvePending(agent.id, agent.id);
     } else {
       if (authoritative || change.__rootRepair) this.moveAgent(agent, change.parent, event);
-      agent.name = text(change.name) ?? agent.name;
+      // A subagent first seen without a name (history paged in after its spawn) takes its task once
+      // a record carries one, as a spawn's own record does.
+      agent.name = text(change.name) ?? (agent.name === agent.id ? text(change.task) : undefined) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
       agent.prompt = text(change.prompt) ?? agent.prompt;

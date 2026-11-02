@@ -20,7 +20,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { formatDuration } from "../conversation/turns";
-import { ChevronRight, Retry, Spinner } from "../conversation/icons";
+import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -30,7 +30,7 @@ import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { useSubsessionInfo } from "./subsessions";
+import { subagentDisplayName, useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -78,7 +78,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
+  const name = subagentDisplayName(t, agent);
+  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
@@ -89,7 +90,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       ? restartSubagent
       : undefined;
   const head = waiting
-    ? [agent.name, retryLabel(t, waiting)]
+    ? [name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
@@ -137,21 +138,17 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
-            {waiting ? (
-              <Spinner size={16} loading />
-            ) : (
-              <AgentIdentity
-                harness={agent.harness ?? chatHarness}
-                tone={agentTone(agent.id)}
-                size={16}
-                fallback={SUBAGENT_FALLBACK}
-              />
-            )}
+            <AgentIdentity
+              harness={agent.harness ?? chatHarness}
+              tone={agentTone(agent.id)}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
           </span>
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
           <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
             {!waiting && before}
-            <AgentTag name={agent.name} />
+            <AgentTag name={name} />
             {!waiting && after}
             {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
           </span>

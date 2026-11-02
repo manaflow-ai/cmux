@@ -27,6 +27,7 @@ pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 pub(crate) mod cancel;
@@ -95,7 +96,7 @@ pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url,
+    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 mod model_hint;
 mod models_view;
