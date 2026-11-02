@@ -397,7 +397,7 @@ fn a_drop_during_a_snapshot_write_still_asks_for_a_snapshot() {
 #[test]
 fn an_unfinished_upload_is_not_held_as_a_redraw() {
     let directory = directory("upload-hold");
-    let store = OutputStore::new(None);
+    let store = OutputStore::new(None, false);
     let log = log(b"screen");
     flush_tail(
         &store,
