@@ -9,7 +9,7 @@ name: cmux-next terminal suites
 #   scripts/ci/cmux-tui-rust-check.sh terminal, which a fleet step runs by hand).
 # - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
 #   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
-# The Linux jobs run on Blacksmith 16 vCPU: the crates except cmux-pty (OS-specific
+# The Linux jobs run on Blacksmith 32 vCPU: the crates except cmux-pty (OS-specific
 # code) and one test whose golden digests were recorded on macOS, and the three
 # pure-Swift packages' tests. The two Mac jobs keep what Linux cannot stand in for:
 # cmux-pty, that corpus test, and the
@@ -47,7 +47,7 @@ jobs:
   rust-terminal-linux:
     name: terminal crates (portable)
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -81,7 +81,7 @@ jobs:
   swift-terminal-linux:
     name: Swift terminal packages (portable)
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 30
     container: swift:6.2-noble
     env:

@@ -29,6 +29,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "reply",
     "empty",
     "ephemeral",
+    // `workspace create --top`: first in the sidebar, whatever workspaces.newPlacement says.
+    "top",
     "left",
     "right",
     "up",

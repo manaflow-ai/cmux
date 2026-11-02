@@ -250,6 +250,11 @@ pub fn detected(
     family: &str,
 ) -> IconSpec {
     let brand = |b: &str| b.to_owned();
+    // The Chief is the person's own agent, drawn as Home draws a Chief with no
+    // picture: the CH monogram (its command, `cmux-tui`, would read as cmux's mark).
+    if family == super::CHIEF_FAMILY {
+        return IconSpec::Monogram { text: "CH".into(), hue: hue(id), source: IconSource::Family };
+    }
     if let Some(b) = crate::chats::brand::brand_for(id) {
         return IconSpec::Brand { brand: brand(b), source: IconSource::Id };
     }

@@ -28,11 +28,13 @@ struct RapidWorkspaceCreateTests {
     private static func name(_ press: Int) -> String { String(format: "race-%02d", press) }
 
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
-    static func wait(within limit: Duration, until done: () -> Bool) async {
+    @discardableResult
+    static func wait(within limit: Duration, until done: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + limit
         while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        return done()
     }
 
     /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.
@@ -54,13 +56,37 @@ struct RapidWorkspaceCreateTests {
 
     /// `sessionEvents`: the connection follows `session.events`, as the app's does (the sidebar document's items and
     /// the personal rows and groups come on it).
-    static func launch(sessionEvents: Bool = false) async throws -> Launched {
+    static func launch(sessionEvents: Bool = false, preseedWorkspaceNames: [String] = []) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        if !preseedWorkspaceNames.isEmpty {
+            let owner = try await launcher.ensure()
+            let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                                        endpointProvider: launcher.endpointProvider)
+            do {
+                _ = try await seed.start()
+                for name in preseedWorkspaceNames {
+                    _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+                }
+            } catch {
+                // No Launched comes back to stop it: end the daemon `ensure` spawned here, by its pid when the seed
+                // connection never learned its identity, and remove the fixture state.
+                if let identity = await seed.identity {
+                    _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                timeout: .seconds(10))
+                } else {
+                    kill(owner.pid, SIGTERM)
+                }
+                await seed.close()
+                try? FileManager.default.removeItem(at: root)
+                throw error
+            }
+            await seed.close()
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -150,7 +176,7 @@ struct RapidWorkspaceCreateTests {
 
         let members = Set(services.windows.registry.members(of: window))
         let created = store.workspaces.filter { !before.contains($0.id) }
-        let order = WindowManager.orderedIDs(of: services.daemon, machines: services.machines).filter(members.contains)
+        let order = WindowManager.orderedIDs(of: services.daemon, machines: services.machines, doc: services.sidebarDoc).filter(members.contains)
         let presses = order.compactMap { id in created.first { $0.id == id }?.name }.compactMap { name in
             (1...Self.presses).first { Self.name($0) == name }
         }
@@ -336,7 +362,7 @@ struct RapidWorkspaceCreateTests {
         }
         let home = NewWorkspacePlacements.home(services.machines)
         let old = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
-        let intentBefore = SidebarDocStore.current?.lastIntentKey
+        let intentBefore = services.sidebarDoc.store?.lastIntentKey
 
         // Every frame the list draws from the first press until the creates settled.
         var frames: [[String]] = []
@@ -351,14 +377,14 @@ struct RapidWorkspaceCreateTests {
             }
             frames.append(frame)
             let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
-            let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
+            let path = services.sidebarDoc.store?.shown == nil ? "personal" : "doc"
             let members = Set(services.windows.registry.members(of: window))
             let pending = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
             let room = services.windows.states[window]?.profileID ?? .defaultProfile
-            let docOrder = SidebarDocWiring.sections(of: services.machines.local, room: room, machines: services.machines)?
+            let docOrder = services.sidebarDoc.sections(of: services.machines.local, room: room, machines: services.machines)?
                 .flatMap(\.workspaces).map(\.id).filter { $0 != home }
             sources.append(Dictionary(uniqueKeysWithValues: frame.map { id in
-                var tags = path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
+                var tags = path + (services.sidebarDoc.item(workspace: id) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
                 tags += members.contains(id) ? "+m" : ""
                 tags += pending.contains(id) ? "+pend" : ""
                 tags += services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
@@ -384,7 +410,7 @@ struct RapidWorkspaceCreateTests {
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
         let final = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
-        let intentAfter = SidebarDocStore.current?.lastIntentKey
+        let intentAfter = services.sidebarDoc.store?.lastIntentKey
         await launched.stop()
 
         // Each frame: the new rows it draws come first, newest first; the old rows follow in their order.
@@ -406,7 +432,7 @@ struct RapidWorkspaceCreateTests {
             if strip.last != shown { strip.append(shown) }
         }
         print("cmd-n-top settings: app newPlacement \(String(describing: services.settings?.snapshot.newWorkspacePlacement)), "
-              + "placesNewRowsFirst \(SidebarDocWiring.docSections.placesNewRowsFirst())")
+              + "placesNewRowsFirst \(services.sidebarDoc.docSections.placesNewRowsFirst())")
         print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
         #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
         #expect(!frames.isEmpty, "the list drew no frame")

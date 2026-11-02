@@ -3,7 +3,7 @@ name: cmux-acpmux
 description: "Coordinate bounded work across acpmux agent sessions. Use when starting, partitioning, messaging, waiting on, reviewing, or closing agent work, or when using the daemon-local mailbox."
 ---
 
-# cmux ACPM coordination
+# cmux acpmux coordination
 
 Use this skill for orchestration around acpmux sessions. The installed binary is the command
 authority: read `acpmux guide` or `cmux acp skill` first when a command, flag, or exit code is
@@ -24,15 +24,15 @@ Prefer JSON output for discovery and record the exact ids and names returned by 
 ```bash
 acpmux --json ls
 acpmux --json session info @       # only when ACPMUX_ENV=1
-acpmux host ls
-acpmux --json peer status          # each peer's health; run it before remote work and after a peer error
+acpmux machine ls
+acpmux --json machine status       # each machine's health; run it before remote work and after a machine error
 ```
 
 Use `@` only for the current session. Never invent a session id, reuse a stale name without
 checking it, or infer that a session is a child: sessions started by an agent are siblings and
 survive the caller.
 
-If the daemon, socket, or command is unavailable, stop trying to drive raw ACPM RPC. Use the
+If the daemon, socket, or command is unavailable, stop trying to drive raw acpmux RPC. Use the
 repository's existing `cmux agent message` / `cmux agent inbox` path as a stated fallback. That
 path can store a message while ACP delivery is unavailable; it does not start an ACP daemon. If
 the cmux daemon is unavailable too, use the available coordination tool and retain the same
@@ -47,7 +47,7 @@ menu, and **Copy Session ID** copies:
   `cmux agent message acp:<session id> "..."` (the Chief and other agents use the same path). For
   acpmux commands, drop the `acp:` prefix: `acpmux --json session info <session id>`,
   `acpmux send <session id> "..."`. The id names a session on the machine that runs it; from
-  another machine, use the peer form `host/name` from `acpmux --json ls`.
+  another machine, use the `machine/name` form from `acpmux --json ls`.
 - a Claude Code or Codex terminal: the harness's own session UUID (the `session_id` its hooks
   report), for `claude --resume <uuid>` or `codex resume <uuid>`. To message that agent, use its
   terminal instead: `cmux agent message term_<id> "..."`.
@@ -72,12 +72,13 @@ acpmux session tag mailbox-auth-review task=acpmux role=review
 ```
 
 Read the harness/model catalog before overriding defaults. Set a policy explicitly when the task
-needs one, and never change shared defaults, presets, or hosts as a side effect of a feature task.
+needs one, and never change shared defaults, presets, or machines as a side effect of a feature task.
 Before sending work to an existing session, inspect its `session info` (including policy, cwd,
-model, and pending permissions). A peer session is named `host/name`; do not silently treat a
-remote session as local. Its files live on that host; when a peer request fails, run `acpmux peer status`
-and follow the next command it names instead of retrying blind (`host doctor` is safe; `host update`
-restarts that daemon, so run it only when the task asks for host maintenance).
+model, and pending permissions). A session on another machine is named `machine/name`; do not silently treat a
+remote session as local. Its files live on that machine; when a request to it fails, run
+`acpmux machine status` and follow the next command it names instead of retrying blind
+(`machine doctor` is safe; `machine update` restarts that daemon, so run it only when the task asks
+for machine maintenance).
 For shared cmux-next surfaces, record ownership and decisions in
 `plans/cmux-next/COORDINATION.md`; the owner of a generated spec or shared contract must make the
 single coordinated update.

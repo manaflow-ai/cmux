@@ -19,6 +19,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use super::sender::Answer;
+use cmux_json::JsonSet as _;
 
 /// The socket line's key.
 pub const REQUEST_KEY: &str = "handoff_report";
@@ -116,7 +117,7 @@ fn brief(handoff: &Value) -> Option<Value> {
     let status = handoff.field("status").as_str()?;
     let mut out = json!({ "id": id, "turn": turn, "state": state, "status": status });
     if let Some(at) = handoff.field("statusAt").as_str().filter(|at| at.chars().count() <= 40) {
-        out["statusAt"] = json!(at);
+        out.set("statusAt", json!(at));
     }
     Some(out)
 }

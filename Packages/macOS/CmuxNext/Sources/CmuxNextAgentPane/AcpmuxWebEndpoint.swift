@@ -45,6 +45,9 @@ nonisolated struct AcpmuxReadyLine: Decodable, Equatable {
     /// Why the daemon refused to start (acpmux `daemon/exe_path.rs`: the shared home from a
     /// runner's `_work` or a temporary folder), on a `{"ready":false,"refused":"..."}` line.
     var refused: String?
+    /// True when this launch lost the daemon lock and relays the winner's readiness: the daemon
+    /// on the socket is one another client started (acpmux#27336), not this launch's.
+    var lockHeld: Bool?
 
     /// The refusal on a not-ready line, if the daemon refused to start.
     static func refusal(_ line: String) -> String? {

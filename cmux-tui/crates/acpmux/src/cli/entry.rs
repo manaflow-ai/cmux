@@ -47,20 +47,30 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
+    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
+    // starts, since on macOS this re-executes the host in place under a clamp.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        crate::qos::enter(crate::qos::Role::AgentHost);
         return crate::agent_host::host::main();
     }
     // A background task's runner (`bg_run.rs`): one task, no CLI.
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
+    }
+    // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
+    if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
+        return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
-        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
-        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_rename(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
@@ -73,10 +83,43 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main(args, invocation))
+    runtime(&args)?.block_on(async_main(args, invocation))
+}
+
+/// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
+/// A harness starts a set of them for every thread it loads (a codex
+/// subagent gets its own set, kept until the app-server exits), so a tokio
+/// worker per core in each one adds up: about 100 tasks a set on a 32-core
+/// machine, which filled the sessions slice's task cap on a fleet host.
+const STDIO_MCP_SERVERS: [&str; 7] =
+    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp", "repo-mcp"];
+
+/// Worker threads of a stdio MCP server: it answers one client's requests
+/// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
+const MCP_WORKERS: usize = 2;
+
+/// The worker count `args` (without the program name) runs with: None is
+/// tokio's default, one per core.
+fn runtime_workers(args: &[OsString]) -> Option<usize> {
+    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
+    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+}
+
+/// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
+/// The daemon's request futures (`server/requests.rs` `dispatch_request` above all) are large in a
+/// debug build, and a worker that polled one deep in adoption overflowed its stack and aborted the
+/// daemon (`tests/durable_agents.rs`, about one run in three on Linux CI). The test processes give
+/// their threads the same stack (`tests/support/daemon_env.rs`), so a hub they run in process polls
+/// these futures on the stack the daemon gives them.
+pub const WORKER_STACK_BYTES: usize = 8 << 20;
+
+fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.thread_stack_size(WORKER_STACK_BYTES);
+    if let Some(workers) = runtime_workers(args) {
+        builder.worker_threads(workers);
+    }
+    builder.enable_all().build()
 }
 
 async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
@@ -99,23 +142,42 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
         argv[at] = "skill".into();
     }
+    // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
+        *word = "session".into();
+        argv.insert(at + 1, "stop".into());
+    }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = Cli::command().name(name).bin_name(name);
+    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
+    let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
-        // A flag another command takes says which, and what this one does instead.
-        Err(e) => match crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name) {
-            Some(refusal) => {
-                let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
-                errors::exit_with(&refusal.into(), json_out)
+        // A flag another command takes says which, and what this one does instead; a root word
+        // a command group takes names that command; under --json any other is the envelope.
+        Err(e) => {
+            let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
+                .or_else(|| {
+                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
+                });
+            match refusal {
+                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                None => e.exit(),
             }
-            None => e.exit(),
-        },
+        }
     };
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
+    if let Some(Command::New(_)) = &cli.command
+        && let Some((_, new)) = matches.subcommand()
+        && let Some(refusal) =
+            crate::cli::unknown_command::stdin_dash(&grammar, new, &argv, at, name)
+    {
+        errors::exit_with(&refusal.into(), json_out)
+    }
     let command = cli.command.map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
             a.quiet = true;
@@ -165,7 +227,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::daemon::run(DaemonOptions {
+            crate::qos::enter(crate::qos::Role::Daemon);
+            let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
                 memory,
@@ -174,7 +237,24 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 dev_origins: allow_dev_origin,
                 dev,
             })
-            .await?;
+            .await;
+            if let Err(error) = result {
+                // A systemd start can race the daemon that is handing over
+                // this home. Keep its lock refusal a distinct, prevented
+                // restart status; detached clients still use the readiness
+                // line and retry through `connect`.
+                if error.to_string().starts_with("another acpmux daemon holds ") {
+                    let error: anyhow::Error = crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Runtime,
+                        "daemon_lock_held",
+                        error.to_string(),
+                    )
+                    .with_exit(75)
+                    .into();
+                    crate::cli::errors::exit_with(&error, false);
+                }
+                return Err(error);
+            }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
@@ -272,6 +352,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
+        Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -279,6 +360,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::TriggerChat { protocol, principal_fd }) => {
+            match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::Capabilities) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());
@@ -302,4 +389,47 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_stdio_mcp_server_runs_on_a_small_runtime() {
+        for name in [
+            "acpmux-mcp",
+            "subsession-mcp",
+            "forum-mcp",
+            "offer-mcp",
+            "secret-mcp",
+            "cua-mcp",
+            "repo-mcp",
+        ] {
+            assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
+            assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
+        }
+    }
+
+    #[test]
+    fn every_other_command_keeps_the_default_runtime() {
+        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+            assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_small_runtime_has_its_workers_and_not_one_per_core() {
+        let small = runtime(&os(&["forum-mcp"])).unwrap();
+        assert_eq!(small.metrics().num_workers(), MCP_WORKERS);
+        // Every other command keeps tokio's default: one worker per core.
+        let default = runtime(&os(&["ls"])).unwrap();
+        if std::thread::available_parallelism().unwrap().get() > MCP_WORKERS {
+            assert!(default.metrics().num_workers() > MCP_WORKERS);
+        }
+    }
 }

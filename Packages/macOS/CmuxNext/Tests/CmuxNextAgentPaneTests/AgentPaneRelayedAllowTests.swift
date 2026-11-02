@@ -342,8 +342,8 @@ struct AgentPaneRelayedAllowTests {
 
     /// The local daemon's own run (not the peer's) and a peer's prompt, seen by the page.
     static func peerChat(_ server: AcpmuxStandInServer, _ inbox: PageInbox, _ transport: AgentPaneTransport) async throws -> Int {
-        // A DEV build's memory key (the app configures it at launch).
-        AcpmuxMacApprover.shared.configure(keychainService: nil)
+        // A DEV build's memory key (the app makes its approver at launch and hands it to each pane).
+        transport.peerApprover = AgentPanePeerApprover(key: AcpmuxMacApprover(keychainService: nil))
         let local = String(repeating: "d", count: 32)
         server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","personInstance":"\#(local)"}}}"#)
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
@@ -384,7 +384,7 @@ struct AgentPaneRelayedAllowTests {
         #expect(acpmux["decisionNonce"] as? String == Self.nonce)
         #expect(acpmux["personDecision"] == nil)
         let decision = try #require(acpmux["approverDecision"] as? [String: Any])
-        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        let identity = try #require(transport.peerApprover?.key.identity)
         #expect(decision["approver"] as? String == identity.id)
         let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
         #expect(expires > before && expires <= before + 300)
@@ -600,7 +600,7 @@ struct AgentPaneRelayedAllowTests {
         let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned group allow: \(sent)")
         let members = try #require(acpmux["approverDecisions"] as? [String: Any])
         #expect(Set(members.keys) == ["p1", "p2"])
-        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        let identity = try #require(transport.peerApprover?.key.identity)
         let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
         for (permission, toolCall, option, nonce) in [("p1", "call-1", "yes", Self.nonce), ("p2", "call-2", "ok", nonce2)] {
             let member = try #require(members[permission] as? [String: Any])

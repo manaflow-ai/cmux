@@ -14,7 +14,7 @@
         },
         {
           "type": "judge",
-          "rubric": "PASS when the assistant asks the Cloud Chief (tell to chief:<name>) to make a chief-auto job with WHEN set to webhook and the full task, and says it will send the webhook URL when the Cloud Chief answers. FAIL when it polls, only promises, or asks the person to set it up."
+          "rubric": "PASS when the assistant makes a Cloud automation with a tool call this turn (`cmux automation create … --target cloud --webhook --prompt` with the full task, or a tell asking the Cloud Chief to make a chief-auto webhook job) and says it will send the webhook URL. FAIL when it polls, only promises, or asks the person to set it up."
         }
       ]
     }

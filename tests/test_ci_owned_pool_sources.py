@@ -180,6 +180,13 @@ class OwnedPoolSources(unittest.TestCase):
         source = rescue_tree.read(sources.RESCUE_SCRIPT) if rescue_tree is not None else None
         cls.watched = sources.watched_paths(source) if source is not None else None
         cls.unrescued = sources.unrescued_paths(source) if source is not None else frozenset()
+        if on_feat():
+            # feat-cmux-next's own copy may acknowledge a feat-only unrescued workflow while main takes no merges.
+            # An unrescued entry changes no behaviour (the rescue acts only on watched paths), so either copy
+            # may hold it; watched paths still come from main's copy, the one that runs.
+            own = here.read(sources.RESCUE_SCRIPT)
+            if own is not None and sources.UNRESCUED_NAME in own:
+                cls.unrescued = cls.unrescued | sources.unrescued_paths(own)
         cls.owned = {str(tree): sources.owned_workflows(tree) for tree in cls.trees}
 
     def test_the_other_branch_is_read(self) -> None:
@@ -217,8 +224,17 @@ class OwnedPoolSources(unittest.TestCase):
             print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main lists "
                   f"feat-cmux-next-only workflows that take no owned pool any more; remove them in a pull "
                   f"request to main: {feat_only}", file=sys.stderr)
-        self.assertFalse(sorted(stale & on_main), f"{sources.RESCUE_SCRIPT} lists workflows that take no owned "
-                                                  f"pool on main or feat-cmux-next any more; remove them")
+        # An UNRESCUED entry makes the rescue do nothing, so a stale one changes no behaviour, and it is how a
+        # workflow that only feat-cmux-next is about to make owned gets named on main first: main's list must
+        # name it before that pull request's guard can pass, while neither branch owns it yet (release.yml's
+        # signing picker, cmux#27066). So only a stale WATCHED entry fails; a stale unrescued one warns.
+        waiting = sorted((stale & on_main) & set(self.unrescued))
+        if waiting:
+            print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main leaves to a person "
+                  f"workflows that take no owned pool yet: {waiting}; remove any that will not", file=sys.stderr)
+        self.assertFalse(sorted((stale & on_main) - set(self.unrescued)),
+                         f"{sources.RESCUE_SCRIPT} watches workflows that take no owned pool on main or "
+                         f"feat-cmux-next any more; remove them")
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:

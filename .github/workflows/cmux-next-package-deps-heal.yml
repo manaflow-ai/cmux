@@ -1,0 +1,101 @@
+name: cmux-next package deps heal
+
+# A push straight to feat-cmux-next skips the pre-push hook, so a test file can gain an import of a local target
+# its target does not declare in Packages/macOS/CmuxNext/Package.swift. CI's "Package dependency lists sorted" step
+# is then red on every pull request until someone adds the line (2026-10-29: a63986a4 and e875485c, fixed by hand
+# in #27173 and #27219). After each push that changes the package, this runs the same check
+# (scripts/cmux-next/check-package-dependency-lists.py). When it is red and Package.swift alone can repair it, it
+# opens a fix pull request (scripts/cmux-next/package_deps_heal.py): the declared dependency, the offending commit
+# named in its body, risk:low. One branch per gap (autofix/package-deps-<digest>), so a later push with the same
+# gap opens no second pull request. It never pushes to feat-cmux-next: the pull request lands like any red fix, on
+# an independent review and a green check.
+#
+# Identity: the manaflow-cmux-pr-autofix App (CMUX_PR_AUTOFIX_APP_ID/KEY, the App base autofix pushes with), minted
+# with contents: write and pull-requests: write. A GITHUB_TOKEN pull request starts no workflow, so its checks
+# would never run. With no App secrets the job only reports what it would open.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/macOS/CmuxNext/**
+      - scripts/cmux-next/check-package-dependency-lists.py
+      - scripts/cmux-next/package_deps_heal.py
+      - .github/workflows/cmux-next-package-deps-heal.yml
+  workflow_dispatch:
+
+permissions: {}
+
+# Runs one at a time and never cancels: a later run finds the branch an earlier run opened and stops there.
+concurrency:
+  group: cmux-next-package-deps-heal
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    name: package deps heal
+    # A dispatch from another branch would open a fix pull request carrying that branch's commits.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment: cmux-pr-autofix
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for an autofix branch; ephemeral Blacksmith VM, reads no variable
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The history names the commit that brought each import in.
+          fetch-depth: 200
+          persist-credentials: false
+
+      - name: Check and plan the fix
+        id: plan
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/package_deps_heal.py plan --out "$RUNNER_TEMP/heal" \
+            --github-repo "$GITHUB_REPOSITORY" --run-url "$RUN_URL" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Nothing to repair
+        if: steps.plan.outputs.red != 'true'
+        run: echo "Package dependency lists are green at $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: A red Package.swift alone cannot repair
+        if: steps.plan.outputs.red == 'true' && steps.plan.outputs.fixable != 'true'
+        run: |
+          echo "::warning title=package deps heal::Package dependency lists are red at $GITHUB_SHA and need a hand fix (see the plan step)."
+          echo "Red at $GITHUB_SHA; not repairable from Package.swift alone, so no pull request was opened." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mint the autofix token
+        id: app-token
+        if: steps.plan.outputs.fixable == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the fix pull request
+        if: steps.plan.outputs.fixable == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ steps.plan.outputs.branch }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::warning title=package deps heal::no autofix App token; would open $BRANCH"
+            { echo "Would open \`$BRANCH\`:"; echo; cat "$RUNNER_TEMP/heal/body.md"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $auth"
+          result="$(python3 scripts/cmux-next/package_deps_heal.py open --out "$RUNNER_TEMP/heal")"
+          git config --local --unset-all http.https://github.com/.extraheader
+          echo "$result" | tee -a "$GITHUB_STEP_SUMMARY"

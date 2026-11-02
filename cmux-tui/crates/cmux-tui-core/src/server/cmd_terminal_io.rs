@@ -232,7 +232,7 @@ pub(super) fn send(
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -285,14 +285,18 @@ pub(super) fn read_scrollback(
     Ok(json!({ "rows": rows, "start": start, "total": total, "epoch": epoch }))
 }
 
+/// Runs on a wait worker (`connection_wait`), not the connection's
+/// dispatcher; the connection's cancellation and its writer's close end it.
 pub(super) fn wait_for(
     mux: &Arc<Mux>,
+    writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
     surface: SurfaceId,
     pattern: String,
     timeout_ms: u64,
 ) -> anyhow::Result<Value> {
-    let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
+    let cancelled =
+        || cancellation.is_some_and(ConnectionCancellation::is_cancelled) || !writer.is_open();
     if cancelled() {
         anyhow::bail!("connection closed while waiting for pattern");
     }
@@ -301,7 +305,7 @@ pub(super) fn wait_for(
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -314,7 +318,9 @@ pub(super) fn wait_for(
         }
         anyhow::bail!("timeout waiting for pattern");
     }
-    let deadline = start + Duration::from_millis(timeout_ms);
+    let deadline = start
+        .checked_add(Duration::from_millis(timeout_ms))
+        .ok_or_else(|| anyhow::anyhow!("timeout_ms is too large"))?;
     let attach = surface.attach_stream()?;
     // The wait ends on output, the deadline, or the connection
     // closing; it used to wake every 100 ms to check the last.
@@ -322,6 +328,7 @@ pub(super) fn wait_for(
     if let Some(cancellation) = cancellation {
         cancellation.register_interrupt(&interrupt);
     }
+    writer.register_interrupt(&interrupt);
     attach.stream.wake_on(&interrupt);
     if let Some(text) = check()? {
         return Ok(json!({
@@ -452,7 +459,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),

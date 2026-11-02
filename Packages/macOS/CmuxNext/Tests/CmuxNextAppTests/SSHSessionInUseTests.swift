@@ -48,4 +48,42 @@ import Testing
         #expect(machine.mayAttempt)
         #expect(!SSHLinkError.ssh(failure).waitsForUser)
     }
+
+    @Test func anUnreachableFailureCanStartAnotherAttemptAfterRetry() throws {
+        let failure = SSHFailure.unreachable("nohost.invalid")
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(failure))
+        #expect(machine.status == .unreachable("nohost.invalid"))
+        #expect(machine.mayAttempt)
+        machine.handle(.connect)
+        #expect(machine.status == .connecting)
+        #expect(machine.mayAttempt)
+    }
+
+    @Test func anAutomaticAttemptReopensTheGateAfterTransportFailure() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.unreachable("nohost.invalid")))
+        machine.handle(.attemptStarted)
+        #expect(machine.status == .connecting)
+    }
+
+    @Test func anAutomaticAttemptDoesNotReopenAnAuthFailureGate() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.authFailed("denied")))
+        machine.handle(.attemptStarted)
+        #expect(machine.status == .authFailed("denied"))
+        #expect(!machine.mayAttempt)
+    }
+
+    @Test func userRetryLeavesARecoverableFailureForTheNewAttempt() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.authFailed("denied")))
+        machine.handle(.wake(.user))
+        #expect(machine.status == .connecting)
+        #expect(machine.mayAttempt)
+    }
 }

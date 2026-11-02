@@ -38,6 +38,7 @@ import Testing
         let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("air-blue"), name: "air-blue", kind: .ssh, status: .offline)
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace(), machine: machine, now: Date()))
+        card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("air-blue"))
         #expect(card.lines.contains(CmuxNextSidebar.Strings.statusOffline))
         #expect(Self.rows(in: card).count >= 3)
@@ -93,8 +94,10 @@ import Testing
     @Test(arguments: [true, false])
     func theGalleryShowsEveryKind(tabs: Bool) {
         let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
-        // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21).
-        let count = tabs ? 5 : 6
+        // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21),
+        // one running-work card per `WorkspaceHoverCardWork.Style` (#30439), and the tab rows' four
+        // line styles, each on this Mac and on another machine.
+        let count = tabs ? 5 : 10 + WorkspaceHoverCardWork.Style.allCases.count + 8
         #expect(cards.count == count)
         #expect(Set(cards.map(\.name)).count == count)
     }

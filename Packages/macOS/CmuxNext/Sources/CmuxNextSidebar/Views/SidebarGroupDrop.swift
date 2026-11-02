@@ -34,7 +34,7 @@ import AppKit
     /// Registers Cmd-Z for a drop that grouped `ids`.
     static func registerUndo(_ list: SidebarListView, _ ids: [WorkspaceID], origin: DropPosition?, anchor: WorkspaceID?) {
         // The sidebar document puts its own undo step (toast and the window's undo stack) for the same drop.
-        guard SidebarDocStore.current?.isActive != true else { return }
+        guard list.model.docDrag?.document?.isActive != true else { return }
         guard let origin, let undoManager = list.window?.undoManager else { return }
         let record = SidebarGroupUndo(list: list, ids: ids, origin: origin, anchor: anchor)
         // The record is the target and the retained object, so it lives as long as the undo entry.

@@ -2,8 +2,58 @@
 
 use super::*;
 
+fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
+    let mut params = json!({"name": name, "url": url, "wait": false});
+    if let Some(token) = token {
+        cmux_json::JsonSet::set(&mut params, "token", json!(token));
+    }
+    params
+}
+
+/// Whether `session resume` moves the chat `info` (`MUX_INFO`) before resuming it: this machine is
+/// one a person works at (`placement::interactive`) and the chat is stopped here (no agent runs:
+/// `closed`, `idle` or `disconnected`, no turn), so resuming it would start its agent here. It
+/// goes where `session move --host auto` puts it (`session_move::move_off_interactive`). A chat
+/// on a peer, one with a live agent, one moving or moved away resumes where it is.
+pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
+    interactive
+        && info.get("peer").is_none_or(Value::is_null)
+        && info.get("turn").is_none_or(Value::is_null)
+        && info.get("movedTo").is_none_or(Value::is_null)
+        && info["moving"] != true
+        && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
+}
+
+/// Runs the queue a failed turn held in chat `id` (`info` is its `MUX_INFO`), through `client`:
+/// `_acpmux/queue_edit` `resume` names the queue by any of its prompts, a held one. False when
+/// nothing is held.
+pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Result<bool> {
+    let held = info["queue"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|q| q["held"] == true)
+        .and_then(|q| q["promptId"].as_str());
+    let Some(prompt_id) = held else { return Ok(false) };
+    let v = client
+        .request(
+            method::MUX_QUEUE_EDIT,
+            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
+        )
+        .await?;
+    Ok(v["ok"] == true)
+}
+
+/// What `session resume` prints when it moved the chat first.
+fn moved_line(host: &str) -> String {
+    format!(
+        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+    )
+}
+
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {
             let client = connect(true).await?;
             let archive = args.archive.map(std::path::absolute).transpose()?;
@@ -31,7 +81,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Cancel { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             if json_out {
@@ -41,11 +91,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge } => {
+        Command::Kill { session, purge, condition } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v =
-                client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
+            // An older daemon would ignore the condition and stop a busy session.
+            if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "stop_if_idle_unsupported",
+                    "the running daemon predates `session stop --if-idle`: nothing was stopped; \
+                     restart it on the installed acpmux, then retry",
+                )
+                .into());
+            }
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let mut params = json!({"sessionId": id, "purge": purge});
+            if condition.if_idle {
+                cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
+            }
+            if let Some(rev) = condition.expect_revision {
+                cmux_json::JsonSet::set(&mut params, "expectRevision", json!(rev));
+            }
+            let v = client.request(method::MUX_KILL, params).await?;
             if json_out {
                 print_json(&v)
             } else {
@@ -76,36 +142,89 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
         }
+        Command::SessionInboxCmd(crate::cli::command::SessionInboxTarget {
+            session,
+            thread,
+            unread,
+        }) => {
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
+                .await
+        }
+        Command::TurnCapCmd { session, minutes, off, clear } => {
+            use crate::cli::session_turn_cap::Change;
+            let change = match (minutes, off, clear) {
+                (Some(m), _, _) => Change::Minutes(m),
+                (None, true, _) => Change::Off,
+                (None, false, true) => Change::Clear,
+                (None, false, false) => Change::Show,
+            };
+            let client = connect(true).await?;
+            crate::cli::session_turn_cap::run(&client, &session, change, json_out).await
+        }
+        Command::QueueCmd(q) => {
+            let client = connect(true).await?;
+            crate::cli::session_queue::run(&client, q, json_out).await
+        }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let mut id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-            // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
-            let held = info["queue"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|q| q["held"] == true)
-                .and_then(|q| q["promptId"].as_str())
-                .map(str::to_owned);
-            let resumed = match held {
-                Some(prompt_id) => {
-                    let v = client
-                        .request(
-                            method::MUX_QUEUE_EDIT,
-                            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
-                        )
-                        .await?;
-                    v["ok"] == true
+            let mut moved_to = None;
+            let mut resumed = None;
+            if resume_moves_off(&info, crate::cli::place::here_is_interactive()) {
+                match super::session_move::move_off_interactive(&client, &id).await {
+                    Ok(moved) => {
+                        eprintln!("{}", moved_line(&moved.host));
+                        id = moved.routed;
+                        moved_to = Some(moved.host);
+                        resumed = Some(moved.resumed);
+                    }
+                    Err(e) => eprintln!("resuming on this machine: it did not move ({e:#})"),
                 }
-                None => false,
+            }
+            let resumed = match resumed {
+                Some(Ok(resumed)) => resumed,
+                Some(Err(why)) => {
+                    anyhow::bail!(
+                        "it moved to {id}, but its held queue did not resume there: {why}"
+                    )
+                }
+                None => resume_held(&client, &id, &info).await?,
             };
             if json_out {
-                print_json(&json!({"sessionId": id, "resumed": resumed}));
+                print_json(&json!({"sessionId": id, "resumed": resumed, "movedTo": moved_to}));
             } else if resumed {
                 println!("resumed");
             } else {
                 println!("nothing is held");
+            }
+            Ok(())
+        }
+        Command::InboxDigest { session, dry_run } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
+                .await?;
+            let field = |key: &str| v.get(key).unwrap_or(&Value::Null);
+            let digested = field("digested").as_u64().unwrap_or(0);
+            if json_out {
+                print_json(&v);
+            } else if digested == 0 {
+                println!("no agent message waits in its queue");
+            } else if dry_run {
+                println!("{}", field("text").as_str().unwrap_or_default());
+                println!("\n(dry run: nothing changed; --digest sends it)");
+            } else {
+                let how = match field("delivery").as_str() {
+                    Some("steer") => "steered into its running turn".to_owned(),
+                    _ => format!("queued at position {}", field("position")),
+                };
+                println!(
+                    "{digested} messages went into digest {}, {how}",
+                    field("promptId").as_str().unwrap_or_default()
+                );
             }
             Ok(())
         }
@@ -137,6 +256,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
+            super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
             } else {
@@ -152,6 +272,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
+                "team-address" | "teamAddress" => {
+                    if !crate::mesh::valid_team_suffix(val) {
+                        return Err(anyhow!(
+                            "team-address must be an agent suffix such as coordinator; the hub supplies your member namespace"
+                        ));
+                    }
+                    client
+                        .request(
+                            method::MUX_TAG,
+                            json!({"sessionId": id, "set": {"teamAddress": val}}),
+                        )
+                        .await?
+                }
                 "mode" => {
                     client
                         .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": val}))
@@ -258,6 +391,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::MoveSessions {
+            sessions,
+            host,
+            all_idle,
+            interrupt,
+            leave_dirty,
+            cwd,
+            dry_run,
+        } => {
+            let args = super::session_move::MoveArgs {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                resume_there: false,
+            };
+            super::session_move::run(args, json_out).await
+        }
         Command::Transfer { session, to, cwd, name, interrupt } => {
             super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
         }
@@ -332,6 +486,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         which @ (Command::Status { .. } | Command::DaemonStart { .. }) => {
             let start = matches!(which, Command::DaemonStart { .. });
+            if start {
+                crate::daemon::mark_explicit_start();
+            }
             let show_token = match &which {
                 Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
                     *show_token
@@ -361,6 +518,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("pid").and_then(Value::as_u64).unwrap_or(0),
                         age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
                     );
+                    for stuck in v["stuckSessions"].as_array().into_iter().flatten() {
+                        println!(
+                            "stuck: {} ({}) since {}: {}",
+                            stuck["name"].as_str().unwrap_or(""),
+                            stuck["stuckReason"].as_str().unwrap_or(""),
+                            stuck["stuckSince"],
+                            stuck["stuckError"].as_str().unwrap_or("")
+                        );
+                    }
                     println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
                     println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
                     println!(
@@ -415,12 +581,33 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Shutdown { end_agents, .. } => {
-            crate::cli::shutdown::run(end_agents, json_out).await
+        Command::Shutdown { end_agents, keep_agents, restart } => {
+            crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
-        Command::Config { show_token } => {
+        Command::Config { show_token, set } => {
             let path = Config::path();
+            if let Some(assignment) = set {
+                let (key, value) =
+                    assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
+                let mut cfg = Config::load()?;
+                cfg.set_session_resource(key, value)?;
+                cfg.save()?;
+                // Refresh the local daemon's cached config before reporting success;
+                // a later defaults/token save must retain these resource settings.
+                // Config is local even when the CLI targets a remote peer.
+                if let Ok(client) =
+                    crate::client::Client::connect(&crate::config::socket_path()).await
+                {
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
+                if json_out {
+                    print_json(&json!({"path": path, "key": key, "value": value}));
+                } else {
+                    println!("set {key}={value} in {}", path.display());
+                }
+                return Ok(());
+            }
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
                     Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
@@ -487,9 +674,140 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
+        Command::Host(PeerCmd::Join {
+            ticket,
+            name,
+            hub,
+            replace,
+            status,
+            peer_name,
+            advertise,
+        }) => {
+            crate::cli::join_input::validate_arguments(
+                ticket.as_deref(),
+                hub.is_some(),
+                replace,
+                status,
+            )?;
+            if status {
+                return crate::cli::cloud_join::status(hub, json_out).await;
+            }
+            // A process-wide file lock protects the check, redeem and commit as one
+            // transaction. A second installer never redeems behind the first one.
+            let _lock = crate::cli::cloud_join::join_lock().map_err(|_| {
+                crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "join.store",
+                    "local machine store is busy or unavailable",
+                )
+                .with_exit(5)
+            })?;
+            let value = match ticket {
+                Some(value) => {
+                    eprintln!("{}", crate::cli::pairing::ARGV_TICKET_WARNING);
+                    zeroize::Zeroizing::new(value)
+                }
+                None => {
+                    let joined = crate::cli::cloud_join::join_incomplete()?
+                        || (!replace && crate::cli::cloud_join::credential_present()?);
+                    match crate::cli::join_input::read_stdin_line(joined)? {
+                        Some(value) => value,
+                        None => {
+                            return crate::cli::cloud_join::join_with_token(
+                                hub, name, replace, json_out, None,
+                            )
+                            .await;
+                        }
+                    }
+                }
+            };
+            if value.starts_with("cmj_") {
+                let token = crate::cli::cloud_join::parse_token_text(&value).map_err(|_| {
+                    crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Usage,
+                        "join.malformed",
+                        "join token is malformed",
+                    )
+                    .with_exit(2)
+                })?;
+                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, Some(token))
+                    .await
+            } else if value.starts_with("cmxt1.") {
+                let ticket = crate::cli::pairing::join_ticket_text(&value)?;
+                let client = connect(true).await?;
+                let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                crate::cli::pairing::join(client, args, json_out).await
+            } else {
+                Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Usage,
+                    "join.malformed",
+                    "join value has an unknown prefix",
+                )
+                .with_exit(2)
+                .into())
+            }
+        }
+        Command::Host(PeerCmd::Consent { cmd }) => {
+            let (screen, control, granted) = match cmd {
+                crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
+                    (screen, control, true)
+                }
+                crate::cli::command_host::ConsentCmd::Revoke { screen, control } => {
+                    (screen, control, false)
+                }
+            };
+            let surface = match (screen, control) {
+                (true, false) => "screen",
+                (false, true) => "control",
+                _ => return Err(anyhow!("use exactly one of --screen or --control")),
+            };
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            let value = client
+                .request(
+                    method::MUX_MACHINE_CONSENT_SET,
+                    json!({"surface":surface,"granted":granted}),
+                )
+                .await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                println!("consent updated: {surface}");
+            }
+            Ok(())
+        }
+        // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
+        Command::Host(PeerCmd::Load) => {
+            let load = crate::host_load::sample().await;
+            print_json(&serde_json::to_value(&load)?);
+            Ok(())
+        }
+        // Only a running daemon's chats: no daemon, no chats to tell.
+        Command::Host(PeerCmd::Notice { text }) => {
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            print_json(&client.request("_acpmux/host_notice", json!({"text": text})).await?);
+            Ok(())
+        }
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
+        // This machine's join: no daemon connection (a daemon that is down is a step).
+        Command::Host(PeerCmd::Doctor { here: true, fix, .. }) => {
+            let print = if json_out {
+                crate::cli::host_join_doctor::Print::Lines
+            } else {
+                crate::cli::host_join_doctor::Print::Human
+            };
+            let code = crate::cli::host_join_doctor::run_here(fix, print, &mut std::io::stdout());
+            if code != 0 {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "unhealthy",
+                    "this machine's join needs attention",
+                )
+                .into());
+            }
+            Ok(())
         }
         Command::Host(cmd) => {
             let client = connect(true).await?;
@@ -497,13 +815,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let has_token = token.is_some();
-                    let mut p = json!({"name": name, "url": url});
-                    if let Some(t) = token {
-                        p["token"] = json!(t);
-                    }
-                    // `wait`: the daemon answers after the first connect attempt
-                    // settled, so the listing shows the real state.
-                    p["wait"] = json!(true);
+                    // Save and start reconnecting without waiting for ssh's
+                    // connect timeout. `host ls` reports the probe result.
+                    let p = peer_add_params(&name, &url, token.as_deref());
                     let reply = client.request("_acpmux/peer_add", p).await?;
                     let connected = reply
                         .get("peers")
@@ -525,34 +839,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
                                 ),
                                 json!({
-                                    "reason": "peer_unreachable",
+                                    "reason": "peer_probing",
                                     "try": "acpmux host ls",
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         };
@@ -607,6 +921,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::Load | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!("machine load and notice are handled before connecting"));
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
@@ -655,7 +972,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
-                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
+                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse, .. } => {
+                    let target = target.unwrap_or_default();
                     let peers = client.request("_acpmux/peers", json!({})).await?;
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -677,9 +995,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { ticket, name, peer_name, advertise } => {
-                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-                    return crate::cli::pairing::join(client, args, json_out).await;
+                PeerCmd::Join { .. } | PeerCmd::Consent { .. } => {
+                    return Err(anyhow!(
+                        "host join and consent are handled before daemon connection"
+                    ));
                 }
             };
             if json_out {
@@ -724,7 +1043,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::Stdio { .. }
         | Command::CliAgent { .. }
         | Command::UniichatAgent { .. }
-        | Command::Session(_)
         | Command::Daemon(_)
         | Command::Harness(_) => {
             unreachable!()
@@ -791,4 +1109,46 @@ fn config_text_without_tokens(text: &str) -> String {
         }
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{peer_add_params, resume_moves_off};
+    use serde_json::json;
+
+    #[test]
+    fn resume_moves_a_stopped_chat_off_a_machine_a_person_works_at_and_nothing_else() {
+        for status in ["closed", "idle", "disconnected"] {
+            let info = json!({"status": status, "peer": null, "turn": null, "movedTo": null});
+            assert!(resume_moves_off(&info, true), "{status}");
+            assert!(!resume_moves_off(&info, false), "{status}: a fleet host resumes in place");
+        }
+        // A live agent, a turn, a peer's chat, one moving or moved away: resumed where it is.
+        for info in [
+            json!({"status": "ready"}),
+            json!({"status": "running"}),
+            json!({"status": "waiting"}),
+            json!({"status": "idle", "turn": {"turnId": "t"}}),
+            json!({"status": "closed", "peer": "gcp-1"}),
+            json!({"status": "closed", "moving": true}),
+            json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "m"}}),
+        ] {
+            assert!(!resume_moves_off(&info, true), "{info}");
+        }
+    }
+
+    #[test]
+    fn host_add_saves_without_waiting_for_the_first_probe() {
+        let params = peer_add_params("blackhole", "ssh://192.0.2.10", None);
+        assert_eq!(params["wait"], false);
+        assert_eq!(params["name"], "blackhole");
+        assert_eq!(params["url"], "ssh://192.0.2.10");
+    }
+
+    #[test]
+    fn host_add_keeps_a_supplied_peer_token() {
+        let params = peer_add_params("peer", "wss://peer.example", Some("secret"));
+        assert_eq!(params["token"], "secret");
+        assert_eq!(params["wait"], false);
+    }
 }

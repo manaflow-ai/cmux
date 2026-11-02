@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -18,7 +19,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
+    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll).
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self,
+                                                      pageCommandScroll: services.cache.cef)
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -45,9 +48,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
-    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
-    var pendingCreate: Task<Void, Never>?
+    /// The last key-turn pane create (Cmd-D's split, New Column, New Row) still sending: the next one sends after
+    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`, `PaneHandlers.split`).
+    var pendingCreate: ActionWork?
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
@@ -150,8 +153,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
             // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
-            // So does every empty workspace in cmux Classic Mode (`tabs.terminalFirst`, #23021).
-            if !NewTabKind.terminalFirst(services), services.agentTabs.opensFirstPage(on: daemon) {
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -249,6 +251,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
     }
 
+    /// Applies the store's layout when it changed since the last apply (a pane's strip observation calls it first).
+    func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
+
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
@@ -264,6 +269,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
+                syncStaleStrips()
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -288,6 +294,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        syncStaleStrips() // a moved tab is in its new pane only before the topology: focus follows it in this turn
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
@@ -395,6 +402,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if panes.count == 1, services.apps.isStoreWaiting {
             let apps = services.apps
             Task { apps.windowDidShowContent() }
+        }
+        // So does a link from another app that waited for a workspace made to hold it (#27897):
+        // the workspace shows before its first pane mounts.
+        if panes.count == 1, !services.externalOpen.pending.isEmpty {
+            let open = services.externalOpen
+            Task { open.flush() }
         }
         return controller.view
     }

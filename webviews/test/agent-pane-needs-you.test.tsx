@@ -178,8 +178,13 @@ test("a waiting chat shows the question or permission it waits on, never its las
   );
   expect(html).toContain("Which branch should the release start from?");
   // A question reads as a question, a permission as a permission.
-  expect(html.split(translate("needsYou.waiting")).length - 1).toBe(2);
-  expect(html.split(translate("needsYou.waitingPermission")).length - 1).toBe(1);
+  const labelsDom = new JSDOM(html);
+  const askLabels = [...labelsDom.window.document.querySelectorAll(".acpmux-needs-you-ask")].map(
+    (node) => node.textContent,
+  );
+  labelsDom.window.close();
+  expect(askLabels.filter((label) => label === translate("needsYou.waiting"))).toHaveLength(2);
+  expect(askLabels.filter((label) => label === translate("needsYou.waitingPermission"))).toHaveLength(1);
   expect(html).toContain(translate("needsYou.kind.decision"));
   expect(html).toContain(translate("needsYou.kind.approval"));
   for (const said of ["I compared both branches.", "Here is the plan.", "Running the suite now.", "Drafted the notes."])
@@ -650,7 +655,7 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
         sessions: [session("here"), session("other")],
         asks: [
           ask("here", permission({ permissionId: "p-here" }), 2),
-          ask("other", permission({ permissionId: "p-other" }), 1),
+          ask("other", permission({ permissionId: "p-other", turnId: "target-turn" }), 1),
         ],
       },
       callNative,
@@ -698,9 +703,43 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
     return null;
   }
   await act(async () => root!.render(<Refused />));
+  const sourceRow = document.createElement("div");
+  sourceRow.dataset.turnId = "target-turn";
+  let sourceReveals = 0;
+  sourceRow.scrollIntoView = () => {
+    sourceReveals += 1;
+  };
+  host.append(sourceRow);
   calls.length = 0;
   refused!.goTo(other);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls).toEqual(["chat.asks.open:other"]);
   expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
+  expect(sourceReveals).toBe(0);
+});
+
+test("the opt-in pill excludes peer and unknown target sessions", async () => {
+  const host = installDom();
+  let pillCount: number | undefined;
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: [session("here"), session("peer", { peer: "build-box" })],
+        asks: [
+          ask("here", permission({ permissionId: "p-here" }), 2),
+          ask("peer", permission({ permissionId: "p-peer" }), 1),
+          ask("unknown", permission({ permissionId: "p-unknown" }), 0),
+        ],
+      },
+      callNative: (async () => undefined) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>,
+      sideSession: async () => undefined,
+    });
+    pillCount = needsYou.pill?.count;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  expect(pillCount).toBe(1);
 });

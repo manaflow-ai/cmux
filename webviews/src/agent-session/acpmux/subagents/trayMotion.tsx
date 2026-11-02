@@ -1,15 +1,15 @@
 // The tray's motion (SubagentTray.tsx), on the same train as the transcript's (Leo 2026-10-26: "Like
 // why is this not animating and, like, following along with the exact same things as everything
-// else?"). Its tokens are the new message's: a live row's entrance (conversation.css `cv-enter`, a
-// fade and a 4px rise on `--agent-motion-in` and `--agent-ease-out`), and `--agent-motion-out` for
-// what leaves; trayMotion.experiment.ts compares two other curves in the gallery.
+// else?"). Its tokens are the new message's opacity-only entrance (conversation.css
+// `cv-enter-fade`) and `--agent-motion-out` for what leaves; trayMotion.experiment.ts compares two
+// other curves in the gallery.
 // - The card eases in when it appears in a chat that already showed without it (the first subagent,
 //   command or chat starting), never when a chat opens with work already running.
 // - It leaves on a kept snapshot: when the last line goes, the card's node is copied in place, over
 //   the bottom stack, and the copy fades and sinks while the real card is already gone, so nothing
 //   waits on the motion and the stack takes its new height at once. A chat switch plays nothing.
-// - Its header's words tick (`Tick`): "2 running" turns to "3 running" with the old words leaving up
-//   and the new rising in, never a jump.
+// - Its header's words tick (`Tick`): "2 running" turns to "3 running" with the old words fading out
+//   and the new fading in, never a positional jump.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
 import { useCallback, useRef, useState, type ReactNode } from "react";

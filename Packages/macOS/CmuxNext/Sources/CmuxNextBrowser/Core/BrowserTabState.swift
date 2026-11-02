@@ -66,6 +66,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// A load ended in this tab (finished, stopped or failed): any later load is one the page or
     /// the user started, never the tab's own opening load.
     public var hasEndedLoad = false
+    /// Where the shown page last said its scrolling settled (``BrowserScrollReport``); nil until it scrolls.
+    public var scrollReport: BrowserScrollReport?
 
     public init(
         url: URL? = nil,

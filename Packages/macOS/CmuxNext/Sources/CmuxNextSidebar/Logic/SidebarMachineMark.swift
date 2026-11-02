@@ -2,13 +2,13 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The computer a workspace row runs on (machine identity): its icon, small
-/// and in its color (MachineColor), before the row's name, and its name in the
-/// row's label, so rows on different machines tell apart at a glance. Rows
+/// The computer a workspace row runs on (machine identity): its icon, a status
+/// mark's size in one neutral colour, in the row's trailing column, and its name
+/// in the row's label, so rows on different machines tell apart at a glance. Rows
 /// draw it while the sidebar lists more than one machine; this Mac's rows
 /// only with `sidebar.showLocalMachine` (off by default: another machine is the news).
 public nonisolated struct SidebarMachineMark: Hashable, Sendable {
-    /// The machine's name: the label and the color's key.
+    /// The machine's name: the label.
     public var name: String
     public var kind: SidebarMachine.Kind
     /// The machine's own icon, when it is an SF Symbol or an emoji; with neither, its kind's
@@ -34,7 +34,4 @@ public nonisolated struct SidebarMachineMark: Hashable, Sendable {
         case .ssh, .server: .machineRemote
         }
     }
-
-    /// The machine's color in the active theme.
-    @MainActor var color: NSColor { MachineColor(name: name).color }
 }

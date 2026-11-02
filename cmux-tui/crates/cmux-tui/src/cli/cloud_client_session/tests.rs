@@ -380,3 +380,68 @@ fn an_unreadable_credential_file_is_not_named() {
     let error = resolve(&command, |_| None).unwrap_err();
     assert!(!error.contains("s3cret"), "{error}");
 }
+
+#[test]
+fn quiet_prints_nothing_and_jsonl_prints_one_json_line() {
+    // --quiet: create prints nothing, so the minted token never reaches stdout.
+    let (origin, _requests) = fake(1);
+    let command = parse(&strings(&["create", "--target", VM])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(run(&command, &origin, "cred", OutputMode::Quiet, &mut out, &mut err), Ok(0));
+    assert!(out.is_empty() && err.is_empty(), "{out:?} {err:?}");
+    // --jsonl: create prints the same single JSON object as --json.
+    let (origin, _requests) = fake(1);
+    let mut out = Vec::new();
+    assert_eq!(
+        run(&command, &origin, "cred", OutputMode::JsonLines, &mut out, &mut Vec::new()),
+        Ok(0)
+    );
+    let printed = String::from_utf8(out).unwrap();
+    assert_eq!(printed.lines().count(), 1, "{printed}");
+    let value: Value = serde_json::from_str(printed.trim_end()).unwrap();
+    assert_eq!(value["token"], json!(TOKEN));
+    // --quiet exec: no stdout, stderr and the exit code still pass through.
+    let (origin, _requests) = fake(2);
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(run(&command, &origin, "cred", OutputMode::Quiet, &mut out, &mut err), Ok(3));
+    assert!(out.is_empty(), "{out:?}");
+    assert_eq!(String::from_utf8(err).unwrap(), "warn\n");
+    // --jsonl exec: one JSON object.
+    let (origin, _requests) = fake(2);
+    let mut out = Vec::new();
+    assert_eq!(
+        run(&command, &origin, "cred", OutputMode::JsonLines, &mut out, &mut Vec::new()),
+        Ok(3)
+    );
+    let value: Value = serde_json::from_str(String::from_utf8(out).unwrap().trim_end()).unwrap();
+    assert_eq!(value["exit_code"], json!(3));
+}
+
+#[test]
+fn quiet_create_still_writes_the_token_file_and_refuses_a_secret_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    // The file is written, private, while nothing is printed.
+    let path = dir.path().join("token");
+    let command =
+        parse(&strings(&["create", "--target", VM, "--token-file", path.to_str().unwrap()]))
+            .unwrap();
+    let (origin, _requests) = fake(1);
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(run(&command, &origin, "cred", OutputMode::Quiet, &mut out, &mut err), Ok(0));
+    assert!(out.is_empty() && err.is_empty(), "{out:?} {err:?}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("{TOKEN}\n"));
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    // A path that holds the credential is refused under --quiet too, before anything is written.
+    let secret = dir.path().join("cred-secret.token");
+    let command =
+        parse(&strings(&["create", "--target", VM, "--token-file", secret.to_str().unwrap()]))
+            .unwrap();
+    let (origin, _requests) = fake(1);
+    let error =
+        run(&command, &origin, "cred-secret", OutputMode::Quiet, &mut Vec::new(), &mut Vec::new())
+            .unwrap_err();
+    assert!(!error.contains("cred-secret"), "{error}");
+    assert!(!secret.exists());
+}

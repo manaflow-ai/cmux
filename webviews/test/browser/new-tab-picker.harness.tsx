@@ -20,6 +20,7 @@ import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/composerLocation.css";
+import "../../src/agent-session/acpmux/composerFooterShared.css";
 import "../../src/agent-session/acpmux/modelPicker.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 
@@ -85,6 +86,22 @@ createRoot(root).render(
       onJump={noop}
       onOpenSession={noop}
       onShowAll={noop}
+      {...(query.has("crowdedSuggestions")
+        ? {
+            onCreate: noop,
+            omnibar: {
+              tabs: [],
+              workspaces: [],
+              sessions: [],
+              folders: [],
+              commands: [],
+              history: Array.from({ length: 4 }, (_, index) => ({
+                url: `https://example.com/project-${index}`,
+                title: `Project notes ${index + 1}`,
+              })),
+            },
+          }
+        : {})}
     />
     <div className="pager" style={{ flex: "none", height: 40 }} />
   </QueryClientProvider>,

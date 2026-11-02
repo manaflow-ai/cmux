@@ -909,3 +909,89 @@ async fn the_unix_socket_starts_a_folder_profile_bridge_in_read_only() {
     assert_eq!(agent.mode(&id).await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+impl Client {
+    /// The connection an agent's tools open: `initialize` with session `id`'s caller token.
+    async fn as_session(hub: &Arc<Hub>, id: &str) -> Self {
+        let mut c = Self::new(hub, Origin::Local, ConnAuth::LocalSocket);
+        let token = acpmux::hub::person::caller_token(id);
+        let r = c
+            .call(
+                "initialize",
+                json!({"protocolVersion": 1,
+                       "_meta": {"acpmux": {"callerSession": {"sessionId": id, "token": token}}}}),
+            )
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
+    }
+
+    /// A new chat from preset `preset`: its id.
+    async fn preset_chat(&mut self, dir: &Path, preset: &str) -> String {
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"preset": preset}}});
+        let r = self.call("session/new", params).await;
+        r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned()
+    }
+}
+
+/// cmux#27847: the Chief host (a unix socket client, not the person) starts each subagent from its
+/// built-in preset `optchat-sub-<home id>`, which names no mode. A preset's chat took no start
+/// mode, so every subagent ran in Claude Code's asking `default` (acpmux's approve-all answering
+/// each prompt), and every chat a subagent started inherited it: the mode picker read Manual. A
+/// built-in subagent preset starts at the person's start level, as a plain `acpmux new` does, and
+/// a chat the subagent starts inherits that. Chief's turn preset and a person's own preset keep
+/// the harness's own mode.
+#[tokio::test]
+async fn chief_subagent_chats_start_at_the_person_start_level() {
+    let presets = json!({
+        "optchat-sub-0a1b2c3d": {"harness": "claude", "policy": "approve-all"},
+        "optchat-sub-0a1b2c3d-claude": {"harness": "claude", "policy": "approve-all"},
+        "optchat-chief-0a1b2c3d": {"harness": "claude", "policy": "approve-all"},
+        "p": {"harness": "claude", "policy": "approve-all"},
+    });
+    let dir = home("chief-sub", json!({"defaultPermissionMode": "fullAccess", "presets": presets}));
+    let daemon = hub(&dir);
+    let mut chief = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+
+    let sub = chief.preset_chat(&dir, "optchat-sub-0a1b2c3d").await;
+    assert_eq!(chief.mode(&sub).await, "bypassPermissions");
+    let other = chief.preset_chat(&dir, "optchat-sub-0a1b2c3d-claude").await;
+    assert_eq!(chief.mode(&other).await, "bypassPermissions");
+    // What the app's New Agent Chat would read for it says the same.
+    let r = chief
+        .call(
+            "_acpmux/start_mode",
+            json!({"preset": "optchat-sub-0a1b2c3d", "cwd": dir.join("work")}),
+        )
+        .await;
+    assert_eq!(r["result"]["modeId"], "bypassPermissions", "{r}");
+
+    // A chat the subagent starts (agents_chat_new in the same acpmux) inherits its level.
+    let mut agent = Client::as_session(&daemon, &sub).await;
+    let (child, mode) = agent.chat(&dir, "claude").await;
+    assert_eq!(mode, "bypassPermissions", "{child}");
+
+    // Chief's own turn and a person's preset keep the harness's own mode.
+    let turn = chief.preset_chat(&dir, "optchat-chief-0a1b2c3d").await;
+    assert_eq!(chief.mode(&turn).await, "default");
+    let own = chief.preset_chat(&dir, "p").await;
+    assert_eq!(chief.mode(&own).await, "default");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cmux#27847: the person's start level still rules a Chief subagent: `ask` starts it in the
+/// mode that asks, and the subagent cannot widen itself afterwards.
+#[tokio::test]
+async fn chief_subagent_chats_follow_an_asking_start_level() {
+    let presets = json!({"optchat-sub-0a1b2c3d": {"harness": "codex", "policy": "approve-all"}});
+    let dir = home("chief-sub-ask", json!({"defaultPermissionMode": "ask", "presets": presets}));
+    let daemon = hub(&dir);
+    let mut chief = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let sub = chief.preset_chat(&dir, "optchat-sub-0a1b2c3d").await;
+    assert_eq!(chief.mode(&sub).await, "ask");
+    let r = chief
+        .call("session/set_mode", json!({"sessionId": sub, "modeId": "agent-full-access"}))
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

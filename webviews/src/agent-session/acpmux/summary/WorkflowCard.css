@@ -21,6 +21,37 @@
   text-align: start;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
+.acpmux-workflow-card-wrap {
+  position: relative;
+  width: min(100%, 360px);
+}
+.acpmux-workflow-card-wrap .acpmux-workflow-card {
+  width: 100%;
+}
+.acpmux-workflow-card__side-tab {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: var(--layer-raised);
+  display: grid;
+  place-items: center;
+  width: calc(var(--ds-control-icon) + 2px);
+  height: calc(var(--ds-control-icon) + 2px);
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-card__side-tab:hover,
+.acpmux-workflow-card__side-tab:focus-visible {
+  background: var(--acpmux-pill-hover);
+  color: var(--agent-text);
+}
+.acpmux-workflow-card__side-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 .acpmux-workflow-card:hover:not(:disabled) {
   background: color-mix(in oklab, currentColor 5%, transparent);
 }
@@ -34,6 +65,7 @@
   gap: 8px;
   min-width: 0;
   line-height: 20px;
+  padding-right: var(--ds-control-row);
 }
 .acpmux-workflow-card__head > svg {
   flex: none;

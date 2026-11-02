@@ -4,7 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close [--report-closed-ids]
@@ -37,6 +37,8 @@ USAGE
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --remote <host> [--name <value>]
+  cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
@@ -56,8 +58,14 @@ Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
-the session closes at its next start. Workspace groups and rooms are
-personal: they live in this Mac's home session. A group or room is named by
+the session closes at its next start. --top puts the new workspace first in
+the sidebar (below Home), whatever workspaces.newPlacement says. move
+--index <n> moves a workspace to place n of list (the sidebar order) and
+in the session order; it stays in its section and group. Workspace groups and rooms are
+personal: they live in this Mac's home session. --remote makes a remote
+group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
+user@host) and its new workspaces run there. --parent makes a group inside
+<group>. A group or room is named by
 its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's

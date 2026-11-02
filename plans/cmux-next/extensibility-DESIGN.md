@@ -280,7 +280,7 @@ Id-specific code also exists for `cmux/memory` (`AgentMemorySearchHandler.swift:
 | Devices | phoneAccess, globalHotKey | settings keys |
 | Sidebar | **priorityView**, workspaceTabs, hoverCards, comfortable, expanded, minimal, sessionTree, timestamps, groupByComputer | settings keys |
 | Browser | agentCursor, bookmarksBar, fullURLs, verificationCodes | settings keys |
-| Layout | focusFollowsMouse, terminalFirst | settings keys |
+| Layout | focusFollowsMouse | settings keys |
 | Sidebar items | chief, home, notifications, history, bookmarks, search_chats, new_terminal, new_browser, new_agent_chat, customize | `.sidebarItem` cases of the `SidebarBuiltIn` enum (edit `sidebar.layout`) |
 
 Each entry is a hard-coded `if` somewhere in the app: the feature's own code reads its key (for

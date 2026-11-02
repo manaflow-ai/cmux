@@ -12,6 +12,7 @@ import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
+import type { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
@@ -87,6 +88,10 @@ export interface Env {
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
   readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
+  /** ACP chat trajectories kept outside Cloud VMs, one object per team and machine (cloud-trajectory.ts, #25584). */
+  readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
+  /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
+  readonly CLOUD_TRAJECTORIES_ENABLED?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**
@@ -126,6 +131,23 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /**
+   * `upstash` runs new Chief jobs (`chief-auto`) on Upstash Workflow (chief-brain-cc/jobs-upstash.ts): the
+   * records in each team's `<team>/chief-jobs` brain object, a QStash schedule per cron job, a workflow run
+   * per fire, and webhook and provider-event (CI failed) triggers. Anything else (the default) keeps them on
+   * the SchedulerDO. Needs all four settings below; with any missing, jobs stay on the SchedulerDO. Jobs made
+   * on the SchedulerDO keep running there either way.
+   */
+  readonly CHIEF_JOBS_ENGINE?: string
+  /** This Worker's public URL of POST /v1/hooks/upstash/chief-job (where QStash delivers each fire). */
+  readonly CHIEF_JOBS_WORKFLOW_URL?: string
+  /** Secret: the QStash token of the cmux Upstash account. */
+  readonly QSTASH_TOKEN?: string
+  /** Optional QStash API origin (a regional or local QStash). */
+  readonly QSTASH_URL?: string
+  /** Secrets: QStash's request signing keys; every workflow request is verified with them. */
+  readonly QSTASH_CURRENT_SIGNING_KEY?: string
+  readonly QSTASH_NEXT_SIGNING_KEY?: string
   /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
   readonly CREDITS_TOPUP_MIN_USD?: string
   readonly CREDITS_TOPUP_MAX_USD?: string
@@ -144,8 +166,16 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" turns automatic pauses of Freestyle VMs back on (auto-pause.ts); anything else, or unset, = off (Leo, 2026-10-30). */
+  readonly CLOUD_IDLE_PAUSE?: string
   /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
   readonly PLATFORM_MACHINES?: string
+  /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
+  readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -178,6 +208,9 @@ export interface Env {
   readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
   /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
   readonly CHIEF_CREDITS_MARGIN?: string
+  /** Paid model calls one chief may start per minute / per hour (credits.ts chiefCallCap; defaults 120 / 2400; never off). */
+  readonly CHIEF_MODEL_CALLS_PER_MINUTE?: string
+  readonly CHIEF_MODEL_CALLS_PER_HOUR?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
   /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
@@ -212,6 +245,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
+  /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
+  readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
@@ -373,11 +408,13 @@ export interface Env {
   /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
   readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
   readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
-  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  /** Presigned PUTs for large files from clients that do not send parts: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = such clients stream through the Worker. */
   readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
   readonly HOME_ATTACHMENTS_S3_BUCKET?: string
   readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
   readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** The largest request body this Worker's zone accepts, in bytes (decimal digits): 100 MB on Free and Pro (the default), 200 MB on Business, 500 MB on Enterprise. */
+  readonly HOME_ATTACHMENT_WORKER_BODY_BYTES?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
