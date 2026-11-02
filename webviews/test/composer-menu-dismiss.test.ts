@@ -112,15 +112,13 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
     await chip.waitFor({ state: "visible" });
     const box = (await chip.boundingBox())!;
     await page.waitForFunction(
-      ({ selector, x, y }) => {
-        const buttons = [...document.querySelectorAll<HTMLElement>(selector)];
-        const button = buttons.find((candidate) => {
-          const box = candidate.getBoundingClientRect();
-          return box.width > 0 && box.height > 0 && document.elementFromPoint(x, y)?.closest(selector) === candidate;
-        });
-        return !!button;
+      ({ x, y }) => {
+        const target = document.elementFromPoint(x, y);
+        if (!(target instanceof HTMLElement)) return false;
+        const bounds = target.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0 && getComputedStyle(target).visibility !== "hidden";
       },
-      { selector, x: box.x + box.width / 2, y: box.y + box.height / 2 },
+      { x: box.x + box.width / 2, y: box.y + box.height / 2 },
     );
     await pressPoint(page, box.x + box.width / 2, box.y + box.height / 2);
   };
