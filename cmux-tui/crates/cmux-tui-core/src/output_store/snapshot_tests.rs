@@ -150,6 +150,7 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
         2,
         (80, 24),
+        true,
         false,
         true,
         false,
@@ -160,14 +161,14 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
     let _ = std::fs::remove_dir_all(&root);
     assert!(!wants, "the pass right after a failed write asks for a snapshot again");
     // The failed append may have left a cut frame: nothing more goes behind
-    // it, the next snapshot starts the tail again, the bytes wait for it.
+    // it, the next snapshot starts the tail again and covers the bytes.
     assert_eq!(tail_end, None);
     assert!(force);
-    assert_eq!(pending, 6);
+    assert_eq!(pending, 0);
 }
 
-/// Bytes held as redraws stay bounded (8 MiB) while no snapshot can replace
-/// them; past the cap the tail stops and a snapshot is asked for.
+/// Bytes held as redraws stay bounded (the idle cap) while no snapshot can
+/// replace them; past the cap the tail stops and a snapshot is asked for.
 #[test]
 fn held_redraw_bytes_stay_bounded() {
     let directory = directory("bounded");

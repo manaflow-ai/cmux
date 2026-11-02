@@ -35,6 +35,9 @@ const FRAME_HEADER_BYTES: usize = 16;
 const MAX_TAIL_FILE_BYTES: u64 = 64 * 1024 * 1024;
 /// The largest raw frame a reader accepts.
 const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
+/// `CAN` (aborts a control string) and a final Kitty chunk (ends a chunked
+/// upload): what a restore writes when its screen ends inside an upload.
+const UNFINISHED_UPLOAD_END: &[u8] = b"\x18\x1b_Gm=0;\x1b\\";
 /// Scrollback of the scratch terminal a restore rebuilds in.
 const REBUILD_SCROLLBACK_BYTES: usize = 10_000_000;
 
@@ -253,7 +256,17 @@ fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
     terminal.vt_write(tail);
     // Room for the respawn's marker line and mode reset.
     let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
-    let bytes = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
+    let replay = match terminal.vt_replay_bounded(budget) {
+        Ok(replay) => replay,
+        Err(_) => {
+            // The tail ends inside an upload too large to replay (the lost
+            // program never ended it): abort the control string and end the
+            // upload; the screen's text stays, the half-sent image goes.
+            terminal.vt_write(UNFINISHED_UPLOAD_END);
+            terminal.vt_replay_bounded(budget).ok()?
+        }
+    };
+    let bytes = replay.into_self_contained_bytes();
     Some(TerminalReplay { cols, rows, bytes })
 }
 

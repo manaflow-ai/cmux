@@ -89,6 +89,11 @@ const TAIL_IDLE_BYTES: usize = 1024 * 1024;
 /// Snapshot mode: unwritten tail bytes one terminal keeps while its writes
 /// fail; past it the oldest go and the next snapshot starts the tail again.
 const TAIL_MAX_UNWRITTEN_BYTES: usize = 8 * 1024 * 1024;
+/// Snapshot mode: how long a resized terminal's size must hold before its
+/// snapshot at the new size is written. Output in that window is not in the
+/// tail (it continues a snapshot of the old size): the most a kill loses
+/// right after a resize.
+const RESIZE_SETTLE: Duration = Duration::from_secs(1);
 /// The first and the longest wait before a snapshot is tried again after a
 /// failed write.
 const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
@@ -279,6 +284,10 @@ struct LogState {
     /// (a full disk must not cost a whole replay per terminal every pass).
     retry_at: Option<Instant>,
     retry_delay: Duration,
+    /// Snapshot mode: the size the last capture saw and since when; a
+    /// resized terminal is snapshotted once its size has held for
+    /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
+    size_seen: Option<((u16, u16), Instant)>,
 }
 
 impl LogState {
@@ -311,6 +320,32 @@ impl LogState {
             store_error: false,
             retry_at: None,
             retry_delay: Duration::ZERO,
+            size_seen: None,
+        }
+    }
+
+    /// Snapshot mode: the unwritten bytes cannot continue the tail (a gap, a
+    /// failed write, a flood past the cap, a resize, an unknown privacy).
+    /// They are dropped: the next snapshot is taken from the live terminal
+    /// and covers their effect on the screen and its recent history, so
+    /// nothing waits in memory for it.
+    fn fall_back_to_snapshot(&mut self) {
+        self.pending = Vec::new();
+        self.pending_start = self.next_offset();
+        self.tail_end = None;
+        self.tail_digest = None;
+        self.force_snapshot = true;
+    }
+
+    /// Record the size a capture saw; whether it has held for
+    /// [`RESIZE_SETTLE`].
+    fn note_size(&mut self, size: (u16, u16)) -> bool {
+        match self.size_seen {
+            Some((seen, since)) if seen == size => since.elapsed() >= RESIZE_SETTLE,
+            _ => {
+                self.size_seen = Some((size, Instant::now()));
+                false
+            }
         }
     }
 
@@ -1127,8 +1162,13 @@ impl OutputStore {
                 None => {
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     state.dirty = true;
-                    // Bounded while the registry cannot place the terminal.
-                    state.cap_pending(TAIL_MAX_UNWRITTEN_BYTES);
+                    // Bounded while the registry cannot place the terminal
+                    // (snapshot mode: the snapshot covers the bytes).
+                    if self.tail_enabled() {
+                        state.fall_back_to_snapshot();
+                    } else {
+                        state.cap_pending(TAIL_MAX_UNWRITTEN_BYTES);
+                    }
                     unknown = true;
                     false
                 }

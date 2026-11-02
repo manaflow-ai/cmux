@@ -35,8 +35,11 @@ use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 /// cursor the replay just set, not an older one (the marker line otherwise
 /// overwrote a row of the previous screen). Each screen keeps its own saved
 /// cursor, so after a full-screen program the primary cursor still returns.
+/// `CAN` first: a screen that ends inside a control string (a Kitty upload
+/// the lost program never ended) would otherwise swallow the reset and the
+/// marker line; outside one it does nothing.
 const MODE_RESET: &[u8] =
-    b"\x1b7\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>";
+    b"\x18\x1b7\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>";
 /// Room the marker line and mode reset need in the seed.
 const MARKER_HEADROOM_BYTES: usize = 4 * 1024;
 /// The most rows above the cursor an agent's input frame is taken to span.
@@ -227,7 +230,8 @@ pub(in crate::mux) fn respawn_seed_without_frame(
         (Some(previous), Some(up)) => (previous, up),
         (previous, _) => return respawn_seed(previous, marker),
     };
-    seed.extend_from_slice(b"\r");
+    // `CAN`: out of a control string the screen may end in (see MODE_RESET).
+    seed.extend_from_slice(b"\x18\r");
     if up > 0 {
         seed.extend_from_slice(format!("\x1b[{up}A").as_bytes());
     }
@@ -269,7 +273,7 @@ mod tests {
     fn the_seed_is_the_screen_then_one_dim_marker_line_within_the_bound() {
         let seed = respawn_seed(Some(b"old screen".to_vec()), Some("restored"));
         let text = String::from_utf8(seed).unwrap_or_default();
-        assert!(text.starts_with("old screen\x1b7\x1b[?1049l"), "{text:?}");
+        assert!(text.starts_with("old screen\x18\x1b7\x1b[?1049l"), "{text:?}");
         assert!(text.ends_with("\r\n\x1b[2mrestored\x1b[0m\r\n"), "{text:?}");
 
         let alone = respawn_seed(None, Some("restored"));

@@ -251,10 +251,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             && !plan.tail_continues
             && let Some(wait) = plan.retry_wait
         {
-            log.state
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            log.state.lock().unwrap_or_else(PoisonError::into_inner).fall_back_to_snapshot();
             store.mark_log_dirty_after(&log, wait);
             digests.push((log, None));
             continue;
@@ -279,12 +276,12 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 // replay that chunk twice with the tail.
                 let settled =
                     surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0);
-                let (generation, end) = {
-                    let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                    (state.generation.clone(), state.next_offset())
+                let (generation, end, size_settled) = {
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    (state.generation.clone(), state.next_offset(), state.note_size(size))
                 };
                 let seen = Seen { digest, settled, end, size: Some(size) };
-                if !plan.wants_snapshot(digest, size, full, tail, quitting) {
+                if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
                 if !settled {
@@ -455,10 +452,12 @@ impl Plan {
     }
 
     /// Whether this pass writes the terminal's snapshot.
+    /// `size_settled`: the terminal's size has held for `RESIZE_SETTLE`.
     fn wants_snapshot(
         &self,
         digest: u64,
         size: (u16, u16),
+        size_settled: bool,
         full: bool,
         tail: bool,
         quitting: bool,
@@ -477,9 +476,17 @@ impl Plan {
         if self.retry_wait.is_some() && !quitting {
             return false;
         }
+        let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
+        // A resized terminal waits until its new size holds (a divider drag
+        // writes one snapshot at its end, not one per pass), whatever else
+        // asks for one; quit does not wait.
+        let resized = !new_generation && self.snapshot_size != Some(size);
+        if resized && !size_settled && !quitting {
+            return false;
+        }
         self.force
-            || self.snapshot_generation.as_deref() != Some(&*self.generation)
-            || self.snapshot_size != Some(size)
+            || new_generation
+            || resized
             || (changed && self.interval_due)
             || self.tail_bytes >= super::TAIL_MAX_BYTES
             || self.pending >= super::TAIL_IDLE_BYTES
@@ -576,8 +583,11 @@ fn flush_tail(
             if state.pending.is_empty() && seen.settled && seen.end == state.pending_start {
                 state.tail_digest = Some(seen.digest);
             }
-            // Held bytes stay bounded while snapshots cannot be written.
-            state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            // Held redraws past the idle cap (a snapshot would replace them,
+            // but none can be written now): the snapshot covers them.
+            if state.pending.len() >= super::TAIL_IDLE_BYTES {
+                state.fall_back_to_snapshot();
+            }
             if state.tail_unsynced {
                 if sync_due {
                     state.tail_unsynced = false;
@@ -602,8 +612,7 @@ fn flush_tail(
             // The bytes do not continue the stored snapshot: the next pass
             // writes one (it covers them). Bounded while snapshot writes
             // fail: the snapshot holds the screen, not these bytes.
-            state.force_snapshot = true;
-            state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            state.fall_back_to_snapshot();
             let wait = state.retry_wait();
             drop(state);
             match wait {
@@ -612,6 +621,14 @@ fn flush_tail(
             }
             return;
         };
+        // A flood past the cap (the writer fell behind): not one huge frame,
+        // the snapshot covers it.
+        if state.pending.len() > super::TAIL_MAX_UNWRITTEN_BYTES {
+            state.fall_back_to_snapshot();
+            drop(state);
+            store.mark_log_dirty(log);
+            return;
+        }
         (state.generation.clone(), base, state.pending_start, state.pending.clone(), sync_due)
     };
     let (generation, base, start, bytes, sync) = job;
@@ -658,10 +675,7 @@ fn flush_tail(
             // A failed append can leave a cut frame, which ends every read of
             // the file: nothing more goes behind it. The next snapshot
             // starts the tail again; the bytes wait for it, bounded.
-            state.tail_end = None;
-            state.tail_digest = None;
-            state.force_snapshot = true;
-            state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            state.fall_back_to_snapshot();
             // One backoff step per pass (the snapshot write may have taken it).
             let wait = state.retry_wait().unwrap_or_else(|| state.store_failed());
             drop(state);
