@@ -21,10 +21,21 @@ mkdir -p "$out"
 trap 'rm -rf "$out"' EXIT
 "$py" "$kit/tuikit.py" gradient --seed 1 --size 160x48 --duration 5 --log "$out/frames.jsonl" >/dev/null
 "$py" - "$out/frames.jsonl" <<'EOF'
-import json, sys
+import json, os, sys
 frames = [e for e in map(json.loads, open(sys.argv[1])) if e["ev"] == "frame"]
 late = sorted(e["late_ms"] for e in frames)
 over = sum(1 for v in late if v > 1000 / 120)
-print("TUI-KIT-PACE frames=%d in 5 s (target 600) late_over_one_frame=%d max_late_ms=%.2f" % (len(frames), over, late[-1] if late else 0))
+pct = lambda q: late[min(len(late) - 1, int(q * len(late)))] if late else 0
+# A background-class process (darwin_bg) gets coalesced timers: its sleeps end late. A program in a cmux
+# terminal runs at the default class, so read this pace with the step's class in mind.
+try:
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    bg = libc.getpriority(4, 0)  # PRIO_DARWIN_PROCESS: 0x1000 when the process is background
+    nice = os.getpriority(os.PRIO_PROCESS, 0)
+except (OSError, AttributeError):
+    bg, nice = "?", "?"
+print("TUI-KIT-PACE frames=%d in 5 s (target 600) late_over_one_frame=%d late_ms p50=%.2f p95=%.2f max=%.2f "
+      "darwin_bg=%s nice=%s" % (len(frames), over, pct(0.5), pct(0.95), late[-1] if late else 0, bg, nice))
 EOF
 exit "$status"
