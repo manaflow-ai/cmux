@@ -154,17 +154,13 @@ struct CloudMove {
             toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
-        // The Cloud API's answer for this app on the link in use, read now and never kept: the
-        // machine takes the chat only on `owner`, never on its own record (its agents can write it).
-        // The answer is bound to the link process it came from (`--to-pid`): the pump sends it
-        // only over a connection that process serves, so a link replaced meanwhile gets none.
-        let ownerPID = await machine.link?.ownerPID
+        let owner = await Self.ownerAnswer(machine)
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on on the machine, with what it wrote since the sync above.
             let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
             moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
-                                            vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
+                                            vmKind: owner.vmKind, toPID: owner.toPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
@@ -277,6 +273,18 @@ struct CloudMove {
         let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
                                                              request: CloudChatPick.request(sizedFor: await pick()))
         return try await Self.connected(created, invocation)
+    }
+
+    /// The Cloud API's answer for this app on the link in use, read now and never kept: the machine
+    /// takes the chat only on `owner`, never on its own record (its agents can write it). The legacy
+    /// link's answer is bound to the link process it came from (`toPID`): the pump sends it only over
+    /// a connection that process serves, so a link replaced meanwhile gets none. The app server link's
+    /// answer is its current connect's (``CloudLinkSession/ownerLink``); its socket is the carrier's,
+    /// which dials the machine per connection, so there is no link process to bind it to.
+    static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
+        if let appLink = session.appLink { return (await appLink.ownerLink == nil ? "none" : "owner", nil) }
+        let pid = await session.link?.ownerPID
+        return (pid == nil ? "none" : "owner", pid)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {

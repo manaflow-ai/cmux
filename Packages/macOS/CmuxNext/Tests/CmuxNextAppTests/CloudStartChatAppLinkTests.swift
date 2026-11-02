@@ -44,6 +44,45 @@ struct CloudStartChatAppLinkTests {
     }
 }
 
+/// Move to Cloud's owner answer on the app link (router review BLOCK at 51832a5): an owned
+/// machine's connect answer is `owner`, sent with no legacy link PID; any other is `none`.
+@Suite
+@MainActor
+struct CloudMoveAppLinkOwnerTests {
+    @Test func anOwnedAppLinkMachineMovesAsOwnerWithNoLinkPID() async throws {
+        for (owns, kind) in [(true, "owner"), (false, "none")] {
+            let link = CloudLinkSession(key: CloudLinkKey(machine: "vm-app"), resolver: AnsweringLinkResolver(owns: owns))
+            let session = CloudMachineSession(machine: CloudMachine(id: "vm-app", displayName: "App VM"), appLink: link,
+                                              localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            defer { session.disconnect() }
+            try await link.connect(origin: .user)
+            let answer = await CloudMove.ownerAnswer(session)
+            #expect(answer.vmKind == kind)
+            #expect(answer.toPID == nil)
+        }
+    }
+
+    @Test func anAppLinkThatHasNotConnectedIsNotAnOwner() async {
+        let session = CloudMachineSession(machine: CloudMachine(id: "vm-app", displayName: "App VM"),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: "vm-app"), resolver: UnusedLinkResolver()),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        let answer = await CloudMove.ownerAnswer(session)
+        #expect(answer.vmKind == "none" && answer.toPID == nil)
+    }
+}
+
+/// The app server's `cloud.machine.connect` answering a socket and its owner answer.
+private struct AnsweringLinkResolver: CloudLinkResolver {
+    let owns: Bool
+
+    func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+        CloudLinkSocket(key: key, path: "/tmp/cn-unused.sock", generation: 1, callerOwnsVM: owns)
+    }
+
+    func close(_ key: CloudLinkKey) async {}
+}
+
 /// A link resolver the test never reaches: the deleting machine is refused before it connects.
 private struct UnusedLinkResolver: CloudLinkResolver {
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
