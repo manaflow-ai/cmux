@@ -66,11 +66,18 @@ def step_bv_serve(j, step):
 
 
 def _eval(j, script, tab=None):
-    params = {"script": script}
-    if tab:
-        params["tab"] = tab
-    reply = j.app.rpc("browser.page.eval", params) or {}
-    return reply.get("value") if isinstance(reply, dict) else None
+    """The page's value of SCRIPT: the tab's, else the focused page's (a tab that reopened can take a new id)."""
+    for target in ([tab, None] if tab else [None]):
+        params = {"script": script}
+        if target:
+            params["tab"] = target
+        try:
+            reply = j.app.rpc("browser.page.eval", params) or {}
+        except Exception:  # noqa: BLE001  a page that reopens or loads answers "unavailable ... retry": the caller polls
+            continue
+        if isinstance(reply, dict) and "value" in reply:
+            return reply.get("value")
+    return None
 
 
 def _wait(fn, seconds, step=0.1):
