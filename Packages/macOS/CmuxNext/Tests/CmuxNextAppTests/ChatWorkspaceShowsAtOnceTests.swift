@@ -218,6 +218,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         let failure = await work.value?.message
         let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue } }
         let left = PendingWorkspaceRows.shared.rows(in: window.id)
+        print("CHATOPEN-DIAG end key=\(key.rawValue) gone=\(gone) window=\(window.id) profile=\(window.profileID.rawValue) controllers=\(services.windows.controllers.map { "\($0.state.id):\($0.state.profileID.rawValue)" }) held=\(services.machines.workspace(id: key.rawValue) != nil) provisional=\(String(describing: services.machines.workspace(id: key.rawValue)?.0.isProvisional)) owner=\(String(describing: services.windows.registry.value.owner(of: key.rawValue))) left=\(left.map(\.id))")
         await launched.stop()
 
         try #require(rowAtOnce, "the open showed no pending row in the Default space")

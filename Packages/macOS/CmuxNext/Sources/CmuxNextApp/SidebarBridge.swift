@@ -173,9 +173,10 @@ final class SidebarBridge {
                       creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
-            guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
+            if true { print("CHATOPEN-DIAG pass window=\(windowState.id) profile=\(windowState.profileID.rawValue) rows=\(PendingWorkspaceRows.shared.rows.map { "\($0.id)@\($0.window)" }) unpinned=\(PendingWorkspaceRows.shared.unpinned)") }; guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
                                                held: { machines.workspace(id: $0) != nil }) { id in
+                if true { let q = WindowProfiles.qualified(id, machines: machines); let m = WindowProfiles.membership(machines); print("CHATOPEN-DIAG elsewhere id=\(id) owner=\(String(describing: registry.value.owner(of: id))) qualified=\(String(describing: q)) membership=\(m == nil ? "nil" : "set") contains=\(String(describing: q.flatMap { q in m?.contains(q, in: windowState.profileID) })) unpinned=\(PendingWorkspaceRows.shared.unpinned.contains(id))") }
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines), let membership = WindowProfiles.membership(machines) else { return false }
                 return PendingWorkspaceRows.shared.unpinned.contains(id) ? !membership.contains(workspace, in: windowState.profileID) : membership.pinned(workspace).map { $0 != windowState.profileID } ?? false // unpinned: its space no longer lists it
