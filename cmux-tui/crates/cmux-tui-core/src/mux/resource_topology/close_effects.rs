@@ -13,6 +13,10 @@ impl Mux {
         fingerprint: &Value,
     ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_before_commit.lock().unwrap().clone() {
+            hook();
+        }
         let path: ResolvedResourcePath = serde_json::from_value(intent["path"].clone())
             .context("stored topology close intent has an invalid path")?;
         let workspace = self

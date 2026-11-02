@@ -273,6 +273,8 @@ impl Mux {
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
             #[cfg(test)]
+            resource_close_before_commit: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             layout_undo_before_commit: Mutex::new(None),
