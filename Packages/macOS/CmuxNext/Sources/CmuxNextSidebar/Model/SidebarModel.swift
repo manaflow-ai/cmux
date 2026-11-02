@@ -537,7 +537,9 @@ public final class SidebarModel {
     /// Cmd-Opt-Up/Down: move the selection one slot. Returns false at a
     /// boundary or while filtering.
     @discardableResult
-    public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool { move(orderedSelection, direction) }
+    public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
+        move(orderedSelection, direction)
+    }
 
     /// Move Up/Down on row `id`: moves ``actionTargets(for:)`` one slot as one block, as
     /// Cmd-Opt-Up/Down does. Returns false at a boundary or while reordering is locked.

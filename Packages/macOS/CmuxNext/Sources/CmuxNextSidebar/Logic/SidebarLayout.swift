@@ -164,10 +164,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var afterBlock: CGFloat?
         var shownEmptyMachine = false
 
-        func visible(_ ws: SidebarWorkspace) -> Bool {
-            !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
-        }
-
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
