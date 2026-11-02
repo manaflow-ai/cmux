@@ -155,7 +155,7 @@ extension AppActionContext {
         guard let pane = paneController(invocation) else { return nil }
         if let target = explicitTarget(invocation, kinds: [.tab]) { return (pane, StripTabID(target.id)) }
         guard let id = pane.stripModel.selectedID else { return refuseQuietly(RefusalStrings.focusedPaneHasNoTab) }
-        return (pane, id)
+        return (pane, pane.tab(id).map { StripTabID($0.id) } ?? id) // a replaced stand-in: its tab's id (page, beforeunload)
     }
 
     /// The tabs a tab action on `id` acts on: every selected tab of `pane`'s strip from a menu opened
