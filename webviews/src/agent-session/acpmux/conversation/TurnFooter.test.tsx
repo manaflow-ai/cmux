@@ -109,7 +109,9 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
       version: 1,
       at: 2,
       kind: "activity",
-      items: [{ kind: "tool", text: "", tool: { toolCallId: "t1", title: "ls", kind: "execute", status: "completed" } }],
+      items: [
+        { kind: "tool", text: "", tool: { toolCallId: "t1", title: "ls", kind: "execute", status: "completed" } },
+      ],
     },
     { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
   ] as AcpmuxRow[];
@@ -127,10 +129,14 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(TRANSCRIPT_FOOTER_GAP);
   expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
   // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
-  const later = turnView([...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow], new Set(), {
-    agentFamily: "claude",
-    now: 10_000,
-  });
+  const later = turnView(
+    [...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow],
+    new Set(),
+    {
+      agentFamily: "claude",
+      now: 10_000,
+    },
+  );
   expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
 });
 
