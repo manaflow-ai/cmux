@@ -76,3 +76,47 @@ fn splits_that_wait_together_commit_in_one_projection_write() {
     }
     first.kill();
 }
+
+/// A group whose one projection commit fails settles each member as a lone
+/// failed commit does: here the store takes each creation's own projection
+/// next, so every split still answers its pane, and every pane is stored.
+#[test]
+fn a_failed_group_commit_settles_every_split() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    mux.set_creation_before_effect_hook_for_test(Box::new(move || {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    }));
+    let split = |mux: &Arc<Mux>| {
+        let mux = mux.clone();
+        std::thread::spawn(move || mux.split(pane, SplitDir::Right, None))
+    };
+    let leader = split(&mux);
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let follower = split(&mux);
+    wait_until("the other split to wait", || mux.creations_waiting_for_test() == 1);
+    // The next projection patch the store prepares fails once.
+    mux.set_resource_patch_failures_remaining_for_test(1);
+    release_tx.send(()).unwrap();
+    let surfaces = [leader.join().unwrap().unwrap(), follower.join().unwrap().unwrap()];
+    let registry = mux.workspace_registry.lock().unwrap();
+    let stored = registry.resource_topology_snapshot().unwrap();
+    drop(registry);
+    let stored_panes =
+        stored.panes.iter().map(|pane| pane.public_id.clone()).collect::<HashSet<_>>();
+    mux.with_state(|state| {
+        for surface in &surfaces {
+            let pane = state.pane_of(surface.id).unwrap();
+            let public = state.resource_indexes.pane_ids.get(&pane).unwrap();
+            assert!(stored_panes.contains(public), "pane {public} is not stored");
+        }
+    });
+    for surface in surfaces {
+        surface.kill();
+    }
+    first.kill();
+}

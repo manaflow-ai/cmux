@@ -89,6 +89,7 @@ mod client_ids;
 mod close_effects;
 mod column_update;
 mod creation_burst_seams;
+mod creation_group;
 mod creation_settlement;
 mod effect_execution;
 mod effectful_operation;
@@ -107,6 +108,8 @@ mod tab_workspace_move;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
+pub(super) use creation_group::CreationGroups;
+use creation_group::{StagedCreation, StagedCreationOutcome, creation_shares_group_commit};
 #[cfg(test)]
 pub(super) use creation_burst_seams::CreationBurstSeams;
 mod unpublished_creation;
