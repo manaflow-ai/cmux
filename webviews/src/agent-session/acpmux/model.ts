@@ -1209,16 +1209,12 @@ export function restRoom(): number {
   const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
   return Math.max(0, gap - TURN_GAP);
 }
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
-/// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
-/// images alone.
-const userMetaHeight = (row: AcpmuxRow) => {
-  const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
-  return (
-    (row.text && row.steer === "waiting" && !row.failed && !row.queued && !chief ? metaRow() : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0)
-  );
-};
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). Under a bubble it takes no layout
+/// height, waiting steer or sent (design/grid.md 5.5: the action row is laid in the turn gap), so
+/// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
+/// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
+const userMetaHeight = (row: AcpmuxRow) =>
+  row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0;
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
