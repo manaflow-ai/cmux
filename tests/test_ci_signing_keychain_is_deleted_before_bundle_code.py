@@ -140,6 +140,9 @@ SCRIPT_MADE_KEYCHAINS = {
 RELEASE_POOL_SIGNERS = {
     ("nightly.yml", "signer-app"): "scripts/ci/release-signer/sign-app.sh",
     ("nightly.yml", "signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
+    # The cmux NIGHTLY-identity copy through the same signer (the macOS legacy signer's pool path).
+    ("nightly.yml", "legacy-signer-app"): "scripts/ci/release-signer/sign-app.sh",
+    ("nightly.yml", "legacy-signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
 }
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.

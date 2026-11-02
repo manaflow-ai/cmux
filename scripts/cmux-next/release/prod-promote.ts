@@ -145,11 +145,30 @@ const cf = async (path: string): Promise<any> => {
   return ((await r.json()) as { result: unknown }).result
 }
 
-const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
+/** Waits before each retry of a GitHub 5xx or network error (one 502 failed promote-gates before G1-G7 ran). 4xx never retries. */
+export const GH_RETRY_DELAYS_MS: ReadonlyArray<number> = [2_000, 5_000, 10_000]
+
+export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
-  const r = await fetch(`https://api.github.com/repos/${repo}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } })
+  // A POST is not retried: a 5xx may still have created the issue or comment, and a retry would duplicate it.
+  const retries = (init.method ?? "GET").toUpperCase() === "POST" ? [] : delays
+  const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  const url = `https://api.github.com/repos/${repo}${path}`
+  const opts = { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } }
+  const fetchOnce = async (attempt: number): Promise<Response> => {
+    try {
+      const res = await fetch(url, opts)
+      if (res.status < 500 || attempt >= retries.length) return res
+      await res.body?.cancel().catch(() => {})
+    } catch (e) {
+      if (attempt >= retries.length) throw e
+    }
+    await sleep(retries[attempt]!)
+    return fetchOnce(attempt + 1)
+  }
+  const r = await fetchOnce(0)
   // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
   if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()

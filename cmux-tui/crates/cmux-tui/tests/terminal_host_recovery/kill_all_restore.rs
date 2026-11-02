@@ -476,3 +476,356 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         std::thread::sleep(Duration::from_millis(200));
     }
 }
+
+/// A host reconnect inside a running daemon (its admin tap overflowed while
+/// the daemon was stopped) replaces the daemon's screen with the host's:
+/// bytes the host wrote meanwhile never went through the output store. A kill
+/// of everything right after the reconnect must still restore them (the
+/// tail must not continue across that gap; review of #31643: the reconnect
+/// did not tell the output store, so the restore lacked the gap's output
+/// until the next coalesced checkpoint, up to 30 s).
+#[test]
+fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-reconnect-gap");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "gap", &home);
+    let trigger = harness.dir.join("flood");
+    send_line(&harness.socket, surface, "printf 'gap-%s\\n' before");
+    wait_for_screen(&harness.socket, surface, "gap-before\n");
+    // Over the host's 8 MiB queued-output budget for the daemon's tap: the
+    // host closes the tap while the daemon is stopped, and the daemon
+    // reconnects from the host's snapshot.
+    send_line(
+        &harness.socket,
+        surface,
+        &format!(
+            "while [ ! -e '{}' ]; do sleep 0.05; done; head -c 12000000 /dev/zero; printf 'gap-%s\\n' during",
+            trigger.display()
+        ),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    harness.signal_daemon(libc::SIGSTOP);
+    fs::write(&trigger, b"").unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    harness.signal_daemon(libc::SIGCONT);
+    let shown = wait_for_screen(&harness.socket, surface, "gap-during\n");
+    assert!(shown.contains("gap-during"), "the reconnect never showed the gap's output: {shown}");
+    // Well inside the checkpoint interval, after one writer pass.
+    std::thread::sleep(Duration::from_millis(800));
+
+    kill_everything_and_restart(&mut harness);
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    let restored = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+    assert!(
+        restored.contains("gap-during"),
+        "the output written while the daemon had no tap is not restored: {restored}"
+    );
+}
+
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
+/// kill_all_restore_time_of_12_terminals -- --ignored --nocapture`): the time
+/// from the new daemon's spawn to each respawned terminal's restored text,
+/// for 12 terminals killed at once, each with about 600 KB of output in its
+/// tail (a restore rebuilds snapshot plus tail per terminal). Prints
+/// `kill-all-restore-time: {...}` (ms per terminal, sorted).
+#[test]
+#[ignore = "measurement: run it with --ignored"]
+fn kill_all_restore_time_of_12_terminals() {
+    const TERMINALS: usize = 12;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-restore-time");
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let (terminal_id, incarnation, surface) =
+            start_shell_in(&harness, &format!("time{index}"), &home);
+        terminals.push((terminal_id, incarnation, surface));
+    }
+    // The first snapshot of each (a new generation) is written first; the
+    // output after it is in the tail.
+    std::thread::sleep(Duration::from_secs(1));
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        send_line(&harness.socket, *surface, &format!("seq -f 't{index}-%g' 1 90000"));
+    }
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        wait_for_screen(&harness.socket, *surface, &format!("t{index}-90000\n"));
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    let spawned = Instant::now();
+    harness.restart();
+    let mut restored_ms = Vec::new();
+    for (index, (terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+        let surface = respawned_surface(&harness, terminal_id, incarnation);
+        let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+        assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
+        restored_ms.push(spawned.elapsed().as_millis());
+    }
+    restored_ms.sort_unstable();
+    eprintln!(
+        "kill-all-restore-time: {}",
+        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
+    );
+}
+
+/// Chrome's rule after a kill of everything: the terminals the person sees
+/// are restored first, and the respawns of hidden ones do not compete with
+/// them. A respawn replays a multi-MB seed twice (daemon mirror and host);
+/// all of them used to start at once, so the visible terminals waited behind
+/// the hidden ones for the CPU (STATUS 5931: 34-370 ms for 24 terminals).
+///
+/// 24 shells in 24 workspaces, the middle one selected, a kill of the
+/// daemon and every host, then a restart with each respawn held 1 s inside
+/// its turn (the existing CMUX_TUI_TEST_RESPAWN_DELAY_MS seam) and 4 slots:
+/// the visible terminal is in the first wave, and no wave has more than 4.
+#[test]
+fn a_kill_all_respawns_the_visible_workspace_first_in_bounded_waves() {
+    const TERMINALS: usize = 24;
+    const SLOTS: usize = 4;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-order");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("order-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let visible_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": visible_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let visible_name = tree["workspaces"][visible_index]["name"].as_str().unwrap().to_string();
+    let visible =
+        terminals[visible_name.trim_start_matches("order-").parse::<usize>().unwrap()].clone();
+    // The selection reaches the registry before the kill.
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), SLOTS.to_string()));
+    harness.restart();
+
+    // When each terminal respawned, from the loss log (one line per respawn).
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(60));
+    let respawned_at = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .filter_map(|event| {
+                Some((event["terminal_id"].as_str()?.to_string(), event["at_ms"].as_u64()?))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        if terminals.iter().all(|terminal| at.contains_key(terminal)) {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "only {} of {TERMINALS} terminals respawned", at.len());
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let first = respawned_at.values().copied().min().unwrap();
+    let first_wave = respawned_at
+        .iter()
+        .filter(|(_, at)| **at < first + HOLD_MS / 2)
+        .map(|(terminal, _)| terminal.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        first_wave.contains(&visible),
+        "the visible workspace's terminal was not in the first wave ({} of {TERMINALS})",
+        first_wave.len()
+    );
+    assert!(
+        first_wave.len() <= SLOTS,
+        "{} terminals respawned at once; the gate allows {SLOTS}",
+        first_wave.len()
+    );
+}
+
+/// A workspace the person selects while the respawns of a kill of everything
+/// still wait in line is the one they now see: its terminal goes first, not
+/// after the waves ahead of it, as the start's adoption gate already does for
+/// a terminal a request waits on.
+///
+/// 8 shells in 8 workspaces, the middle one selected, a kill of everything,
+/// then a restart with 1 slot and each respawn held 1 s in its turn: the
+/// visible terminal holds the only slot. Another workspace is selected at
+/// once; its terminal takes the next free slot, so it respawns about two
+/// holds after the selection (the slot's current hold, then its own; under
+/// 4 here, for slow runners), not after the 7 waves ahead of it.
+#[test]
+fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave() {
+    const TERMINALS: usize = 8;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-jump");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("jump-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let visible_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": visible_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let terminal_at = |index: usize| {
+        let name = tree["workspaces"][index]["name"].as_str().unwrap();
+        terminals[name.trim_start_matches("jump-").parse::<usize>().unwrap()].clone()
+    };
+    let target_index = 0;
+    let target = terminal_at(target_index);
+    assert_ne!(target, terminal_at(visible_index));
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    let selected = request(
+        &harness.socket,
+        serde_json::json!({"id": 302, "cmd": "select-workspace", "index": target_index}),
+    );
+    let selected_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let respawned_ms = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .find(|event| event["terminal_id"] == target.as_str())
+            .and_then(|event| event["at_ms"].as_u64());
+        if let Some(at) = at {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "the selected terminal never respawned: {selected}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let waited = respawned_ms.saturating_sub(selected_ms);
+    assert!(
+        waited < 4 * HOLD_MS,
+        "the selected workspace's terminal respawned {waited} ms after its selection; \
+         one hold is {HOLD_MS} ms, so it waited for more than the next slot"
+    );
+}
+
+/// A terminal of the workspace the person sees that dies while hidden
+/// respawns still wait in line takes its ticket while shown: it must still
+/// go first, not after the hidden ones (review of #32288).
+///
+/// 8 shells in 8 workspaces, the target's selected. Every host but the
+/// target's is killed with the daemon; the restart adopts the target and
+/// queues 7 hidden respawns behind 1 slot, each held 1 s. Then the target's
+/// host is killed: its respawn takes the next free slot, so it comes about
+/// two holds later (the slot's current hold, then its own; under 4 here, for
+/// slow runners), not after the hidden queue.
+#[test]
+fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_it() {
+    const TERMINALS: usize = 8;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-backlog");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("backlog-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let target_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": target_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let target_name = tree["workspaces"][target_index]["name"].as_str().unwrap().to_string();
+    let target =
+        terminals[target_name.trim_start_matches("backlog-").parse::<usize>().unwrap()].clone();
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    let mut target_record = None;
+    for (record_path, record) in &records {
+        if record.terminal_id == target {
+            target_record = Some((record_path.clone(), record.clone()));
+        } else {
+            kill_shell_then_host(record_path, record);
+        }
+    }
+    let (target_path, target_host) = target_record.expect("the target has a host record");
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    // The target's surviving host is adopted: it runs again.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":target}),
+        );
+        if resolved["surface"].as_u64().is_some() && resolved["lifecycle"] == "running" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the target was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let killed_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+    kill_shell_then_host(&target_path, &target_host);
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let respawned_ms = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .find(|event| event["terminal_id"] == target.as_str())
+            .and_then(|event| event["at_ms"].as_u64());
+        if let Some(at) = at {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "the shown terminal never respawned");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let waited = respawned_ms.saturating_sub(killed_ms);
+    assert!(
+        waited < 4 * HOLD_MS,
+        "the shown terminal respawned {waited} ms after its host died; one hold is \
+         {HOLD_MS} ms, so it waited behind the hidden respawns, not for the next slot"
+    );
+}

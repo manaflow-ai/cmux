@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import Foundation
+import CmuxNextTestSupport
 import Testing
 
 /// The close key of a window that closes as a whole (Settings, Page Info, a browser popup, Debug Settings, a
@@ -10,7 +11,7 @@ import Testing
 /// nested event-tracking run loop of about 100 ms on the key turn (dogfood v2.2.4-opt: Close Window 101.7 and
 /// 102.8 ms, outcome nested). In a test process AppKit skips the flash itself, so this suite reads the call
 /// that flashes: a window that counts its `performClose(_:)`.
-@MainActor @Suite(.serialized) struct CloseKeyNoButtonFlashTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CloseKeyNoButtonFlashTests {
     /// Counts `performClose(_:)` and still closes as AppKit does.
     final class PerformCloseCountingWindow: NSWindow {
         var performCloses = 0

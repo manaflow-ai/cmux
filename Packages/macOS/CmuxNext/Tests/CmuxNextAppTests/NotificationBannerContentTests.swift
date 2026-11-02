@@ -4,6 +4,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import CmuxNextFeed
+@testable import CmuxNextNotifications
 
 /// A system banner says where it came from, who and what state, and what was said
 /// (plans: ~/fun/cmux-prompts/logs/notifications-DESIGN.md): title = workspace › tab,

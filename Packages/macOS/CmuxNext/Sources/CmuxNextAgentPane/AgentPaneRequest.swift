@@ -206,6 +206,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// The current page-owned Session Info model, or its withdrawal.
+    case sessionInfo(AgentPaneSessionInfoModel?)
+    /// Copies a native Session Info menu item through the platform clipboard.
+    case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
     /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
@@ -221,9 +225,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
-    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String)
+    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
+    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
+    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
+    case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)

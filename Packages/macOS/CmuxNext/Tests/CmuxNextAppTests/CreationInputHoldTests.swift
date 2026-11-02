@@ -94,4 +94,76 @@ import Testing
         #expect(buffer.cancel(tab: "split"))
         #expect(buffer.take() == [forB], "the line carried for terminal B was dropped with the closed split (or the split's key was kept)")
     }
+
+    /// A new workspace's terminal asked for over Home (dogfood v2.2.3, ported from cp/dogfood-v2-2-12-opt f6646860fad3):
+    /// its keys go on only once the window shows that workspace, and a failed creation or a workspace the window never
+    /// shows takes them with it; they are never run into what has the focus instead (Home's Chief message box).
+    @Test func keysTypedForANewWorkspacesTerminalGoOnlyToThatWorkspace() {
+        let made = CreationInputBuffer(began: .now)
+        let ticket = made.open(generation: 4, newWorkspace: true)
+        #expect(made.newestGeneration == 4)
+        made.capture(Self.key("e", code: 14), focusedTab: "home", forNewWorkspace: true)
+        made.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        made.capture(Self.key("c", code: 8), focusedTab: "home", forNewWorkspace: true) // typed after the reply: still that terminal's
+        #expect(made.awaitedWorkspace == "ws-new")
+        #expect(made.dropKeys(ofWorkspacesOtherThan: "home"))
+        #expect(made.take().isEmpty, "keys typed for the new terminal ran while the window showed Home")
+
+        let shown = CreationInputBuffer(began: .now)
+        let second = shown.open(generation: 5, newWorkspace: true)
+        shown.capture(Self.key("e", code: 14), focusedTab: "home", forNewWorkspace: true)
+        shown.resolve(second, awaitsFocus: true, workspace: "ws-new")
+        #expect(!shown.dropKeys(ofWorkspacesOtherThan: "ws-new"))
+        #expect(shown.take().count == 1, "the new workspace shows: its keys go to its terminal")
+
+        let failed = CreationInputBuffer(began: .now)
+        let third = failed.open(generation: 6, newWorkspace: true)
+        failed.capture(Self.key("e", code: 14), focusedTab: "home", forNewWorkspace: true)
+        failed.resolve(third, awaitsFocus: false)
+        #expect(failed.awaitedWorkspace == nil)
+        #expect(failed.take().isEmpty, "a failed new terminal's keys went to what had the focus")
+
+        // A key typed after the person moved on (not for the new workspace) keeps its own route.
+        let movedOn = CreationInputBuffer(began: .now)
+        let fourth = movedOn.open(generation: 7, newWorkspace: true)
+        movedOn.capture(Self.key("x", code: 7), focusedTab: "other", forNewWorkspace: false)
+        movedOn.resolve(fourth, awaitsFocus: true, workspace: "ws-new")
+        #expect(movedOn.dropKeys(ofWorkspacesOtherThan: "home"))
+        #expect(movedOn.take().count == 1, "a key typed after the person moved on was dropped with the new workspace")
+    }
+
+    /// Review of #31865 (its merge with #31707): a key typed into a cold terminal opens that terminal's surface hold (an
+    /// adopted lane). The person then asks for a new workspace in the same window. The keys typed after that, before the
+    /// new workspace shows, are its terminal's, never the cold terminal's; the key typed before stays the cold terminal's.
+    @Test func keysForAPersonsNewWorkspaceTypedDuringASurfaceHoldGoToTheNewTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        buffer.awaitSurface(of: CreationInputBuffer.HeldLane(tab: "cold", machine: nil))
+        buffer.capture(Self.key("a", code: 0), focusedTab: "cold")
+        let ticket = buffer.open(generation: 9, newWorkspace: true)
+        buffer.capture(Self.key("b", code: 11), focusedTab: "cold", forNewWorkspace: true)
+        buffer.capture(Self.key("c", code: 8), focusedTab: "cold", forNewWorkspace: true)
+        buffer.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        #expect(!buffer.dropKeys(ofWorkspacesOtherThan: "ws-new"))
+        buffer.bindNewWorkspaceKeys(to: "new-terminal", machine: nil)
+        let routed = buffer.take(focused: "new-terminal") { _, _ in false }.flatMap(\.keys)
+            .map { "\($0.event.characters ?? "?"):\($0.lane?.tab ?? "-")" }
+        #expect(routed == ["a:cold", "b:new-terminal", "c:new-terminal"],
+                "keys typed for the person's new workspace went to the cold terminal, or a key was lost or reordered: \(routed)")
+    }
+
+    /// Review of #32148, note 2: two new workspaces in one hold, the first one's create failed, then the person acted (a
+    /// click). The failed one is over, so the person left every creation of the hold: a key typed now is no workspace's
+    /// (the focused view's at once, or a cold terminal's surface lane). Before, the failed id still counted, the hold
+    /// never counted as left, and the keys waited without a lane to run as typed at its end, into the second workspace
+    /// if that one showed by then.
+    @Test func aFailedNewWorkspaceCountsAsLeftOnceThePersonActs() {
+        let buffer = CreationInputBuffer(began: .now)
+        let failed = buffer.open(generation: 1, newWorkspace: true)
+        _ = buffer.open(generation: 2, newWorkspace: true)
+        buffer.resolve(failed, awaitsFocus: false)
+        #expect(!buffer.personLeftEveryCreation, "a failed workspace alone ended the person's hold before they acted")
+        buffer.personMovedOn()
+        #expect(buffer.personLeftEveryCreation, "after the click the failed workspace still kept the hold from counting as left")
+        #expect(buffer.passesOn(focusedTab: nil), "a key typed after the click did not go on to the focused view")
+    }
 }

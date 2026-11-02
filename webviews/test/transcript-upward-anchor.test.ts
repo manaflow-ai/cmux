@@ -262,7 +262,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await installPaintedFrames(page);
       const fixture = (rows: string) =>
         page.setContent(`
-          <style>:root { --grid-gap-block: 24px; --grid-gap-turn: 32px; --grid-gap-footer: 8px; }</style>
+          <style>:root { --grid-gap-block: 24px; --grid-gap-turn: 32px; --grid-gap-footer: 8px; --grid-gap-run: 16px; }</style>
           <div class="acpmux-scroll" style="position:relative;height:200px;overflow:hidden">
             ${rows}
           </div>`);

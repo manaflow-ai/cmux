@@ -20,6 +20,11 @@ int32_t cmux_layout_reducer_json(
     uint8_t *output,
     size_t output_capacity,
     size_t *output_len);
+/* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
+ *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
+ *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
+ *   focus_debug_window  {resolved, childPage?, ghostty, ownTabs, isKey} -> {expectedResponder?, kind, ghosttyMismatch?}
+ * (debug monitor, debug.focus and journal replay only; never per event). */
 
 /*
  * The sidebar document mirror (sidebar-doc-v1). One handle per client, used
@@ -263,7 +268,8 @@ typedef struct CmuxFocusReply {
     uint8_t expectation_key; /* 0 surface 1 tab */
     uint8_t expectation_target;
     uint8_t expectation_target_keyboard;
-    uint8_t reserved[2];
+    uint8_t omnibar_return;     /* 1: queue focusTarget(addressBar, programmatic) after this event's effects */
+    uint8_t returns_to_omnibar; /* 1: this event is that queued return: restore the edit, do not select all */
     uint64_t generation;
     uint64_t expectation_generation;
     CmuxFocusStr pane;
@@ -279,6 +285,7 @@ typedef struct CmuxFocusReply {
     uint32_t effect_count;
     uint32_t strings_len;
     uint32_t reserved2;
+    CmuxFocusStr typing_tab; /* the tab a key typed now is for: an expected tab, else the focused terminal */
 } CmuxFocusReply;
 
 typedef struct CmuxFocusStrings {
@@ -303,6 +310,155 @@ const CmuxFocusStrings *cmux_focus_remembered(CmuxFocus *focus);
 char *cmux_focus_export_json(CmuxFocus *focus);
 int32_t cmux_focus_import_json(CmuxFocus *focus, const uint8_t *json, size_t json_len);
 void cmux_focus_string_free(char *text);
+
+/*
+ * The pane a Close Tab press is aimed at after a close emptied a pane
+ * (PaneCloseAim), kept by the window's focus handle. Times are seconds of
+ * system uptime (NSEvent.timestamp's clock); is_key 1 for a key-down,
+ * is_repeat 1 for an auto-repeat.
+ */
+/* the focused pane moved from `from` (has_from 0: none) to the handle's focused pane; returns the move's serial */
+uint64_t cmux_focus_pane_moved(CmuxFocus *focus, const uint8_t *from, size_t from_len, uint8_t has_from);
+/* the frame that shows move `serial` was presented at `time` */
+void cmux_focus_frame_presented(CmuxFocus *focus, uint64_t serial, double time);
+/* the press closed the last tab of `pane` */
+void cmux_focus_pane_emptied(CmuxFocus *focus, const uint8_t *pane, size_t pane_len, double time, uint8_t is_key, uint8_t is_repeat);
+/* 1: the press is aimed at the emptied pane (it closes nothing; show why) */
+uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t is_key, uint8_t is_repeat);
+
+/*
+ * The close successor rules (cmux-focus-core close_focus), one call per
+ * close, no handle. Ids are the caller's own uint32_t numbering of its tab
+ * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
+ * count gives CMUX_FOCUS_NONE (live_openers: -1).
+ */
+/* the tab a pane selects after `selected` closed; opener_children[i] was opened by opener_parents[i] */
+uint32_t cmux_close_focus_tab(uint32_t selected, const uint32_t *old, size_t old_count,
+                              const uint32_t *surviving, size_t surviving_count,
+                              const uint32_t *shown, size_t shown_count,
+                              const uint32_t *opener_children, const uint32_t *opener_parents, size_t opener_count);
+/* the workspace a window shows after `shown` left; orders: order_count row orders flattened, order i holds order_lengths[i] ids */
+uint32_t cmux_close_focus_workspace(uint32_t shown, const uint32_t *old, size_t old_count,
+                                    const uint32_t *surviving, size_t surviving_count,
+                                    const uint32_t *orders, const uint32_t *order_lengths, size_t order_count);
+/* writes the live opener of order[i] (Chrome's FixOpeners) to parent_out[i], CMUX_FOCUS_NONE for none; 0 ok */
+int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *parents, size_t count,
+                                      const uint32_t *order, size_t order_count, uint32_t *parent_out);
+
+/* Column scroll reducer (cmux-layout-reducer scroll, src/scroll.rs): one
+ * handle per scrolling strip (kind 0 a columns screen, 1 a column's rows,
+ * 2 a scroll area). The spring stays in the caller's memory: every event
+ * call reads it and writes it back. Request strings are CmuxScrollStr
+ * ranges into the strip's bytes (offset CMUX_SCROLL_NONE: absent); reply
+ * strings point into the handle and stay valid until its next call.
+ * source: 0 keyboard 1 pointer 2 programmatic 3 scroll
+ * mode: 0 never 1 always 2 on-overflow
+ * axis: 0 horizontal 1 vertical
+ * A rows strip lists one column per row (the row id) in window space, with
+ * the stack's height as viewport_width and origin its min y; an area strip
+ * lists one column per cell (its id is unused), origin the window's min x. */
+#define CMUX_SCROLL_NONE 0xFFFFFFFFu
+
+typedef struct CmuxScroll CmuxScroll;
+
+typedef struct CmuxScrollStr {
+    uint32_t offset;
+    uint32_t len;
+} CmuxScrollStr;
+
+typedef struct CmuxScrollRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxScrollRect;
+
+typedef struct CmuxScrollSpring {
+    double value;
+    double velocity;
+    double target;
+} CmuxScrollSpring;
+
+typedef struct CmuxScrollPane {
+    CmuxScrollStr id;
+    CmuxScrollRect frame;
+    uint8_t has_frame;
+    uint8_t listed; /* in the column's pane list (layout order) */
+    uint8_t reserved[6];
+} CmuxScrollPane;
+
+typedef struct CmuxScrollColumn {
+    CmuxScrollStr id;
+    CmuxScrollRect frame;
+    uint32_t pane_start; /* index into panes */
+    uint32_t pane_count;
+} CmuxScrollColumn;
+
+typedef struct CmuxScrollStrip {
+    const uint8_t *bytes;
+    const CmuxScrollColumn *columns;
+    const CmuxScrollPane *panes;
+    uint32_t bytes_len;
+    uint32_t column_count;
+    uint32_t pane_count;
+    uint8_t axis;
+    uint8_t reserved[3];
+    double viewport_width;
+    double content_width;
+    double gap;
+    double leading_cover;
+    double trailing_cover;
+    double origin;
+} CmuxScrollStrip;
+
+typedef struct CmuxScrollSync {
+    CmuxScrollStr focused; /* ranges into the strip's bytes */
+    CmuxScrollStr anchor;
+    uint8_t source;
+    uint8_t animated;
+    uint8_t reveals;
+    uint8_t reserved[5];
+} CmuxScrollSync;
+
+typedef struct CmuxScrollEffects {
+    uint8_t ok;
+    uint8_t needs_frames;
+    uint8_t report_on_settle;
+    uint8_t snapped;
+    uint8_t has_focus;
+    uint8_t reserved[3];
+    const uint8_t *focus;
+    size_t focus_len;
+} CmuxScrollEffects;
+
+typedef struct CmuxScrollStatus {
+    uint8_t ok;
+    uint8_t gesture_active;
+    uint8_t reveal_deferred;
+    uint8_t has_restore;
+    uint8_t has_strip;
+    uint8_t has_focused_pane;
+    uint8_t mode;
+    uint8_t reserved;
+    double gesture_raw;
+    const uint8_t *focused_pane;
+    size_t focused_pane_len;
+} CmuxScrollStatus;
+
+CmuxScroll *cmux_scroll_new(uint8_t kind);
+CmuxScroll *cmux_scroll_clone(const CmuxScroll *scroll); /* an independent copy */
+void cmux_scroll_free(CmuxScroll *scroll);
+void cmux_scroll_set_mode(CmuxScroll *scroll, uint8_t mode);
+CmuxScrollEffects cmux_scroll_sync(CmuxScroll *scroll, CmuxScrollSpring *spring, const CmuxScrollStrip *strip, const CmuxScrollSync *sync);
+CmuxScrollEffects cmux_scroll_center(CmuxScroll *scroll, CmuxScrollSpring *spring, const uint8_t *pane, size_t pane_len, uint8_t animated);
+CmuxScrollEffects cmux_scroll_reveal(CmuxScroll *scroll, CmuxScrollSpring *spring, const uint8_t *pane, size_t pane_len, uint8_t animated);
+CmuxScrollEffects cmux_scroll_gesture_began(CmuxScroll *scroll, CmuxScrollSpring *spring);
+CmuxScrollEffects cmux_scroll_gesture_changed(CmuxScroll *scroll, CmuxScrollSpring *spring, double delta_x, double time);
+CmuxScrollEffects cmux_scroll_gesture_ended(CmuxScroll *scroll, CmuxScrollSpring *spring, double time, uint8_t animated);
+CmuxScrollEffects cmux_scroll_wheel(CmuxScroll *scroll, CmuxScrollSpring *spring, int32_t direction, uint8_t animated);
+CmuxScrollEffects cmux_scroll_page(CmuxScroll *scroll, CmuxScrollSpring *spring, double to, uint8_t animated);
+CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
+uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no focus lookup */
 
 /*
  * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a

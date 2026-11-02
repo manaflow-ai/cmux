@@ -2,7 +2,7 @@
 // Session Info's Background tasks lists the chat's Claude workflows (Labs): a running one with
 // its counts, tokens, description, phases with a dot per agent, the running phase open with its
 // model and agents, and the phases no agent started yet as plain rows with no label (Leo,
-// 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Workflow · Finished · 7 agents", its phases
+// 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Finished · 7 agents", its phases
 // N/N, each opening into its agents. The data is a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
 import { pageClocks } from "../src/ui/pageClock";
@@ -279,7 +279,8 @@ test("a finished workflow reads as finished with its size, and a phase opens int
   root = createRoot(container);
   await act(async () => root!.render(<WorkflowTasks workflows={summaries("finished")} />));
   const shown = () => text(container.innerHTML);
-  expect(shown()).toContain("demo-name-tournament 1m 20s Workflow · Finished · 7 agents · 432k tokens");
+  expect(shown()).toContain("demo-name-tournament 1m 20s Finished · 7 agents · 432k tokens");
+  expect(shown()).not.toContain("Workflow ·");
   expect(shown()).toContain("Brainstorm 3/3 Critique 3/3 Judge 1/1");
   expect(shown()).not.toContain("Up next");
   expect(container.querySelector("[aria-label='Stop demo-name-tournament']")).toBeNull();
@@ -318,6 +319,15 @@ test("with running and finished workflows, each group says how many it holds", (
   );
   expect(text(html)).toContain("1 running demo-name-tournament");
   expect(text(html)).toContain("1 finished demo-name-tournament");
+});
+
+test("a finished group heading absorbs Completed but keeps other outcome words", () => {
+  const [finished] = summaries("finished");
+  const failed = { ...finished!, id: "failed", state: "failed" as const };
+  const shown = text(renderToStaticMarkup(<WorkflowTasks workflows={[...summaries("running"), finished!, failed]} />));
+  expect(shown).toContain("2 finished demo-name-tournament");
+  expect(shown).toContain("Failed · 7 agents · 432k tokens");
+  expect(shown).not.toContain("Completed ·");
 });
 
 test("blocked and skipped agents count as ended without finishing, never as unknown", () => {
@@ -513,7 +523,12 @@ test("a pending phase opens on its own when its first agent starts running, as a
   const judge = before.phases.find((phase) => phase.state === "pending")!;
   expect(judge.agentIds).toEqual([]);
   // The next update: Judge's first agent is running.
-  const judgeAgent = { ...before.agents[0]!, id: "judge-1", name: "judge", state: "running" as const };
+  const judgeAgent = {
+    ...before.agents[0]!,
+    id: "judge-1",
+    name: "judge",
+    state: "running" as const,
+  };
   const after = {
     ...before,
     agents: [...before.agents, judgeAgent],
@@ -550,7 +565,11 @@ test("a pending phase whose agents arrive queued opens when one of them starts r
     agents: [...before.agents, { ...before.agents[0]!, id: "judge-1", name: "judge", state }],
     phases: before.phases.map((phase) =>
       phase.id === judge.id
-        ? { ...phase, state: state === "running" ? ("running" as const) : phase.state, agentIds: ["judge-1"] }
+        ? {
+            ...phase,
+            state: state === "running" ? ("running" as const) : phase.state,
+            agentIds: ["judge-1"],
+          }
         : phase,
     ),
   });

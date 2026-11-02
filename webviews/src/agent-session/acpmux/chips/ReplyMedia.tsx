@@ -115,19 +115,24 @@ export function ReplyMedia(props: { path: string; alt: string; fallback?: ReactN
 }
 
 function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+  const t = useT();
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, fail } = useMediaLoad(path, near && loadable);
+  const { src, state, load, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
-  if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
-      <span className="cv-media__name">{name}</span>
+      {state === "failed" && fallback ? fallback : <span className="cv-media__name">{name}</span>}
+      {state === "failed" && loadable && (
+        <button type="button" className="cv-image-placeholder__load" onClick={load}>
+          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+        </button>
+      )}
     </span>
   );
 }
@@ -148,18 +153,15 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
+  if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
-      {state === "failed" ? (
-        <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
-      ) : (
-        <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
-          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
-        </button>
-      )}
+      {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
+      <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
+        {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+      </button>
     </span>
   );
 }

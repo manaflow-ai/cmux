@@ -19,20 +19,12 @@ struct WorkspaceAutoNameWiring {
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
             incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in known(s) ?? s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
-            terminal: { [weak services] tab in services.map { Self.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             hold: services.autoNameHold,
             allowsLegacyDefaults: { [weak services] workspace in
                 guard let services, let daemon = services.machines.daemon(holding: workspace) else { return true }
                 return !daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
             })
-    }
-
-    /// `TabMoves.nameInput` for a browser tab whose incognito answer is known (its row's workspace): the same value,
-    /// without the tab lookup that reads every tab list (F6). Other tabs read no tab list there.
-    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
-        guard tab.kind == .browser, tab.appTab == nil, let incognito else { return TabMoves.nameInput(tab, services: services) }
-        let pageTitle = incognito ? nil : services.cache.existingBrowser(tab.id)?.tab.state.title
-        return NewWorkspaceName.Tab(kind: .browser, userName: tab.name, title: tab.titleText, pageTitle: pageTitle, url: tab.url, cwd: tab.cwd)
     }
 
     /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that

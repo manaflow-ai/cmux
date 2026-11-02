@@ -542,7 +542,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
-        devToolsController.views?.host.isHidden = !visible
+        // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
+        devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
         if visible, host.visibleTab === self { reloadOwedAfterExit() }
     }
@@ -550,9 +551,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
@@ -573,6 +571,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentFiles.withdraw()
         titleTimer.cancel()
         settleTimer.cancel()
+        devToolsController.openTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {
