@@ -547,7 +547,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
-  `{"machines":[{"machine_id","team_id","name"}]}` followed by `eof`.
+  `{"paid","machines":[{"machine_id","team_id","name","status","ran"}]}` followed by `eof`.
+  `paid` says the account pays for cmux Cloud; `status` is the machine's Cloud
+  status (`running`, `paused`, `starting`, ...); `ran` says it has run at least once.
+  A machine that is asleep (no live carrier) is listed too. An older Mac sends
+  neither field: the phone reads `paid` and `ran` as false and `status` as unknown.
   Hostd obtains this list from the signed-in Mac app's authenticated owner
   CloudLinkSession objects. Carrier paths and ownership markers are never sent
   to the phone; conflicting duplicate machine/team entries are omitted.
@@ -758,6 +762,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
   `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
   and drive authenticated owner Cloud machines through the Mac carrier.
+  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
+  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -770,7 +776,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
-  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
+  `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
+  (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
+  view only: hostd sends the source no input from the phone.
+  `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
   tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,

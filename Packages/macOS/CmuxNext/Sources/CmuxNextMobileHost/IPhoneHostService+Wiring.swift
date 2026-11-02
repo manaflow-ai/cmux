@@ -28,7 +28,7 @@ extension IPhoneHostService {
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
     ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
-    ///   - surfaceHosts: The app's phone tabs as streamed simulator surfaces (nil: this Mac streams none).
+    ///   - surfaceHosts: The app's streamed surfaces: phone tabs' simulators and the owner's Cloud desktops (nil: this Mac streams none).
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
@@ -36,7 +36,7 @@ extension IPhoneHostService {
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                     cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil,
+                     cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -113,7 +113,7 @@ extension IPhoneHostService {
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,
-            cloudLinks: cloudLinks ?? { [] },
+            cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             chief: chief
         )

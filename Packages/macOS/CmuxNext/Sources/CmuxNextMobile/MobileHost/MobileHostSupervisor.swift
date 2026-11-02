@@ -29,21 +29,21 @@ public actor MobileHostSupervisor {
         public var browserHosts: (any MobileHostBrowserHosting)?
         /// This Mac's identity key, proved to phones that pinned it; nil: none.
         public var macIdentity: MobileHostMacIdentity?
-        /// The app's simulator surface sources; nil when this build cannot stream
-        /// simulators (hostd then refuses `surface`).
+        /// The app's surface sources (phone tabs' simulators, `s<n>`, and the owner's Cloud
+        /// desktops, `c~<machine>~<team>`); nil when this build streams neither (hostd then refuses `surface`).
         public var surfaceHosts: (any MobileHostSurfaceHosting)?
-        /// Current new-architecture carriers; fetched for every phone request, never cached here.
-        public var cloudLinks: @Sendable () async -> [MobileHostCloudLink]
+        /// Current new-architecture carriers and the plan's Cloud flag; fetched for every phone request, never cached here.
+        public var cloudLinks: @Sendable () async -> MobileHostCloudLinks
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                    cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil) {
+                    cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil) {
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
-            self.cloudLinks = cloudLinks ?? { [] }
+            self.cloudLinks = cloudLinks ?? { MobileHostCloudLinks() }
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux

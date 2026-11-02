@@ -127,6 +127,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Chief conversation, questions | Home > Chief | works | Answers need the phone's signature. |
 | Stop the Chief, Chief settings | Chief settings | works | `chief.stop`, `chief.engine.*`. |
 | New Chief…, Archive Chief, Memory Inspector | — | missing | |
+| Cloud desktop, **Open Desktop** (the Cloud machine's screen) | Chief info > **Computer** (`chief.settings.computer`) | partial | View only, by design: hostd drops touches, text, keys and buttons for the `c~<machine_id>~<team_id>` `surface` key, and the card sends none. Shown only when the Mac's `cloud-directory` says `paid` and a machine `ran`; the first running machine, else the first that ran. Paused or pausing: "Computer is asleep"; starting or provisioning: "Waking up…"; else "Computer isn't available". Needs `cloud-desktop-v1` for the live screen (https://github.com/manaflow-ai/cmux/issues/31488). code-checked; live pending |
 | Show Feed, Jump to Latest Unread, Mark read | Feed tab, swipe | works | |
 | Clear All Notifications | Feed > Filter menu > **Clear All Notifications** | works (parity2) | `notification.clear` on the Mac's current session (new on the lane, see SECURITY.md); the Feed's terminal events go with it. No confirmation, as on the Mac. |
 | Mute workspace | Feed > Filter > Workspaces toggles | partial | The phone's mute is the phone's own (the Mac's mute is not on the lane). |
@@ -376,6 +377,7 @@ test, fmt and clippy on rbx.
 | Answer a Chief question (`conversation-op question.answer`) | **Answer** > sheet > **Send Answer** (Face ID) | works | Signed `cmux-mobile-chief-answer-v1` approval, checked and stripped by hostd. Failures say why ("Not sent: Face ID was cancelled.", "Chief no longer needs this answer.", "Couldn't confirm. Chief may have it." + Check). code-checked; live pending |
 | Skip a Chief question | — | missing | The phone has no decline for a Chief question. |
 | "Open traces", "Show memory", New Chief…, Archive Chief | text: "Chief's memory and traces open on the Mac." | not from a phone | |
+| Cloud desktop / "Open Desktop" | Chief info > **Computer** (live screen, view only; asleep, waking or unavailable states) | partial | View only: no input reaches the machine from the phone. code-checked; live pending |
 
 ### 4. Feed: questions and permissions
 

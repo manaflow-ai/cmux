@@ -454,7 +454,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "cloud-acpmux-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
-            "surface-stream-v1"
+            "surface-stream-v1",
+            "cloud-desktop-v1"
         ])
     );
 

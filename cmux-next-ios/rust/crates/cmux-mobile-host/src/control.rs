@@ -60,12 +60,30 @@ pub struct CloudLink {
     pub socket: Option<PathBuf>,
     #[serde(default)]
     pub owner: bool,
+    /// The machine's state (`CloudMachine.Status` raw value: `running`, `paused`, ...).
+    /// An older app sends none: `unknown`.
+    #[serde(default = "unknown_status")]
+    pub status: String,
+    /// Whether the machine has run at least once.
+    #[serde(default)]
+    pub ran: bool,
+}
+
+fn unknown_status() -> String {
+    "unknown".to_owned()
+}
+
+/// One `cloud_links` snapshot: whether the account pays for cmux Cloud, and its links.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CloudLinks {
+    pub paid: bool,
+    pub links: Vec<CloudLink>,
 }
 
 #[derive(Default)]
 struct CloudLinkBroker {
     next: std::sync::atomic::AtomicU64,
-    pending: Mutex<HashMap<u64, oneshot::Sender<Vec<CloudLink>>>>,
+    pending: Mutex<HashMap<u64, oneshot::Sender<CloudLinks>>>,
 }
 static CLOUD_LINKS: OnceLock<Arc<CloudLinkBroker>> = OnceLock::new();
 const MAX_CLOUD_LINK_REQUESTS: usize = 16;
@@ -85,7 +103,7 @@ fn cloud_link_broker() -> Arc<CloudLinkBroker> {
 
 /// Request a fresh app-owned Cloud link snapshot. A response is single-use and
 /// expires quickly so a revoked link cannot be reused after sign-out.
-pub async fn request_cloud_links() -> Result<Vec<CloudLink>, &'static str> {
+pub async fn request_cloud_links() -> Result<CloudLinks, &'static str> {
     let broker = cloud_link_broker();
     let request = broker.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
     let (sender, receiver) = oneshot::channel();
@@ -103,12 +121,12 @@ pub async fn request_cloud_links() -> Result<Vec<CloudLink>, &'static str> {
         Ok(Err(_)) | Err(_) => Err("Cloud link snapshot unavailable"),
     }
 }
-fn resolve_cloud_links(request: u64, links: Vec<CloudLink>) {
+fn resolve_cloud_links(request: u64, paid: bool, links: Vec<CloudLink>) {
     let links = links.into_iter().take(128).collect();
     if let Some(sender) =
         cloud_link_broker().pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request)
     {
-        let _ = sender.send(links);
+        let _ = sender.send(CloudLinks { paid, links });
     }
 }
 
@@ -205,8 +223,12 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
+    /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
+    /// older app: false) says the account pays for cmux Cloud.
     CloudLinks {
         request: u64,
+        #[serde(default)]
+        paid: bool,
         links: Vec<CloudLink>,
     },
 }
@@ -369,7 +391,9 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
-                Some(Inbound::CloudLinks { request, links }) => resolve_cloud_links(request, links),
+                Some(Inbound::CloudLinks { request, paid, links }) => {
+                    resolve_cloud_links(request, paid, links)
+                }
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -458,17 +482,51 @@ mod tests {
             ),
             Some(Inbound::CloudLinks {
                 request: 7,
+                paid: false,
                 links: vec![CloudLink {
                     machine_id: "m".into(),
                     team_id: "t".into(),
                     name: "Cloud".into(),
                     socket: Some("/tmp/s".into()),
                     owner: true,
+                    status: "unknown".into(),
+                    ran: false,
                 }]
             })
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
+    }
+
+    #[test]
+    fn cloud_links_carry_paid_status_and_ran_and_asleep_machines_have_no_socket() {
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"cloud_links","request":8,"paid":true,"links":[{"machine_id":"m","team_id":"t","name":"Dev box","socket":null,"owner":true,"status":"paused","ran":true}]}"#
+            ),
+            Some(Inbound::CloudLinks {
+                request: 8,
+                paid: true,
+                links: vec![CloudLink {
+                    machine_id: "m".into(),
+                    team_id: "t".into(),
+                    name: "Dev box".into(),
+                    socket: None,
+                    owner: true,
+                    status: "paused".into(),
+                    ran: true,
+                }]
+            })
+        );
+        // An older app's line: no paid, status, ran, name, socket or owner.
+        let Some(Inbound::CloudLinks { paid, links, .. }) = Inbound::parse(
+            r#"{"type":"cloud_links","request":9,"links":[{"machine_id":"m","team_id":"t"}]}"#,
+        ) else {
+            panic!("a cloud_links line")
+        };
+        assert!(!paid);
+        assert_eq!((links[0].status.as_str(), links[0].ran, links[0].owner), ("unknown", false, false));
+        assert_eq!(links[0].socket, None);
     }
 
     #[test]

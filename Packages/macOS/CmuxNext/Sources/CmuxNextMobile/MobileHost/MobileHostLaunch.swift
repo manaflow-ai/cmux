@@ -44,8 +44,9 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// hostd serves `browser` and says `browser-stream-v1` (`CMUX_MOBILE_BROWSER_HOSTS=1`).
     /// Off, phones hide New Browser Tab for this Mac.
     public var browserHosts = false
-    /// This build streams the phone tabs' simulators (SimulatorKit loads): hostd
-    /// serves `surface` and says `surface-stream-v1` (`CMUX_MOBILE_SURFACE_HOSTS=1`).
+    /// This build streams surfaces (the phone tabs' simulators when SimulatorKit loads, the owner's
+    /// Cloud desktops): hostd serves `surface` and says `surface-stream-v1` and `cloud-desktop-v1`
+    /// (`CMUX_MOBILE_SURFACE_HOSTS=1`).
     public var surfaceHosts = false
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,

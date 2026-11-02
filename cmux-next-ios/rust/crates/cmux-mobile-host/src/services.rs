@@ -141,6 +141,9 @@ pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 /// Added when this Mac streams its phone tabs' simulators (`surface`), with
 /// `video: "track"` as for browser tabs.
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
+/// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
+/// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
+pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -151,6 +154,7 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.available() {
         out.push(SURFACE_STREAM);
+        out.push(CLOUD_DESKTOP);
     }
     out
 }
@@ -170,39 +174,88 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
     Ok(())
 }
 
+/// Whether `value` is a Cloud machine or team id as the phone may name one
+/// (never `~`, the `surface` Cloud desktop key's separator).
+pub(crate) fn valid_cloud_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 160
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
 fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
     let Some(value) = value.and_then(Value::as_str) else {
         return Err(Refusal::new("bad_request", format!("{name} is required")));
     };
     let value = value.trim();
-    if value.is_empty()
-        || value.len() > 160
-        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-    {
+    if !valid_cloud_id(value) {
         return Err(Refusal::new("bad_request", format!("invalid {name}")));
     }
     Ok(value.to_owned())
 }
 
-/// Return only authenticated Cloud machines. Carrier paths and owner markers
-/// are never exposed to the phone.
+/// The one link the app lists for `machine_id` in `team_id`, when this account
+/// owns it; `forbidden` for none, several, or a machine it does not own.
+pub(crate) fn owned_cloud_link(
+    links: Vec<control::CloudLink>,
+    machine_id: &str,
+    team_id: &str,
+) -> Result<control::CloudLink, Refusal> {
+    let mut matches = links
+        .into_iter()
+        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
+        .collect::<Vec<_>>();
+    match matches.pop() {
+        Some(link) if matches.is_empty() && link.owner => Ok(link),
+        _ => Err(Refusal::new("forbidden", "Cloud machine is not an unambiguous authenticated owner link")),
+    }
+}
+
+/// A machine state as the phone sees it: the app's status word, or `unknown`.
+fn cloud_status(status: &str) -> &str {
+    if !status.is_empty()
+        && status.len() <= 32
+        && status.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+    {
+        status
+    } else {
+        "unknown"
+    }
+}
+
+/// The `cloud-directory` reply: whether the account pays for Cloud, and its
+/// owned machines that are listed once. Carrier paths and owner markers are
+/// never exposed to the phone.
+pub(crate) fn cloud_directory_reply(snapshot: control::CloudLinks) -> Value {
+    let mut counts = HashMap::<(String, String), usize>::new();
+    for link in &snapshot.links {
+        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
+    }
+    let machines = snapshot
+        .links
+        .into_iter()
+        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
+        .map(|link| {
+            serde_json::json!({
+                "machine_id": link.machine_id,
+                "team_id": link.team_id,
+                "name": link.name,
+                "status": cloud_status(&link.status),
+                "ran": link.ran,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({"paid": snapshot.paid, "machines": machines})
+}
+
+/// Return only authenticated Cloud machines ([`cloud_directory_reply`]).
 async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
     if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
         return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
     }
-    let links =
+    let snapshot =
         control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
-    let mut counts = HashMap::<(String, String), usize>::new();
-    for link in &links {
-        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
-    }
-    let machines = links
-        .into_iter()
-        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
-        .map(|link| serde_json::json!({"machine_id": link.machine_id, "team_id": link.team_id, "name": link.name}))
-        .collect::<Vec<_>>();
     sender
-        .send(Bytes::from(serde_json::json!({"machines": machines}).to_string()))
+        .send(Bytes::from(cloud_directory_reply(snapshot).to_string()))
         .await
         .map_err(|_| Refusal::new("closed", "phone channel closed"))
 }
@@ -223,19 +276,9 @@ async fn cloud_acpmux(
     }
     let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
     let team_id = cloud_id(object.get("team_id"), "team_id")?;
-    let links =
+    let snapshot =
         control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
-    let mut matches = links
-        .into_iter()
-        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
-        .collect::<Vec<_>>();
-    if matches.len() != 1 || !matches[0].owner {
-        return Err(Refusal::new(
-            "forbidden",
-            "Cloud machine is not an unambiguous authenticated owner link",
-        ));
-    }
-    let link = matches.pop().expect("one link checked above");
+    let link = owned_cloud_link(snapshot.links, &machine_id, &team_id)?;
     let path =
         link.socket.ok_or_else(|| Refusal::new("unavailable", "Cloud machine link has no carrier socket"))?;
     if !path.is_absolute() {
@@ -1799,6 +1842,91 @@ mod tests {
                 BROWSER_VIDEO_TRACK
             ]
         );
+    }
+
+    fn cloud_link(machine: &str, team: &str, owner: bool, status: &str, ran: bool) -> control::CloudLink {
+        control::CloudLink {
+            machine_id: machine.into(),
+            team_id: team.into(),
+            name: format!("{machine} box"),
+            socket: Some("/tmp/cloud.sock".into()),
+            owner,
+            status: status.into(),
+            ran,
+        }
+    }
+
+    #[test]
+    fn cloud_directory_says_paid_status_and_ran_and_never_a_socket_or_owner() {
+        let mut asleep = cloud_link("m2", "t", true, "paused", true);
+        asleep.socket = None;
+        let snapshot = control::CloudLinks {
+            paid: true,
+            links: vec![
+                cloud_link("m1", "t", true, "running", true),
+                asleep,
+                // Not owned: never listed.
+                cloud_link("m3", "t", false, "running", true),
+                // Listed twice: ambiguous, never listed.
+                cloud_link("m4", "t", true, "running", true),
+                cloud_link("m4", "t", true, "paused", true),
+                // A status word the phone cannot read becomes unknown.
+                cloud_link("m5", "t", true, "Run ning/../", false),
+            ],
+        };
+        let reply = cloud_directory_reply(snapshot);
+        assert_eq!(
+            reply,
+            serde_json::json!({"paid": true, "machines": [
+                {"machine_id": "m1", "team_id": "t", "name": "m1 box", "status": "running", "ran": true},
+                {"machine_id": "m2", "team_id": "t", "name": "m2 box", "status": "paused", "ran": true},
+                {"machine_id": "m5", "team_id": "t", "name": "m5 box", "status": "unknown", "ran": false},
+            ]})
+        );
+        let text = reply.to_string();
+        assert!(!text.contains("socket") && !text.contains("cloud.sock") && !text.contains("owner"));
+        // An older app's snapshot: not paid, nothing has run.
+        assert_eq!(
+            cloud_directory_reply(control::CloudLinks::default()),
+            serde_json::json!({"paid": false, "machines": []})
+        );
+    }
+
+    #[test]
+    fn only_one_owned_link_is_a_cloud_machine_the_phone_may_reach() {
+        let owned = || cloud_link("m", "t", true, "running", true);
+        assert_eq!(owned_cloud_link(vec![owned()], "m", "t").unwrap(), owned());
+        for links in [
+            vec![],
+            vec![cloud_link("m", "t", false, "running", true)],
+            vec![owned(), owned()],
+            vec![cloud_link("m", "other", true, "running", true)],
+        ] {
+            assert_eq!(owned_cloud_link(links, "m", "t").unwrap_err().code, "forbidden");
+        }
+    }
+
+    #[test]
+    fn surface_streams_cloud_desktops_only_with_a_surface_source() {
+        let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
+            Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
+        });
+        let mut config = crate::config::ServiceConfig {
+            tui_socket_dir: std::path::PathBuf::from("/tmp"),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: std::path::PathBuf::from("/tmp"),
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
+        };
+        assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
+        config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);
+        assert!(capabilities(&config).ends_with(&[SURFACE_STREAM, CLOUD_DESKTOP]));
     }
 
     #[test]

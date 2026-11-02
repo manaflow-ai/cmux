@@ -27,6 +27,12 @@
 //! messages a surface viewer sends. The phone's input reaches the simulator
 //! only as touches at 0...1 of its screen, text, a short list of keys and the
 //! Home and Lock buttons ([`input_line`]).
+//!
+//! A Cloud desktop tab (`c~<machine_id>~<team_id>`, [`cloud_desktop_of`]) streams the
+//! owner's own cmux Cloud machine screen through the same host, view only. hostd
+//! serves it only when the app's current Cloud links list exactly one owned link
+//! for that machine and team, and the machine is running ([`cloud_desktop_access`]);
+//! its host forwards no phone input to the source and offers the phone no input cap.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -46,7 +52,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::browser::{BrowserConfig, FrameVerdict, HostGuard, LaunchRequest, Launcher, RunningHost};
-use crate::services::{Peer, Refusal};
+use crate::control::{CloudLink, request_cloud_links};
+use crate::services::{Peer, Refusal, owned_cloud_link, valid_cloud_id};
 
 /// rb messages a surface viewer may send. A surface has no page: no
 /// navigation, history, menus, dialogs or find.
@@ -110,6 +117,24 @@ pub fn surface_of(tab: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
+/// The Cloud machine and team of a Cloud desktop tab key `c~<machine_id>~<team_id>`.
+/// Each id passes the `cloud-acpmux` id rules, which never allow `~`.
+pub fn cloud_desktop_of(tab: &str) -> Option<(&str, &str)> {
+    let (machine, team) = tab.strip_prefix("c~")?.split_once('~')?;
+    (valid_cloud_id(machine) && valid_cloud_id(team)).then_some((machine, team))
+}
+
+/// Whether the phone may watch Cloud machine `machine_id` of `team_id` now: the
+/// app lists exactly one owned link for it (else `forbidden`), and it is running
+/// (else `asleep`).
+pub fn cloud_desktop_access(links: Vec<CloudLink>, machine_id: &str, team_id: &str) -> Result<(), Refusal> {
+    let link = owned_cloud_link(links, machine_id, team_id)?;
+    if link.status != "running" {
+        return Err(Refusal::new("asleep", "the Cloud machine is not running"));
+    }
+    Ok(())
+}
+
 /// Whether a `list-workspaces` reply lists daemon surface `surface` as a phone
 /// page tab (`kind: conversation`, `conversation.page: "phone"`).
 pub fn phone_tab_in(reply: &Value, surface: u64) -> bool {
@@ -170,11 +195,16 @@ pub async fn serve(
         return Err(Refusal::new("no_surface_host", "this Mac does not stream simulator tabs"));
     }
     let tab = args.get("tab").and_then(Value::as_str).unwrap_or_default();
-    let Some(surface) = surface_of(tab) else {
+    if let Some(surface) = surface_of(tab) {
+        if !tabs.is_phone_tab(surface).await {
+            return Err(Refusal::new("forbidden", "that tab is not a phone tab on this Mac"));
+        }
+    } else if let Some((machine_id, team_id)) = cloud_desktop_of(tab) {
+        let snapshot =
+            request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+        cloud_desktop_access(snapshot.links, machine_id, team_id)?;
+    } else {
         return Err(Refusal::new("bad_request", "invalid tab"));
-    };
-    if !tabs.is_phone_tab(surface).await {
-        return Err(Refusal::new("forbidden", "that tab is not a phone tab on this Mac"));
     }
     let claim = config.hosts.claim(tab, "").await?;
     let viewer = claim.viewer;
@@ -347,13 +377,15 @@ fn host_launcher(source: Launcher) -> Launcher {
             let secret = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
             let (source_addr, source_secret, host_secret) = (app.addr, app.secret.clone(), secret.clone());
             let tab = request.tab;
+            // A Cloud desktop is view only: its viewers' input never reaches the source.
+            let view_only = cloud_desktop_of(&tab).is_some();
             let task = tokio::spawn(async move {
                 while let Ok((stream, _)) = listener.accept().await {
                     let (host_secret, source_secret, tab) =
                         (host_secret.clone(), source_secret.clone(), tab.clone());
                     tokio::spawn(async move {
                         if let Err(reason) =
-                            host_session(stream, &host_secret, source_addr, &source_secret).await
+                            host_session(stream, &host_secret, source_addr, &source_secret, view_only).await
                         {
                             tracing::info!(tab, reason, "surface: session ended");
                         }
@@ -400,11 +432,13 @@ fn rb(body: Value, out: &mut Vec<u8>) {
 
 /// One viewer of a surface: the rd hello (with this host's secret), a fresh
 /// connection to the app's source, then the media engine between them.
+/// `view_only` (a Cloud desktop): no input cap, and no input reaches the source.
 pub async fn host_session(
     mut stream: TcpStream,
     secret: &str,
     source: SocketAddr,
     source_secret: &str,
+    view_only: bool,
 ) -> Result<(), String> {
     let _ = stream.set_nodelay(true);
     let mut deframer = StreamDeframer::default();
@@ -465,7 +499,7 @@ pub async fn host_session(
             Err(reason) => return Err(reason.into()),
         }
     };
-    let input_caps: Vec<String> = caps.into_iter().filter(|c| c == "input.service").collect();
+    let input_caps: Vec<String> = caps.into_iter().filter(|c| !view_only && c == "input.service").collect();
     let mut out = Vec::new();
     rd_control(
         &Control::Welcome {
@@ -486,7 +520,7 @@ pub async fn host_session(
         EngineConfig { width, height, max_fps: MAX_FPS, max_datagram, ..EngineConfig::default() },
         surface_clock_us(),
     );
-    let mut flow = Flow { pending: engine.start(surface_clock_us()), ..Flow::default() };
+    let mut flow = Flow { pending: engine.start(surface_clock_us()), view_only, ..Flow::default() };
     let (mut phone_read, mut phone_write) = stream.into_split();
     let (mut app_read, mut app_write) = app.into_split();
     let result = loop {
@@ -672,6 +706,8 @@ struct Flow {
     force_idr: bool,
     /// Keys the phone holds down on the simulator (released with a finger).
     held_keys: Vec<String>,
+    /// A view-only source (a Cloud desktop): the phone's input is dropped.
+    view_only: bool,
 }
 
 impl Flow {
@@ -702,7 +738,9 @@ impl Flow {
 
     /// One engine output: datagrams to the phone, input to the source, the next request.
     fn take(&mut self, output: Output, to_phone: &mut Vec<u8>, to_app: &mut Vec<u8>) {
-        for event in &output.inject {
+        // A view-only source (a Cloud desktop) takes none of the phone's input.
+        let inject = if self.view_only { &[][..] } else { &output.inject[..] };
+        for event in inject {
             if let InputEvent::Service { bytes, .. } = event
                 && let Ok(event) = serde_json::from_slice::<Value>(&bytes[..])
                 && let Some(line) = input_line(&event, &mut self.touching)
@@ -790,6 +828,78 @@ mod tests {
         for bad in ["", "s", "12", "s-1", "s1a", "S12", "s99999999999999999999"] {
             assert_eq!(surface_of(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn cloud_desktop_keys_name_a_machine_and_its_team() {
+        assert_eq!(cloud_desktop_of("c~m1~t1"), Some(("m1", "t1")));
+        assert_eq!(cloud_desktop_of("c~vm.a-b_c~team.9"), Some(("vm.a-b_c", "team.9")));
+        let malformed = ["", "c", "c~", "c~m1", "c~m1~", "c~~t1", "c~m1~t1~x", "c.m1.t1", "C~m1~t1", "s12"];
+        let bad_ids = ["c~m 1~t1", "c~m1~t/1", "c~ m1~t1"];
+        for bad in malformed.into_iter().chain(bad_ids) {
+            assert_eq!(cloud_desktop_of(bad), None, "{bad}");
+        }
+        assert_eq!(cloud_desktop_of(&format!("c~{}~t", "m".repeat(161))), None);
+        // A Cloud key is never a simulator surface, and the reverse.
+        assert_eq!(surface_of("c~m1~t1"), None);
+    }
+
+    #[test]
+    fn a_cloud_desktop_streams_only_the_owners_one_running_machine() {
+        let link = |owner: bool, status: &str| CloudLink {
+            machine_id: "m".into(),
+            team_id: "t".into(),
+            name: "Dev box".into(),
+            socket: None,
+            owner,
+            status: status.into(),
+            ran: true,
+        };
+        assert!(cloud_desktop_access(vec![link(true, "running")], "m", "t").is_ok());
+        let code = |links, machine, team| cloud_desktop_access(links, machine, team).unwrap_err().code;
+        // Not owned, ambiguous, or not listed: forbidden, whatever its state.
+        assert_eq!(code(vec![link(false, "running")], "m", "t"), "forbidden");
+        assert_eq!(code(vec![link(true, "running"), link(true, "running")], "m", "t"), "forbidden");
+        assert_eq!(code(vec![link(true, "running")], "m", "other"), "forbidden");
+        assert_eq!(code(vec![], "m", "t"), "forbidden");
+        assert_eq!(code(vec![link(false, "paused")], "m", "t"), "forbidden");
+        // Owned but not running: asleep.
+        for status in ["paused", "pausing", "starting", "provisioning", "failed", "unknown"] {
+            assert_eq!(code(vec![link(true, status)], "m", "t"), "asleep", "{status}");
+        }
+    }
+
+    #[test]
+    fn a_view_only_source_gets_no_phone_input() {
+        let service = |event: Value| InputEvent::Service {
+            must_deliver: true,
+            bytes: serde_json::to_vec(&event).unwrap(),
+        };
+        let input = || Output {
+            inject: vec![
+                service(json!({"e": "pointer", "kind": "down", "x": 0.5, "y": 0.5})),
+                service(json!({"e": "ime_commit", "text": "rm -rf ~"})),
+                service(json!({"e": "key", "code": "Enter", "down": true})),
+                service(json!({"e": "button", "button": "home"})),
+            ],
+            release_all: true,
+            ..Output::default()
+        };
+        let mut view_only = Flow { view_only: true, ..Flow::default() };
+        let mut to_app = Vec::new();
+        view_only.take(input(), &mut Vec::new(), &mut to_app);
+        assert!(to_app.is_empty(), "no input line reaches a Cloud desktop");
+        assert!(!view_only.touching && view_only.held_keys.is_empty());
+        // The same input reaches a simulator.
+        let mut simulator = Flow::default();
+        simulator.take(input(), &mut Vec::new(), &mut to_app);
+        let mut lines = SourceDeframer::default();
+        lines.extend(&to_app);
+        let mut kinds = Vec::new();
+        while let Ok(Some(SourceFrame::Json(line))) = lines.next_frame() {
+            kinds.push(line["t"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(kinds[..4], ["touch", "text", "key", "button"]);
     }
 
     #[test]
