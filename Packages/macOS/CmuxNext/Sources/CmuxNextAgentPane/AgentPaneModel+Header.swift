@@ -84,6 +84,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
     /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
     public var showSession: @MainActor (String) -> Bool
+    /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
+    /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
+    public var jumpToSession: @MainActor (String) -> Bool
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -115,6 +118,7 @@ public struct AgentPaneHeaderHooks {
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                jumpToSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
@@ -135,6 +139,7 @@ public struct AgentPaneHeaderHooks {
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
+        self.jumpToSession = jumpToSession
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
@@ -281,8 +286,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session, let sender):
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
-        case .asksOpen(let session):
-            return AgentPaneAskOpen.respond(session, in: self)
+        case .asksOpen(let session, let place):
+            return AgentPaneAskOpen.respond(session, at: place, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
         case .newChatHere(let cwd):
