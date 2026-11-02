@@ -30,6 +30,7 @@ Exceptions that stay (recorded decisions, not violations):
 | Hover, drag, scroll, palette query, omnibar draft | Swift / TS (local UI) | the view | that view | none | none |
 | Notifications, unread, rings | Rust | session host notification ledger | Swift, CLI, iOS | v2 events | registry |
 | Agent sessions, turns, queue, permissions, transcripts, status | Rust | acpmux hub (later the acp actor) | agent pane webview, Swift, CLI | ACP JSON-RPC, later v2 | `$ACPMUX_HOME/sessions` |
+| Sidebar Priority view: lane ranking, Go to Next Agent Needing Input, the person's marks (pin, read, snooze, archive, place) | Rust | acpmux `hub/priority.rs` (rule), `hub/priority_marks.rs` (one copy of the marks) | Swift sidebar: its visible rows only | `_acpmux/priority_window` row diffs, `_acpmux/priority_mark` | `$ACPMUX_HOME/priority-marks.json` |
 | Agent-pane policy (answers rule, allowed methods, environment policy) | Rust | `cmux-agent-pane-policy` + `policy.json` | Swift host via FFI or generated data, TS via codegen | FFI / generated | data file in the crate |
 | Agent start folder and folder approval | Rust | acpmux session create (one decision, one reject code) | Swift and TS render the decision | ACP `session/new` result + typed reject | session record |
 | Agent and model catalogs, harness list, brands | data file in Rust crate (`acpmux/catalog/*.json`) | the catalog file | Swift, TS, web via codegen | generated sources | checked-in data |

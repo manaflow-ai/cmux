@@ -7,15 +7,17 @@
 //!
 //! Two kinds of window:
 //!
-//! - `priority` (the default): the sidebar's Priority view, ranked by `priority.rs`. The spec
-//!   carries what the client still owns: the person's marks (`marks`, `Marks` as JSON), the ids
-//!   with failing pull request checks (`failing`), the ids open in a tab (`opened`), whether the
-//!   view shows (`shown`: hidden, only the rows that need the person are kept, for the bell's
-//!   dot), and the lanes of chats another owner reports (`lanes`: summaries with `lane`, for the
-//!   Chief home's acpmux and other machines' daemon trees). A lane of this daemon wins over one
-//!   of `lanes` with the same id. Each message also carries `needingInput` (Go to Next Agent
-//!   Needing Input's order), `attentionCount` and `nextChangeMs` (when a snooze ends or an idle
-//!   chat ages out with no other change; the server wakes then).
+//! - `priority` (the default): the sidebar's Priority view, ranked by `priority.rs` with the
+//!   daemon's marks (`priority_marks.rs`, one copy for every window). The spec carries what the
+//!   client still owns: the ids with failing pull request checks (`failing`), the ids open in a
+//!   tab (`opened`), whether the view shows (`shown`: hidden, only the rows that need the person
+//!   are kept, for the bell's dot), how rows name machines (`localMachine`, `peerNames`), the
+//!   lanes of chats another owner reports (`lanes`: summaries with `lane` and an optional
+//!   `machine`, for the Chief home's acpmux and other machines' daemon trees), and once the app's
+//!   saved marks (`importMarks`). A lane of this daemon wins over one of `lanes` with the same id.
+//!   Each message also carries `needingInput` (Go to Next Agent Needing Input's order),
+//!   `attentionCount` and `nextChangeMs` (when a snooze ends or an idle chat ages out with no
+//!   other change; the server wakes then).
 //! - `links`: the lanes of `keys` (the sessions the session tree shows), each only what links it
 //!   to its folder, pull requests and chat, and its state (`Lane::links`): a new step of a
 //!   session sends nothing.
@@ -34,7 +36,7 @@ use super::{Hub, HubEvent};
 /// What a window shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WindowKind {
-    /// Boxed: its marks and sets dwarf a links window's keys.
+    /// Boxed: its sets and lanes dwarf a links window's keys.
     Priority(Box<PrioritySpec>),
     Links {
         keys: Vec<String>,
@@ -43,7 +45,13 @@ pub enum WindowKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrioritySpec {
-    marks: Marks,
+    /// The client's saved marks, handed over once: taken only while acpmux has none
+    /// (`priority_marks.rs`). The window shows the daemon's marks, never these.
+    import: Option<Marks>,
+    /// The tag of this daemon's own lanes (this Mac's name while the app shows it), else none.
+    local_machine: Option<String>,
+    /// A peer's display name by its acpmux name; a peer without one shows its name.
+    peer_names: HashMap<String, String>,
     failing: HashSet<String>,
     opened: HashSet<String>,
     shown: bool,
@@ -79,11 +87,23 @@ fn strings(params: &Value, name: &str) -> Result<Vec<String>, String> {
 
 impl PrioritySpec {
     fn from_params(params: &Value) -> Result<Self, String> {
-        let marks = match params.get("marks") {
-            None | Some(Value::Null) => Marks::default(),
-            Some(marks) => {
-                serde_json::from_value(marks.clone()).map_err(|e| format!("marks: {e}"))?
-            }
+        let import = match params.get("importMarks") {
+            None | Some(Value::Null) => None,
+            Some(saved) => Some(super::priority_marks::from_app(saved)?),
+        };
+        let local_machine = match params.get("localMachine") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(name)) if !name.is_empty() => Some(name.clone()),
+            Some(_) => return Err("localMachine must be a non-empty string".to_owned()),
+        };
+        let peer_names = match params.get("peerNames") {
+            None | Some(Value::Null) => HashMap::new(),
+            Some(Value::Object(names)) => names
+                .iter()
+                .map(|(peer, name)| name.as_str().map(|name| (peer.clone(), name.to_owned())))
+                .collect::<Option<_>>()
+                .ok_or("peerNames must map peer names to display names")?,
+            Some(_) => return Err("peerNames must map peer names to display names".to_owned()),
         };
         let shown = match params.get("shown") {
             None | Some(Value::Null) => true,
@@ -105,7 +125,9 @@ impl PrioritySpec {
             }
         }
         Ok(Self {
-            marks,
+            import,
+            local_machine,
+            peer_names,
             failing: ids(params, "failing")?,
             opened: ids(params, "opened")?,
             shown,
@@ -154,8 +176,13 @@ impl LaneSet {
         set
     }
 
-    /// Writes one session's lane (none: it ended). True when the set changed.
-    pub fn set(&mut self, id: String, lane: Option<Lane>) -> bool {
+    /// Writes one session's lane (none: it ended). True when the set changed. A peer's row
+    /// never replaces or removes this daemon's own lane of the same id (`from_lanes` keeps it).
+    pub fn apply(&mut self, change: LaneChange) -> bool {
+        let LaneChange { id, lane, from_peer } = change;
+        if from_peer && self.lanes.get(&id).is_some_and(|own| own.peer.is_none()) {
+            return false;
+        }
         match lane {
             Some(lane) if self.lanes.get(&id) == Some(&lane) => false,
             Some(lane) => {
@@ -172,8 +199,8 @@ impl LaneSet {
 }
 
 /// `_acpmux/priority_mark {window, op, id?, order?, durationMs?, collapsed?}`: the person marks a
-/// chat in a Priority window. The rule of each mark is here (`Marks`); the client keeps the
-/// marks the reply returns and sends them with its next spec.
+/// chat in a Priority window. The rule of each mark is here (`Marks`); the marks are the
+/// daemon's (`priority_marks.rs`), one copy for every window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MarkOp {
     Read(String),
@@ -239,38 +266,58 @@ fn listed(set: &LaneSet, reported: &[Lane], id: &str) -> Result<Lane, String> {
     lane.cloned().ok_or_else(|| format!("no chat {id:?} in this window"))
 }
 
-impl PrioritySpec {
-    /// Applies `op` to the window's marks at `now`. A mark on a chat the window does not list is
-    /// refused, as the app's row actions were.
-    pub fn apply(&mut self, op: &MarkOp, set: &LaneSet, now: i64) -> Result<(), String> {
-        match op {
-            MarkOp::Read(id) => {
-                let lane = listed(set, &self.lanes, id)?;
-                self.marks.mark_read(&lane);
+/// A mark checked against a window's lanes, ready to apply to the daemon's marks.
+#[derive(Clone, Debug)]
+pub struct Mark {
+    op: MarkOp,
+    /// The lane the mark is on (its stamp), for read and snooze.
+    lane: Option<Lane>,
+    /// Every chat the window lists, for prune.
+    keeping: HashSet<String>,
+}
+
+impl Mark {
+    /// Applies the mark to `marks` at `now`.
+    pub fn apply(&self, marks: &mut Marks, now: i64) {
+        match (&self.op, &self.lane) {
+            (MarkOp::Read(_), Some(lane)) => marks.mark_read(lane),
+            (MarkOp::Snooze { duration_ms, .. }, Some(lane)) => {
+                marks.snooze(lane, *duration_ms, now)
             }
-            MarkOp::TogglePin(id) => {
-                listed(set, &self.lanes, id)?;
-                self.marks.toggle_pin(id);
-            }
-            MarkOp::Snooze { id, duration_ms } => {
-                let lane = listed(set, &self.lanes, id)?;
-                self.marks.snooze(&lane, *duration_ms, now);
-            }
-            MarkOp::Archive(id) => self.marks.archive(id),
-            MarkOp::Unarchive(id) => self.marks.unarchive(id),
-            MarkOp::Collapse(collapsed) => self.marks.collapsed = *collapsed,
-            MarkOp::Place { id, order } => self.marks.place(id, order),
-            MarkOp::Prune => {
-                let mut keeping: HashSet<String> = set.lanes.keys().cloned().collect();
-                keeping.extend(self.lanes.iter().map(|lane| lane.id.clone()));
-                self.marks.prune(&keeping);
-            }
+            (MarkOp::TogglePin(id), _) => marks.toggle_pin(id),
+            (MarkOp::Archive(id), _) => marks.archive(id),
+            (MarkOp::Unarchive(id), _) => marks.unarchive(id),
+            (MarkOp::Collapse(collapsed), _) => marks.collapsed = *collapsed,
+            (MarkOp::Place { id, order }, _) => marks.place(id, order),
+            (MarkOp::Prune, _) => marks.prune(&self.keeping),
+            (MarkOp::Read(_) | MarkOp::Snooze { .. }, None) => {}
         }
-        Ok(())
+    }
+}
+
+impl PrioritySpec {
+    /// `op` checked against this window's lanes. A mark on a chat the window does not list is
+    /// refused, as the app's row actions were (unarchive, collapse, place and prune name none).
+    pub fn mark(&self, op: MarkOp, set: &LaneSet) -> Result<Mark, String> {
+        let lane = match &op {
+            MarkOp::Read(id) | MarkOp::Snooze { id, .. } => Some(listed(set, &self.lanes, id)?),
+            MarkOp::TogglePin(id) | MarkOp::Archive(id) => {
+                listed(set, &self.lanes, id)?;
+                None
+            }
+            _ => None,
+        };
+        let keeping = if op == MarkOp::Prune {
+            set.lanes.keys().cloned().chain(self.lanes.iter().map(|lane| lane.id.clone())).collect()
+        } else {
+            HashSet::new()
+        };
+        Ok(Mark { op, lane, keeping })
     }
 
-    pub fn marks(&self) -> &Marks {
-        &self.marks
+    /// The client's saved marks to hand over, if it sent them.
+    pub fn import(&self) -> Option<&Marks> {
+        self.import.as_ref()
     }
 }
 
@@ -284,8 +331,8 @@ pub struct WindowView {
     pub next_change: Option<i64>,
 }
 
-/// The view of `spec` over `set` at `now` (epoch ms).
-pub fn view(spec: &WindowSpec, set: &LaneSet, now: i64) -> WindowView {
+/// The view of `spec` over `set` with the daemon's `marks` at `now` (epoch ms).
+pub fn view(spec: &WindowSpec, set: &LaneSet, marks: &Marks, now: i64) -> WindowView {
     match &spec.kind {
         WindowKind::Links { keys } => WindowView {
             rows: keys
@@ -295,17 +342,27 @@ pub fn view(spec: &WindowSpec, set: &LaneSet, now: i64) -> WindowView {
             extra: Value::Null,
             next_change: None,
         },
-        WindowKind::Priority(priority) => priority_view(priority, set, now),
+        WindowKind::Priority(priority) => priority_view(priority, set, marks, now),
     }
 }
 
-/// Every lane a Priority window ranks: this daemon's, then the client's whose id it lacks.
+/// Every lane a Priority window ranks: this daemon's, then the client's whose id it lacks, each
+/// with the machine its row names, as the app named it: the client's tag for a lane it reported
+/// from another machine, else the peer's display name (or its name), else this Mac's tag.
 fn window_lanes(spec: &PrioritySpec, set: &LaneSet) -> Vec<Lane> {
     let mut lanes: Vec<Lane> = set.lanes.values().cloned().collect();
     lanes.extend(spec.lanes.iter().filter(|lane| !set.lanes.contains_key(&lane.id)).cloned());
     // The client's lanes may repeat an id: the first is it.
     let mut seen = HashSet::new();
     lanes.retain(|lane| seen.insert(lane.id.clone()));
+    for lane in &mut lanes {
+        if lane.machine.is_none() {
+            lane.machine = match &lane.peer {
+                Some(peer) => Some(spec.peer_names.get(peer).unwrap_or(peer).clone()),
+                None => spec.local_machine.clone(),
+            };
+        }
+    }
     lanes
 }
 
@@ -315,21 +372,19 @@ fn window_lanes(spec: &PrioritySpec, set: &LaneSet) -> Vec<Lane> {
 pub fn next_needing_input(
     spec: &WindowSpec,
     set: &LaneSet,
+    marks: &Marks,
     now: i64,
     after: Option<&str>,
 ) -> Option<String> {
     let WindowKind::Priority(priority) = &spec.kind else { return None };
     let lanes = window_lanes(priority, set);
-    let order: Vec<String> = needing_input(&lanes, &priority.marks, now)
-        .into_iter()
-        .map(|lane| lane.id.clone())
-        .collect();
+    let order: Vec<String> =
+        needing_input(&lanes, marks, now).into_iter().map(|lane| lane.id.clone()).collect();
     next_after(after, &order)
 }
 
-fn priority_view(spec: &PrioritySpec, set: &LaneSet, now: i64) -> WindowView {
+fn priority_view(spec: &PrioritySpec, set: &LaneSet, marks: &Marks, now: i64) -> WindowView {
     let lanes = window_lanes(spec, set);
-    let marks = &spec.marks;
     // An agent-started chat shows only once a tab opened it, or while pinned.
     let visible: HashSet<&str> = lanes
         .iter()
@@ -426,29 +481,48 @@ impl Hub {
         LaneSet::from_lanes(lanes)
     }
 
-    /// The session `ev` changed and its lane now (none: it closed or went), read from that
-    /// session's summary alone. `ev` is a record that changes a summary (`session_changed`).
-    pub(crate) fn lane_after(&self, ev: &HubEvent) -> (String, Option<Lane>) {
+    /// The session `ev` changed and its lane now (none: it closed, was purged or went), read
+    /// from that session's summary alone. `ev` is a record that changes a lane (`changes_lane`).
+    pub(crate) fn lane_after(&self, ev: &HubEvent) -> LaneChange {
+        let purged = ev.record.kind == "purged";
         if let Some(remote) = &ev.remote {
-            let mut summary = remote.summary.clone();
-            if summary.get("peer").is_none_or(Value::is_null) {
-                summary.set("peer", json!(remote.peer));
-            }
-            let id = summary
+            let id = remote
+                .summary
                 .get("sessionId")
                 .and_then(Value::as_str)
                 .map_or_else(|| ev.session_id.clone(), str::to_owned);
-            let lane = Lane::of(&summary, Some(&id));
-            return (id, lane);
+            // A purge carries the row it removed, lane and all: the lane is gone.
+            let lane = (!purged)
+                .then(|| {
+                    let mut summary = remote.summary.clone();
+                    if summary.get("peer").is_none_or(Value::is_null) {
+                        summary.set("peer", json!(remote.peer));
+                    }
+                    Lane::of(&summary, Some(&id))
+                })
+                .flatten();
+            return LaneChange { id, lane, from_peer: true };
         }
-        if ev.record.kind == "purged" {
-            return (ev.session_id.clone(), None);
-        }
-        let lane = self.resolve(&ev.session_id).ok().and_then(|session| {
+        // By its exact id: a prefix of a gone session's id may name another session.
+        let session = (!purged)
+            .then(|| {
+                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&ev.session_id).cloned()
+            })
+            .flatten();
+        let lane = session.and_then(|session| {
             Lane::of(&self.session_list_summary(&session), Some(&ev.session_id))
         });
-        (ev.session_id.clone(), lane)
+        LaneChange { id: ev.session_id.clone(), lane, from_peer: false }
     }
+}
+
+/// One session's lane after a change (`Hub::lane_after`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaneChange {
+    pub id: String,
+    pub lane: Option<Lane>,
+    /// It came from a peer's row: it never replaces or removes this daemon's own lane.
+    pub from_peer: bool,
 }
 
 #[cfg(test)]

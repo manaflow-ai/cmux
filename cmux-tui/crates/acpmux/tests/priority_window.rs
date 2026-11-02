@@ -159,4 +159,42 @@ async fn a_priority_window_hears_a_lane_change_as_a_row_diff_and_a_mark_at_once(
     assert_eq!(stale["stale"], true);
     let closed = sidebar.ok("_acpmux/priority_window_close", json!({"window": "p"})).await;
     assert_eq!(closed["closed"], true);
+
+    // Served on the local socket only: a WebSocket client gets no window.
+    let mut web = client(&hub, Origin::Web);
+    let refused = web.call("_acpmux/priority_window", json!({"window": "w"})).await;
+    assert!(
+        refused["error"]["message"].as_str().is_some_and(|m| m.contains("local unix socket")),
+        "{refused}"
+    );
+}
+
+/// The marks are the daemon's, one copy: a mark through one connection's window shows in
+/// another connection's window, and a snooze ends by the clock alone, with no other change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_shows_in_every_window_and_a_snooze_ends_by_the_clock() {
+    let hub = hub();
+    let mut one = client(&hub, Origin::Local);
+    let mut two = client(&hub, Origin::Local);
+    let asks =
+        json!({"sessionId": "asks", "name": "asks", "lane": {"state": "input", "since": 1_000}});
+    let spec = json!({"window": "p", "lanes": [asks]});
+    one.ok("_acpmux/priority_window", spec.clone()).await;
+    two.ok("_acpmux/priority_window", spec).await;
+    assert_eq!(keys(&one.window_until(|_| true).await), ["asks"]);
+    assert_eq!(keys(&two.window_until(|_| true).await), ["asks"]);
+
+    // A snooze of 400 ms through the first window: both windows drop the row.
+    let snooze = json!({"window": "p", "op": "snooze", "id": "asks", "durationMs": 400});
+    let marked = one.ok("_acpmux/priority_mark", snooze).await;
+    assert!(marked["marks"]["snoozed"]["asks"]["untilMs"].is_i64(), "{marked}");
+    let hidden = two.window_until(|m| keys(m).is_empty()).await;
+    assert_eq!(hidden["needingInput"], json!([]));
+    assert!(hidden["nextChangeMs"].is_i64(), "the window says when it wakes: {hidden}");
+    one.window_until(|m| keys(m).is_empty()).await;
+
+    // Nothing else happens: the clock brings the row back to both.
+    let back = two.window_until(|m| keys(m) == ["asks"]).await;
+    assert_eq!(back["needingInput"], json!(["asks"]));
+    one.window_until(|m| keys(m) == ["asks"]).await;
 }

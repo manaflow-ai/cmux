@@ -280,10 +280,9 @@ fn a_dragged_chat_keeps_its_place_while_the_others_rank() {
 /// Marks saved before the dragged places existed still load.
 #[test]
 fn marks_saved_before_places_load() {
-    let marks: Marks = serde_json::from_value(
-        json!({"pinned": ["a"], "read": {}, "snoozed": {}, "archived": [], "collapsed": true}),
-    )
-    .expect("old marks load");
+    let saved =
+        json!({"pinned": ["a"], "read": {}, "snoozed": {}, "archived": [], "collapsed": true});
+    let marks = super::super::priority_marks::from_app(&saved).expect("old marks load");
     assert!(marks.pinned.contains("a") && marks.collapsed && marks.placed.is_empty());
 }
 
@@ -295,10 +294,15 @@ fn a_stamp_is_the_state_and_its_time_as_the_app_wrote_it() {
     assert_eq!(stamp(&Lane { since: None, ..lane("a", LaneState::Idle, 0) }), "idle@0");
     let noticed = Lane { mark_key: Some("notice-7".into()), ..lane("a", LaneState::Idle, 0) };
     assert_eq!(stamp(&noticed), "idle@notice-7");
-    // Every millisecond of a day survives the app's `Date` round trip as the app computes it.
-    for ms in (NOW..NOW + 86_400_000).step_by(997) {
-        let reference = ms as f64 / 1000.0 - 978_307_200.0;
-        assert_eq!(app_millis(ms), ((reference + 978_307_200.0) * 1000.0) as i64);
+    // Fixed values (Swift's own arithmetic, a `Date` made from ms / 1000 and read back with
+    // `Int64(timeIntervalSince1970 * 1000)`): the stamps the app saved for these times.
+    for (ms, saved) in [
+        (1_760_000_000_001, "working@1760000000001"),
+        (1_761_234_567_891, "working@1761234567891"),
+        (1_700_000_000_999, "working@1700000000999"),
+    ] {
+        let at = Lane { since: Some(ms), ..lane("a", LaneState::Working, 0) };
+        assert_eq!(stamp(&at), saved);
     }
 }
 

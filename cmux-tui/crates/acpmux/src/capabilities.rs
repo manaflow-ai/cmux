@@ -242,6 +242,7 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/priority_mark",
             "_acpmux/priority_next",
             "_acpmux/priority_window_changed",
+            "_acpmux/priority_lagged",
         ],
     },
 ];
