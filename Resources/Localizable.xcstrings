@@ -956,6 +956,72 @@
             "state": "translated",
             "value": "依側邊欄順序為 Claude 工作階段排定優先順序"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daj prioritet Claude sesijama prema redoslijedu u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritér Claude-sessioner efter rækkefølgen i sidepanelet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dai priorità alle sessioni Claude in base all'ordine della barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់អាទិភាពដល់សម័យ Claude តាមលំដាប់នៅក្នុងរបារចំហៀង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioriter Claude-økter etter rekkefølgen i sidefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustalaj priorytet sesji Claude według kolejności na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorizar sessões do Claude pela ordem da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приоритизировать сеансы Claude по порядку в боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดลำดับความสำคัญเซสชัน Claude ตามลำดับในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude oturumlarını kenar çubuğu sırasına göre önceliklendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пріоритизувати сеанси Claude за порядком у бічній панелі"
+          }
         }
       }
     },
@@ -1014,6 +1080,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ponovo pokreće neaktivne Claude terminale da im promijeni napor, veći za radne prostore više u bočnoj traci, a manji niže, i nastavlja svaki razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux genstarter inaktive Claude-terminaler for at ændre deres indsats, mere for arbejdsområder højere oppe i sidepanelet og mindre længere nede, og genoptager hver samtale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux riavvia i terminali Claude inattivi per modificarne l'impegno, maggiore per gli spazi di lavoro più in alto nella barra laterale e minore per quelli più in basso, e riprende ogni conversazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ចាប់ផ្ដើមទែមីណាល់ Claude ដែលទំនេរឡើងវិញ ដើម្បីប្ដូរកម្រិតប្រឹងប្រែងរបស់វា ខ្ពស់ជាងសម្រាប់កន្លែងធ្វើការនៅខាងលើក្នុងរបារចំហៀង និងទាបជាងសម្រាប់កន្លែងនៅខាងក្រោម ហើយបន្តការសន្ទនានីមួយៗ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux starter inaktive Claude-terminaler på nytt for å endre innsatsen deres, mer for arbeidsområder høyere opp i sidefeltet og mindre lenger ned, og gjenopptar hver samtale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uruchamia ponownie bezczynne terminale Claude, aby zmienić ich wysiłek: większy dla obszarów roboczych wyżej na pasku bocznym, mniejszy niżej, i wznawia każdą rozmowę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux reinicia terminais do Claude ociosos para mudar o esforço deles, maior para espaços de trabalho mais acima na barra lateral e menor mais abaixo, e retoma cada conversa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапускает простаивающие терминалы Claude, чтобы изменить их уровень усилий: выше для рабочих пространств выше в боковой панели и ниже для тех, что ниже, — и возобновляет каждый разговор."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะเริ่มเทอร์มินัล Claude ที่ว่างอยู่ใหม่เพื่อเปลี่ยนระดับความพยายาม ให้สูงขึ้นสำหรับพื้นที่ทำงานที่อยู่สูงในแถบด้านข้างและต่ำลงสำหรับที่อยู่ด้านล่าง แล้วดำเนินการแต่ละการสนทนาต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, eforlarını değiştirmek için boşta duran Claude terminallerini yeniden başlatır: kenar çubuğunda daha yukarıdaki çalışma alanları için daha yüksek, aşağıdakiler için daha düşük; ardından her konuşmayı sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапускає неактивні термінали Claude, щоб змінити їхній рівень зусиль: вищий для робочих просторів вище в бічній панелі й нижчий для тих, що нижче, — і відновлює кожну розмову."
           }
         }
       }
@@ -6006,6 +6138,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.sessionPriority 投入程度 優先順序 緊急 緩慢 難度 側邊欄 順序 矩陣 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix napor prioritet hitno sporo težina bočna traka redoslijed matrica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix indsats prioritet haster langsom sværhedsgrad sidepanel rækkefølge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix impegno priorità urgente lento difficoltà barra laterale ordine matrice"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix កម្រិតប្រឹងប្រែង អាទិភាព បន្ទាន់ យឺត កម្រិតលំបាក របារចំហៀង លំដាប់ ម៉ាទ្រីស"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix innsats prioritet haster treg vanskelighetsgrad sidefelt rekkefølge matrise"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix wysiłek priorytet pilne wolne trudność pasek boczny kolejność macierz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix esforço prioridade urgente lento dificuldade barra lateral ordem matriz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix усилия приоритет срочно медленно сложность боковая панель порядок матрица"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix ความพยายาม ลำดับความสำคัญ ด่วน ช้า ความยาก แถบด้านข้าง ลำดับ เมทริกซ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix efor öncelik acil yavaş zorluk kenar çubuğu sıra matris"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix зусилля пріоритет терміново повільно складність бічна панель порядок матриця"
           }
         }
       }
@@ -678060,6 +678258,72 @@
             "state": "translated",
             "value": "簡單"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lako"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Facile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ងាយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łatwa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fácil"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лёгкая"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ง่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Легка"
+          }
         }
       }
     },
@@ -678118,6 +678382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "困難"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teško"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svær"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difficile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិបាក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vanskelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trudna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difícil"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сложная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Складна"
           }
         }
       }
@@ -678178,6 +678508,72 @@
             "state": "translated",
             "value": "普通"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធម្មតា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middels"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normalna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Média"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обычная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звичайна"
+          }
         }
       }
     },
@@ -678236,6 +678632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "套用中…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "primjenjuje se…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anvender…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "applicazione…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងអនុវត្ត…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tas i bruk…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stosowanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aplicando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "применяется…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังใช้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uygulanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "застосовується…"
           }
         }
       }
@@ -678296,6 +678758,72 @@
             "state": "translated",
             "value": "等待閒置提示"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "čeka slobodan prompt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "venter på en ledig prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in attesa di un prompt libero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំប្រអប់បញ្ចូលទំនេរ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "venter på en ledig ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "czeka na wolny prompt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aguardando um prompt livre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ожидает свободной строки ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอพรอมต์ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "boş bir istem bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "очікує вільного рядка введення"
+          }
         }
       }
     },
@@ -678354,6 +678882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "未調整"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ne podešava se"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "justeres ikke"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non regolato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនកែតម្រូវ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "justeres ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bez dostosowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "não ajustado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не настраивается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ปรับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ayarlanmıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не налаштовується"
           }
         }
       }
@@ -678414,6 +679008,72 @@
             "state": "translated",
             "value": "未套用"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nije primijenjeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ikke anvendt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non applicato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានអនុវត្ត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ikke tatt i bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nie zastosowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "não aplicado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не применено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uygulanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не застосовано"
+          }
         }
       }
     },
@@ -678472,6 +679132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "已套用"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "primijenjeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anvendt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "applicato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអនុវត្ត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tatt i bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zastosowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aplicado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "применено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uygulandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "застосовано"
           }
         }
       }
@@ -678532,6 +679258,72 @@
             "state": "translated",
             "value": "緩慢"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sporo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langsom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យឺត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wolny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медленно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ช้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yavaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повільно"
+          }
         }
       }
     },
@@ -678590,6 +679382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "緊急"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hitno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haster"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាន់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срочно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терміново"
           }
         }
       }
@@ -678650,6 +679508,72 @@
             "state": "translated",
             "value": "%@（自動）"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatski)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatisk)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatica)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ស្វ័យប្រវត្តិ)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatisk)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatycznie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automática)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (авто)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (อัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (otomatik)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (авто)"
+          }
         }
       }
     },
@@ -678708,6 +679632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@（手動）"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ručno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (manuel)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (manuale)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ដោយដៃ)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (manuell)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ręcznie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (manualmente)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (вручную)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (กำหนดเอง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (manuel)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (вручну)"
           }
         }
       }
@@ -678768,6 +679758,72 @@
             "state": "translated",
             "value": "未變更 Claude 投入程度"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napor Claudea nije promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-indsats ikke ændret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impegno di Claude non modificato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតប្រឹងប្រែង Claude មិនបានប្ដូរទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-innsats ikke endret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zmieniono wysiłku Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esforço do Claude não alterado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровень усилий Claude не изменён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้เปลี่ยนระดับความพยายามของ Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude eforu değiştirilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рівень зусиль Claude не змінено"
+          }
         }
       }
     },
@@ -678826,6 +679882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "未變更 Claude 模型"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Claudea nije promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-model ikke ændret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello di Claude non modificato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល Claude មិនបានប្ដូរទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-modell ikke endret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zmieniono modelu Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo do Claude não alterado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель Claude не изменена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้เปลี่ยนโมเดล Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude modeli değiştirilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель Claude не змінено"
           }
         }
       }
@@ -678886,6 +680008,72 @@
             "state": "translated",
             "value": "cmux 已重新啟動此終端機以套用 %1$@，但無法繼續對話。若要繼續，請在終端機中執行此指令：\n\n%2$@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux je ponovo pokrenuo ovaj terminal da primijeni nove postavke (%1$@), ali nije mogao nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:\n\n%2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux genstartede denne terminal for at anvende %1$@, men kunne ikke genoptage samtalen. Kør denne kommando i terminalen for at fortsætte den:\n\n%2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ha riavviato questo terminale per applicare %1$@, ma non è riuscito a riprendere la conversazione. Per continuarla, esegui questo comando nel terminale:\n\n%2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បានចាប់ផ្ដើមទែមីណាល់នេះឡើងវិញ ដើម្បីអនុវត្តការកំណត់ថ្មី (%1$@) ប៉ុន្តែមិនអាចបន្តការសន្ទនាបានទេ។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux startet denne terminalen på nytt for å ta i bruk %1$@, men kunne ikke gjenoppta samtalen. For å fortsette den, kjør denne kommandoen i terminalen:\n\n%2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uruchomił ponownie ten terminal, aby zastosować nowe ustawienia (%1$@), ale nie mógł wznowić rozmowy. Aby ją kontynuować, uruchom to polecenie w terminalu:\n\n%2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux reiniciou este terminal para aplicar %1$@, mas não conseguiu retomar a conversa. Para continuá-la, execute este comando no terminal:\n\n%2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапустил этот терминал, чтобы применить новые параметры (%1$@), но не смог возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:\n\n%2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เริ่มเทอร์มินัลนี้ใหม่เพื่อใช้การตั้งค่าใหม่ (%1$@) แต่ดำเนินการสนทนาต่อไม่ได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeni ayarları (%1$@) uygulamak için bu terminali yeniden başlattı ancak konuşmayı sürdüremedi. Devam etmek için bu komutu terminalde çalıştırın:\n\n%2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапустив цей термінал, щоб застосувати нові параметри (%1$@), але не зміг відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:\n\n%2$@"
+          }
         }
       }
     },
@@ -678944,6 +680132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "終端機在 cmux 以 %1$@ 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令：\n\n%2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je zatvoren prije nego što je cmux mogao nastaviti razgovor s novim postavkama (%1$@). Da ga nastavite, pokrenite ovu naredbu u terminalu:\n\n%2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen blev lukket, før cmux kunne genoptage samtalen med %1$@. Kør denne kommando i en terminal for at fortsætte den:\n\n%2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è stato chiuso prima che cmux potesse riprendere la conversazione con %1$@. Per continuarla, esegui questo comando in un terminale:\n\n%2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ត្រូវបានបិទ មុនពេល cmux អាចបន្តការសន្ទនាជាមួយការកំណត់ថ្មី (%1$@) បាន។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen ble lukket før cmux kunne gjenoppta samtalen med %1$@. For å fortsette den, kjør denne kommandoen i en terminal:\n\n%2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal został zamknięty, zanim cmux mógł wznowić rozmowę z nowymi ustawieniami (%1$@). Aby ją kontynuować, uruchom to polecenie w terminalu:\n\n%2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal foi fechado antes que o cmux pudesse retomar a conversa com %1$@. Para continuá-la, execute este comando em um terminal:\n\n%2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал был закрыт до того, как cmux смог возобновить разговор с новыми параметрами (%1$@). Чтобы продолжить его, выполните эту команду в терминале:\n\n%2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลถูกปิดก่อนที่ cmux จะดำเนินการสนทนาต่อด้วยการตั้งค่าใหม่ (%1$@) ได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal, cmux konuşmayı yeni ayarlarla (%1$@) sürdüremeden önce kapatıldı. Devam etmek için bu komutu bir terminalde çalıştırın:\n\n%2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал було закрито, перш ніж cmux зміг відновити розмову з новими параметрами (%1$@). Щоб продовжити її, виконайте цю команду в терміналі:\n\n%2$@"
           }
         }
       }
@@ -679004,6 +680258,72 @@
             "state": "translated",
             "value": "先前的 Claude（處理程序 %1$@）仍在執行，因此 cmux 沒有在這裡以 %2$@ 繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在此終端機中執行此命令：\n\n%3$@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prethodni Claude (proces %1$@) još radi, pa cmux ovdje nije nastavio razgovor s novim postavkama (%2$@): odvijao bi se na dva mjesta. Kada se taj Claude zatvori, pokrenite ovu naredbu u ovom terminalu:\n\n%3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude (proces %1$@) kører stadig, så cmux genoptog ikke samtalen med %2$@ her: den ville køre to steder. Kør denne kommando i denne terminal, når den Claude er afsluttet:\n\n%3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Claude precedente (processo %1$@) è ancora in esecuzione, quindi cmux non ha ripreso qui la conversazione con %2$@: verrebbe eseguita in due posti. Quando quel Claude sarà chiuso, esegui questo comando in questo terminale:\n\n%3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude មុន (ដំណើរការលេខ %1$@) នៅតែកំពុងដំណើរការ ដូច្នេះ cmux មិនបានបន្តការសន្ទនាជាមួយការកំណត់ថ្មី (%2$@) នៅទីនេះទេ៖ បើបន្ត ការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ នៅពេល Claude នោះបានបិទហើយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់នេះ៖\n\n%3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den forrige Claude (prosess %1$@) kjører fortsatt, så cmux gjenopptok ikke samtalen med %2$@ her: den ville da kjørt to steder. Når den Claude er avsluttet, kjør denne kommandoen i denne terminalen:\n\n%3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poprzedni Claude (proces %1$@) nadal działa, więc cmux nie wznowił tutaj rozmowy z nowymi ustawieniami (%2$@): działałaby w dwóch miejscach. Gdy ten Claude zakończy działanie, uruchom to polecenie w tym terminalu:\n\n%3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude anterior (processo %1$@) ainda está em execução, então o cmux não retomou a conversa com %2$@ aqui: ela ficaria em execução em dois lugares. Quando esse Claude tiver sido encerrado, execute este comando neste terminal:\n\n%3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущий Claude (процесс %1$@) всё ещё работает, поэтому cmux не возобновил здесь разговор с новыми параметрами (%2$@): он шёл бы в двух местах. Когда этот Claude завершится, выполните эту команду в этом терминале:\n\n%3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ตัวก่อนหน้า (กระบวนการ %1$@) ยังทำงานอยู่ cmux จึงไม่ได้ดำเนินการสนทนาต่อด้วยการตั้งค่าใหม่ (%2$@) ที่นี่: ไม่เช่นนั้นการสนทนาจะทำงานอยู่สองที่ เมื่อ Claude ตัวนั้นปิดแล้ว ให้เรียกใช้คำสั่งนี้ในเทอร์มินัลนี้:\n\n%3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Claude (işlem %1$@) hâlâ çalışıyor, bu yüzden cmux konuşmayı yeni ayarlarla (%2$@) burada sürdürmedi: konuşma iki yerde çalışırdı. O Claude kapandıktan sonra bu komutu bu terminalde çalıştırın:\n\n%3$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній Claude (процес %1$@) досі працює, тому cmux не відновив тут розмову з новими параметрами (%2$@): вона виконувалася б у двох місцях. Коли цей Claude завершить роботу, виконайте цю команду в цьому терміналі:\n\n%3$@"
+          }
         }
       }
     },
@@ -679062,6 +680382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude 投入程度 %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "napor Claudea %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-indsats %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'impegno di Claude %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតប្រឹងប្រែង Claude %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-innsats %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wysiłek Claude %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o esforço do Claude %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "уровень усилий Claude %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับความพยายามของ Claude %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude eforu %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "рівень зусиль Claude %@"
           }
         }
       }
@@ -679122,6 +680508,72 @@
             "state": "translated",
             "value": "Claude 模型 %@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "model Claudea %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-model %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il modello di Claude %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល Claude %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-modell %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "model Claude %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o modelo do Claude %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "модель Claude %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล Claude %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude modeli %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "модель Claude %@"
+          }
         }
       }
     },
@@ -679180,6 +680632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude 投入程度 %1$@ 和模型 %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "napor Claudea %1$@ i model %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-indsats %1$@ og model %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'impegno di Claude %1$@ e il modello %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតប្រឹងប្រែង Claude %1$@ និងម៉ូដែល %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-innsats %1$@ og modell %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wysiłek Claude %1$@ i model %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o esforço do Claude %1$@ e o modelo %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "уровень усилий Claude %1$@ и модель %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับความพยายามของ Claude %1$@ และโมเดล %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude eforu %1$@ ve model %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "рівень зусиль Claude %1$@ і модель %2$@"
           }
         }
       }
@@ -679240,6 +680758,72 @@
             "state": "translated",
             "value": "OK %1$@ 難度 %2$@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ težina %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ sværhedsgrad %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ difficoltà %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ កម្រិតលំបាក %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ vanskelighetsgrad %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ trudność %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ dificuldade %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ сложность %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ ความยาก %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ zorluk %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ складність %2$@"
+          }
         }
       }
     },
@@ -679298,6 +680882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "無效的難度：%@。應為 easy、normal、hard 或 auto。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća težina: %@. Očekuje se easy, normal, hard ili auto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig sværhedsgrad: %@. Forventede easy, normal, hard eller auto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difficoltà non valida: %@. Valori attesi: easy, normal, hard o auto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតលំបាកមិនត្រឹមត្រូវ៖ %@។ ត្រូវការ easy, normal, hard ឬ auto។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig vanskelighetsgrad: %@. Forventet easy, normal, hard eller auto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowa trudność: %@. Oczekiwano easy, normal, hard lub auto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dificuldade inválida: %@. Esperado easy, normal, hard ou auto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая сложность: %@. Ожидается easy, normal, hard или auto."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความยากไม่ถูกต้อง: %@ ต้องเป็น easy, normal, hard หรือ auto"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz zorluk: %@. easy, normal, hard veya auto bekleniyordu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неприпустима складність: %@. Очікується easy, normal, hard або auto."
           }
         }
       }
@@ -679358,6 +681008,72 @@
             "state": "translated",
             "value": "無效的值：%@。應為 on 或 off。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća vrijednost: %@. Očekuje se on ili off."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig værdi: %@. Forventede on eller off."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valore non valido: %@. Valori attesi: on o off."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តម្លៃមិនត្រឹមត្រូវ៖ %@។ ត្រូវការ on ឬ off។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig verdi: %@. Forventet on eller off."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowa wartość: %@. Oczekiwano on lub off."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor inválido: %@. Esperado on ou off."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимое значение: %@. Ожидается on или off."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าไม่ถูกต้อง: %@ ต้องเป็น on หรือ off"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz değer: %@. on veya off bekleniyordu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неприпустиме значення: %@. Очікується on або off."
+          }
         }
       }
     },
@@ -679416,6 +681132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "未知的 session-priority 子指令：%@。可用：status、difficulty、manual"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata session-priority podnaredba: %@. Pokušajte: status, difficulty, manual"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt session-priority-underkommando: %@. Prøv: status, difficulty, manual"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottocomando session-priority sconosciuto: %@. Prova: status, difficulty, manual"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនស្គាល់ពាក្យបញ្ជារង session-priority៖ %@។ សាកល្បង៖ status, difficulty, manual"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent session-priority-underkommando: %@. Prøv: status, difficulty, manual"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznane podpolecenie session-priority: %@. Spróbuj: status, difficulty, manual"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de session-priority desconhecido: %@. Tente: status, difficulty, manual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная подкоманда session-priority: %@. Попробуйте: status, difficulty, manual"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักคำสั่งย่อย session-priority: %@ ลองใช้: status, difficulty, manual"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen session-priority alt komutu: %@. Deneyin: status, difficulty, manual"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома підкоманда session-priority: %@. Спробуйте: status, difficulty, manual"
           }
         }
       }
@@ -679476,6 +681258,72 @@
             "state": "translated",
             "value": "status：依優先順序列出視窗中的工作區，包含其層級、難度、cmux 希望其 Claude 工作階段使用的投入程度與模型，以及每個窗格對此的處理狀況。這是預設值。\n\ndifficulty <easy|normal|hard|auto>：設定工作區的難度。auto 會清除你設定的覆寫。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作區的 Claude 工作階段（on），讓 cmux 不更動其投入程度，或將其交還（off）。\n\n未指定 --workspace 時，使用呼叫端終端機所在的工作區；在 cmux 之外則使用所選的工作區。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: prikazuje radne prostore prozora po prioritetu, s njihovim nivoom, težinom te naporom i modelom s kojima cmux želi da se njihove Claude sesije izvršavaju, kao i šta svako okno trenutno radi u vezi s tim. Ovo je zadana opcija.\n\ndifficulty <easy|normal|hard|auto>: postavlja težinu radnog prostora. auto uklanja vašu ručnu postavku.\n\nmanual <on|off>: govori cmuxu da osoba upravlja Claude sesijama ovog radnog prostora (on), pa cmux ne mijenja njihov napor, ili ih vraća cmuxu (off).\n\nBez --workspace koristi se radni prostor terminala koji poziva naredbu, a izvan cmuxa odabrani radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: viser vinduets arbejdsområder i prioriteret rækkefølge med deres niveau, sværhedsgrad og den indsats og model, cmux vil køre deres Claude-sessioner med, samt hvad hver rude gør ved det. Dette er standard.\n\ndifficulty <easy|normal|hard|auto>: angiver et arbejdsområdes sværhedsgrad. auto fjerner din tilsidesættelse.\n\nmanual <on|off>: fortæller cmux, at en person styrer dette arbejdsområdes Claude-sessioner (on), så cmux lader deres indsats være, eller giver dem tilbage (off).\n\nUden --workspace bruges den kaldende terminals arbejdsområde, eller det valgte arbejdsområde uden for cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: elenca gli spazi di lavoro della finestra in ordine di priorità, con livello, difficoltà, l'impegno e il modello con cui cmux vuole eseguire le loro sessioni Claude e cosa sta facendo ogni riquadro a riguardo. È l'opzione predefinita.\n\ndifficulty <easy|normal|hard|auto>: imposta la difficoltà di uno spazio di lavoro. auto rimuove la tua impostazione manuale.\n\nmanual <on|off>: indica a cmux che una persona sta guidando le sessioni Claude di questo spazio di lavoro (on), così cmux non ne modifica l'impegno, oppure le restituisce a cmux (off).\n\nSenza --workspace viene usato lo spazio di lavoro del terminale chiamante oppure, fuori da cmux, lo spazio di lavoro selezionato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: បង្ហាញកន្លែងធ្វើការនៃបង្អួចតាមលំដាប់អាទិភាព ជាមួយថ្នាក់ កម្រិតលំបាក និងកម្រិតប្រឹងប្រែង និងម៉ូដែលដែល cmux ចង់ឱ្យសម័យ Claude របស់វាដំណើរការ ព្រមទាំងអ្វីដែលផ្ទាំងនីមួយៗកំពុងធ្វើចំពោះវា។ នេះជាលំនាំដើម។\n\ndifficulty <easy|normal|hard|auto>: កំណត់កម្រិតលំបាករបស់កន្លែងធ្វើការ។ auto សម្អាតការកំណត់ដោយដៃរបស់អ្នក។\n\nmanual <on|off>: ប្រាប់ cmux ថាមនុស្សម្នាក់កំពុងបញ្ជាសម័យ Claude នៃកន្លែងធ្វើការនេះ (on) ដូច្នេះ cmux មិនប្ដូរកម្រិតប្រឹងប្រែងរបស់វាទេ ឬប្រគល់វាឱ្យ cmux វិញ (off)។\n\nបើគ្មាន --workspace ទេ កន្លែងធ្វើការនៃទែមីណាល់ដែលហៅពាក្យបញ្ជាត្រូវបានប្រើ ឬកន្លែងធ្វើការដែលបានជ្រើសនៅខាងក្រៅ cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: viser vinduets arbeidsområder i prioritert rekkefølge med nivå, vanskelighetsgrad og innsatsen og modellen cmux vil kjøre Claude-øktene deres med, og hva hver rute gjør med det. Dette er standard.\n\ndifficulty <easy|normal|hard|auto>: angir vanskelighetsgraden for et arbeidsområde. auto fjerner overstyringen din.\n\nmanual <on|off>: forteller cmux at en person styrer Claude-øktene i dette arbeidsområdet (on), slik at cmux lar innsatsen deres være, eller gir dem tilbake (off).\n\nUten --workspace brukes arbeidsområdet til terminalen som kaller kommandoen, eller det valgte arbeidsområdet utenfor cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: wyświetla obszary robocze okna w kolejności priorytetu wraz z poziomem, trudnością oraz wysiłkiem i modelem, z jakimi cmux chce uruchamiać ich sesje Claude, a także tym, co każdy panel w tej sprawie robi. To jest domyślne polecenie.\n\ndifficulty <easy|normal|hard|auto>: ustawia trudność obszaru roboczego. auto usuwa Twoje ręczne ustawienie.\n\nmanual <on|off>: informuje cmux, że sesjami Claude tego obszaru roboczego kieruje człowiek (on), więc cmux nie zmienia ich wysiłku, albo oddaje je z powrotem (off).\n\nBez --workspace używany jest obszar roboczy wywołującego terminala, a poza cmux wybrany obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: lista os espaços de trabalho da janela em ordem de prioridade, com nível, dificuldade, o esforço e o modelo com que o cmux quer executar as sessões do Claude deles e o que cada painel está fazendo a respeito. Esta é a opção padrão.\n\ndifficulty <easy|normal|hard|auto>: define a dificuldade de um espaço de trabalho. auto remove a sua substituição.\n\nmanual <on|off>: informa ao cmux que uma pessoa está conduzindo as sessões do Claude deste espaço de trabalho (on), para que ele não altere o esforço delas, ou as devolve (off).\n\nSem --workspace, é usado o espaço de trabalho do terminal que fez a chamada ou, fora do cmux, o espaço de trabalho selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: показывает рабочие пространства окна в порядке приоритета с их уровнем, сложностью, а также уровнем усилий и моделью, с которыми cmux хочет запускать их сеансы Claude, и тем, что каждая панель для этого делает. Это действие по умолчанию.\n\ndifficulty <easy|normal|hard|auto>: задаёт сложность рабочего пространства. auto снимает вашу ручную настройку.\n\nmanual <on|off>: сообщает cmux, что сеансами Claude в этом рабочем пространстве управляет человек (on), чтобы cmux не менял их уровень усилий, или возвращает их cmux (off).\n\nБез --workspace используется рабочее пространство вызывающего терминала, а вне cmux — выбранное рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: แสดงพื้นที่ทำงานของหน้าต่างตามลำดับความสำคัญ พร้อมชั้น ความยาก รวมถึงระดับความพยายามและโมเดลที่ cmux ต้องการให้เซสชัน Claude ของพื้นที่ทำงานเหล่านั้นใช้ และสิ่งที่แต่ละแผงกำลังทำอยู่ นี่คือค่าเริ่มต้น\n\ndifficulty <easy|normal|hard|auto>: ตั้งค่าความยากของพื้นที่ทำงาน auto จะล้างค่าที่คุณกำหนดเอง\n\nmanual <on|off>: แจ้ง cmux ว่ามีคนควบคุมเซสชัน Claude ของพื้นที่ทำงานนี้อยู่ (on) เพื่อให้ cmux ไม่เปลี่ยนระดับความพยายาม หรือคืนการควบคุมให้ cmux (off)\n\nหากไม่ระบุ --workspace จะใช้พื้นที่ทำงานของเทอร์มินัลที่เรียกคำสั่ง หรือพื้นที่ทำงานที่เลือกไว้เมื่อเรียกจากภายนอก cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: pencerenin çalışma alanlarını öncelik sırasına göre; katmanları, zorlukları ve cmux'un Claude oturumlarını çalıştırmak istediği efor ve modelle birlikte, her bölmenin bu konuda ne yaptığıyla listeler. Varsayılan budur.\n\ndifficulty <easy|normal|hard|auto>: bir çalışma alanının zorluğunu ayarlar. auto, sizin belirlediğiniz değeri kaldırır.\n\nmanual <on|off>: cmux'a bu çalışma alanının Claude oturumlarını bir kişinin yönettiğini bildirir (on), böylece cmux eforlarına dokunmaz; ya da oturumları geri verir (off).\n\n--workspace verilmezse çağıran terminalin çalışma alanı, cmux dışında ise seçili çalışma alanı kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: показує робочі простори вікна в порядку пріоритету з їхнім рівнем, складністю, а також рівнем зусиль і моделлю, з якими cmux хоче запускати їхні сеанси Claude, і тим, що кожна панель для цього робить. Це дія за замовчуванням.\n\ndifficulty <easy|normal|hard|auto>: задає складність робочого простору. auto скасовує ваше ручне налаштування.\n\nmanual <on|off>: повідомляє cmux, що сеансами Claude цього робочого простору керує людина (on), тож cmux не змінює їхній рівень зусиль, або повертає їх cmux (off).\n\nБез --workspace використовується робочий простір терміналу, що викликає команду, а поза cmux — вибраний робочий простір."
+          }
         }
       }
     },
@@ -679534,6 +681382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK %1$@ 手動 %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ ručno %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuel %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuale %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ ដោយដៃ %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuell %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ tryb ręczny %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ modo manual %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ вручную %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ ควบคุมเอง %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuel %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ вручну %2$@"
           }
         }
       }
@@ -679594,6 +681508,72 @@
             "state": "translated",
             "value": "手動"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ručno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោយដៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuell"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tryb ręczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "modo manual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вручную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ควบคุมเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вручну"
+          }
         }
       }
     },
@@ -679652,6 +681632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "用法： cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
           }
         }
       }
@@ -679712,6 +681758,72 @@
             "state": "translated",
             "value": "工作階段優先順序：%1$@，緊急：%2$@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prioritet sesija: %1$@, hitno: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessionsprioritet: %1$@, haster: %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "priorità delle sessioni: %1$@, urgenti: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាទិភាពសម័យ: %1$@, បន្ទាន់: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "øktprioritet: %1$@, haster: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "priorytet sesji: %1$@, pilne: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prioridade de sessões: %1$@, urgentes: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "приоритет сеансов: %1$@, срочных: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับความสำคัญของเซสชัน: %1$@, ด่วน: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oturum önceliği: %1$@, acil: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "пріоритет сеансів: %1$@, термінових: %2$@"
+          }
         }
       }
     },
@@ -679770,6 +681882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude 難度"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Težina za Claude"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-sværhedsgrad"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difficoltà di Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតលំបាក Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-vanskelighetsgrad"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trudność dla Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dificuldade do Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сложность для Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความยากของ Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude zorluğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Складність для Claude"
           }
         }
       }
@@ -679830,6 +682008,72 @@
             "state": "translated",
             "value": "自動"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatica"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automática"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично"
+          }
         }
       }
     },
@@ -679888,6 +682132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動調整 Claude 投入程度"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski podešavaj napor Claudea"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Justér Claude-indsats automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regola automaticamente l'impegno di Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កែតម្រូវកម្រិតប្រឹងប្រែង Claude ដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juster Claude-innsats automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosowuj wysiłek Claude automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar o esforço do Claude automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настраивать уровень усилий Claude автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับระดับความพยายามของ Claude อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude eforunu otomatik ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштовувати рівень зусиль Claude автоматично"
           }
         }
       }
@@ -679948,6 +682258,72 @@
             "state": "translated",
             "value": "此處不調整 Claude 投入程度"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje ne podešavaj napor Claudea"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Justér ikke Claude-indsats her"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non regolare qui l'impegno di Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំកែតម្រូវកម្រិតប្រឹងប្រែង Claude នៅទីនេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke juster Claude-innsats her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie dostosowuj tutaj wysiłku Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não ajustar o esforço do Claude aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не настраивать здесь уровень усилий Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ต้องปรับระดับความพยายามของ Claude ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude eforunu burada ayarlama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не налаштовувати тут рівень зусиль Claude"
+          }
         }
       }
     },
@@ -680006,6 +682382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude 難度：%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Težina za Claude: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-sværhedsgrad: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difficoltà di Claude: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតលំបាក Claude: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-vanskelighetsgrad: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trudność dla Claude: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dificuldade do Claude: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сложность для Claude: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความยากของ Claude: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude zorluğu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Складність для Claude: %@"
           }
         }
       }
@@ -680066,6 +682508,72 @@
             "state": "translated",
             "value": "工作階段優先順序：自動調整"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritet sesija: automatski podešavaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsprioritet: Justér automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorità delle sessioni: regola automaticamente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាទិភាពសម័យ: កែតម្រូវដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktprioritet: Juster automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorytet sesji: dostosowuj automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioridade de sessão: ajustar automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приоритет сеансов: настраивать автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับความสำคัญของเซสชัน: ปรับอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum önceliği: Otomatik ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пріоритет сеансів: налаштовувати автоматично"
+          }
         }
       }
     },
@@ -680124,6 +682632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作階段優先順序：不調整此工作區"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritet sesija: ne podešavaj ovaj radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsprioritet: Justér ikke dette arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorità delle sessioni: non regolare questo spazio di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាទិភាពសម័យ: កុំកែតម្រូវកន្លែងធ្វើការនេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktprioritet: Ikke juster dette arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorytet sesji: nie dostosowuj tego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioridade de sessão: não ajustar este espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приоритет сеансов: не настраивать это рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับความสำคัญของเซสชัน: ไม่ต้องปรับพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum önceliği: Bu çalışma alanını ayarlama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пріоритет сеансів: не налаштовувати цей робочий простір"
           }
         }
       }
