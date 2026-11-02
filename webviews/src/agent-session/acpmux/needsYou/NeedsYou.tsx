@@ -533,6 +533,7 @@ function QuestionForm({
               <input
                 type={item.multiSelect ? "checkbox" : "radio"}
                 name={`${question.id}:${item.id}`}
+                aria-label={option.label}
                 checked={picks[item.id]?.includes(option.id) ?? false}
                 onChange={() => pick(item.id, option.id, item.multiSelect)}
               />

@@ -459,7 +459,7 @@
 }
 
 /* The expanded row's next steps: its context, and the ways to open another chat (on the right,
-   the default; the workspace that shows it; a new workspace). Text buttons in one wrapping line. */
+   the default; the workspace that shows it; a new workspace). Text buttons (24 px) in one wrapping line. */
 .acpmux-needs-you-more {
   display: flex;
   flex-wrap: wrap;
@@ -467,7 +467,7 @@
   margin: 6px 0 0 22px;
 }
 .acpmux-needs-you-more-button {
-  height: 22px;
+  height: 24px;
   padding: 0 8px;
   border: 0;
   border-radius: 6px;
@@ -490,7 +490,7 @@
 /* The context stage: the last turns before the ask, read-only, each on three lines at most. */
 .acpmux-needs-you-context {
   margin: 6px 0 0 22px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
   font-size: var(--text-detail);
@@ -500,7 +500,7 @@
 .acpmux-needs-you-context-turns {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -508,7 +508,6 @@
 .acpmux-needs-you-context-turn {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   min-width: 0;
 }
 .acpmux-needs-you-context-who {
@@ -543,7 +542,7 @@
 .acpmux-needs-you-form-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   align-self: stretch;
   min-width: 0;
   margin: 0;
@@ -559,9 +558,9 @@
 .acpmux-needs-you-form-option {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
-  column-gap: 6px;
+  column-gap: 8px;
   align-items: baseline;
-  min-height: 22px;
+  min-height: 24px;
 }
 .acpmux-needs-you-form-option > input {
   margin: 0;
