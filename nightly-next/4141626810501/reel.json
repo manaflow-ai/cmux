@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4141626810501",
+  "notes": "notes/4141626810501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32012,
+      "title": "ci(next): the defaults guard carries a SHIP across base merges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31991,
+      "title": "fix(next): a terminal closed while dictating no longer ends terminal dictation until restart",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32016,
+      "title": "Agent chat gallery: the tab-row header state expects no title (#32007)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32025,
+      "title": "NewTabSpareContextTests: wait on the pool's deferred prepare, not a sleep",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32009,
+      "title": "perf(cmux-tui): a respawn rebuilds its previous screen with no registry lock held; a test for the 4 MiB writer wake",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30622,
+      "title": "ci: route cmux-tui artifact jobs through live fleet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25694,
+      "title": "cmux NEXT: clear rejected tab-drop phantoms",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
