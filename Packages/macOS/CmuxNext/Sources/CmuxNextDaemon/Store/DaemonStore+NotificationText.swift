@@ -12,7 +12,8 @@ extension DaemonStore {
     /// posted before the app connected comes from the ledger.
     public func notificationText(for tab: TabModel) -> String? {
         guard let marker = tab.notification, marker.unread else { return nil }
-        return notificationTexts[marker.notification] ?? ledgerNotificationTexts[tab.surface]
+        // Each read observes its one key (`ObservedMap`): a text posted for another tab re-runs nothing that read this one.
+        return notificationTexts[marker.notification] ?? ledgerNotificationTexts.value(of: tab.surface)
     }
 
     /// Seeds the texts of notifications posted before this connection from
@@ -32,7 +33,7 @@ extension DaemonStore {
 
     func recordNotificationText(_ notification: DaemonNotification) {
         // A newer notification replaces the surface's ledger text, even a blank one.
-        if let surface = notification.surface, ledgerNotificationTexts[surface] != nil { ledgerNotificationTexts[surface] = nil }
+        if let surface = notification.surface { ledgerNotificationTexts.removeValue(forKey: surface) }
         guard let text = Self.notificationText(title: notification.title, body: notification.body) else { return }
         notificationTexts[notification.notification] = text
         let ids = notificationTexts.keys

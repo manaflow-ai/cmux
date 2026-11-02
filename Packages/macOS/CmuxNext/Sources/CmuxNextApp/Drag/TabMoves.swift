@@ -251,8 +251,7 @@ enum TabMoves {
     /// title comes from the app's renderer, the rest from the store. An
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
-    /// `incognito`: whether `tab` is an incognito browser tab, when the caller knows its workspace (a sidebar row:
-    /// `WindowManager.isIncognito(workspace:)`); nil looks the tab up, which reads every tab list.
+    /// `incognito`: the tab's incognito answer when the caller knows it (nil looks the tab up, reading every tab list).
     static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool? = nil) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
         // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab

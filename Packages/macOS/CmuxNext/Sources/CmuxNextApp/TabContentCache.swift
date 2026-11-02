@@ -23,12 +23,7 @@ final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] {
-        didSet {
-            guard browsers.count != oldValue.count else { return }
-            pageRequests.media.tabsChanged()
-            // Each page made or closed tells only the readers of its own tab (a sidebar row, `pageInstalls`).
-            for key in Set(browsers.keys).symmetricDifference(oldValue.keys) { pageInstalls.bump(key) }
-        }
+        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false) } }
     }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
@@ -437,8 +432,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
-        pageInstalls.bump()
-        pageInstalls.bump(key)
+        pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)

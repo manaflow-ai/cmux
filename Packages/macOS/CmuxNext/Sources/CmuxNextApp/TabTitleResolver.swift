@@ -28,13 +28,9 @@ struct TabTitleResolver {
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
-    /// An incognito browser tab's live title (its daemon record is a placeholder).
-    var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
-    /// Whether a workspace's browser tabs are incognito (`WindowManager.isIncognito(workspace:)`), for
-    /// `title(_:in:)`: the workspace's own answer, read with no lookup of each tab's workspace.
-    var incognitoWorkspace: @MainActor (WorkspaceModel) -> Bool = { _ in false }
-    /// An incognito browser tab's live title, nil while it has none (`TabContentCache.incognitoDisplay`).
-    var incognitoDisplayTitle: @MainActor (TabModel) -> String? = { _ in nil }
+    /// An incognito browser tab's live title (its daemon record is a placeholder), given whether the tab is incognito
+    /// when the caller knows (its workspace's answer; nil looks the tab up, which reads every tab list).
+    var incognitoTitle: @MainActor (TabModel, Bool?) -> String?? = { _, _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
@@ -49,12 +45,10 @@ struct TabTitleResolver {
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
-        incognitoTitle = { [weak services] tab in
-            guard let services, tab.kind == .browser, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+        incognitoTitle = { [weak services] tab, known in
+            guard let services, tab.kind == .browser, known ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
         }
-        incognitoWorkspace = { [weak services] workspace in services?.windows.isIncognito(workspace: workspace) ?? false }
-        incognitoDisplayTitle = { [weak services] tab in services?.cache.incognitoDisplay(tab).title }
     }
 
     /// The agent tabs' New Tab pages and `pages`' page tabs (tests).
@@ -93,18 +87,11 @@ struct TabTitleResolver {
         }
     }
 
-    /// The name `tab` shows.
-    func title(_ tab: TabModel) -> String {
+    /// The name `tab` shows. `incognito`: whether it is an incognito tab, when the caller knows (a sidebar row: its
+    /// workspace's answer, so the row observes no tab list; TYPING UNDER LOAD F6).
+    func title(_ tab: TabModel, incognito: Bool? = nil) -> String {
         if let page = page(tab) { return page.title }
-        if let incognito = incognitoTitle(tab) { return incognito ?? Strings.untitledBrowser }
-        return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
-    }
-
-    /// `title(_:)` for `tab` of `workspace` (a sidebar row's tab list): its incognito answer is the workspace's own,
-    /// so the row observes no tab list (TYPING UNDER LOAD F6: a tab made anywhere re-mapped every row).
-    func title(_ tab: TabModel, in workspace: WorkspaceModel) -> String {
-        if let page = page(tab) { return page.title }
-        if tab.kind == .browser, incognitoWorkspace(workspace) { return incognitoDisplayTitle(tab) ?? Strings.untitledBrowser }
+        if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }
 }

@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
 import Observation
@@ -367,7 +368,7 @@ final class SidebarBridge {
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
-        return { workspace, tab in titles.title(tab, in: workspace) }
+        return { [weak services] workspace, tab in titles.title(tab, incognito: services?.windows.isIncognito(workspace: workspace)) }
     }
 
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {

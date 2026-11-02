@@ -6,20 +6,16 @@ import Observation
 
 /// Bumped whenever a page is installed, so tab strips that show a live page
 /// instead of its daemon record (incognito tabs) re-render once it exists.
-/// `generation(of:)` is the same per tab, observed one tab at a time: a sidebar
-/// row reads its own tabs' (TYPING UNDER LOAD F6: every row with a browser tab
-/// re-mapped when any page anywhere was made or closed).
+/// `generation(of:)` moves when tab `key`'s page is installed or closed and
+/// observes that tab only (a sidebar row: TYPING UNDER LOAD F6).
 @Observable
 final class PageInstallCounter {
     private(set) var revision = 0
     @ObservationIgnored private let generations = ObservedMap<String, UInt64>()
-
-    func bump() { revision &+= 1 }
-
-    /// Tab `key`'s page was installed, replaced or closed.
-    func bump(_ key: String) { generations[key] = (generations[key] ?? 0) &+ 1 }
-
-    /// Moves when tab `key`'s page is installed, replaced or closed; observes `key` only.
+    func bump(_ keys: some Sequence<String>, installed: Bool = true) {
+        if installed { revision &+= 1 }
+        for key in keys { generations[key] = generation(of: key) &+ 1 }
+    }
     func generation(of key: String) -> UInt64 { generations[key] ?? 0 }
 }
 

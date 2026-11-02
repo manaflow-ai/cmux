@@ -7,34 +7,21 @@ import CmuxNextWorkspaceNaming
 @MainActor
 struct WorkspaceAutoNameWiring {
     let services: AppServices
-    /// The one workspace every tab the reader is asked about is in (a sidebar row's): its tabs' incognito answer is
-    /// that workspace's own (`WindowManager.isIncognito(workspace:)`), not a lookup of each tab's workspace, which
-    /// reads every daemon's tab list and workspace list (TYPING UNDER LOAD F6). Nil: look each tab up.
+    /// The workspace of every tab asked about (a sidebar row's): its own incognito answer, not a lookup of each tab,
+    /// which reads every tab list (TYPING UNDER LOAD F6). Nil: look each tab up.
     var workspace: WorkspaceModel?
-
-    init(services: AppServices, workspace: WorkspaceModel? = nil) {
-        self.services = services
-        self.workspace = workspace
-    }
 
     /// The front-tab reader over this app's setting, pages and terminals.
     var reader: WorkspaceAutoNameReader {
-        let isIncognito: @MainActor (AppServices, TabModel) -> Bool = { [workspace] services, tab in
-            workspace.map { services.windows.isIncognito(workspace: $0) } ?? services.cache.browserTabs.isIncognitoTab(tab.id)
-        }
+        let known: @MainActor (AppServices) -> Bool? = { [workspace] s in workspace.map { s.windows.isIncognito(workspace: $0) } }
         return WorkspaceAutoNameReader(
             enabled: { [weak services] in services?.settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true },
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
-            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in isIncognito(s, tab) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
-            terminal: { [weak services] tab in
-                services.map { TabMoves.nameInput(tab, services: $0, incognito: tab.kind == .browser && isIncognito($0, tab)) }
-                    ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil)
-            },
+            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in known(s) ?? s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             hold: services.autoNameHold,
             allowsLegacyDefaults: { [weak services] workspace in
-                // By identity: `daemon(forWorkspace:)` reads the workspace list, so every row re-mapped on any workspace
-                // made or closed (TYPING UNDER LOAD F6).
                 guard let services, let daemon = services.machines.daemon(holding: workspace) else { return true }
                 return !daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
             })
