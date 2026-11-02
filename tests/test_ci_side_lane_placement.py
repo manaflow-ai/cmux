@@ -1659,6 +1659,32 @@ class FeedReplyFullText(unittest.TestCase):
         self.assertEqual(evaluate(self.runs_on("verify"), self.context()), FALLBACK)
 
 
+class SmallMacChecks(unittest.TestCase):
+    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
+    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
+            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+
+    def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
+                head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:
+        context = github_context(event, CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, repository_owner=owner,
+                                 event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+        return context
+
+    def test_attempt_1_takes_the_side_lane_and_everything_else_blacksmith(self):
+        for name, job in self.JOBS:
+            runs_on = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job]["runs-on"]
+            with self.subTest(workflow=name):
+                for event in ("pull_request", "push", "workflow_dispatch"):
+                    self.assertEqual(evaluate(runs_on, self.context(event=event)), SIDE, event)
+                self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
+
+
 class SingleHostRoute(unittest.TestCase):
     """The side route never resolves to a single-host label with no fallback.
 
