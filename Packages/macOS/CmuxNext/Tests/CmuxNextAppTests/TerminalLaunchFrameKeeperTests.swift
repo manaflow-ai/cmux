@@ -114,7 +114,7 @@ import Testing
         frames.keep("tab_busy", session: shown.session, work: Self.work)
         try #require(try await Self.eventually { !Self.files("tab_busy", in: directory).isEmpty }, "the first frame was never kept")
         let saves = frames.keepSaves
-        // 3 s of keystroke-rate output (every 30 ms, about 100 changes).
+        // 3 s of keystroke-rate output (every 30 ms: up to 100 changes, fewer on a loaded runner).
         let end = ContinuousClock.now.advanced(by: .seconds(3))
         var keys = 0
         while ContinuousClock.now < end {
@@ -123,7 +123,7 @@ import Testing
             try await Task.sleep(for: .milliseconds(30)) // test: keystroke rate
         }
         let extra = frames.keepSaves - saves
-        #expect(keys > 50)
+        #expect(keys >= 20, "only \(keys) changes in 3 s: the test did not keep the terminal busy") // a loaded runner sleeps longer
         #expect(extra <= 1, "\(extra) saves for \(keys) changes in 3 s: the keeper saves per change, not once per 5 s")
     }
 
