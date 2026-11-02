@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4140803457501",
+  "notes": "notes/4140803457501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31972,
+      "title": "ci(nightly): correct two comments after #31968 and #31970",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31949,
+      "title": "Transcript: a reply the agent sent on its own ends in place, its footer in the live line's slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31970,
+      "title": "ci(nightly-next): a Cargo.lock change no longer starts the builder clean",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27364,
+      "title": "acpmux: fork before a recorded prompt with durable retry identity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31968,
+      "title": "ci(nightly): verify jobs take the all-nightly reservation without a runner read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31925,
+      "title": "cmux-layout-reducer: sidebar row face rules and typed C ABI (step A of #31808, Rust only)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31934,
+      "title": "agent cursor visibility: the rules in Rust (cmux-focus-core) and the app FFI op (B9 step A)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31842,
+      "title": "cmux NEXT bookmarks: the home daemon is the only writer (drop the bookmarks.json fallback)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31810,
+      "title": "fix(next panes): a split's, New Column's and New Row's stand-in tab opens in the create's folder (no rename crossfade)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31879,
+      "title": "Agent chat: a run of rows and status lines sit 16 from the prose around them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31962,
+      "title": "ci(runner pools): the linux spill samples runs old enough to have waited",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31885,
+      "title": "fix(split): the second quick Cmd-D moves the focus and holds its keys (smoke step 23)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31904,
+      "title": "fix(next): prepare Cloud approvals before first chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28295,
+      "title": "feat(daemon): app daemon-request latency probe (debug.daemon_requests)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31933,
+      "title": "What's New: highlight docs links point at pages that exist (/docs/agents never existed)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31900,
+      "title": "base red: a received sender's name keeps its room beside its machine's name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31899,
+      "title": "base red: webview tests follow the harness catalog, Session Info's push and the prompt rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31871,
+      "title": "history: closed chat rows carry their agent session and harness (C6 step 1, daemon)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31942,
+      "title": "cmux NEXT: the chat summary switches column/popover with no slide when a right pane opens or closes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31955,
+      "title": "fix(next): use glass for terminal dictation preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31850,
+      "title": "acpmux: artifact_save / artifact_search / artifact_list / artifact_read agent tools",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
