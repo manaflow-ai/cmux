@@ -394,33 +394,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
-          {!messages && label && (
-            <span className="cv-turn-summary">
-              {label}
-              {hasTokens(row.tokens) && (
-                <>
-                  <span className="cv-worked__sep" aria-hidden="true">
-                    {" · "}
-                  </span>
-                  <TurnTokens split={row.tokens} />
-                </>
-              )}
-            </span>
-          )}
-          {resumable && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-turn-continue"
-              disabled={resuming}
-              onClick={() => {
-                setResuming(true);
-                void resume().finally(() => setResuming(false));
-              }}
-            >
-              {t("turn.continue")}
-              <ArrowRight size={ROW_ICON} aria-hidden="true" />
-            </button>
-          )}
           <span className="cv-turn-action-group">
             {!messages && copy && <MessageCopy text={copy} />}
             {failedRetry && (
@@ -461,6 +434,33 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               </button>
             )}
           </span>
+          {!messages && label && (
+            <span className="cv-turn-summary">
+              {label}
+              {hasTokens(row.tokens) && (
+                <>
+                  <span className="cv-worked__sep" aria-hidden="true">
+                    {" · "}
+                  </span>
+                  <TurnTokens split={row.tokens} />
+                </>
+              )}
+            </span>
+          )}
+          {resumable && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-turn-continue"
+              disabled={resuming}
+              onClick={() => {
+                setResuming(true);
+                void resume().finally(() => setResuming(false));
+              }}
+            >
+              {t("turn.continue")}
+              <ArrowRight size={ROW_ICON} aria-hidden="true" />
+            </button>
+          )}
           {!messages && <MessageTime at={row.at} className="cv-turn-time" />}
         </MessageFooterRow>
       </div>

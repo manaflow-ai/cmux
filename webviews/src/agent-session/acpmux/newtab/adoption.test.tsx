@@ -4,7 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { NewTabHost } from "../NewTabPage";
 import { EMPTY_OMNIBAR } from "../omnibar";
-import { injectedNewTabContext, NEW_TAB_PLACES_EVENT, useNewTabPlaces, withHandshakeNewTab } from "./adoption";
+import {
+  injectedNewTabContext,
+  NEW_TAB_ADOPT_EVENT,
+  NEW_TAB_PLACES_EVENT,
+  useNewTabAdoption,
+  useNewTabPlaces,
+  withHandshakeNewTab,
+} from "./adoption";
 
 // Cmd-N's first page shows without the Commands palette's actions and lists them on the frame after
 // (NewTabPage.fillPaletteActions). On a cold WebKit page the host injects the context (empty list)
@@ -96,4 +103,74 @@ test("an actions event after the listener still fills the bar in place", () => {
     dom!.window.dispatchEvent(places({ ...EMPTY_OMNIBAR, actions }));
   });
   expect(view.host?.omnibar?.actions).toEqual(actions);
+});
+
+// SHORTCUT FRAMES F2 (120 Hz video, feat 1cb7548, 2026-11-02): Cmd-T's first frame showed the spare's
+// screen, then the adopted page remounted (the folder chip changed, the sign-in line went and came back,
+// the "Trust <folder>?" card came): the content moved twice after the key. A spare already prepared
+// with the tab's context gets an adopt event that differs only in its input token and the bar's
+// places: the screen must stay mounted (the first frame is the final one) and take the token in place.
+function mountAdoption() {
+  const view: { host?: NewTabHost; generation?: number } = {};
+  function Probe() {
+    const [host, setHost] = useState<NewTabHost | undefined>(undefined);
+    const current = { host };
+    const generation = useNewTabAdoption(setHost, () => current.host);
+    view.host = host;
+    view.generation = generation;
+    return null;
+  }
+  act(() => root!.render(<Probe />));
+  return view;
+}
+
+const adopt = (detail: unknown) => new dom!.window.CustomEvent(NEW_TAB_ADOPT_EVENT, { detail });
+const prepared = {
+  hotkeys: {},
+  kind: "agent",
+  layout: "b",
+  cwd: "/tmp",
+  home: "/Users/me",
+  omnibar: { ...EMPTY_OMNIBAR },
+};
+
+test("an adoption with the context the spare already shows keeps its screen mounted", () => {
+  const view = mountAdoption();
+  act(() => {
+    dom!.window.dispatchEvent(adopt(prepared));
+  });
+  expect(view.generation).toBe(1);
+  expect(view.host?.cwd).toBe("/tmp");
+  const tabs = [{ id: "t1", title: "zsh", kind: "terminal", workspace: "w" }];
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ ...prepared, inputToken: "key-1", omnibar: { ...EMPTY_OMNIBAR, tabs } }));
+  });
+  expect(view.generation).toBe(1);
+  expect(view.host?.inputToken).toBe("key-1");
+  expect(view.host?.cwd).toBe("/tmp");
+});
+
+test("an adoption with another folder still remounts the screen", () => {
+  const view = mountAdoption();
+  act(() => {
+    dom!.window.dispatchEvent(adopt(prepared));
+  });
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ ...prepared, cwd: "/work/app", inputToken: "key-2" }));
+  });
+  expect(view.generation).toBe(2);
+  expect(view.host?.cwd).toBe("/work/app");
+});
+
+test("the same screen with its keys in another order keeps its screen mounted", () => {
+  const view = mountAdoption();
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ ...prepared, headlineOff: true }));
+  });
+  const { cwd, ...rest } = prepared;
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ headlineOff: true, ...rest, cwd, inputToken: "key-3" }));
+  });
+  expect(view.generation).toBe(1);
+  expect(view.host?.inputToken).toBe("key-3");
 });

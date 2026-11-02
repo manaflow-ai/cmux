@@ -621,6 +621,8 @@ import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
+import { PaneNotices } from "./PaneNotices";
+import { setPaneNotices } from "./paneNoticeStore";
 import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -765,6 +767,8 @@ declare global {
       applySuggestedTasks?(on: boolean): void;
       /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
       applyRemoteControl?(value: unknown): void;
+      /// The app's notices about the chat's agent service (paneNoticeStore.ts), on the legacy host.
+      applyPaneNotices?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
@@ -2110,6 +2114,7 @@ const RowFrame = React.memo(function RowFrame({
   replyActions,
   status,
   lastFooter,
+  finalFooter,
   continuationFooter,
   lastTurn,
   index,
@@ -2147,6 +2152,10 @@ const RowFrame = React.memo(function RowFrame({
   status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
+  /// The footer that ends the chat (nothing drawn after it): its turn has ended, so its Copy row
+  /// shows without a hover (Leo, 2026-11-02: "i should be able to see the copy buttons on your
+  /// responses when your things end").
+  finalFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
   continuationFooter: boolean;
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
@@ -2256,7 +2265,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -5397,6 +5406,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
+                      finalFooter={row.kind === "turnSummary" && !next}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
@@ -7802,7 +7812,8 @@ function AcpmuxPane() {
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
-  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
+  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen
+  // unless the spare already draws that context (sameNewTabScreen).
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
@@ -7813,7 +7824,11 @@ function AcpmuxPane() {
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
     setProjectDraft(named);
   }, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab);
+  // The screen the page shows now: an adopt that draws the same one keeps it mounted (SHORTCUT FRAMES F2).
+  const newTabNow = useRef(newTab);
+  newTabNow.current = newTab;
+  const currentNewTab = useCallback(() => newTabNow.current, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -8062,14 +8077,22 @@ function AcpmuxPane() {
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
   const trackBackground = background.track;
+  // The calls in the foreground now, read when a move is checked (backgroundNotice.ts "kept").
+  const foregroundNow = useRef<readonly string[]>([]);
   const runInBackground = useCallback(
-    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    (toolCallId?: string) => {
+      const asked = toolCallId ? [toolCallId] : foregroundNow.current;
+      trackBackground(directClient.current?.backgroundWork(toolCallId), () =>
+        asked.some((id) => foregroundNow.current.includes(id)),
+      );
+    },
     [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
+  foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
@@ -9636,6 +9659,9 @@ function AcpmuxPane() {
       },
       applyRemoteControl(value) {
         setRemoteControl(value);
+      },
+      applyPaneNotices(value) {
+        setPaneNotices(value);
       },
       applyHeaderState(state) {
         setHeaderState(state);
@@ -12582,6 +12608,7 @@ function AcpmuxPane() {
             failed={recapCard.failed}
           />
         )}
+        <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>

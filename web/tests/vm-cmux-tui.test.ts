@@ -12,6 +12,7 @@ import {
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
+  cmuxTuiDaemonSettleScript,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -114,11 +115,51 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
     const stop = command.indexOf("systemctl --user stop acpmux.service");
     const shutdown = command.indexOf("daemon shutdown --keep-agents");
+    const settle = command.indexOf("daemon status");
     const enable = command.indexOf("systemctl --user enable --now acpmux.service");
     expect(stop).toBeGreaterThanOrEqual(0);
     expect(shutdown).toBeGreaterThan(stop);
-    expect(enable).toBeGreaterThan(shutdown);
+    expect(command).toContain("timeout 15s");
+    expect(command).toContain("timeout 5s");
+    expect(command).toContain("sh -c");
+    expect(command).toContain("kill -0");
+    expect(command).toContain("status_rc=$?");
+    expect(command).toContain('[ "$status_rc" -eq 0 ] || exit 3');
+    expect(command).toContain('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")"');
+    expect(command).toContain("exit 3");
+    const lines = command.split("\n");
+    expect(lines).toContain(
+      cmuxTuiAsDaemonUser(
+        'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" timeout 15s "$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true',
+      ),
+    );
+    expect(command).toContain("acpmux daemon did not stop before service start");
+    expect(settle).toBeGreaterThan(shutdown);
+    expect(enable).toBeGreaterThan(settle);
     expect(command).not.toContain("systemctl --user restart acpmux.service");
+    expect(command).toContain("stop_lock_holder()");
+    expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
+    expect(command).toContain('kill -KILL "$lock_pid"');
+  });
+
+  test("fails closed when the daemon status probe times out or errors", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const timeout = join(bin, "timeout");
+    writeFileSync(timeout, "#!/bin/sh\nexit ${TIMEOUT_RC:-124}\n");
+    chmodSync(timeout, 0o755);
+    try {
+      const script = cmuxTuiDaemonSettleScript();
+      for (const timeoutRc of ["124", "7"]) {
+        const result = await runChild("/bin/sh", ["-c", script], {
+          env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TIMEOUT_RC: timeoutRc },
+        });
+        expect(result.status).toBe(3);
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
