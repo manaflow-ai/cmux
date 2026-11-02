@@ -229,8 +229,7 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
-        // Where a hook that saves the session's trajectory off the machine (hq#4381) would go, once
-        // acpmux has one: the session started, so its id is known here. None exists on base yet.
+        // A hook saving the session's trajectory off the machine (hq#4381) would go here, once acpmux has one.
         // The session runs now; the result reports it. A switch during the start shows nothing.
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
@@ -381,7 +380,6 @@ struct CloudStartSession {
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
     func passHarnessLogin(_ session: CloudMachineSession, agent: String) async { _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session) }
-
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }
