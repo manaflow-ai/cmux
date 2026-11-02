@@ -9,6 +9,9 @@ final class NativePopupSliderView: NSView {
     private let minimumLabel: ThemedLabel
     private let maximumLabel: ThemedLabel
     private let recommendedLabel: ThemedLabel
+    /// Its parts span the popup row's padded box (``PopupRowView/contentGuide``): the row layout
+    /// of ``NativePopupContent``'s other rows owns the inset, so the slider moves with them.
+    private let rowLayout = PopupRowView.Layout()
     private var descriptor: NativePopupSlider
     private var lastEmittedValue: String?
     var change: (String) -> Void = { _ in }
@@ -83,13 +86,14 @@ final class NativePopupSliderView: NSView {
 
     override func layout() {
         super.layout()
-        let width = max(0, bounds.width - 16)
-        heading.frame = NSRect(x: 8, y: 5, width: width / 2, height: 20)
-        currentLabel.frame = NSRect(x: 8 + width / 2, y: 5, width: width / 2, height: 20)
-        slider.frame = NSRect(x: 8, y: 29, width: width, height: 24)
-        minimumLabel.frame = NSRect(x: 8, y: 56, width: width / 2, height: 18)
-        maximumLabel.frame = NSRect(x: 8 + width / 2, y: 56, width: width / 2, height: 18)
-        recommendedLabel.frame = NSRect(x: 8, y: 80, width: width, height: 18)
+        let start = rowLayout.leading
+        let width = max(0, bounds.width - rowLayout.leading - rowLayout.trailing)
+        heading.frame = NSRect(x: start, y: 5, width: width / 2, height: 20)
+        currentLabel.frame = NSRect(x: start + width / 2, y: 5, width: width / 2, height: 20)
+        slider.frame = NSRect(x: start, y: 29, width: width, height: 24)
+        minimumLabel.frame = NSRect(x: start, y: 56, width: width / 2, height: 18)
+        maximumLabel.frame = NSRect(x: start + width / 2, y: 56, width: width / 2, height: 18)
+        recommendedLabel.frame = NSRect(x: start, y: 80, width: width, height: 18)
     }
 
     @objc private func valueChanged(_ sender: NSSlider) { publishValue() }

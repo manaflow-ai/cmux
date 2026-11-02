@@ -159,6 +159,28 @@ import Testing
         #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
     }
 
+    /// The avatar-only list: the search circle and the Unread circle side by side inside the list,
+    /// centred over the avatars; a list too narrow for both keeps the filter alone (Leo,
+    /// 2026-10-19: "the filter button also just disappeared").
+    @Test(arguments: [64, 76, 100, 140, 179] as [CGFloat])
+    func theAvatarListKeepsTheFilterAndShrinksSearchToACircle(_ width: CGFloat) {
+        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
+        let side = HomeSidebarHeaderLayout.side
+        #expect(h.compact && h.search.width == 0)
+        #expect(h.filter.width == side && h.filter.minX >= 0 && h.filter.maxX <= width)
+        if width >= 2 * side + HomeSidebarHeaderLayout.gap + 2 * HomeSidebarHeaderLayout.edge {
+            #expect(h.searchIcon.width == side && h.searchIcon.minX >= HomeSidebarHeaderLayout.edge)
+            #expect(h.searchIcon.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+            #expect(abs((h.searchIcon.minX + h.filter.maxX) / 2 - width / 2) <= 0.5, "the pair is off centre at \(width)")
+        } else {
+            #expect(h.searchIcon.isEmpty)
+            #expect(abs(h.filter.midX - width / 2) <= 0.5)
+        }
+        #expect(h.listTop == HomeSidebarHeaderLayout.band)
+        let open = HomeSidebarHeaderLayout(width: width, searchOpen: true)
+        #expect(open.filter.isEmpty && open.searchIcon.isEmpty && open.buttonsCovered)
+    }
+
     @Test(arguments: [60, 100, 140] as [CGFloat])
     func anOpenSearchInAnAvatarListIsNeverZeroWide(_ width: CGFloat) {
         let controls = CGRect(x: 8, y: 8, width: 64, height: 14)

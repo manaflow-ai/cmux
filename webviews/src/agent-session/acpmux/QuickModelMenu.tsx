@@ -1,4 +1,4 @@
-import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
+import { authLoginText, authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
 import React, {
   Fragment,
   useCallback,
@@ -1190,7 +1190,7 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && auth && authText(auth.verdict, t) && (
+      {auth && authText(auth.verdict, t) && (
         <>
           <MenuSeparator />
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
@@ -1198,7 +1198,7 @@ export function QuickModelMenu({
           </MenuItem>
           {canSessionLogin(auth.verdict) && auth.onLogin && (
             <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+              <span className="acpmux-menu-label">{authLoginText(auth.verdict, t)}</span>
             </MenuItem>
           )}
           {auth.onRefresh && (
