@@ -112,9 +112,10 @@ import Testing
             != projection.bandGroupsNotListedHere(drag: Self.drag(room: Self.home)))
     }
 
-    /// A group nested under another space's group leaves with its parent: a window never draws a child group whose
-    /// parent it leaves out. Work's group `itm_gk` sits under the default space's group `itm_gp`.
-    @Test func aNestedGroupLeavesWithItsParentsSpace() {
+    /// A nested group goes with its parent, whatever space it stores: a window never draws a child group whose parent
+    /// it leaves out, and the child lists where the parent lists (the review of #27308 at 30be536: a Work child under a
+    /// group moved to another space listed in no space). Work's group `itm_gk` sits under the default space's `itm_gp`.
+    @Test func aNestedGroupGoesWithItsParent() {
         let records = SidebarDocRecords(sections: [
             Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
             Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
@@ -136,7 +137,7 @@ import Testing
             return Set(arranged.flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
         }
         #expect(groups(Self.work).isEmpty, "\(groups(Self.work))")
-        #expect(groups(Self.home) == ["itm_gp"], "\(groups(Self.home))")
+        #expect(groups(Self.home) == ["itm_gp", "itm_gk"], "\(groups(Self.home))")
     }
 
     /// The review of #27308: in Default, a pinned group made before groups stored a space, whose workspace `ws-1` is
@@ -551,16 +552,16 @@ import Testing
     }
 
     /// A machine section never lists a group without its parent: a parent with no space stored lists where a group
-    /// under it lists a workspace, and an empty group of this space under another space's group leaves with it.
+    /// under it lists a workspace, and an empty group under another group lists wherever that parent lists.
     @Test func aMachineSectionGroupListsWithItsParent() {
         let work = Self.machineGroupRows(room: Self.work)
         for (id, parent) in work { if let parent { #expect(work[parent] != nil, "\(id) lists without its parent \(parent): \(work)") } }
         #expect(work["itm_mc"] != nil, "Work's group with a workspace here lists in Work: \(work)")
-        #expect(work["itm_mk"] == nil, "a Work group under Default's group leaves with it: \(work)")
+        #expect(work["itm_mk"] == nil, "a Work group under Default's group goes with it: \(work)")
 
         let home = Self.machineGroupRows(room: Self.home)
         for (id, parent) in home { if let parent { #expect(home[parent] != nil, "\(id) lists without its parent \(parent): \(home)") } }
-        #expect(home["itm_mo"] != nil && home["itm_mk"] == nil && home["itm_me"] == nil, "\(home)")
+        #expect(home["itm_mo"] != nil && home["itm_mk"] != nil, "\(home)")
     }
 
     /// Only a Pinned link, tab or app belongs to a space. A built-in, a room or a saved group stays shared: pinning
