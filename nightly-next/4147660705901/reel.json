@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4147660705901",
+  "notes": "notes/4147660705901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32431,
+      "title": "Typing under load (F7 follow-up): a read-only viewer's keys do not get the person's priority",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32389,
+      "title": "cmux NEXT agent pane: a prompt a dropped connection lost goes again, no \"Not sent\" (lost-prompt replay on)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32405,
+      "title": "fix(cmux-tui-core): a terminal progress publish keeps the registry connection pinned (#32326 review)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32414,
+      "title": "base red: vertical tabs' store is built once in AppServices and injected; its logic moves out of the App (#32127 arch rows)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32427,
+      "title": "fix(next): the simulator surface source bounds what an unauthenticated local peer can hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32339,
+      "title": "base red: chat-switch-prefetch counts a read-ahead only for the page that asked",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
