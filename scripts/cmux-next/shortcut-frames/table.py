@@ -40,6 +40,8 @@ def main() -> int:
     p.add_argument("--judged")
     p.add_argument("--out", required=True)
     p.add_argument("--notes", help="a Markdown file put after the measured cases (findings, recorder caveats)")
+    p.add_argument("--floor", type=int, default=0,
+                   help="the macOS key-to-photon floor in refreshes (floor.py); rows also read as refreshes over it")
     a = p.parse_args()
     listing = json.load(open(a.list, encoding="utf-8"))
     summary = listing["summary"]
@@ -55,18 +57,20 @@ def main() -> int:
                     videos[case] = open(link, encoding="utf-8").read().strip()
     lines = [HEADER.format(rows=summary["rows"], actions=summary["actions_with_keys"], menu=summary["menu_keys"])]
     lines += ["## Measured cases", "",
-              "| Shortcut | Action | Case (arm/load/theme/animations/build) | Presses | Refreshes p50 / p95 / max | Defects | Video |",
-              "|---|---|---|---|---|---|---|"]
+              "| Shortcut | Action | Case (arm/load/theme/animations/build) | Presses | Refreshes p50 / p95 / max | Over the floor p50 / p95 / max | Defects | Video |",
+              "|---|---|---|---|---|---|---|---|"]
     ran = set()
     for case, row in sorted(judged.items()):
         action_stroke, _, rest = case.partition("/")
         action, _, stroke = action_stroke.partition("[")
         ran.add(action_stroke)
         defects = ", ".join(f"{k} x{v}" for k, v in sorted(row["defects"].items())) or "none"
+        over = " / ".join("-" if row[k] is None or not a.floor else f"+{row[k] - a.floor}"
+                          for k in ("refreshes_p50", "refreshes_p95", "refreshes_max"))
         lines.append(f"| `{stroke.rstrip(']')}` | {action} | {rest} | {row['presses']} | {row['refreshes_p50']} / "
-                     f"{row['refreshes_p95']} / {row['refreshes_max']} | {defects} | {videos.get(case, '')} |")
+                     f"{row['refreshes_p95']} / {row['refreshes_max']} | {over} | {defects} | {videos.get(case, '')} |")
     if not judged:
-        lines.append("| | | no case judged yet | | | | |")
+        lines.append("| | | no case judged yet | | | | | |")
     if a.notes and os.path.exists(a.notes):
         lines += ["", open(a.notes, encoding="utf-8").read().rstrip()]
     lines += ["", "## Not run yet", "", "| P | Stroke | Action | Effect | Context |", "|---|---|---|---|---|"]
