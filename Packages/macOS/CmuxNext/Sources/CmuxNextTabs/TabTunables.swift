@@ -108,12 +108,12 @@ public nonisolated enum TabTunables {
         default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.crowdedControlOpacity")
 
     /// The trailing controls' opacity at rest; `crowded`: the tabs fill the bar (``TabStripView/isCrowded``).
-    public static func restingControlAlpha(crowded: Bool) -> CGFloat {
-        let rest = restingControlOpacity.value
-        switch crowdedControls.value {
+    public static func restingControlAlpha(crowded: Bool, in store: TunableStore = .shared) -> CGFloat {
+        let rest = restingControlOpacity.value(in: store), shown = max(rest, crowdedControlOpacity.value(in: store))
+        switch crowdedControls.value(in: store) {
         case .hiddenAtRest: return rest
-        case .alwaysShown: return max(rest, crowdedControlOpacity.value)
-        case .shownWhenCrowded: return crowded ? max(rest, crowdedControlOpacity.value) : rest
+        case .alwaysShown: return shown
+        case .shownWhenCrowded: return crowded ? shown : rest
         }
     }
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }

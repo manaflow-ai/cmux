@@ -161,17 +161,10 @@ import Testing
         #expect(view.moreButton.frame == resting, "fading out ⋮ must not move it left")
         #expect(view.moreButton.alphaValue == view.reveal.restAlpha, "the normal fade still hides ⋮")
     }
-    /// The store refuses a key it has no descriptor for; the app registers them at launch (DebugSettingsService).
-    private static func setCrowdedControls(_ mode: TabCrowdedControls?) {
-        TunableStore.shared.register(TabTunables.all)
-        TunableStore.shared.set(TabTunables.crowdedControls.key, mode.map { .choice($0.rawValue) })
-    }
-
     /// 12 tabs fill the bar: the plus rests muted in its kept room instead of leaving an empty strip,
     /// and revealing it moves no tab, so the rightmost tab stays where the pointer finds it.
     @Test func aCrowdedStripsPlusShowsAtRestAndItsRevealMovesNoTab() throws {
         DesignSettings.shared.plusButton = .hover
-        Self.setCrowdedControls(nil)
         let (strip, window) = Self.strip(tabs: 12)
         defer { window.closeAfterTest() }
         #expect(strip.isCrowded, "12 tabs in 900 points are narrower than their widest")
@@ -195,7 +188,6 @@ import Testing
     /// hides them again.
     @Test func aStripWithRoomKeepsItsControlsHiddenAtRest() throws {
         DesignSettings.shared.plusButton = .hover
-        Self.setCrowdedControls(nil)
         let (strip, window) = Self.strip(tabs: 2)
         defer { window.closeAfterTest() }
         #expect(!strip.isCrowded)
@@ -204,7 +196,6 @@ import Testing
 
     /// The pane's "…" follows its strip: hidden beside a strip with room, muted beside a crowded one.
     @Test func thePanesMoreFollowsItsStripsCrowding() {
-        Self.setCrowdedControls(nil)
         let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
         toolbar.update(target: "tab0", kind: .terminal)
         let more = toolbar.view.moreButton
@@ -220,15 +211,16 @@ import Testing
 
     /// The three versions (`tabs.crowdedControls`): shown when crowded (default), always shown, hidden at rest.
     @Test func eachVersionsRestingOpacity() {
-        defer { Self.setCrowdedControls(nil) }
-        let muted = TabTunables.crowdedControlOpacity.value
-        Self.setCrowdedControls(nil)
-        #expect(TabTunables.crowdedControls.value == .shownWhenCrowded)
-        #expect(TabTunables.restingControlAlpha(crowded: false) == 0)
-        #expect(TabTunables.restingControlAlpha(crowded: true) == muted)
-        Self.setCrowdedControls(.alwaysShown)
-        #expect(TabTunables.restingControlAlpha(crowded: false) == muted)
-        Self.setCrowdedControls(.hiddenAtRest)
-        #expect(TabTunables.restingControlAlpha(crowded: true) == 0)
+        let store = TunableStore()
+        store.register(TabTunables.all)
+        store.activate(file: nil)
+        let muted = TabTunables.crowdedControlOpacity.value(in: store)
+        #expect(TabTunables.crowdedControls.value(in: store) == .shownWhenCrowded)
+        #expect(TabTunables.restingControlAlpha(crowded: false, in: store) == 0)
+        #expect(TabTunables.restingControlAlpha(crowded: true, in: store) == muted)
+        store.set(TabTunables.crowdedControls.key, .choice(TabCrowdedControls.alwaysShown.rawValue))
+        #expect(TabTunables.restingControlAlpha(crowded: false, in: store) == muted)
+        store.set(TabTunables.crowdedControls.key, .choice(TabCrowdedControls.hiddenAtRest.rawValue))
+        #expect(TabTunables.restingControlAlpha(crowded: true, in: store) == 0)
     }
 }
