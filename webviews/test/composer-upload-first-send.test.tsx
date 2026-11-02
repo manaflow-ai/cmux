@@ -122,6 +122,57 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   expect(handle.current!.loading).toBe(0);
 });
 
+/// The person's key or click as the page's retry hears it: jsdom cannot dispatch a trusted event, so
+/// the listener retryUploadLater put on `document` is called with one.
+function personInput() {
+  const listeners: ((event: Event) => void)[] = [];
+  const add = document.addEventListener.bind(document);
+  document.addEventListener = ((type: string, run: (event: Event) => void, options?: unknown) => {
+    if (type === "keydown" || type === "pointerdown") listeners.push(run);
+    add(type, run as EventListener, options as AddEventListenerOptions);
+  }) as typeof document.addEventListener;
+  return {
+    key: () => {
+      for (const run of listeners.splice(0)) run({ type: "keydown", key: "h", isTrusted: true } as unknown as Event);
+    },
+    restore: () => (document.addEventListener = add as typeof document.addEventListener),
+  };
+}
+
+test("a failed upload never tries again without the person's gesture, and keeps its own words", async () => {
+  // The host starts an upload only on a fresh key or click (AgentPaneModel `uploadStage` spends it
+  // at begin); one sent without that is refused as "The app refused the agent connection.".
+  // Leo, 2026-10-31: "idk what's going on with video attachments" (that refusal beside a recording).
+  const input = personInput();
+  try {
+    let gesture = true;
+    const refused: number[] = [];
+    let calls = 0;
+    const handle = mount(async () => {
+      calls += 1;
+      if (!gesture) {
+        refused.push(calls);
+        return { error: "The app refused the agent connection." };
+      }
+      gesture = false;
+      return calls === 1 ? { error: "The upload timed out: the app did not answer." } : { paths: ["/u/clip.mp4"] };
+    });
+    await act(() => void handle.current!.attach([mp4()], true));
+    await until(() => calls === 1);
+    const quiet = Date.now();
+    await until(() => Date.now() - quiet > UPLOAD_RETRY_DELAY_MS + 200, UPLOAD_RETRY_DELAY_MS * 3);
+    expect(refused).toEqual([]);
+    // The person types: that key is the try's gesture, and the try goes with it.
+    gesture = true;
+    act(() => input.key());
+    await until(() => handle.current!.attachments.length === 1);
+    expect(calls).toBe(2);
+    expect(refused).toEqual([]);
+  } finally {
+    input.restore();
+  }
+});
+
 test("a failed upload that keeps failing shows Retry, and still holds a send until Retry or x", async () => {
   // No input arrives in this page, so after its first try again the wait ends at the input wait;
   // a chip already past its tries shows Retry at once.
