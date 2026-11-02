@@ -12,7 +12,10 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewWorkspaceGetsTerminalProbeTests {
-    @Test func aWorkspaceWithNoCommandGetsItsTerminal() async throws {
+    /// Each trial launches its own app and daemon (the controller runs one step per worker and ref, so the trials
+    /// are in the step).
+    @Test(arguments: [1, 2, 3])
+    func aWorkspaceWithNoCommandGetsItsTerminal(trial: Int) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             try await PasswordManagerRouteTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
             let controller = try #require(services.windows.active)
@@ -41,7 +44,7 @@ struct NewWorkspaceGetsTerminalProbeTests {
                    controller.content?.panes.values.contains(where: { $0.selectedTab?.kind == .pty }) == true { found = true; break }
                 try await Task.sleep(for: .milliseconds(500))
             }
-            print("SF-F9-PROBE " + (found ? "TERMINAL" : "NO-TERMINAL") + " " + log.joined(separator: " | "))
+            print("SF-F9-PROBE trial \(trial) " + (found ? "TERMINAL" : "NO-TERMINAL") + " " + log.joined(separator: " | "))
             #expect(found, "no terminal in 20 s: \(log.joined(separator: " | "))")
         }
     }
