@@ -23,6 +23,8 @@ export function composerPickerEntries(
             ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
+            // The picker lists it anyway, with its Install… row (Leo 2026-10-26: "show all harnesses").
+            ...(!entry.installed && entry.pickable ? { notInstalled: true as const } : {}),
             ...(entry.topModels ? { top: entry.topModels } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
