@@ -152,15 +152,24 @@ nonisolated extension SidebarLayout {
         }
     }
 
-    /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
-    /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
-    /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
-    /// index of a Done row drawn below the fold all open the gap among the rows above it. Nil when the list draws no
-    /// fold or the gap is elsewhere (`openGapIfNeeded` places it as before).
+    /// `gapEntry`'s answer when the gap opens after the list's last drawn entry.
+    static let gapAtEnd = Int.min
+
+    /// The `drawn` entry a drop gap opens before in a list whose drawn order is not its model order: one that draws a
+    /// fold (a drag keeps the folds) or nests rows (the session tree's lineage). The dropped row (never Done, started
+    /// by no agent) draws as a top-level row in model order, after every run (`runs`) whose root comes before it, so
+    /// the gap opens before the first drawn top-level row whose model index is at or past the gap's, else before the
+    /// first fold row, else after the last entry (`gapAtEnd`). A hidden index between two drawn rows, an index nested
+    /// under an earlier root (#28103 review: `[parent, other, child]` draws `[parent, child, other]`, and a drop at
+    /// child's index lands after `other`), the list's end and, with a fold open, an index of a Done row drawn below
+    /// the fold all open the gap where the row will show. Nil when the list draws in model order or the gap is
+    /// elsewhere (`openGapIfNeeded` places it by model index, as before).
     static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
-        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }) else { return nil }
-        // Shown rows come first in model order, then the fold rows and an open fold's Done rows (`foldingDone`).
-        return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
+        guard let gap, gap.section == section, gap.group == group, gap.index <= count,
+              drawn.contains(where: { $0.index < 0 || $0.depth > 0 }) else { return nil }
+        // Shown runs come first, by their roots' model order, then the fold rows and an open fold's rows (`foldingDone`).
+        // A fold entry's `depth` is its count, so it is told apart by its index alone.
+        return drawn.first { $0.index < 0 || ($0.depth == 0 && $0.index >= gap.index) }?.index ?? gapAtEnd
     }
 
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one
