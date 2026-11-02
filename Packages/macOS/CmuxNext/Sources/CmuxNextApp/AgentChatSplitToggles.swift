@@ -186,9 +186,7 @@ final class AgentChatSplitToggles {
 
     /// Every tab of the workspace that shows chat tab `chat`; nil when the store does not list it.
     private static func workspaceTabs(of chat: String, in store: DaemonStore) -> [TabModel]? {
-        guard let surface = store.tab(id: chat)?.surface,
-              let pane = store.pane(containing: surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard let workspace = store.workspace(holdingTab: chat) else { return nil }
         return workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
     }
 }

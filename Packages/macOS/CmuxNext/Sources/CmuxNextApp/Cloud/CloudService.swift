@@ -235,30 +235,16 @@ final class CloudService {
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        // The app server link: this Mac's `cmux link`, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=1` the Native
-        // device route (#28947) with `cmux link` as its fallback when Native does not start.
+        // The app server link: the Native device route (#28947) with `cmux link` as its fallback when Native
+        // does not start, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=0` this Mac's `cmux link` alone.
         let linkBuild = LaunchIdentity.current().build
-        let cmuxLink = CloudLinkLauncher.forApp(build: linkBuild, relay: relay)
-        let launcher: (any CloudLinkLaunching)?
-        if configuration.linkSource != .appServer {
-            launcher = nil
-            linkRoute = { "legacy" }
-        } else if CloudNativeFirstLauncher.choice() == .link {
-            launcher = cmuxLink
-            linkRoute = { "link" }
-        } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
-                                                             build: linkBuild, deviceName: Self.deviceName) {
-            let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-            let first = CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
-                logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
-            }
-            launcher = first
-            linkRoute = { first.route }
-        } else {
-            launcher = cmuxLink
-            linkRoute = { "link (native asked; no Native route holder for this app)" }
+        let appServerLink = CloudAppServerLink(appServer: configuration.linkSource == .appServer, link: CloudLinkLauncher.forApp(build: linkBuild, relay: relay),
+            native: { CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths, build: linkBuild, deviceName: Self.deviceName) }) { error in
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+                .error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
         }
-        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
+        linkRoute = appServerLink.route
+        link = CloudLinkLifecycle(launcher: appServerLink.launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary

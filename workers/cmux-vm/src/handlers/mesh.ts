@@ -79,11 +79,31 @@ const logEvent = (event: string, fields: Record<string, string>) => Effect.sync(
 
 const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 
+/**
+ * The configured service may create a mesh in a personal tenant before that
+ * tenant is added to the static experiment list. Once that live mesh exists,
+ * the tenant's users and API keys may use it too. Keep service callers
+ * restricted to the configured service list and cap the fallback to one
+ * indexed ownership query so this remains a gate rather than a tenant-wide
+ * scan.
+ */
+const meshEnabledFor = (tenantId: Principal["tenantId"], actor: string) =>
+  Effect.gen(function* () {
+    const config = yield* MeshConfig;
+    if (!config.experiment) return false;
+    if (config.enabledFor(tenantId, actor)) return true;
+    if (actor.startsWith("service:")) return false;
+    const ownership = yield* OwnershipStore;
+    const meshes = yield* ownership
+      .listPage(tenantId, "mesh", { limit: 100, after: null, only: null, labels: null })
+      .pipe(Effect.catchAll(dependencyDown("ownership.list")));
+    return meshes.some((mesh) => config.serviceActors.has(mesh.createdBy));
+  });
+
 /** The experiment gate: a team without the experiment sees no mesh route at all. */
 const gate = Effect.gen(function* () {
   const principal = yield* CurrentPrincipal;
-  const config = yield* MeshConfig;
-  if (!config.enabledFor(principal.tenantId, actorRef(principal.actor))) return yield* Effect.fail(experimentOff());
+  if (!(yield* meshEnabledFor(principal.tenantId, actorRef(principal.actor)))) return yield* Effect.fail(experimentOff());
   return principal;
 });
 
@@ -705,7 +725,7 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
       const found = yield* store.findEnrollmentCode(codeSha256, parsed.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.findEnrollmentCode")));
       // Not this mesh's live code: a code of another mesh presented here is burned (burning an unknown hash does nothing).
       if (Option.isNone(found)) return yield* refuse(experimentOff());
-      if (!config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(experimentOff());
+      if (!(yield* meshEnabledFor(found.value.tenantId, found.value.createdBy))) return yield* Effect.fail(experimentOff());
       const code = found.value;
       const actor = actorOf(code.createdBy);
       if (Option.isNone(actor)) return yield* refuse(experimentOff());
@@ -1250,7 +1270,7 @@ const withSignedDevice = <A, E, R>(
     if (Option.isNone(parsed)) return yield* Effect.fail(experimentOff());
     const store = yield* MeshStore;
     const found = yield* store.findDeviceForSignedRequest(parsed.value).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceForSignedRequest")));
-    if (Option.isNone(found) || !config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(experimentOff());
+    if (Option.isNone(found) || !(yield* meshEnabledFor(found.value.tenantId, found.value.createdBy))) return yield* Effect.fail(experimentOff());
     const { tenantId, ...row } = found.value;
     const installPublicKey = row.installPublicKey;
     if (installPublicKey === null) return yield* Effect.fail(experimentOff());

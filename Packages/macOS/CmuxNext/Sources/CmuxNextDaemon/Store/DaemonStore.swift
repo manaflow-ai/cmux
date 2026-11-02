@@ -196,8 +196,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).
     @ObservationIgnored var resyncRetry: DemandTimer?
-    /// The retry budget ran out: the next daemon event resyncs.
-    @ObservationIgnored var needsResync = false
+    /// The retry budget ran out: the next daemon event resyncs. Observed: a read-your-writes wait
+    /// (``appliedThrough(_:since:)``) ends on it rather than wait for an event that may never come.
+    var needsResync = false
     /// Clock of the retry spacing (tests inject one that does not wait).
     @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
@@ -292,6 +293,11 @@ public final class DaemonStore: StateResourceQueries {
     public func pane(holding tab: TabModel) -> PaneModel? {
         _ = tabListRevision
         return index.pane(holding: tab)
+    }
+
+    /// The workspace that shows tab `id`: the workspace of the pane holding its surface.
+    public func workspace(holdingTab id: String) -> WorkspaceModel? {
+        tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
     // MARK: Snapshot
