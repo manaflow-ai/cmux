@@ -793,6 +793,37 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
 
+    def test_a_placement_never_hands_a_runs_on_the_busy_reserved_slot_while_blacksmith_moves(self) -> None:
+        """The reserved-slot rule above trusts each placement to name the slot only while it can take the job.
+        dev-daily-place reads the slot's label too (FRESH_LABEL) and its output goes straight into
+        cmux-scheme-compile's runs-on, so a busy slot there is the only route: on 2026-11-02 from 10:12Z 15 DEV
+        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6 (one runner busy, the other offline) while
+        Blacksmith overflow was never tried. With every owned runner busy and a Blacksmith macOS label moving, no
+        such placement may answer the slot (or any owned label): the routing order's last resort comes first."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import datetime as dt
+        import dev_landing_place
+
+        readers = [job_id for path in workflows() for job_id, job in (load(path).get("jobs") or {}).items()
+                   if any("FRESH_LABEL" in (step.get("env") or {}) and "dev_landing_place.py" in str(step.get("run"))
+                          for step in job.get("steps") or [])]
+        self.assertEqual(readers, ["dev-daily-place"], "the placements that hand a runs-on the reserved slot label")
+        now = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
+        moving = {"generated_at": "2026-11-02T10:10:00Z",
+                  "label_started": {"blacksmith-6vcpu-macos-26": "2026-11-02T10:10:00Z"},
+                  "pools": {"blacksmith-6vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 2},
+                            "blacksmith-12vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 1}}}
+        slot, side = "glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6"
+        busy = [{"name": "m1-glaeda-2", "status": "online", "busy": True, "labels": [{"name": slot}]},
+                {"name": "m2-glaeda-2", "status": "offline", "busy": False, "labels": [{"name": slot}]},
+                {"name": "m3-glaeda-1", "status": "online", "busy": True, "labels": [{"name": side}]}]
+        result = dev_landing_place.place(
+            {"SIDE_LABEL": side, "FRESH_LABEL": slot, "SHA": "a" * 40}, lambda: busy, lambda host: [],
+            overflow=lambda: dev_landing_place.blacksmith_overflow("", moving, now))
+        self.assertNotIn(slot, result["runs_on"], result["reason"])
+        self.assertNotIn(side, result["runs_on"], result["reason"])
+        self.assertEqual(json.loads(result["runs_on"]), "blacksmith-6vcpu-macos-26")
+
     def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
         rescued, failures, seen = rescued_paths(), [], 0
         for path in workflows():

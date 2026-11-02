@@ -63,6 +63,8 @@ use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
+pub(crate) use kitty_budget_state::KittyImageSurfaceExpectation;
+pub(crate) use kitty_budget_state::KittyImageWaveExpectation;
 use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
@@ -592,6 +594,8 @@ pub struct Mux {
     #[cfg(test)]
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -731,6 +735,10 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
     startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
+    /// Turns of first respawn attempts (mux/terminal_respawn.rs): after a
+    /// kill of everything the visible workspace's terminals go first, and at
+    /// most `available_parallelism` replay their seeds at once.
+    respawn_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their
