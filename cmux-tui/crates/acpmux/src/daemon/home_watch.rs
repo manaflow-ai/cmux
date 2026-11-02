@@ -145,7 +145,8 @@ impl Owned {
             if now == Some(entry.identity) {
                 continue;
             }
-            if entry.path != leaf || !entry.resolved {
+            // The leaf has two entries: itself as a lexical ancestor, and resolved.
+            if entry.path != leaf {
                 return false;
             }
             leaf_lost = true;
@@ -439,6 +440,28 @@ mod tests {
         assert_eq!(owned.lost_except(Some(&socket)), None, "unless the daemon removed it");
         std::fs::remove_dir_all(&home).unwrap();
         assert!(owned.lost_except(Some(&socket)).is_some(), "the home still counts");
+    }
+
+    #[test]
+    fn a_socket_lost_alone_is_bound_again_but_one_in_a_replaced_folder_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let lock = home.join("daemon.lock");
+        let socket = home.join("acpmux.sock");
+        std::fs::write(&lock, "").unwrap();
+        std::fs::write(&socket, "").unwrap();
+        let owned =
+            Owned::now(&[&home, &lock]).unwrap().with(Owned::now(&[socket.as_path()]).unwrap());
+        assert!(!owned.only_leaf_lost(&socket), "nothing was lost");
+        std::fs::remove_file(&socket).unwrap();
+        assert!(owned.only_leaf_lost(&socket), "the socket alone was removed");
+        std::fs::write(dir.path().join("other"), "").unwrap();
+        std::fs::rename(dir.path().join("other"), &socket).unwrap();
+        assert!(owned.only_leaf_lost(&socket), "the socket alone was replaced");
+        std::fs::rename(&home, dir.path().join("moved")).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        assert!(!owned.only_leaf_lost(&socket), "its folder is another one");
     }
 
     #[test]
