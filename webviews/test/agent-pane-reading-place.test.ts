@@ -90,6 +90,8 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
 
   /// Requests the daemon has not answered yet.
   let inflight = 0;
+  /// When the newest `_acpmux/attach` reached the daemon (epoch ms).
+  let attachAt = 0;
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -104,6 +106,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
+          if (message.method === "_acpmux/attach") attachAt = Date.now();
           const result = answer(message.method, message.params ?? {});
           // A page comes a little later, as over a network.
           inflight++;
@@ -129,8 +132,9 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Opens the chat with the host keeping `anchor` as where it last rested.
-  async function reopen(anchor: { rowId: string; offset: number } | null): Promise<Page> {
+  /// Opens the chat with the host keeping `anchor` as where it last rested, answering its read of
+  /// it `hostDelay` ms late.
+  async function reopen(anchor: { rowId: string; offset: number } | null, hostDelay = 0): Promise<Page> {
     const tab = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await installPaintedFrames(tab);
     // Every painted frame: the first question drawn while the transcript shows, and whether Jump to latest
@@ -150,17 +154,24 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
         }
       });
     });
-    await tab.addInitScript((kept) => {
-      const saved: unknown[] = [];
-      (window as any).savedAnchors = saved;
-      (window as any).cmuxAcpmuxActions = {
-        "chat.scrollAnchor.get": async () => kept,
-        "chat.scrollAnchor": async (params: unknown) => {
-          saved.push(params);
-          return null;
-        },
-      };
-    }, anchor);
+    await tab.addInitScript(
+      ([kept, delay]) => {
+        const saved: unknown[] = [];
+        (window as any).savedAnchors = saved;
+        (window as any).cmuxAcpmuxActions = {
+          "chat.scrollAnchor.get": async () => {
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+            (window as any).anchorAnsweredAt = Date.now();
+            return kept;
+          },
+          "chat.scrollAnchor": async (params: unknown) => {
+            saved.push(params);
+            return null;
+          },
+        };
+      },
+      [anchor, hostDelay] as const,
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await tab.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
@@ -232,6 +243,27 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     const saved = await tab.evaluate(() => (window as any).savedAnchors as { rowId: string | null }[]);
     expect(saved.filter((anchor) => anchor.rowId !== `user-${questionSeq.get(100)}`)).toEqual([]);
     expect(errors).toEqual([]);
+    await tab.close();
+  });
+
+  test("the chat's attach goes out while the host is still reading where it opens, and it opens there", async () => {
+    attachAt = 0;
+    // Under SCROLL_ANCHOR_READ_MS (250 ms), so the host's answer is the one the open uses.
+    const tab = await reopen({ rowId: `user-${questionSeq.get(100)}`, offset: 0 }, 200);
+    await tab.getByText("Question 100", { exact: true }).waitFor({ timeout: 60_000 });
+    await settle(tab);
+    // The attach did not wait for the host's answer: it reached acpmux before the answer came.
+    const answeredAt = await tab.evaluate(() => (window as any).anchorAnsweredAt as number);
+    expect(attachAt).toBeGreaterThan(0);
+    expect(attachAt).toBeLessThan(answeredAt);
+    // Still no frame before the reader's place: the transcript's first shown frame is at it.
+    const frames = await tab.evaluate(() => (window as any).openFrames as { shown: string | null; jump: boolean }[]);
+    const firstShown = frames.find((frame) => frame.shown !== null)?.shown;
+    expect(Number(firstShown?.replace("Question ", ""))).toBeLessThanOrEqual(100);
+    expect(frames.filter((frame) => frame.jump)).toEqual([]);
+    const top = await bubbleTop(tab, "Question 100");
+    expect(top).toBeDefined();
+    expect(Math.abs(top! - (await rowPad(tab)))).toBeLessThan(40);
     await tab.close();
   });
 
