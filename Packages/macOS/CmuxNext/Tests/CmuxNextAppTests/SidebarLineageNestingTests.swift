@@ -104,6 +104,44 @@ import Testing
         #expect(laneDone.map(\.id) == [Self.coordinator, Self.lane, Self.mine])
     }
 
+    /// A drop gap (a tab dropped from a pane) opens where the new row will draw (#28103 review BLOCK at 9f6d9cda): the
+    /// model `[coordinator, mine, lane]` draws `[coordinator, lane, mine]`, and a new row inserted at lane's index is
+    /// a root, so it draws after `mine`, not between the coordinator and the lane. Loose rows and a group's members.
+    @Test func aDropGapOpensWhereTheDroppedRowWillDraw() throws {
+        let tree = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator])
+        let order = [Self.coordinator, Self.mine, Self.lane]
+        let new = SidebarWorkspace(id: WorkspaceID("new"), title: "new")
+        func loose(_ ids: [WorkspaceID], extra: (Int, SidebarWorkspace)? = nil) -> [SidebarSection] {
+            var sections = Self.sections(ids)
+            if let extra { sections[0].nodes.insert(.workspace(extra.1), at: extra.0) }
+            return sections
+        }
+        func grouped(_ ids: [WorkspaceID], extra: (Int, SidebarWorkspace)? = nil) -> [SidebarSection] {
+            var members = ids.map { SidebarWorkspace(id: $0, title: $0.rawValue) }
+            if let extra { members.insert(extra.1, at: extra.0) }
+            var sections = Self.sections([])
+            sections[0].nodes = [.group(SidebarGroup(id: GroupID("g"), name: "G", color: .green, workspaces: members))]
+            return sections
+        }
+        let shapes: [(([WorkspaceID], (Int, SidebarWorkspace)?) -> [SidebarSection], GroupID?)] = [(loose, nil), (grouped, GroupID("g"))]
+        for (shape, group) in shapes {
+            for index in 0...order.count {
+                var o = SidebarLayoutOptions()
+                o.sessionTree = tree
+                let sections = shape(order, nil)
+                o.gap = DropPosition(section: sections[0].id, group: group, index: index)
+                o.gapHeight = 30
+                let gapped = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+                let gapY = try #require(gapped.gapY, "no gap at \(index) (group \(String(describing: group)))")
+                var after = SidebarLayoutOptions()
+                after.sessionTree = tree
+                let dropped = SidebarLayout.make(sections: shape(order, (index, new)), metrics: .standard, options: after)
+                let row = try #require(dropped.row(for: .workspace(new.id)))
+                #expect(abs(row.y - gapY) < 0.5, "a drop at \(index) (group \(String(describing: group))) drew at \(row.y), its gap at \(gapY)")
+            }
+        }
+    }
+
     /// A drag keeps the "Done (N)" folds only when it moves no row the fold would move (`dragUnfolds`). With nesting
     /// the fold still runs, so a drag of a Done row must unfold as it does without the tree: kept folded, the
     /// dragged row would leave its slot and the drop gap would open where the row will not show (Astra on #28103).
