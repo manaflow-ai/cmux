@@ -128,20 +128,21 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return measured;
   };
 
-  /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px.
+  /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px (every choice
+  /// fills the pane up to its cap since #31510, as a Chat Text Width of the user's own does).
   const column = (pane: number, share: number, cap: number) => Math.min(cap, Math.max(720, pane * share));
 
   for (const width of [1440, 1920]) {
     test(`standard keeps the 800px column at ${width}`, async () => {
       const m = await at("standard", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.625, 800), -0.3);
+      expect(m.column.width).toBeCloseTo(column(m.pane, 1, 800), -0.3);
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
       expect(m.prose).toBeCloseTo(m.column.width, -0.3);
     });
 
     test(`wide caps the transcript and the composer at 960px at ${width}`, async () => {
       const m = await at("wide", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.625, 960), -0.3);
+      expect(m.column.width).toBeCloseTo(column(m.pane, 1, 960), -0.3);
       expect(m.column.width).toBeGreaterThan(800);
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
       expect(m.prose).toBeCloseTo(m.column.width, -0.3);
@@ -149,7 +150,7 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
 
     test(`wideBlocks widens code and tables, not prose, at ${width}`, async () => {
       const m = await at("wide-blocks", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.7, 1120), -0.3);
+      expect(m.column.width).toBeCloseTo(column(m.pane, 1, 1120), -0.3);
       expect(m.column.width).toBeGreaterThan(960);
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
       expect(m.prose).toBeLessThanOrEqual(800);

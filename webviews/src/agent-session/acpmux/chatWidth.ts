@@ -29,8 +29,8 @@ export interface ChatColumn {
 
 const COLUMNS: Record<ChatWidth, ChatColumn> = {
   standard: { min: 720, max: 800, share: 1, prose: Infinity },
-  wide: { min: 720, max: 960, share: 0.625, prose: Infinity },
-  wideBlocks: { min: 720, max: 1120, share: 0.7, prose: 800 },
+  wide: { min: 720, max: 960, share: 1, prose: Infinity },
+  wideBlocks: { min: 720, max: 1120, share: 1, prose: 800 },
 };
 const isChatWidth = (value: unknown): value is ChatWidth =>
   value === "standard" || value === "wide" || value === "wideBlocks";

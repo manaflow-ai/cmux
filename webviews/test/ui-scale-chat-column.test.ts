@@ -83,20 +83,20 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the chat column and New Tab composer keep their 720px measure across scale combinations", async () => {
+  test("the chat column and New Tab composer keep their 800px measure across scale combinations", async () => {
     for (const { interfaceScale, chatZoom } of CASES) {
       const effectiveScale = interfaceScale * chatZoom;
       const chat = await open("agent-pane.chat-width", "standard", interfaceScale, chatZoom);
       const chatBox = await measure(chat, ".acpmux-row", effectiveScale);
       await chat.close();
-      expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(720, -0.5);
-      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(61.5, -0.5);
+      expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(800, -0.5);
+      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(21.5, -0.5);
 
       const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
-      expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(720, -0.5);
-      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(61.5, -0.5);
+      expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(800, -0.5);
+      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(21.5, -0.5);
     }
   });
 
@@ -108,8 +108,8 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     await publishNativePageZoom(page, 1.5, 1.25);
     const after = await measure(page, ".acpmux-row", effectiveScale);
     await page.close();
-    expect(before.width).toBeCloseTo(720, -0.5);
-    expect(after.width).toBeCloseTo(720, -0.5);
-    expect(after.left).toBeCloseTo(61.5, -0.5);
+    expect(before.width).toBeCloseTo(800, -0.5);
+    expect(after.width).toBeCloseTo(800, -0.5);
+    expect(after.left).toBeCloseTo(21.5, -0.5);
   });
 });

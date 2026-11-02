@@ -121,10 +121,10 @@
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
    prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
 :root[data-chat-width="wide"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(960px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(960px / var(--cv-ui-scale)));
 }
 :root[data-chat-width="wideBlocks"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 70%, calc(1120px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(1120px / var(--cv-ui-scale)));
   --cv-prose: calc(800px / var(--cv-ui-scale));
 }
 .cv-md > .cv-p,

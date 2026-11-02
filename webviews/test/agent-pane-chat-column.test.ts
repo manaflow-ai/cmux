@@ -397,8 +397,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       expect({ viewport, composer }).toEqual({ viewport, composer: row });
     // A narrow pane leaves the page edge on each side.
     expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
-    // A wide pane gives the column more room, to a readable cap; it stays centered.
-    expect(column(1900)).toBeGreaterThan(column(900));
+    // The column fills the pane up to the readable cap (Chat Text Width 800, #31510); it stays centered.
+    expect(column(900)).toBeGreaterThanOrEqual(799);
+    expect(column(1900)).toBeGreaterThanOrEqual(799);
     expect(column(1900)).toBeLessThanOrEqual(800);
     expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
   });

@@ -154,10 +154,10 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           const page = await open(engine, NEW_TAB, variant, width);
           const at = await measure(page, box);
           await page.close();
-          // The chat's column (conversation.css --cv-column, --cv-inset): 720 px, widening to 800 px
-          // at 62.5% of a wide pane, never nearer the sides than the page edge (--cv-edge, the layout
-          // grid's 16 px icon box since #27580).
-          const column = Math.min(800, Math.max(720, at.page!.width * 0.625));
+          // The chat's column (conversation.css --cv-column, --cv-inset): the pane's width, at least
+          // 720 px, up to 800 px (Chat Text Width's default, #31510), never nearer the sides than the
+          // page edge (--cv-edge, the layout grid's 16 px icon box since #27580).
+          const column = Math.min(800, Math.max(720, at.page!.width));
           expect(at.page!.edge, "the page edge resolves").toBeGreaterThan(0);
           const inset = Math.max(at.page!.edge, (at.page!.width - column) / 2);
           expect(

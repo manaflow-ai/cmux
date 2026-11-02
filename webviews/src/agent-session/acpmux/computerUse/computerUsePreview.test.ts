@@ -11,7 +11,7 @@ import {
 
 const frame = "data:image/jpeg;base64,AA==";
 const icon = "data:image/png;base64,AA==";
-const column = { min: 720, max: 800, share: 0.625, prose: Infinity };
+const column = { min: 720, max: 800, share: 1, prose: Infinity };
 
 describe("computerUsePreview", () => {
   test("reads a running card and a done card with its icon", () => {
@@ -112,10 +112,10 @@ describe("computerUsePreview", () => {
 describe("the column keeps the card's room", () => {
   test("a pane whose gutter is too narrow moves the column's end in, and keeps its start", () => {
     const plain = transcriptColumn(900, column);
-    expect(plain).toEqual({ inset: 90, insetEnd: 90, width: 720 });
+    expect(plain).toEqual({ inset: 50, insetEnd: 50, width: 800 });
     const beside = transcriptColumn(900, column, COMPUTER_USE_PREVIEW_RESERVE);
-    expect(beside).toEqual({ inset: 90, insetEnd: 204, width: 606 });
-    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(606);
+    expect(beside).toEqual({ inset: 50, insetEnd: 204, width: 646 });
+    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(646);
   });
 
   test("a wide pane's gutter already holds the card: nothing moves", () => {
