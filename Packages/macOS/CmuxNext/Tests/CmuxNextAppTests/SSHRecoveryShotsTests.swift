@@ -73,10 +73,35 @@ import Testing
         text.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: cg).perform([text])
         let words = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-        #expect(words.contains("Cannot Connect"), "Gallery must draw the title: \(words)")
+        #expect(words.contains("Cannot Connect"), "Gallery must draw the title: \(words); \(Self.titleInk(in: root, rep: rep))")
         #expect(words.contains("Retry"), "Gallery must draw recovery actions: \(words)")
         let image = NSImage(size: root.bounds.size)
         image.addRepresentation(rep)
         return image
+    }
+
+    /// What the capture holds under the title: its label's ink, the theme's light or dark, and the
+    /// darkest and lightest captured pixels in its frame (white text on a white card reads as one value).
+    private static func titleInk(in root: NSView, rep: NSBitmapImageRep) -> String {
+        func find(_ node: NSView) -> NSTextField? {
+            if let field = node as? NSTextField, field.stringValue.hasPrefix("Cannot Connect") { return field }
+            return node.subviews.lazy.compactMap(find).first
+        }
+        guard let title = find(root) else { return "no title label" }
+        let frame = title.convert(title.bounds, to: root)
+        let scale = CGFloat(rep.pixelsWide) / max(root.bounds.width, 1)
+        var low = 1.0, high = 0.0, alpha = 1.0
+        for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 1) {
+            for x in stride(from: Int(frame.minX * scale), to: Int(frame.maxX * scale), by: 2) {
+                guard let color = rep.colorAt(x: x, y: rep.pixelsHigh - 1 - y)?.usingColorSpace(.sRGB) else { continue }
+                let luma = 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
+                low = min(low, luma)
+                high = max(high, luma)
+                alpha = min(alpha, color.alphaComponent)
+            }
+        }
+        let ink = title.textColor?.usingColorSpace(.sRGB).map { "\($0.redComponent),\($0.greenComponent),\($0.blueComponent)" } ?? "nil"
+        return "title ink \(ink), theme dark \(title.themeTokens.isDark), look \(title.effectiveAppearance.name.rawValue), "
+            + "captured luma \(low)...\(high), min alpha \(alpha), frame \(frame)"
     }
 }
