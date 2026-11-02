@@ -22,6 +22,14 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         public var color: String
     }
 
+    /// The page's shared running-wave phase and cadence. Swift consumes these values; it does not
+    /// choose a speed or index, so web and native rows stay in phase.
+    public struct Wave: Codable, Equatable, Sendable {
+        public var index: Int
+        public var periodMs: Int
+        public var stepMs: Int
+    }
+
     public struct Hover: Codable, Equatable, Sendable {
         public var title: String
         public var detail: String?
@@ -32,9 +40,15 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         public var symbol: String?
         public var symbolColor: String?
         public var harness: String?
+        /// A retrying row uses the native spinner instead of its harness glyph.
+        public var working: Bool?
+        /// A running row's shared wave phase and cadence.
+        public var wave: Wave?
         public var title: String
         public var detail: String?
         public var subtitle: String?
+        /// Counts and queued/failed progress text supplied by the page.
+        public var progress: String?
         public var trailing: String?
         public var tone: Tone?
         /// CSS can carry fractional indentation; the native row rounds it to a bounded level.
