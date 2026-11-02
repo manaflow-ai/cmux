@@ -42,7 +42,6 @@ export type SubagentLimitController = {
   reset(): void;
 };
 
-
 /**
  * Keeps the running-limit interaction optimistic while preserving out-of-order replies.
  *
@@ -60,7 +59,7 @@ export function useSubagentLimitController({
   onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
 }): SubagentLimitController {
   const [asked, setAsked] = useState<SubagentLimitAsk>();
-  const askedRef = useRef<SubagentLimitAsk>();
+  const askedRef = useRef<SubagentLimitAsk | undefined>(undefined);
   const [refused, setRefused] = useState<{ chat?: string; at: number }>();
   const [inFlightCount, setInFlightCount] = useState(0);
   const inFlight = useRef(0);

@@ -69,7 +69,8 @@ export function subagentsSection(
   const limitSet = limits?.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   if (agents.length + sessions.length === 0 && !limitSet) return undefined;
   const rows: NativeInfoRow[] = [];
-  if (limits) rows.push(limitRow(limits, sessions, input.onSet, actions, t, input.limitState, input.pendingMax, input.onStep));
+  if (limits)
+    rows.push(limitRow(limits, sessions, input.onSet, actions, t, input.limitState, input.pendingMax, input.onStep));
   type SubagentLine = {
     key: string;
     identity: string;
@@ -119,7 +120,9 @@ export function subagentsSection(
     at: child.createdAt ?? 0,
     open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
   });
-  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(({ agent, depth }) => agentLine(agent, depth));
+  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
+    ({ agent, depth }) => agentLine(agent, depth),
+  );
   const children = orderedSessions(sessions);
   const running: SubagentLine[] = [
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
@@ -129,10 +132,21 @@ export function subagentsSection(
   const ended: SubagentLine[] = [
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
-  ].sort((a, b) => ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[a.status] - ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[b.status] || b.at - a.at);
+  ].sort(
+    (a, b) =>
+      ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[a.status] -
+        ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[b.status] ||
+      b.at - a.at,
+  );
   const endedCounts = (lines: readonly SubagentLine[]): string => {
     const count = (status: SubagentStatus) => lines.filter((line) => line.status === status).length;
-    return [count("done") > 0 && t("summary.subagents.done", { n: count("done") }), count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }), count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") })].filter(Boolean).join(" · ");
+    return [
+      count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
+      count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
+      count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
+    ]
+      .filter(Boolean)
+      .join(" · ");
   };
   const line = (item: SubagentLine): NativeInfoRow => ({
     id: item.key,
@@ -211,13 +225,13 @@ function limitRow(
       {
         label: t("sessionInfo.subagents.limit.lower", { n: lower }),
         symbol: "minus",
-        action: actions.add("subagents.limitLower", () => onStep ? onStep(-1) : onSet(lower, max)),
+        action: actions.add("subagents.limitLower", () => (onStep ? onStep(-1) : onSet(lower, max))),
         ...(max <= MAX_RUNNING.min ? { disabled: true } : {}),
       },
       {
         label: t("sessionInfo.subagents.limit.raise", { n: raise }),
         symbol: "plus",
-        action: actions.add("subagents.limitRaise", () => onStep ? onStep(1) : onSet(raise, max)),
+        action: actions.add("subagents.limitRaise", () => (onStep ? onStep(1) : onSet(raise, max))),
         ...(max >= MAX_RUNNING.max ? { disabled: true } : {}),
       },
     );
