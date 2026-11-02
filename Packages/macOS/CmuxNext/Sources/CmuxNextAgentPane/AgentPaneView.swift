@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -60,6 +61,8 @@ public final class AgentPaneView: NSView {
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
+    /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
+    var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -70,6 +73,9 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
+    /// The app's table of processes that post input (`AppServices.personInput.sources`): whether a key or click
+    /// is the person's (``AgentPanePersonInput``) is read from it, never by a system call per event.
+    let eventSources: EventSourceProcesses
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
     let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -133,6 +139,9 @@ public final class AgentPaneView: NSView {
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page lies outside the window until it draws the chat a tab adopted it for
+    /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
+    var holdsPageAway = false
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -164,12 +173,15 @@ public final class AgentPaneView: NSView {
     ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil) {
+                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
+                 eventSources: EventSourceProcesses = EventSourceProcesses()) {
         self.terminations = terminations ?? Self.processGroups.terminations
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
+        self.eventSources = eventSources
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
         self.source = source
@@ -391,7 +403,9 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        let frame = topBar.contentFrame(in: bounds)
+        let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
+        if let page { page.frame = shown } else { webView.frame = shown }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         redraw.laidOut(self)
     }
@@ -507,6 +521,10 @@ public final class AgentPaneView: NSView {
         }
         applyTheme()
     }
+
+    /// Low Power Mode turning on cancels a sidebar hover the page still waits on (`forwardHover`);
+    /// made on the first hover, released with the view.
+    var hoverPowerWatch: LowPowerModeObservation?
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in

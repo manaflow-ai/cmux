@@ -5,7 +5,7 @@
 // hung below and right of their lines, off their centre, with the chevrons in two columns. Here the
 // header's fixed mark is work that runs (three arms, trayHead.experiment.ts; view Compare arms), its time
 // follows the counts as quiet meta, every Stop sits in its line on the line's centre, and the
-// header's, every line's and View all's chevrons end on one x.
+// header's and every line's chevrons end on one x.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";

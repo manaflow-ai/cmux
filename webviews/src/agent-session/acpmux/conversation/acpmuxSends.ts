@@ -6,12 +6,13 @@
 // The line is read as a shell reads it (`shellCommands`): quotes, `$'…'`, backslashes,
 // here-documents and here-strings, `$(…)` and backticks kept whole, comments, and the operators
 // between commands. A wrapper that runs the command it is given is looked through: `reach HOST '…'`
-// (the target then lives on HOST), `bash -c '…'`, `timeout N`, `env X=Y`, `perl -e 'alarm N; exec
-// @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command position counts: `echo
-// "acpmux send x y"` prints words. A line that also does other work (`git push && acpmux send …`)
-// stays a command row, so that work stays in sight; `cd`, `export`, an echo and filters on the
-// send's output that read no file (`| tail -1`) do none. A redirect that writes a file is work, and
-// so is a command substitution (`$(…)`, backticks) unless it only reads (`"$(cat note.md)"`).
+// and `ssh [OPTIONS] [USER@]HOST '…'` (the target then lives on HOST), `bash -c '…'`, `timeout N`,
+// `env X=Y`, `perl -e 'alarm N; exec @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command
+// in command position counts: `echo "acpmux send x y"` prints words. A line that also does other
+// work (`git push && acpmux send …`) stays a command row, so that work stays in sight; `cd`,
+// `export`, an echo and filters on the send's output that read no file (`| tail -1`) do none. A
+// redirect that writes a file is work, and so is a command substitution (`$(…)`, backticks) unless
+// it only reads (`"$(cat note.md)"`).
 //
 // Options are read per `acpmux send --help`; `--status ID` (a delivery's state) and `--help` send
 // nothing. The text is unknown when the prompt comes from stdin that is not in the line (`-`, or no
@@ -410,7 +411,7 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
       text: body.text,
     };
   }
-  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || name === "reach")
+  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || REMOTES.has(name))
     return { reset: true };
   // Unknown commands may write through libraries, scripts, xargs or shell APIs. Without a typed
   // recorded-write event, fail closed instead of preserving an older producer body.
@@ -648,6 +649,75 @@ const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 /// `reach`'s options that take a value and still run the command (`reach --help`); any other
 /// option (`--help`, `--list`, `--why`, …) does something else.
 const REACH_VALUES = new Set(["--origin", "--registry", "--timeout"]);
+/// Wrappers that run their command line on another machine: `reach HOST '…'` and `ssh HOST '…'`.
+/// The session a send there names is on that host unless it names its own.
+const REMOTES = new Set(["reach", "ssh"]);
+/// `ssh`'s options that take a value (`ssh -p 22 -o X=Y host …`), and its flags that still run the
+/// command. -G, -N, -O, -Q, -V, -W and -s do something else (print, forward, control, a subsystem).
+const SSH_VALUES = "BbcDEeFIiJLlmoPpRSw";
+const SSH_FLAGS = "46AaCfgKkMnqTtvXxYy";
+/// ssh options that point its stdin at /dev/null (`-n`, `-f`): no stream reaches the remote send.
+const SSH_NO_STDIN = /^-[^-]*[nf]/;
+/// `-o` keys that change what ssh runs or where its stdin goes (SessionType=none is -N, StdinNull
+/// is -n, LocalCommand runs a local command): the line is not read as a plain remote send.
+const SSH_REFUSED_KEYS =
+  /^(?:sessiontype|stdinnull|forkafterauthentication|localcommand|permitlocalcommand|remotecommand)\b/i;
+
+/// The host and command line a remote wrapper runs, or nil when the words run no command there
+/// (an option that does something else, a missing value, no host or no command).
+function remoteRun(
+  name: string,
+  words: readonly ShellWord[],
+): { host: string; inner: ShellWord[]; stdin: boolean } | undefined {
+  let at = 1;
+  let stdin = true;
+  if (name === "reach") {
+    while (REACH_VALUES.has(words[at]?.text ?? "")) {
+      // A missing value, or one that looks like an option, is a line reach refuses.
+      if ((words[at + 1]?.text ?? "-").startsWith("-")) return undefined;
+      at += 2;
+    }
+  } else {
+    for (; at < words.length; at++) {
+      const word = words[at]!;
+      if (!word.literal) return undefined;
+      if (word.text === "--") {
+        at += 1;
+        break;
+      }
+      if (!word.text.startsWith("-") || word.text === "-") break;
+      // A cluster of flags, possibly ending in one option with its value (`-tt`, `-qp22`, `-i key`).
+      let place = 1;
+      for (; place < word.text.length; place++) {
+        const letter = word.text[place]!;
+        if (SSH_VALUES.includes(letter)) {
+          // -E writes a log file: work of its own.
+          if (letter === "E") return undefined;
+          let value = word.text.slice(place + 1);
+          if (!value) {
+            if (at + 1 >= words.length) return undefined;
+            at += 1;
+            value = words[at]!.text;
+          }
+          // An -o value must be read to know it runs the command (`-i ~/.ssh/key` need not be).
+          if (letter === "o" && (!words[at]!.literal || SSH_REFUSED_KEYS.test(value.trim()))) return undefined;
+          break;
+        }
+        if (!SSH_FLAGS.includes(letter)) return undefined;
+      }
+      if (SSH_NO_STDIN.test(word.text.slice(0, place + 1))) stdin = false;
+    }
+  }
+  const destination = words[at];
+  const inner = words.slice(at + 1);
+  if (!destination?.literal || destination.text.startsWith("-") || !inner.length) return undefined;
+  // `user@host`, `ssh://user@host:22`: the session lives on the host. ssh takes the user up to the
+  // last `@`; only the URI form carries a port.
+  const uri = destination.text.match(/^ssh:\/\/(.*?)(?::\d+)?$/);
+  const host = name === "ssh" ? (uri ? uri[1]! : destination.text).replace(/^.*@/, "") : destination.text;
+  if (!host) return undefined;
+  return { host, inner, stdin };
+}
 /// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
 const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
 /// The values clap checks (`--timeout 30`, `--on-permission deny`).
@@ -793,7 +863,7 @@ function readAcpmuxSend(
         commandWords.some((word) => word.text === "send")) ||
       (commandName === "cmux" && commandWords[1]?.text === "acp" && commandWords[2]?.text === "send");
     if (
-      (isSendCommand || commandName === "reach" || SHELLS.has(commandName)) &&
+      (isSendCommand || REMOTES.has(commandName) || SHELLS.has(commandName)) &&
       (command.grouped ||
         command.writes ||
         command.runs?.length ||
@@ -807,28 +877,23 @@ function readAcpmuxSend(
     const words = unwrapped(command.words);
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;
-    if (name === "reach") {
-      let at = 1;
-      while (REACH_VALUES.has(words[at]?.text ?? "")) {
-        // A missing value, or one that looks like an option, is a line reach refuses.
-        if ((words[at + 1]?.text ?? "-").startsWith("-")) break;
-        at += 2;
-      }
-      const rest = words.slice(at);
-      const inner = rest.slice(1);
-      if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
+    if (REMOTES.has(name)) {
+      const remote = remoteRun(name, words);
+      if (remote && remote.inner.every((word) => word.literal))
         send = readAcpmuxSend(
-          inner.map((word) => word.text).join(" "),
-          rest[0].text,
+          remote.inner.map((word) => word.text).join(" "),
+          remote.host,
           depth + 1,
           // Paths inside the remote script belong to that host. Only stdin already opened by
           // the local wrapper is a known stream; a remote redirect must resolve independently.
           undefined,
-          stdinOf(commands, index, recordedFiles, inheritedStdin),
+          remote.stdin ? stdinOf(commands, index, recordedFiles, inheritedStdin) : undefined,
           provenance,
           sendScan,
         );
-      else if (rest.length > 1) sendScan.opaque = true;
+      // A host or command that is not literal (`reach "$H" "$CMD"`) may hold a send of its own.
+      else if (remote || words.slice(1).some((word) => !word.literal || /\bacp/.test(word.text)))
+        sendScan.opaque = true;
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
@@ -874,7 +939,7 @@ function readAcpmuxSend(
       if (found) return undefined;
       found = send;
       at = index;
-      direct = name !== "reach" && !SHELLS.has(name);
+      direct = !REMOTES.has(name) && !SHELLS.has(name);
     }
   }
   if (!found) {
@@ -1260,7 +1325,7 @@ export function acpmuxSendBatch(line: string): AcpmuxSendBatch | undefined {
       const busy = runs.filter((script) => !onlyReads(script, depth) && !READS_FILE.test(script));
       if (
         busy.some((script) => /\bacp/.test(script)) ||
-        ((SHELLS.has(name) || name === "reach") && command.words.some((word) => /\bacp/.test(word.text)))
+        ((SHELLS.has(name) || REMOTES.has(name)) && command.words.some((word) => /\bacp/.test(word.text)))
       ) {
         refused = true;
         return;
