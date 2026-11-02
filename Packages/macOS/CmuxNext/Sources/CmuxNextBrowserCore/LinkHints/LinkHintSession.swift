@@ -116,8 +116,9 @@ public nonisolated struct LinkHintHeldKeys<Key> {
 
     public init(startedAt: TimeInterval) { self.startedAt = startedAt }
 
-    /// `key`, typed at `typedAt` (its event's timestamp). Stub for the red commit: when it was typed is not read.
-    public mutating func hold(_ key: Key, typedAt: TimeInterval) { keys.append(key) }
+    /// `key`, typed at `typedAt` (its event's timestamp). A key typed before the session started already went to the page
+    /// (this is its second pass through the key route): it is taken, never sent back.
+    public mutating func hold(_ key: Key, typedAt: TimeInterval) { if typedAt >= startedAt { keys.append(key) } }
 
     /// The held keys the page gets now, after `outcome`: all of them, once, for ``LinkHintSession/Outcome/passThrough``.
     public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
