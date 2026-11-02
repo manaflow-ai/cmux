@@ -135,7 +135,7 @@ def run_frames(args, count, cols=90, rows=30, timeout=30):
 class Grammar(unittest.TestCase):
     def test_python_3_9(self):
         """The minis run /usr/bin/python3 3.9.6: no newer syntax."""
-        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "test_tuikit.py"):
+        for name in ("tuikit.py", "heavy_profile.py", "agent_stream_acp.py", "pace_probe.py", "test_tuikit.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 ast.parse(f.read(), filename=name, feature_version=(3, 9))
 
@@ -191,6 +191,32 @@ class Gradient(unittest.TestCase):
         text = frames(data)[0].decode("utf-8")
         row = "\x1b[12;3H" + "".join(e["char"] for e in lay["wide"])
         self.assertIn(row, text)
+
+    def test_pace_modes_keep_the_frames_and_seed(self):
+        """Every pace mode draws the same frames; spin and hybrid end each wait at its due time."""
+        base = ["gradient", "--frames", "12", "--fake-clock", "--seed", "4", "--duration", "0"]
+        outs = [run_frames(base + ["--pace", mode], 12)[0] for mode in tuikit.PACE_MODES]
+        self.assertEqual(frames(outs[0]), frames(outs[1]))
+        self.assertEqual(frames(outs[0]), frames(outs[2]))
+        for mode in ("spin", "hybrid"):
+            pacer = tuikit.Pacer(120, mode, 2.0)
+            lates = [pacer.wait(k) for k in range(30)]
+            self.assertLess(max(lates[1:]), 0.004, (mode, lates))
+        with self.assertRaises(ValueError):
+            tuikit.Pacer(120, "nap")
+
+    def test_pace_probe_reports_each_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([PY, os.path.join(HERE, "pace_probe.py"), "--seconds", "0.5", "--out", tmp,
+                                   "--only", "sleep,hybrid,spin"], capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            lines = [l for l in done.stdout.splitlines() if l.startswith("TUI-KIT-PACE-VARIANT ")]
+            self.assertEqual([l.split()[1] for l in lines], ["sleep", "hybrid", "spin"])
+            data = load_json(os.path.join(tmp, "pace.json"))
+        for name, r in data["results"].items():
+            self.assertGreater(r["frames"], 30, name)
+            self.assertGreater(r["p50"], 6.0, name)
+            self.assertLess(r["p50"], 11.0, name)
 
     def test_fps_must_be_positive(self):
         done = subprocess.run([PY, KIT, "gradient", "--fps", "0", "--frames", "1", "--size", "10x5"],

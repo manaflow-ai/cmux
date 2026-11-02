@@ -139,12 +139,24 @@ def term_size(fd, fixed):
         return 80, 24
 
 
+PACE_MODES = ("sleep", "hybrid", "spin")
+
+
 class Pacer:
     """Frame k is due at start + k/fps. A late frame is drawn at once (never skipped: its index is the
-    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now."""
+    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now.
 
-    def __init__(self, fps):
+    mode: how the wait ends. `sleep`: one time.sleep to the due time (a timer the OS may coalesce:
+    on a fleet mini 266 of 601 frames came more than a frame late). `hybrid`: sleep to `spin_ms` before
+    the due time, then poll the clock (costs about spin_ms per frame of CPU). `spin`: poll only (a
+    whole core). The late time returned is measured after the wait, so it shows what the mode got."""
+
+    def __init__(self, fps, mode="sleep", spin_ms=2.0):
+        if mode not in PACE_MODES:
+            raise ValueError("pace mode %r" % mode)
         self.period = 1.0 / fps if fps > 0 else 0.0
+        self.mode = mode
+        self.spin = spin_ms / 1000.0
         self.start = time.monotonic()
         self.base = 0
 
@@ -154,8 +166,15 @@ class Pacer:
         due = self.start + (k - self.base) * self.period
         now = time.monotonic()
         if now < due:
-            time.sleep(due - now)
-            return 0.0
+            if self.mode == "sleep":
+                time.sleep(due - now)
+            else:
+                if self.mode == "hybrid" and due - now > self.spin:
+                    time.sleep(due - now - self.spin)
+                while time.monotonic() < due:
+                    pass  # pace: poll the clock to the due time (a sleep's wake-up may be coalesced late)
+            now = time.monotonic()
+            return max(0.0, now - due)
         late = now - due
         if late > 0.25:
             self.start, self.base = now, k
@@ -346,7 +365,7 @@ def cmd_gradient(a):
         signal.signal(signal.SIGWINCH, lambda *_: winch.__setitem__(0, True))
     install_quit()
     g = Gradient(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
@@ -359,9 +378,11 @@ def cmd_gradient(a):
                     g.resize(cols, rows)
                     log.event("size", cols=cols, rows=rows, frame=k)
             late = pacer.wait(k)
+            drawn = time.monotonic()
             text = g.frame(k, shown_time(a, k, a.fps, run.t0))
             out.write(text)
-            log.event("frame", frame=k, late_ms=round(late * 1000, 3), bytes=len(text))
+            log.event("frame", frame=k, late_ms=round(late * 1000, 3), bytes=len(text),
+                      draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn)
             k += 1
     except Quit:
         pass
@@ -906,7 +927,7 @@ def cmd_top(a):
     log = Log(a.log)
     install_quit()
     top = Top(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
@@ -1233,6 +1254,12 @@ def positive(text):
     return value
 
 
+def pace_args(p):
+    p.add_argument("--pace", choices=PACE_MODES, default="sleep",
+                   help="how a frame wait ends: sleep, hybrid (sleep, then poll the last --spin-ms), spin")
+    p.add_argument("--spin-ms", type=float, default=2.0, help="hybrid: milliseconds polled before each frame")
+
+
 def common(p, duration=30.0, size=False):
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--duration", type=float, default=duration, help="seconds; 0 runs until a signal")
@@ -1249,6 +1276,7 @@ def build_parser():
     p = sub.add_parser("gradient", help="120 fps truecolor gradient, art, CJK, emoji, frame counter")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=120.0)
+    pace_args(p)
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
     p.set_defaults(fn=cmd_gradient)
@@ -1286,6 +1314,7 @@ def build_parser():
     p = sub.add_parser("top", help="htop look-alike (seeded, synthetic)")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=30.0)
+    pace_args(p)
     p.add_argument("--cores", type=int, default=10)
     p.set_defaults(fn=cmd_top)
     p = sub.add_parser("agent-stream", help="a coding agent's streamed answer in a terminal")
