@@ -155,7 +155,9 @@ public actor NativeDeviceEnrollment {
         guard let device = binding?.device ?? record?.device else { self.saved = nil; return }
         let bearer = try await sessionBearer(saved.context)
         let response = try await native.send(method: "DELETE", path: "/v1/devices/\(device)", body: nil, bearer: bearer, tenant: scope.tenant)
-        guard (200..<300).contains(response.status) || response.status == 404 else { throw NativeDeviceEnrollmentError.refused(response.status) }
+        guard (200..<300).contains(response.status) || response.status == 404 else {
+            throw NativeDeviceEnrollmentError.refused(response.status, step: "DELETE /v1/devices/{device}")
+        }
         if var record, record.device == device {
             let publicKey = try record.key.publicKey.rawRepresentation.base64EncodedString()
             if binding == nil || publicKey == binding?.wgPublicKey {
@@ -253,14 +255,16 @@ public actor NativeDeviceEnrollment {
     }
     private func owner<T: Decodable & Sendable, P: Encodable & Sendable>(_ op: String, _ params: P, key: String, context: NativeInstallContext) async throws -> T {
         let response = try await identity.nativeOwnerPost(JSONEncoder().encode(NativeOwnerCall(op: op, params: params, idempotency_key: key)), context: context)
-        guard response.status == 200, response.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(response.status) }
+        guard response.status == 200, response.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(response.status, step: op) }
         let decoded = try JSONDecoder().decode(NativeOwnerReply<T>.self, from: response.body)
         guard decoded.ok, let value = decoded.value else { throw NativeDeviceEnrollmentError.invalidIdentity }
         return value
     }
     private func readNative<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil, bearer: String? = nil) async throws -> T {
         let reply = try await native.send(method: method, path: path, body: body, bearer: bearer, tenant: bearer == nil ? nil : scope.tenant)
-        guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status) }
+        guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else {
+            throw NativeDeviceEnrollmentError.refused(reply.status, step: NativeDeviceScope.step(method, path))
+        }
         return try JSONDecoder().decode(T.self, from: reply.body)
     }
     private func hash(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
