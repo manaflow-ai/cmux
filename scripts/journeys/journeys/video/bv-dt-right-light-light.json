@@ -68,8 +68,14 @@
    "as": "open"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 2.2
+   "seconds": 1.8
   },
   {
    "do": "bv_state",
@@ -91,8 +97,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",
@@ -142,8 +154,14 @@
    "title": "open DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.6
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -165,8 +183,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",
@@ -216,8 +240,14 @@
    "title": "open DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.6
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -239,8 +269,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",
@@ -290,8 +326,14 @@
    "title": "open DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.6
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -313,8 +355,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",
@@ -364,8 +412,14 @@
    "title": "open DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.6
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -387,8 +441,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",
@@ -438,8 +498,14 @@
    "title": "open DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.6
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -461,8 +527,14 @@
    "title": "close DevTools: real Cmd-Opt-I"
   },
   {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 1.0
   },
   {
    "do": "bv_state",

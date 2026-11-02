@@ -16,6 +16,7 @@ Steps (`do`):
   bv_state       {page, as}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
                                             scheme, plus debug.cef's DevTools frames; kept in the recording's notes
   bv_action      {action, as?, args?}        action.run with origin user; its send time kept under `as`
+  bv_devtools    {page, open?: true, timeout?: 5}  waits for the DevTools state; a StepError when it does not come
   bv_agent       {action, as?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
                                             kept in the recording's notes under `as`
 """
@@ -149,5 +150,22 @@ def step_bv_action(j, step):
     return value
 
 
-STEPS = {"bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
+def step_bv_devtools(j, step):
+    """Waits (up to `timeout` s, default 5) until the page tab's DevTools is open (`open: true`) or closed, from debug.cef:
+    a round whose open or close did not happen must not go on (a missed open would turn the next toggle around)."""
+    tab = j.vars.get("bv_tab_" + step["page"]) or None
+    want = bool(step.get("open", True))
+
+    def match():
+        rows = (j.app.rpc("debug.cef") or {}).get("devtools") or []
+        row = next((r for r in rows if isinstance(r, dict) and (not tab or r.get("tab") == tab)), None)
+        return row if row is not None and bool(row.get("open")) == want else None
+    row = _wait(match, float(step.get("timeout", 5)), 0.05)
+    if row is None:
+        raise D.StepError("bv_devtools: DevTools of tab %s did not become %s: %s" % (
+            tab, "open" if want else "closed", json.dumps((j.app.rpc("debug.cef") or {}).get("devtools"))[:400]))
+    return row
+
+
+STEPS = {"bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
          "bv_agent": step_bv_agent}
