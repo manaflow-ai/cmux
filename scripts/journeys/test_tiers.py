@@ -8,10 +8,15 @@ On the M6 minis a main thread that wakes from idle starts on the Efficiency core
 sampler writes: [uptime_ns, cpu_ms per tier..., cycles per tier...], cumulative):
 - turn_tiers names the start tier, the wall ms to the first Super interval and the E CPU ms before it; a turn that
   starts on Super has 0 ms to Super; a time the sampler does not cover says so;
-- video_stop stops the sampler that video_start began and writes "tiers" (each key-down and HID action) in the
-  recording's meta.json; a sampler that failed to start leaves its error there and the film still completes;
+- start/stop protocol (stand-in samplers): the stop file ends the sampler; no first reading in time is an OSError and
+  the sampler is killed; a sampler that exits non-zero is an OSError at stop; a failed journey's sampler ends at the
+  next start;
+- video_start starts the sampler on the app's pid for the recording; a sampler that does not start never fails it;
+- video_stop writes "tiers" (each key-down and HID action) in the recording's meta.json; a sampler that failed to
+  start or fails at stop leaves its error there and the film still completes;
 - run.py fetches <case>/video/<name>.tiers.json; video-go.py publishes it;
-- tiers_report.py groups the turns of film folders and of diag-tiers folders by arm and start tier.
+- tiers_report.py groups the turns of film folders and of diag-tiers folders by arm and start tier; a key the
+  sampler does not cover is "uncovered", never "idle".
 """
 import io
 import json
@@ -78,8 +83,103 @@ class SamplerProcessTest(unittest.TestCase):
             self.assertFalse(os.path.exists(handle["stop"]))
 
 
+# Stand-in samplers (same argv as SAMPLER: pid seconds interval_ms out stop): the start/stop protocol on any OS.
+FAKE_SAMPLER = r"""
+import json, os, sys, time
+pid, seconds, interval, out, stop = sys.argv[1:6]
+print("ready", flush=True)
+end = time.monotonic() + float(seconds)
+while time.monotonic() < end and not os.path.exists(stop):
+    time.sleep(0.005)
+json.dump({"levels": ["Super"], "rows": [[1, 0.0, 0]], "ps": [], "stopped_by_file": os.path.exists(stop)}, open(out, "w"))
+"""
+SILENT_SAMPLER = "import time\ntime.sleep(30)\n"
+BROKEN_SAMPLER = "print('ready', flush=True)\nraise SystemExit(1)\n"
+
+
+class StartStopProtocolTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "x.tiers.json"
+
+    def tearDown(self):
+        ext_tiers.reap()
+        self.tmp.cleanup()
+
+    def test_stop_file_ends_the_sampler_and_returns_its_data(self):
+        handle = ext_tiers.start(1, self.path, seconds=20, sampler=FAKE_SAMPLER)
+        data = ext_tiers.stop(handle)
+        self.assertTrue(data["stopped_by_file"])
+        self.assertFalse(os.path.exists(handle["stop"]))
+        self.assertNotIn(handle, ext_tiers._LIVE)
+
+    def test_no_first_reading_is_an_oserror_and_kills_the_sampler(self):
+        with self.assertRaises(OSError) as raised:
+            ext_tiers.start(1, self.path, sampler=SILENT_SAMPLER, timeout=0.5)
+        self.assertIn("no first reading", str(raised.exception))
+        self.assertEqual(ext_tiers._LIVE, [])
+
+    def test_a_sampler_that_fails_is_an_oserror_at_stop(self):
+        handle = ext_tiers.start(1, self.path, sampler=BROKEN_SAMPLER)
+        with self.assertRaises(OSError):
+            ext_tiers.stop(handle)
+
+    def test_a_failed_journeys_sampler_ends_at_the_next_start(self):
+        stale = ext_tiers.start(1, self.path, seconds=20, sampler=FAKE_SAMPLER)
+        fresh = ext_tiers.start(1, Path(self.tmp.name) / "y.tiers.json", seconds=20, sampler=FAKE_SAMPLER)
+        self.assertIsNotNone(stale["proc"].poll())
+        self.assertEqual(ext_tiers._LIVE, [fresh])
+        ext_tiers.stop(fresh)
+
+
 class FakeProc:
     pass
+
+
+class VideoStartTiersTest(unittest.TestCase):
+    def setUp(self):
+        import ext_video
+        self.v = ext_video
+        self.v.install(fake_driver())
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name)
+        self.saved = (self.v._motion, self.v.R._journal_last_seq, self.v._bypass_dialog, self.v.T.start, self.v.time)
+        replies = {"trace_start": {"views": 2}, "record_start": {"starting": True}, "record_read": {"capturing": True},
+                   "trace_read": {"refresh_ms": 8.33}}
+        self.v._motion = lambda j, action, **p: replies.get(action, {})
+        self.v.R._journal_last_seq = lambda j: 0
+        self.v._bypass_dialog = lambda j: None
+        real = self.saved[4]
+        self.v.time = types.SimpleNamespace(sleep=lambda s: None, monotonic=real.monotonic, time=real.time)
+        self.started = []
+
+    def tearDown(self):
+        (self.v._motion, self.v.R._journal_last_seq, self.v._bypass_dialog, self.v.T.start, self.v.time) = self.saved
+        self.tmp.cleanup()
+
+    def journey(self):
+        return types.SimpleNamespace(out=self.out, app=types.SimpleNamespace(pid=4242), video=None)
+
+    def test_video_start_starts_the_sampler_on_the_app_for_the_recording(self):
+        def start(pid, path, seconds=120.0, interval_ms=1.0):
+            self.started.append((pid, str(path), seconds))
+            return {"proc": FakeProc()}
+        self.v.T.start = start
+        j = self.journey()
+        reply = self.v.step_video_start(j, {"name": "case", "seconds": 30})
+        self.assertEqual(self.started, [(4242, str(self.out / "video" / "case.tiers.json"), 90.0)])
+        self.assertEqual(reply["tiers"], "sampling")
+        self.assertIn("tiers", j.video)
+
+    def test_a_sampler_that_does_not_start_never_fails_video_start(self):
+        def start(pid, path, seconds=120.0, interval_ms=1.0):
+            raise OSError("tiers sampler gave no first reading on pid 4242 within 20.0 s")
+        self.v.T.start = start
+        j = self.journey()
+        reply = self.v.step_video_start(j, {"name": "case"})
+        self.assertIn("no first reading", reply["tiers"])
+        self.assertIn("no first reading", j.video["tiers_error"])
+        self.assertNotIn("tiers", j.video)
 
 
 def fake_driver():
@@ -199,6 +299,25 @@ class ReportTest(unittest.TestCase):
             self.assertLess(by_case["case-r02-diag"]["first_motion_ms"], by_case["case-r01-film"]["first_motion_ms"])
             self.assertIn("film/Efficiency", report["groups"])
             self.assertIn("diag/Super", report["groups"])
+
+    def test_a_key_the_sampler_does_not_cover_is_uncovered_not_idle(self):
+        key_ns = T0 + 20_000_000
+        journal = [{"uptimeNanos": key_ns, "kind": {"key": {"_0": {"phase": "down", "keyClass": "letter"}}}}]
+        with tempfile.TemporaryDirectory() as tmp:
+            diag = Path(tmp) / "late-sampler"
+            diag.mkdir()
+            trace = trace_with_motion(key_ns / 1e9, 14, 5)
+            trace["journal"] = journal
+            (diag / "diag-closetrace.json").write_text(json.dumps(trace))
+            (diag / "diag-tiers.json").write_text(json.dumps(rows("." * 600, start=T0 + 40_000_000)))
+            out = Path(tmp) / "report.json"
+            done = subprocess.run([sys.executable, str(HERE / "tiers_report.py"), str(diag), "--json", str(out)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            groups = json.loads(out.read_text())["groups"]
+            self.assertIn("all/uncovered", groups)
+            self.assertNotIn("all/idle", groups)
+            self.assertIn("does not cover", done.stdout)
 
 
 if __name__ == "__main__":

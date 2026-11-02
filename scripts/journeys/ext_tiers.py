@@ -24,12 +24,18 @@ Sampler file: {"levels": ["Super", "Performance", "Efficiency"], "rows": [[uptim
 "ps": the 15 busiest processes at the start}. Rows are cumulative; times are CLOCK_UPTIME_RAW (mach_absolute_time:
 the clock of time.monotonic() on macOS, of the app's input journal uptimeNanos and of its frame trace).
 """
+import atexit
 import json
 import os
+import select
 import subprocess
 import time
 
 D = None
+# Samplers started and not stopped yet. A journey that fails between video_start and video_stop leaves its sampler
+# running (bounded by its `seconds`); the next start() and the driver's exit end it, so two never sample at once.
+_LIVE = []
+START_TIMEOUT = 20.0  # s for the sampler's first reading (its sysctl and ps calls have 5 s each)
 
 SAMPLER = r'''
 import ctypes, json, os, subprocess, sys, time
@@ -38,10 +44,13 @@ lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
 libc = ctypes.CDLL(None)
 class TB(ctypes.Structure): _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 tb = TB(); libc.mach_timebase_info(ctypes.byref(tb)); tick = tb.numer / tb.denom
-sysctl = lambda k: subprocess.run(["/usr/sbin/sysctl", "-n", k], capture_output=True, text=True).stdout.strip()
+sysctl = lambda k: subprocess.run(["/usr/sbin/sysctl", "-n", k], capture_output=True, text=True, timeout=5).stdout.strip()
 n = int(sysctl("hw.nperflevels") or 1)
 levels = [sysctl(f"hw.perflevel{i}.name") for i in range(n)]
-ps = subprocess.run(["/bin/ps", "-A", "-r", "-o", "pid=,pcpu=,pri=,nice=,comm="], capture_output=True, text=True).stdout
+try:
+    ps = subprocess.run(["/bin/ps", "-A", "-r", "-o", "pid=,pcpu=,pri=,nice=,comm="], capture_output=True, text=True, timeout=5).stdout
+except subprocess.TimeoutExpired:
+    ps = "(ps did not answer in 5 s)"
 ps = [l.strip() for l in ps.splitlines()[:15]]
 ids = (ctypes.c_uint64 * 4096)()
 got = lib.proc_pidinfo(pid, 28, 0, ids, ctypes.sizeof(ids))  # PROC_PIDLISTTHREADIDS
@@ -78,25 +87,49 @@ def install(driver):
     D = driver
 
 
-def start(pid, path, seconds=120.0, interval_ms=1.0):
-    """Starts the sampler on PID's main thread; returns its handle once the first reading is in (OSError if not)."""
+def reap():
+    """Ends every sampler that was started and not stopped (a failed journey's); their files are not written."""
+    while _LIVE:
+        proc = _LIVE.pop()["proc"]
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+atexit.register(reap)
+
+
+def start(pid, path, seconds=120.0, interval_ms=1.0, sampler=None, timeout=None):
+    """Starts the sampler on PID's main thread; returns its handle once the first reading is in (OSError if not, also
+    after START_TIMEOUT s). SAMPLER replaces the sampler's code (tests)."""
+    reap()
     path = str(path)
     stop_path = path + ".stop"
     for p in (path, stop_path):
         if os.path.exists(p):
             os.unlink(p)
-    proc = subprocess.Popen(["/usr/bin/python3", "-I", "-c", SAMPLER, str(pid), str(float(seconds)), str(float(interval_ms)),
+    python = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else "python3"
+    proc = subprocess.Popen([python, "-I", "-c", sampler or SAMPLER, str(pid), str(float(seconds)), str(float(interval_ms)),
                              path, stop_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    line = proc.stdout.readline()
+    ready, _, _ = select.select([proc.stdout], [], [], START_TIMEOUT if timeout is None else timeout)
+    line = proc.stdout.readline() if ready else ""
+    if not ready:
+        proc.kill()
+        proc.wait()
+        raise OSError(f"tiers sampler gave no first reading on pid {pid} within {START_TIMEOUT if timeout is None else timeout} s")
     if not line.startswith("ready"):
         proc.kill()
         proc.wait()
         raise OSError(f"tiers sampler did not start on pid {pid}: {(line + (proc.stdout.read() or ''))[-300:]}")
-    return {"proc": proc, "path": path, "stop": stop_path, "seconds": float(seconds)}
+    handle = {"proc": proc, "path": path, "stop": stop_path, "seconds": float(seconds)}
+    _LIVE.append(handle)
+    return handle
 
 
 def stop(handle, timeout=30.0):
     """Stops the sampler; returns its data (dict). OSError when it wrote nothing."""
+    if handle in _LIVE:
+        _LIVE.remove(handle)
     with open(handle["stop"], "w"):
         pass
     try:

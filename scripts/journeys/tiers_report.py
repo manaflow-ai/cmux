@@ -14,7 +14,8 @@ Per key-down in the app's input journal:
   start tier, ms to Super and E/P CPU ms before Super: ext_tiers.turn_tiers (the first 100 ms after the key);
   key turn CPU ms per tier: from the key to the first motion tick.
 Then per arm (the last dash-separated part of the case folder name, e.g. xtp / noxtp; one arm when names do not
-differ) and per start tier: p50 / p95 / max of key to first motion and of the refreshes lost.
+differ) and per start tier: p50 / p95 / max of key to first motion and of the refreshes lost. A key the sampler does
+not cover is in "uncovered", never in "idle" (idle: covered, and no main-thread CPU in the 100 ms after the key).
 """
 import argparse
 import glob
@@ -113,6 +114,12 @@ def main():
                 where = f"{name}{'/' + label if label else ''}"
                 if "error" in t:
                     print(f"{where} key {t['key_s']}: {t['error']}")
+                    continue
+                if t.get("tier_error"):
+                    # Not idle: the sampler did not run then (e.g. a journal from before tiers_start).
+                    print(f"{where} key {t['key_s']}: {t['tier_error']}; first motion +{t['first_motion_ms']} ms (not grouped by tier)")
+                    groups[(arm_of(name), "all")].append(t)
+                    groups[(arm_of(name), "uncovered")].append(t)
                     continue
                 print(f"{where} key {t['key_s']}: start {t['start_tier']}, Super after {t['ms_to_super']} ms "
                       f"({t['e_cpu_ms_before_super']} CPU ms before it); first motion +{t['first_motion_ms']} ms, "
