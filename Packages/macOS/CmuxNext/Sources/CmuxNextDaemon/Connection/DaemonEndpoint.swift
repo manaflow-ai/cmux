@@ -277,6 +277,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// stream, and the store applies nothing for the event, so every hidden busy terminal woke the event pump and
     /// asked for a main-thread frame about 15 times a second (SWITCH FRAMES SF-5).
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
+    /// once when it shows again (SWITCH FRAMES SF-5).
+    case attachVisibility = "attach-visibility-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -541,7 +544,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .subscribeScrollOnAttach,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .subscribeScrollOnAttach, .attachVisibility,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
