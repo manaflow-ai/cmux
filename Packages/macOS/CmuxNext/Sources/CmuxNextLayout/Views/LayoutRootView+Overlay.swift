@@ -93,7 +93,8 @@ extension LayoutRootView {
                 overlayHostsPlaced += 1
             }
         }
-        for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
+        // A retired host's ring is hidden with it and goes with its teardown, not in a close's first frame.
+        for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
             view.removeFromSuperview()
         }
         panesMovedInLastOverlaySync = moved
