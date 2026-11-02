@@ -9,17 +9,22 @@ extension AgentPaneView {
     /// handshake instead.
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
+        model.newTabPrepared = false
         show(page)
     }
 
     /// A parked spare takes `page`, the context a Cmd-T would give it, before the key (NewTabSparePool), unless it
-    /// already draws that screen; an untouched New Tab page only. Its adoption then changes no screen.
-    /// Returns whether the page took it. The handshake's folder stays the load's (none for a spare): the page's
-    /// folder is `page.cwd`.
+    /// already draws that screen: its adoption then changes no screen. Only an untouched New Tab page that finished
+    /// its handshake and first paint (an adopt event before React listens is lost); its handshake folder stays the
+    /// load's (``AgentPaneModel/newTabPrepared``), and its old remembered frame goes. Returns whether it took it.
     @discardableResult
     public func prepareNewTab(_ page: AgentPaneNewTab) -> Bool {
-        guard model.newTab != nil, !model.userTouched, model.newTab?.drawsSameScreen(as: page) != true else { return false }
-        adoptNewTab(page)
+        guard model.hasHandshake, model.hasPainted, model.newTab != nil, !model.userTouched,
+              model.newTab?.drawsSameScreen(as: page) != true else { return false }
+        model.adoptNewTab(page)
+        model.newTabPrepared = true
+        redraw.forgetRememberedFrame()
+        show(page)
         return true
     }
 

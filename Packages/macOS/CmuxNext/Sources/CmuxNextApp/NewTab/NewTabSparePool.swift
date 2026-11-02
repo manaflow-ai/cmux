@@ -201,8 +201,7 @@ final class NewTabSparePool {
     /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
     private var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
     private var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
-    /// The parked spare draws the context a Cmd-T in the target window gives (NewTabPage.open), so the adoption changes
-    /// no screen (SHORTCUT FRAMES F2); `preparedFor` is the focused pane and tab it was made for.
+    /// The context a Cmd-T in the target window gives (NewTabPage.open): the parked spare draws it (SHORTCUT FRAMES F2).
     private var preparedPage: AgentPaneNewTab {
         guard let pane = targetPane, pane.daemon.isLocal else { return NewTabPage.sparePage(services) }
         return NewTabPage.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
@@ -210,12 +209,13 @@ final class NewTabSparePool {
     private var preparedFor: [AnyHashable]?
     private var targetIdentity: [AnyHashable]? { targetPane.map { [ObjectIdentifier($0), $0.selectedTab?.id] } }
     private let prepareTimer = DemandTimer(owner: "NewTabSparePool.prepare")
-    private func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
     /// After the settle, never in an input's turn (a key window change, Cmd-T's refill).
+    private func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
     private func prepareParked() {
-        guard let view = slot.peek, view.superview === parking else { return }
-        preparedFor = targetIdentity
-        if BenchSpans.measure("pool.prepare", { view.prepareNewTab(preparedPage) }) { snapshotParked() }
+        guard let view = slot.peek, view.superview === parking, view.model.hasHandshake, view.model.hasPainted
+        else { return slot.peek?.model.whenPainted { [weak self] in self?.schedulePrepare() } ?? () }
+        preparedFor = targetIdentity  // the cover: once the page drew the prepared screen
+        if BenchSpans.measure("pool.prepare", { view.prepareNewTab(preparedPage) }) { view.redraw.afterNextFrame { [weak self] in self?.snapshotParked() } }
     }
 
     /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
