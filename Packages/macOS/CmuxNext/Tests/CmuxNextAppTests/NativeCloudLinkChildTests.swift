@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextCloud
 
-@Suite struct NativeCloudLinkChildTests {
+@Suite(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui")) struct NativeCloudLinkChildTests {
     private actor Calls {
         var count = 0
         func answer(_ bytes: Data) throws -> Data {

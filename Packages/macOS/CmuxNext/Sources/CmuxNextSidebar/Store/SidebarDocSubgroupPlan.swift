@@ -7,7 +7,7 @@ import Foundation
 /// says why, rather than sending an op the daemon refuses with `nesting`.
 ///
 /// ```swift
-/// let plan = SidebarDocSubgroupPlan(parent: group, id: .make(), name: "", color: .green, records: store.records)
+/// let plan = SidebarDocSubgroupPlan(parent: group, id: .make(), name: "", color: .palette(.green), records: store.records)
 /// if let ops = plan.ops { store.send(ops: ops, title: title) }
 /// ```
 public nonisolated struct SidebarDocSubgroupPlan {
@@ -32,9 +32,9 @@ public nonisolated struct SidebarDocSubgroupPlan {
     ///   - parent: the group the new group goes in.
     ///   - id: the new group's id.
     ///   - name: its name; empty takes ``SidebarGroup/named(_:)``'s default.
-    ///   - color: its palette color.
+    ///   - color: its color; `.none` unless a person picked one.
     ///   - records: the document as the mirror holds it.
-    public init(parent: GroupID, id: GroupID, name: String, color: GroupColor, records: SidebarDocRecords) {
+    public init(parent: GroupID, id: GroupID, name: String, color: GroupTint, records: SidebarDocRecords) {
         // A personal group's id names its document item (`itm_g_<id>`, #22996).
         guard let parentItem = records.groupItem(personal: parent.rawValue), let group = records.items[parentItem] else {
             (ops, refusal) = (nil, .unknownGroup)
@@ -52,7 +52,7 @@ public nonisolated struct SidebarDocSubgroupPlan {
             return
         }
         let op: [String: Any] = [
-            "op": "group.create", "id": id.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,
+            "op": "group.create", "id": id.rawValue, "name": SidebarGroup.named(name), "color": color.wire,
             "items": [String](), "to": ["section": group.section, "parent": group.id],
         ]
         (ops, refusal) = ([op], nil)
