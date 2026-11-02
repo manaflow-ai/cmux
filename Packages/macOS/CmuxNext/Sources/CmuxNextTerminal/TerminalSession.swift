@@ -525,8 +525,8 @@ public final class TerminalSession {
             view.showStatus(status)
             // A disconnected or exited view no longer knows who sets the grid.
             if status != .connected { view.showSizedFor(nil) }
-        case .sizedFor(let sizedFor):
-            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
+        case .sizedFor(let sizedFor): view.showSizedFor(model.connection == .connected ? sizedFor : nil)
+        case .caughtUp: break
         }
     }
 

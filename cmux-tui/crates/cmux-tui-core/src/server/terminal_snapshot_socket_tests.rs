@@ -1409,3 +1409,91 @@ fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() 
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+/// SWITCH FRAMES SF-5, pre-show (lead decision on #32446): a switch to a hidden terminal must show the newest
+/// content in its first shown frame. The app cannot know when the bytes batched while it was hidden have all reached
+/// it, so a viewer shown again gets `shown` on its stream once every byte the terminal printed before the show is on
+/// it (the app keeps the last frame until then). A viewer that was never hidden gets none.
+#[test]
+fn a_viewer_shown_again_gets_shown_after_every_byte_printed_while_hidden() {
+    let mux = Mux::new_for_test("snapshot-shown-marker", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("snapshot");
+    assert_eq!(first["event"], "snapshot", "{first}");
+    while next_event(&outbound, Duration::from_millis(300)).is_some() {}
+    let set_visible = |visible: bool| {
+        handle_command(
+            &mux,
+            client,
+            command(
+                json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": visible}),
+            ),
+            &writer,
+        )
+        .unwrap()
+    };
+
+    // Shown while it shows already: nothing to catch up, no marker.
+    assert_eq!(set_visible(true)["viewers"], 1);
+    while let Some(event) = next_event(&outbound, Duration::from_millis(200)) {
+        assert_ne!(event["event"], "shown", "a viewer that never hid got `shown`: {event}");
+    }
+
+    assert_eq!(set_visible(false)["viewers"], 1);
+    for line in 0..5 {
+        surface.inject_output_for_test(format!("hidden line {line}\r\n").as_bytes());
+    }
+    let printed = surface_offset(&mux, surface.id);
+    assert_eq!(set_visible(true)["viewers"], 1);
+    let mut events = Vec::new();
+    let by = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < by {
+        let Some(event) = next_event(&outbound, Duration::from_millis(5)) else { continue };
+        let shown = event["event"] == "shown";
+        events.push(event);
+        if shown {
+            break;
+        }
+    }
+    let marker = events.last().filter(|event| event["event"] == "shown");
+    let marker =
+        marker.unwrap_or_else(|| panic!("no `shown` within 500 ms of the show: {events:?}"));
+    assert_eq!(marker["surface"], surface.id, "{marker}");
+    assert_eq!(
+        marker["offset"].as_u64(),
+        Some(printed),
+        "`shown` is not at the end of the hidden output: {marker}"
+    );
+    let delivered: u64 =
+        events.iter().filter(|event| event["event"] == "output").map(decoded_len).sum();
+    assert!(delivered > 0, "the hidden output did not come before `shown`: {events:?}");
+
+    // One marker per show: hiding and showing again with nothing printed gets one more, at once.
+    assert_eq!(set_visible(false)["viewers"], 1);
+    assert_eq!(set_visible(true)["viewers"], 1);
+    let by = Instant::now() + Duration::from_millis(500);
+    let again = std::iter::from_fn(|| {
+        (Instant::now() < by).then(|| next_event(&outbound, Duration::from_millis(5)))
+    })
+    .flatten()
+    .find(|event| event["event"] == "shown" || event["event"] == "output")
+    .expect("a second show got no `shown`");
+    assert_eq!(again["event"], "shown", "output with nothing printed: {again}");
+    assert_eq!(again["offset"].as_u64(), Some(printed), "{again}");
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}

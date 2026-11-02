@@ -124,6 +124,9 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     /// Another view sets the terminal's grid and it does not fit this one: the view says for whom
     /// and offers Take over. Nil clears it.
     case sizedFor(TerminalSizedFor?)
+    /// Shown again after the owner held its output while hidden (``TerminalIO/catchesUpWhenShown``): every byte
+    /// the terminal printed before the show came before this (the daemon's `shown`, `attach-visibility-shown-v1`).
+    case caughtUp
 }
 
 /// "Sized for <device> · cols×rows" over a terminal whose grid another view sets
