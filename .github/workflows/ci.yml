@@ -67,7 +67,13 @@ jobs:
     # since main's required ci-status must not be superseded by a skip.
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # The run's router: a declared light job (.github/runners.json hosted_light_jobs) that runs
+    # before any job could pick a fleet runner for it. Attempt 1 takes GitHub-hosted Ubuntu, which
+    # is ephemeral like Blacksmith (this job mints GLAEDA_ROUTE_APP_KEY tokens); a re-run takes
+    # Blacksmith 8 vCPU (16 while the overflow switch is on). It used LINUX_RUNNER first, and on 2026-11-02 run 41385632466 job
+    # 125086959342 sat unassigned on blacksmith-4vcpu-ubuntu-2404 behind 721 queued jobs while
+    # every check of the pull request waited behind it. Measured: 11 s of work, 5 min timeout.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included

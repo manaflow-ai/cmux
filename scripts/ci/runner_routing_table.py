@@ -442,6 +442,19 @@ def referenced_secrets(value: Any) -> set[str]:
     return names
 
 
+def _routing_environment(environment: object) -> bool:
+    """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
+    if environment in (None, "", "ci-routing-agent"):
+        return True
+    if not isinstance(environment, str):
+        return False
+    expressions = EXPRESSION.findall(environment)
+    if len(expressions) != 1 or EXPRESSION.sub("", environment).strip():
+        return False
+    values = value_terms(expressions[0].strip())
+    return bool(values) and all(value in ("'ci-routing-agent'", "''") for value in values)
+
+
 def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> tuple[list[str], list[str]]:
     """Validate the central light-job exception and emit exact shell-guard lines.
 
@@ -456,7 +469,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
     problems, allowed, seen = [], [], set()
     fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
     hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-    paid = {"'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"}
+    paid = {"'blacksmith-8vcpu-ubuntu-2404'", "'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"}
     sensitive = re.compile(r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload|softprops/action-gh-release", re.I)
     for path in sorted(workflows.glob("*.y*ml")):
         source = path.read_text()
@@ -472,7 +485,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 issue = "must declare a portable class and a reason"
             elif not isinstance(job, dict) or "uses" in job:
                 issue = "must name a runnable lightweight job"
-            elif (job.get("environment") not in (None, "ci-routing-agent")
+            elif (not _routing_environment(job.get("environment"))
                   or sensitive.search(json.dumps([workflow.get("env", {}), job]))):
                 issue = "cannot authorize release/signing credentials or operations"
             elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "published-in"}:
@@ -528,7 +541,10 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
-            if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
+            # The overflow switch's failover (tests/test_ci_blacksmith_linux_failover.py) may precede the retry size.
+            switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
+                        and tail[0].split(" && ", 1)[1] in paid)
+            if not (len(tail) == 1 and tail[0] in paid or switched or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
             if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
