@@ -131,6 +131,8 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   /// The prompts acpmux received, in order, and the asks it heard answered.
   const prompts: { sessionId: string; text: string }[] = [];
   const answers: Record<string, unknown>[] = [];
+  /// Each chat's draft as acpmux keeps it (`_acpmux/draft_get`/`draft_set`).
+  const drafts = new Map<string, string>();
   /// The waiters (`until`), checked each time the stand-in records a prompt or an answer.
   const recorded = new Set<() => void>();
   const heard = () => {
@@ -169,6 +171,12 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
         heard();
         return { stopReason: "end_turn" };
       }
+      case "_acpmux/draft_get":
+        return { draft: drafts.get(id) ?? "" };
+      case "_acpmux/draft_set":
+        drafts.set(id, String(params.text ?? ""));
+        heard();
+        return {};
       case "_acpmux/permission_respond":
         answers.push(params);
         heard();
@@ -332,9 +340,16 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await trustAsk(page).waitFor({ timeout: 10_000 });
     await send(page, "kept when the tab closes");
     await heldRow(page, "kept when the tab closes").waitFor({ timeout: 10_000 });
+    // Meanwhile the chat's draft is saved from another client (the CLI): this page never had it.
+    drafts.set(CLOSED, "saved from the CLI");
     // The tab closes: the web page hides before anything unmounts (AgentPaneView.close).
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     const context = page.context();
+    // acpmux keeps both: the held prompt, then the draft saved elsewhere, which is never replaced.
+    await until(
+      () => drafts.get(CLOSED) === "kept when the tab closes\n\nsaved from the CLI",
+      "the held prompt beside the saved draft",
+    );
     await page.close();
     // The chat opened again (same storage) has the prompt in its composer, and acpmux got none.
     const reopened = await context.newPage();
