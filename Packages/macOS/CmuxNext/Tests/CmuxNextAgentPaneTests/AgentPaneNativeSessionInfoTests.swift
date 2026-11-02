@@ -22,6 +22,15 @@ struct AgentPaneNativeSessionInfoTests {
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
     }
 
+    @Test func nativeSessionInfoShipsOnByDefault() {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([AgentPaneTunables.nativeSessionInfo.descriptor])
+        TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil)
+        defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
+        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(true))
+        #expect(AgentPaneTunables.nativeSessionInfo.value)
+    }
+
     private static func info(open: Bool = true, width: Double = 320, top: Double = 28, side: Double = 0,
                              foot: Double? = nil) -> [String: Any] {
         var info: [String: Any] = [
