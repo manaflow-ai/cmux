@@ -8,50 +8,37 @@ import CmuxNextDesign
 /// never for output that only follows the bottom, and fading out after (Lawrence 2026-10-23, msg
 /// 11494). While it is shown the pointer near it widens it and it can be dragged; at rest it takes
 /// no clicks and the pointer does not reveal it, so the last column stays the terminal's. The style
-/// is pinned: AppKit resets a scroll view to the system's style when the setting changes, which
-/// here would briefly reserve a legacy strip and take clicks.
+/// is pinned to ``SystemScrollers/nativeStyle``, also after the setting changes, so it never
+/// reserves a legacy strip.
 ///
-/// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
-/// knob tracks the scrollback as any scroll view's does.
+/// It is a plain view that holds the knob, not a scroll view: a scroll view tiles its clip view and
+/// lays out its scroll-edge pockets on every frame change, which in a split's first frame was the new
+/// pane's largest layout item (RESIZE VIDEOS F1). The knob's length and place come from the bar
+/// (``TerminalScrollerGeometry``); a knob drag scrolls the terminal to the row it points at.
 @MainActor
-final class TerminalScroller: NSScrollView {
-    private let document = TerminalScrollerDocument()
-    private var applying = false
+final class TerminalScroller: NSView {
+    let thin = ThinScroller()
     private var shown: TerminalScrollbar?
-    /// The user dragged the legacy scroller: show this row at the top.
+    /// The user dragged the knob: show this row at the top.
     var onScrollToRow: ((UInt64) -> Void)?
-    /// A wheel event over the legacy scroller belongs to the terminal.
+    /// A wheel event over the knob belongs to the terminal.
     var onWheel: ((NSEvent) -> Void)?
     /// The style changed; the host lays out again (``reservedWidth``).
     var onStyleChange: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
-        drawsBackground = false
-        borderType = .noBorder
-        hasVerticalScroller = true
-        hasHorizontalScroller = false
-        verticalScrollElasticity = .none
-        horizontalScrollElasticity = .none
-        automaticallyAdjustsContentInsets = false
-        contentView.drawsBackground = false
-        contentView.postsBoundsChangedNotifications = true
-        documentView = document
-        let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
         thin.revealsNearPointerAtRest = false // the last column is the terminal's
-        verticalScroller = thin
-        apply(SystemScrollers.nativeStyle)
-        // AppKit resets a scroll view's style when the setting changes.
+        thin.scrollerStyle = SystemScrollers.nativeStyle
+        thin.autoresizingMask = [.width, .height]
+        thin.target = self
+        thin.action = #selector(knobMoved)
+        addSubview(thin)
+        update(nil)
         SystemScrollers.observe(self) { [weak self] _ in
-            self?.apply(SystemScrollers.nativeStyle)
+            self?.thin.scrollerStyle = SystemScrollers.nativeStyle
             self?.onStyleChange?()
-        }
-        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
-        clipObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
         }
     }
 
@@ -60,30 +47,8 @@ final class TerminalScroller: NSScrollView {
         fatalError("init(coder:) is not supported")
     }
 
-    private var clipObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
-        }
-    }
-
-    /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
-    override var scrollerStyle: NSScroller.Style {
-        get { super.scrollerStyle }
-        set { super.scrollerStyle = SystemScrollers.nativeStyle }
-    }
-
-    private func apply(_ style: NSScroller.Style) {
-        scrollerStyle = style
-        // Both styles hide the scroller while everything fits (the document equals the viewport).
-        autohidesScrollers = true
-    }
-
     /// The width the host keeps free for the scroller: the legacy scroller's, else none.
-    var reservedWidth: CGFloat { Self.reservedWidth(for: scrollerStyle) }
+    var reservedWidth: CGFloat { Self.reservedWidth(for: thin.scrollerStyle) }
 
     /// The strip a scroller of `style` takes beside the surface: a legacy one's width, none for an overlay one.
     static func reservedWidth(for style: NSScroller.Style) -> CGFloat {
@@ -100,45 +65,29 @@ final class TerminalScroller: NSScrollView {
     func update(_ bar: TerminalScrollbar?) {
         let previous = shown
         shown = bar
-        layoutDocument()
-        if scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: bar) {
-            (verticalScroller as? ThinScroller)?.flash()
+        let geometry = TerminalScrollerGeometry(bar: bar)
+        thin.isHidden = !geometry.scrolls
+        thin.isEnabled = geometry.scrolls
+        if thin.knobProportion != geometry.knobProportion { thin.knobProportion = geometry.knobProportion }
+        if thin.doubleValue != geometry.value { thin.doubleValue = geometry.value }
+        if thin.scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: bar) {
+            thin.flash()
         }
     }
 
-    override func layout() {
-        super.layout()
-        layoutDocument()
-    }
-
-    private func layoutDocument() {
-        let viewport = contentView.bounds.height
-        guard viewport > 0 else { return }
-        let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: viewport)
-        applying = true
-        defer { applying = false }
-        let frame = CGRect(x: 0, y: 0, width: contentView.bounds.width, height: geometry.documentHeight)
-        if document.frame != frame { document.frame = frame }
-        if contentView.bounds.origin.y != geometry.originY {
-            contentView.scroll(to: CGPoint(x: 0, y: geometry.originY))
-            reflectScrolledClipView(contentView)
-        }
-    }
-
-    private func clipMoved() {
-        guard !applying, let shown else { return }
-        let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
-        let row = geometry.row(forOriginY: contentView.bounds.origin.y)
+    @objc private func knobMoved() {
+        guard let shown else { return }
+        let row = TerminalScrollerGeometry(bar: shown).row(forValue: thin.doubleValue)
         guard row != shown.offsetRows else { return }
         onScrollToRow?(row)
     }
 
-    /// Only the scroller itself: the shown knob (``ThinScroller`` takes clicks on its knob alone),
-    /// never the empty document, so everything else stays the terminal's.
+    /// Only the shown knob (``ThinScroller`` takes clicks on its knob alone), so everything else
+    /// stays the terminal's.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let scroller = verticalScroller, !scroller.isHidden else { return nil }
+        guard !thin.isHidden else { return nil }
         let hit = super.hitTest(point)
-        return hit === scroller ? hit : nil
+        return hit === thin ? hit : nil
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -146,41 +95,36 @@ final class TerminalScroller: NSScrollView {
     }
 }
 
-/// The scroller's empty document (top-left origin, like the terminal's rows).
-private final class TerminalScrollerDocument: NSView {
-    nonisolated override var isFlipped: Bool { true }
-}
-
-/// How Ghostty's scrollbar maps onto the scroller's document (pure, tested).
+/// How Ghostty's scrollbar maps onto the knob (pure, tested): its length is the visible rows'
+/// share of all rows, its place the offset's share of the rows above the last screen.
 struct TerminalScrollerGeometry: Equatable {
-    var documentHeight: CGFloat
-    var originY: CGFloat
+    var knobProportion: CGFloat
+    var value: Double
     private var total: UInt64
     private var visible: UInt64
 
-    /// The document is the viewport scaled by total / visible rows; its origin is the offset's share.
-    init(bar: TerminalScrollbar?, viewportHeight: CGFloat) {
+    /// There is a scrollback to move through.
+    var scrolls: Bool { visible > 0 && total > visible }
+
+    init(bar: TerminalScrollbar?) {
+        total = bar?.totalRows ?? 0
+        visible = bar?.visibleRows ?? 0
         guard let bar, bar.visibleRows > 0, bar.totalRows > bar.visibleRows else {
-            documentHeight = viewportHeight
-            originY = 0
-            total = bar?.totalRows ?? 0
-            visible = bar?.visibleRows ?? 0
+            knobProportion = 1
+            value = 0
             return
         }
-        total = bar.totalRows
-        visible = bar.visibleRows
-        let rowHeight = viewportHeight / CGFloat(bar.visibleRows)
-        documentHeight = rowHeight * CGFloat(bar.totalRows)
         let maxOffset = bar.totalRows - bar.visibleRows
-        originY = rowHeight * CGFloat(min(bar.offsetRows, maxOffset))
+        knobProportion = CGFloat(bar.visibleRows) / CGFloat(bar.totalRows)
+        value = Double(min(bar.offsetRows, maxOffset)) / Double(maxOffset)
     }
 
-    /// The top row for a clip origin (a scroller drag), clamped to the scrollback.
-    func row(forOriginY y: CGFloat) -> UInt64 {
-        guard total > visible, documentHeight > 0 else { return 0 }
-        let rowHeight = documentHeight / CGFloat(total)
-        let row = (max(0, y) / rowHeight).rounded()
-        return min(UInt64(row), total - visible)
+    /// The top row for a knob value (a knob drag), clamped to the scrollback.
+    func row(forValue value: Double) -> UInt64 {
+        guard scrolls else { return 0 }
+        let maxOffset = total - visible
+        let row = (min(1, max(0, value)) * Double(maxOffset)).rounded()
+        return min(UInt64(row), maxOffset)
     }
 
     /// Whether the viewport moved through the scrollback (a reason to show an overlay scroller):
