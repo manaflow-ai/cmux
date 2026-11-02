@@ -37,15 +37,16 @@ public final class VerticalTabsActions {
             host.focusedVerticalTabsPane.flatMap { isVertical($0) ? VerticalTabsStrings.turnOff : nil }
         }
 
-        registry.bind(allWorkspaces, run: { _ in
+        registry.bindEffect(allWorkspaces) { _ in
             let path = VerticalTabsSetting.configPath
-            try host.requireUnmanagedVerticalTabsSetting(path)
+            if let refusal = host.verticalTabsSettingRefusal(path) { return .refused(refusal) }
             let on = !host.design.verticalTabs
             // Every workspace shows the new choice, its own choice included (``WorkspaceVerticalTabs/clearChoices()``).
             store.clearChoices()
             host.design.verticalTabs = on
             host.writeVerticalTabsSetting("vertical tabs setting", path, on == VerticalTabsSetting.fallback ? nil : .bool(on))
-        })
+            return .done
+        }
         ActionTargetTitles.setState(allWorkspaces, in: registry) { _ in host.design.verticalTabs }
         ActionTargetTitles.setPaletteState(allWorkspaces, in: registry) { host.design.verticalTabs }
 
@@ -53,13 +54,14 @@ public final class VerticalTabsActions {
         ActionTargetTitles.set(collapse, in: registry) { _ in store.isCollapsed ? VerticalTabsStrings.expand : nil }
         ActionTargetTitles.setPaletteTitle(collapse, in: registry) { store.isCollapsed ? VerticalTabsStrings.expand : nil }
 
-        registry.bind(expandOnHover, run: { _ in
+        registry.bindEffect(expandOnHover) { _ in
             let path = VerticalTabsSetting.expandOnHoverPath
-            try host.requireUnmanagedVerticalTabsSetting(path)
+            if let refusal = host.verticalTabsSettingRefusal(path) { return .refused(refusal) }
             let on = !host.design.verticalTabsExpandOnHover
             host.design.verticalTabsExpandOnHover = on
             host.writeVerticalTabsSetting("vertical tabs expand on hover setting", path, on == VerticalTabsSetting.expandOnHoverFallback ? nil : .bool(on))
-        })
+            return .done
+        }
         ActionTargetTitles.setState(expandOnHover, in: registry) { _ in host.design.verticalTabsExpandOnHover }
         ActionTargetTitles.setPaletteState(expandOnHover, in: registry) { host.design.verticalTabsExpandOnHover }
 

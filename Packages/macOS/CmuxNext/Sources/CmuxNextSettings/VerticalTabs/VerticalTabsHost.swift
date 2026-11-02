@@ -24,8 +24,8 @@ public protocol VerticalTabsHost {
     func verticalTabsPane(_ invocation: ActionInvocation) -> VerticalTabsPane?
     /// The active window's focused pane, which the palette's rows name.
     var focusedVerticalTabsPane: VerticalTabsPane? { get }
-    /// Throws when a managed value holds the setting at `path`.
-    func requireUnmanagedVerticalTabsSetting(_ path: [String]) throws
+    /// Why the setting at `path` cannot change here (a managed value holds it), else nil.
+    func verticalTabsSettingRefusal(_ path: [String]) -> String?
     /// Writes `value` at `path` (nil removes it) through the validated settings path; a failed write
     /// reloads the settings. `label` names the setting in the log.
     func writeVerticalTabsSetting(_ label: String, _ path: [String], _ value: JSONValue?)
