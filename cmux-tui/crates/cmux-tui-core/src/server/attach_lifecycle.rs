@@ -67,11 +67,12 @@ pub(super) fn spawn_attach_notification_stream_gated(
             let mut held_scroll: Option<Value> = None;
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
                 let hidden = gate.as_ref().is_some_and(|gate| gate.is_hidden());
-                if !hidden && let Some(value) = held_scroll.take() {
-                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                        handle_attach_send_error(&lifecycle, &error);
-                        break;
-                    }
+                if !hidden
+                    && let Some(value) = held_scroll.take()
+                    && let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream)
+                {
+                    handle_attach_send_error(&lifecycle, &error);
+                    break;
                 }
                 let event = match events.recv_until_interrupted(&interrupt) {
                     Ok(event) => event,

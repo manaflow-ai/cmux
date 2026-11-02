@@ -151,6 +151,9 @@ struct GateState {
 /// Collapses duplicate snapshot requests and rate-limits them per viewer.
 /// The attach worker records every snapshot it sends ([`Self::sent`]), so a
 /// backlog or grid-change snapshot also counts toward the interval.
+/// Runs when a viewer is shown or hidden (``SnapshotRequestGate::on_visibility_change``).
+type VisibilityWaker = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
@@ -160,7 +163,7 @@ pub(crate) struct SnapshotRequestGate {
     hidden: Arc<AtomicBool>,
     /// Woken with the worker on every visibility change (the attach's notification thread holds `scroll-changed`
     /// while hidden).
-    visibility_wakers: Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>,
+    visibility_wakers: Arc<Mutex<Vec<VisibilityWaker>>>,
 }
 
 impl SnapshotRequestGate {
