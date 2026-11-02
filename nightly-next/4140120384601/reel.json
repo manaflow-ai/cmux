@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4140120384601",
+  "notes": "notes/4140120384601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31874,
+      "title": "fix(windows): Close Window and a window's close key close in their turn, without the 100 ms button flash",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31715,
+      "title": "fix(cef): DevTools opens on cmux's dock side; the frontend's stored side no longer moves it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31849,
+      "title": "fix(keys): a key that missed the blocking dialog goes to its keyboard, never the terminal under it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30193,
+      "title": "ci: zsh HEAD watcher and Computer Use helper checks take an owned Mac first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31886,
+      "title": "fix cloud image acpmux service path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31862,
+      "title": "feat(next): dictate on terminal surfaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31878,
+      "title": "ci: report and routing steps take hosted Ubuntu first as declared light jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31910,
+      "title": "test(grid-lines): the running tray's header has no mark (base red after #31424)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31872,
+      "title": "fix(next): preserve draft tool input on empty updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31905,
+      "title": "test(webviews): sub-session row test follows the layout grid's margin and line tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31884,
+      "title": "ci(runner pools): spill the linux pool off a backed-up size, not only a dead one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31896,
+      "title": "fix(ci): use shared runner state until admission waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31845,
+      "title": "fix(crossterm): refuse a 0 mouse or cursor coordinate instead of underflowing",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31867,
+      "title": "Session Info: add page-owned native model and action bridge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31851,
+      "title": "fix(restore): a terminal's last frame stays through a slow attach, the quit and a daemon restart (dogfood port)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31764,
+      "title": "journeys tui-kit: tk-storm, the L1 CLI storm in compiled Rust (held schedule, rate verdict)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31902,
+      "title": "Transcript: a Codex header redraws when its message count changes (#31825 fix forward)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31892,
+      "title": "ci: declare HibernationWakeCoverTests as a display suite",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
