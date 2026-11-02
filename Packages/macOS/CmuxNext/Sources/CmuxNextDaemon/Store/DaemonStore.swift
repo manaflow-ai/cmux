@@ -259,6 +259,11 @@ public final class DaemonStore: StateResourceQueries {
         _ = tabListRevision
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
     }
+    /// The pane with public id or pane resource id `id`.
+    public func pane(idOrResource id: String) -> PaneModel? {
+        index.panesByResource[ResourceID(rawValue: id)]
+            ?? workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == id || $0.resourceID?.rawValue == id }
+    }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
