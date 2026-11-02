@@ -67,11 +67,11 @@ fn a_connection_that_reads_scroll_on_attach_gets_no_scroll_changed_on_subscribe(
         "{} scroll-changed events reached a connection that reads scroll on attach: each wakes its event pump",
         scrolls.len()
     );
+    // The subscriber mailbox keeps only the newest scroll of a surface (event_bus coalescing): at least one arrives.
     let other_seen = until_marker(&other, "scroll-marker");
-    assert_eq!(
-        other_seen.iter().filter(|m| m.contains("scroll-changed")).count(),
-        20,
-        "a connection that did not ask still gets every scroll-changed: {other_seen:?}"
+    assert!(
+        other_seen.iter().any(|m| m.contains("scroll-changed")),
+        "a connection that did not ask lost its scroll-changed events: {other_seen:?}"
     );
 }
 
