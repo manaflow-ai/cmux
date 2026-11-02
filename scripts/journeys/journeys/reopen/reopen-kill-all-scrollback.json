@@ -95,6 +95,12 @@
    "mark": "pwd"
   },
   {
+   "do": "input_journal",
+   "name": "afterkeys",
+   "last": 120,
+   "title": "evidence: where the line typed after the reopen went (keys, focus)"
+  },
+  {
    "do": "expect",
    "title": "the new shell starts in the same path string the terminal had (/tmp, not /private/tmp)",
    "since": "pwd",
@@ -112,6 +118,14 @@
      "frame_text": "/tmp"
     }
    ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300,
+   "title": "evidence: the app's input journal (cmux-ad 02:55Z: every reopen journey)"
   }
  ]
 }

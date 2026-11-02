@@ -105,6 +105,12 @@
  ],
  "finally": [
   {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300,
+   "title": "evidence: the app's input journal (cmux-ad 02:55Z: every reopen journey)"
+  },
+  {
    "do": "close_seeded",
    "prefix": "rv-${nonce}-ws"
   }

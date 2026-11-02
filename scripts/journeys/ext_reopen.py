@@ -1087,5 +1087,20 @@ def cond_reopen_keys_received(j, want, cache):
     return not bad, detail
 
 
-STEPS = {"reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+def step_input_journal(j, step):
+    """Evidence (cmux-ad 02:55Z: every reopen journey keeps it): the app's own input journal (`debug.journal`,
+    the last LAST entries: keys, mouse, focus resolutions) written to input-journal.json and kept in the result."""
+    try:
+        entries = (j.app.rpc("debug.journal", {"last": int(step.get("last", 200))}, timeout=10) or {}).get("entries") or []
+    except (D.StepError, OSError, ValueError) as error:
+        return {"error": str(error)[-200:]}
+    name = step.get("name", "input-journal")
+    (Path(j.out) / f"diag-{re.sub(r'[^a-z]', '', name.lower()) or 'journal'}.json").write_text(json.dumps(entries, indent=1) + "\n")
+    keys = [e for e in entries if isinstance(e, dict) and "key" in (e.get("kind") or {})]
+    focus = [((e.get("kind") or {}).get("focus") or {}).get("after", {}).get("resolved") for e in entries
+             if isinstance(e, dict) and "focus" in (e.get("kind") or {})]
+    return {"entries": len(entries), "key_events": len(keys), "focus_resolved": focus[-12:]}
+
+
+STEPS = {"input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}

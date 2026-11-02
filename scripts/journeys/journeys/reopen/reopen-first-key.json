@@ -1,0 +1,145 @@
+{
+ "id": "reopen-first-key",
+ "priority": "P0",
+ "title": "After a reopen, the first keys a person types reach the focused terminal: (a) Cmd-Q (Keep) and reopen, a real key into the focused terminal as soon as the window shows, 5 cycles; (b) kill of everything and reopen, a line typed ~2 s after the terminals settle",
+ "why": "REOPEN-F4 (STATUS 4618, 4653): on feat 0d19fe6 the first key typed at the reopened window's first frame was lost in 10 of 15 cycles (focus resolved none); REOPEN-F5 (same cause, STATUS 4658): after a kill of everything the line typed after the reopen never reached the new shell in 2 of 3. Owner of the fix: reopen-f4.",
+ "source": "REOPEN-F4/F5 (STATUS 4618, 4653, 4658), owner reopen-f4",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "require_whole_host",
+   "title": "real keys need a key window"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "main"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'fk-${nonce}-%g' 1 200",
+   "enter": true,
+   "mark": "lines"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: 200 lines",
+   "since": "lines",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "fk-${nonce}-200"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "right"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the split answers",
+   "since": "right",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "right-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "reopen_video",
+   "count": 5,
+   "how": "quit-keep-hid",
+   "film": false,
+   "title": "(a) Cmd-Q (Keep) and reopen, a real key into each visible terminal (the focused one first, as the window shows), 5 cycles, no film"
+  },
+  {
+   "do": "expect",
+   "title": "(a) every marker key after each reopen reached its terminal exactly once",
+   "timeout": 2,
+   "all": [
+    {
+     "reopen_keys_received": {}
+    }
+   ]
+  },
+  {
+   "do": "use",
+   "name": "right"
+  },
+  {
+   "do": "kill_all_relaunch",
+   "mark": "reopened",
+   "title": "(b) SIGKILL of everything of the bundle at once, reopen"
+  },
+  {
+   "do": "use",
+   "name": "right"
+  },
+  {
+   "do": "wait",
+   "seconds": 2,
+   "title": "(b) a person waits ~2 s after the terminals show"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "input_journal",
+   "name": "afterkeys",
+   "last": 120
+  },
+  {
+   "do": "expect",
+   "title": "(b) the line typed after the kill-all reopen reached the new shell",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "app_text_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}
