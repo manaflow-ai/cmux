@@ -8,6 +8,7 @@
 # The test-source archive is made as scripts/cef/test-embedder-step.sh describes (the fork is private;
 # the host holds no credential) and put in the controller store for this workspace's lane.
 # Cases default to the API 30 helper cases. Prints "cmux-embedder: N/M passed"; fails when a case fails.
+# CMUX_EMBEDDER_INPUT_DIR (tests) takes the test-source archive from <dir>/<sha256 hex> instead of the store.
 set -euo pipefail
 (( $# >= 2 )) || { echo "usage: cef-embedder.sh sha256:<sources> <fork ref> [case...]" >&2; exit 2; }
 SOURCES="$1" FORK_REF="$2"; shift 2
@@ -27,10 +28,14 @@ WORK="${CI_JOB_DIR:-${TMPDIR:-/tmp}}/cef-embedder"
 rm -rf "$WORK"; mkdir -p "$WORK/in" "$WORK/run"
 CONTROLLER="${CMUX_CI_CONTROLLER:-http://100.89.225.106:18765}"
 hex="${SOURCES#sha256:}"
-url="$(curl -fsS -A cmux-fleet-recipe "$CONTROLLER/v1/artifacts/sha256:$hex/url" |
-  /usr/bin/env python3 -c 'import json,sys; print(json.load(sys.stdin).get("url",""))')" || die "the controller has no $SOURCES for this job"
-[[ "$url" == http* ]] || die "the controller gave no URL for $SOURCES"
-curl -fsS -A cmux-fleet-recipe -o "$WORK/in/sources.tar.gz" "$url" || die "download of $SOURCES failed"
+if [[ -n "${CMUX_EMBEDDER_INPUT_DIR:-}" ]]; then
+  cp "$CMUX_EMBEDDER_INPUT_DIR/$hex" "$WORK/in/sources.tar.gz" || die "no $SOURCES in $CMUX_EMBEDDER_INPUT_DIR"
+else
+  url="$(curl -fsS -A cmux-fleet-recipe "$CONTROLLER/v1/artifacts/sha256:$hex/url" |
+    /usr/bin/env python3 -c 'import json,sys; print(json.load(sys.stdin).get("url",""))')" || die "the controller has no $SOURCES for this job"
+  [[ "$url" == http* ]] || die "the controller gave no URL for $SOURCES"
+  curl -fsS -A cmux-fleet-recipe -o "$WORK/in/sources.tar.gz" "$url" || die "download of $SOURCES failed"
+fi
 [[ "$(shasum -a 256 "$WORK/in/sources.tar.gz" | cut -c1-64)" == "$hex" ]] || die "$SOURCES: the bytes do not match"
 tar -C "$WORK" -xzf "$WORK/in/sources.tar.gz"
 [[ "$(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null)" == "$FORK_REF" ]] || die "the test-source archive is not $FORK_REF"
