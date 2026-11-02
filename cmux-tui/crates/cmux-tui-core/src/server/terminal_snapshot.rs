@@ -68,8 +68,8 @@ use serde_json::{Value, json};
 use super::{
     AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
     commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
-    mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
-    terminal_colors_json,
+    mark_client_attached, require_pty, rollback_failed_attach,
+    spawn_attach_notification_stream_gated, terminal_colors_json,
 };
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
@@ -731,8 +731,12 @@ impl SnapshotWorker {
                 }
                 Ok(ViewerEvent::Frame(AttachFrame::Output(output))) if self.gate.is_hidden() => {
                     // Hidden: the bytes join the batch, which goes out on the aligned second or past its cap.
+                    // The idle digest follows them whichever flush sends them (it waits while bytes are batched).
                     self.offset += output.len() as u64;
                     self.hidden_batch.extend_from_slice(&output);
+                    if !output.is_empty() {
+                        digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+                    }
                     if self.hidden_batch.len() >= HIDDEN_BATCH_MAX_BYTES {
                         batch_at = None;
                         self.flush_hidden_batch()
@@ -892,12 +896,13 @@ fn attach(
             surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    if let Err(error) = spawn_attach_notification_stream(
+    if let Err(error) = spawn_attach_notification_stream_gated(
         mux.clone(),
         surface_id,
         writer.clone(),
         lifecycle.clone(),
         outbound_stream.clone(),
+        Some(stream.requests.clone()),
     ) {
         lifecycle.cancel();
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);

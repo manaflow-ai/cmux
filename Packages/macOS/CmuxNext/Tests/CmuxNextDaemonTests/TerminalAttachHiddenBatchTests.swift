@@ -12,7 +12,7 @@ struct TerminalAttachHiddenBatchTests {
         #expect(hide == [.sizeCounts(lease: "l1", counts: false), .visibility(false)], "\(hide)")
         let show = TerminalAttachment.hiddenSteps(hidden: false, lease: "l1", inPlace: true, batchesHidden: true)
         #expect(show == [.visibility(true), .sizeCounts(lease: "l1", counts: nil)], "\(show)")
-        // No lease yet (an attach still opening): the batching still follows the view.
+        // A daemon that replied with no lease: the batching still follows the view.
         #expect(TerminalAttachment.hiddenSteps(hidden: true, lease: nil, inPlace: true, batchesHidden: true) == [.visibility(false)])
         // An older daemon: sizing only, as before.
         #expect(TerminalAttachment.hiddenSteps(hidden: true, lease: "l1", inPlace: false, batchesHidden: false) == [.releaseSize(lease: "l1")])

@@ -158,6 +158,9 @@ pub(crate) struct SnapshotRequestGate {
     /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
     /// output once per wall-clock second instead of per frame.
     hidden: Arc<AtomicBool>,
+    /// Woken with the worker on every visibility change (the attach's notification thread holds `scroll-changed`
+    /// while hidden).
+    visibility_wakers: Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>,
 }
 
 impl SnapshotRequestGate {
@@ -167,7 +170,13 @@ impl SnapshotRequestGate {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
             hidden: Arc::new(AtomicBool::new(false)),
+            visibility_wakers: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Runs `wake` on every later visibility change of this viewer.
+    pub(crate) fn on_visibility_change(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.visibility_wakers.lock().unwrap().push(Box::new(wake));
     }
 
     /// Whether the viewer said it does not show the terminal.
@@ -179,6 +188,9 @@ impl SnapshotRequestGate {
     /// when the viewer is gone.
     pub(crate) fn set_visible(&self, visible: bool) -> bool {
         self.hidden.store(!visible, Ordering::Release);
+        for wake in self.visibility_wakers.lock().unwrap().iter() {
+            wake();
+        }
         self.handle.poke()
     }
 

@@ -2868,7 +2868,8 @@ mod attach_lifecycle;
 use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+    rollback_failed_attach, spawn_attach_notification_stream,
+    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
