@@ -153,9 +153,11 @@ extension ScreenContentView {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
-            // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            // On the pixel grid where it shows, each edge rounded on its own after the camera offsets (the
+            // strip's, a row column's and a scroll area's are springs too: rounded before them, every edge sat
+            // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
+            // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
@@ -214,7 +216,7 @@ extension ScreenContentView {
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind)).pixelEdges(scale)
             let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
             guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
             dividersChanged = true
