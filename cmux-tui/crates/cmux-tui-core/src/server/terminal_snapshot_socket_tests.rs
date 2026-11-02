@@ -1453,7 +1453,22 @@ fn a_viewer_shown_again_gets_shown_after_every_byte_printed_while_hidden() {
     }
 
     assert_eq!(set_visible(false)["viewers"], 1);
-    for line in 0..5 {
+    // The first output of a hidden period goes out at once (the app then knows a show must wait), the rest waits.
+    let hid_at = Instant::now();
+    surface.inject_output_for_test(b"hidden line 0\r\n");
+    let first_hidden = std::iter::from_fn(|| {
+        (hid_at.elapsed() < Duration::from_millis(500))
+            .then(|| next_event(&outbound, Duration::from_millis(5)))
+    })
+    .flatten()
+    .find(|event| event["event"] == "output");
+    assert!(
+        first_hidden.is_some() && hid_at.elapsed() < Duration::from_millis(300),
+        "the first hidden output did not go out at once ({:?}): {first_hidden:?}",
+        hid_at.elapsed()
+    );
+    let mut offset = first_hidden.as_ref().and_then(|event| event["offset"].as_u64()).unwrap();
+    for line in 1..5 {
         surface.inject_output_for_test(format!("hidden line {line}\r\n").as_bytes());
     }
     let printed = surface_offset(&mux, surface.id);
@@ -1477,9 +1492,11 @@ fn a_viewer_shown_again_gets_shown_after_every_byte_printed_while_hidden() {
         Some(printed),
         "`shown` is not at the end of the hidden output: {marker}"
     );
-    let delivered: u64 =
-        events.iter().filter(|event| event["event"] == "output").map(decoded_len).sum();
-    assert!(delivered > 0, "the hidden output did not come before `shown`: {events:?}");
+    for event in events.iter().filter(|event| event["event"] == "output") {
+        offset += decoded_len(event);
+        assert_eq!(event["offset"].as_u64(), Some(offset), "offsets are contiguous: {event}");
+    }
+    assert_eq!(offset, printed, "the hidden output did not all come before `shown`: {events:?}");
 
     // One marker per show: hiding and showing again with nothing printed gets one more, at once.
     assert_eq!(set_visible(false)["viewers"], 1);
@@ -1493,6 +1510,35 @@ fn a_viewer_shown_again_gets_shown_after_every_byte_printed_while_hidden() {
     .expect("a second show got no `shown`");
     assert_eq!(again["event"], "shown", "output with nothing printed: {again}");
     assert_eq!(again["offset"].as_u64(), Some(printed), "{again}");
+    assert!(
+        again["shows"].as_u64() > marker["shows"].as_u64(),
+        "`shows` names the show answered: {marker} {again}"
+    );
+
+    // Review of the fast path: a show and a hide before the worker loops leave the last period's batch in place; the
+    // next period's first output must not overtake it (offsets stay contiguous).
+    assert_eq!(set_visible(false)["viewers"], 1);
+    surface.inject_output_for_test(b"period a first\r\n");
+    surface.inject_output_for_test(b"period a batched\r\n");
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(set_visible(true)["viewers"], 1);
+    assert_eq!(set_visible(false)["viewers"], 1);
+    surface.inject_output_for_test(b"period b first\r\n");
+    assert_eq!(set_visible(true)["viewers"], 1);
+    let end = surface_offset(&mux, surface.id);
+    let by = Instant::now() + Duration::from_millis(1_500);
+    while offset < end && Instant::now() < by {
+        let Some(event) = next_event(&outbound, Duration::from_millis(5)) else { continue };
+        if event["event"] == "output" {
+            offset += decoded_len(&event);
+            assert_eq!(
+                event["offset"].as_u64(),
+                Some(offset),
+                "a hidden period's output overtook an older batch: {event}"
+            );
+        }
+    }
+    assert_eq!(offset, end, "the viewer missed output bytes");
 
     disconnect_client(&mux, client, false);
     mux.shutdown();

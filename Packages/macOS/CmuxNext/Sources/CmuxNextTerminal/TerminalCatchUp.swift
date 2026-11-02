@@ -59,8 +59,8 @@ final class TerminalCatchUp {
         }
     }
 
-    /// The owner's marker (or a new link's first READY or replay, which is the current screen): every byte printed
-    /// before the show is on the lane. Once it is parsed and a frame drawn after that presents, the switch shows it.
+    /// The owner's marker for this show: every byte printed before the show is on the lane. A new link (its attach
+    /// starts shown, so no marker comes) ends the wait through its status, else the bound does. Once it is parsed and a frame drawn after that presents, the switch shows it.
     func caughtUp() {
         guard isPending, parsed == nil, let lane = session?.surfaceView.lane else { return }
         frames.activate()

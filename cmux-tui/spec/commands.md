@@ -8237,8 +8237,9 @@ attach starts shown.
 With `attach-visibility-shown-v1`, a viewer shown again (`visible:true` after
 `visible:false`) gets one `shown` event on its attach stream once that stream
 holds every byte the terminal printed before the show:
-`object{event:"shown",surface:Id,generation:uint64,offset:uint64}`, at the
-viewer's stream position. A client keeps its last frame until then, so the
+`object{event:"shown",surface:Id,generation:uint64,offset:uint64,shows:uint64}`,
+at the viewer's stream position; `shows` counts the viewer's shows answered so far
+(a client that showed again meanwhile skips an older one). A client keeps its last frame until then, so the
 first frame it shows of the terminal has the newest content. `visible:true` for
 a viewer that shows already sends none.
 

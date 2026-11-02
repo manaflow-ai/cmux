@@ -75,6 +75,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         var batchesHidden = false
         var marksShown = false
         var snapshotStream = false
+        /// `set-attach-visibility` shows sent after a hide: a `shown` answering fewer is an older show's.
+        var showsSent: UInt64 = 0
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
         var participant: String?
         /// The newest size state this view passed on, and one that came before the reply named
@@ -160,6 +162,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                       let event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
                 if case .snapshot = event { control.value.withLock { $0.snapshotStream = true } }
+                if case .shown(let shows?) = event, shows < control.value.withLock({ $0.showsSent }) { return }
                 if case .sizeState(let state, let selfParticipant) = event {
                     // Pushed under the same lock that orders generations (see admitSizeState).
                     Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
@@ -392,6 +395,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             case .claim:
                 claimGeometry(reporting: nil)
             case .visibility(let visible):
+                if visible { control.value.withLock { $0.showsSent += 1 } }
                 fireAndForget(SetAttachVisibilityRequest(surface: surface, visible: visible))
             }
         }

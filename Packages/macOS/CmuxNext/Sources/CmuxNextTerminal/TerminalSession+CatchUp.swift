@@ -11,13 +11,6 @@ extension TerminalSession {
         frameHold.contentQueued()
     }
 
-    /// A whole screen went on the lane (a replay, a READY): a held frame follows it, and it is the current screen a
-    /// waiting switch shows once drawn (a new link's first screen: its attach started shown, so no marker comes).
-    func screenQueued() {
-        frameHold.contentQueued()
-        catchUp.caughtUp()
-    }
-
     func endHolds() {
         frameHold.end()
         catchUp.finish()

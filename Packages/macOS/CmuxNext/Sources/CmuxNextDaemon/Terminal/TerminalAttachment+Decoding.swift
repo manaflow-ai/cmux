@@ -97,8 +97,9 @@ extension TerminalAttachment {
         var scope: String?
         var offset: UInt64?
         var atBottom: Bool?
+        var shows: UInt64?
         enum CodingKeys: String, CodingKey {
-            case surface, scope, offset
+            case surface, scope, offset, shows
             case atBottom = "at_bottom"
         }
     }
@@ -173,7 +174,7 @@ extension TerminalAttachment {
             case "shown":
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scoped(scope.surface) else { return nil }
-                return DecodedAttachLine(event: .shown)
+                return DecodedAttachLine(event: .shown(shows: scope.shows))
             case "detached":
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scoped(scope.surface) else { return nil }

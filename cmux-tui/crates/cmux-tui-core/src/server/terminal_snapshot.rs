@@ -634,9 +634,10 @@ impl SnapshotWorker {
             return true;
         }
         self.owed_shown = None;
+        // `shows`: the shows answered so far, so a viewer that showed again meanwhile skips an older one.
         self.send(&json!({
             "event": "shown", "surface": self.surface_id,
-            "generation": self.generation, "offset": self.offset,
+            "generation": self.generation, "offset": self.offset, "shows": self.shows_seen,
         }))
     }
 
@@ -767,7 +768,12 @@ impl SnapshotWorker {
                     if self.gate.is_hidden() && !self.printed_while_hidden =>
                 {
                     // The first byte of a hidden period goes out at once: the viewer then knows a show must wait for
-                    // `shown`, and one that printed nothing shows at once (one message per hidden period).
+                    // `shown`, and one that printed nothing shows at once (one message per hidden period). Bytes an
+                    // earlier hidden period still batches (a show and a hide before this loop ran) go first.
+                    if !self.flush_hidden_batch() {
+                        break;
+                    }
+                    batch_at = None;
                     self.printed_while_hidden = !output.is_empty();
                     self.offset += output.len() as u64;
                     if !output.is_empty() {
