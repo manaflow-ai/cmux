@@ -41,7 +41,7 @@ const realPaneSnapshot = (running: boolean) => {
     { isWorking: running, title: "File count workflow" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default): it opens shown.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });

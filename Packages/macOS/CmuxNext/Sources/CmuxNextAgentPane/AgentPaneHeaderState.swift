@@ -16,7 +16,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// Debug Settings' Side sessions (/btw) is on (``AgentPaneTunables/sideSessions``): the composer
     /// offers `/btw`. The init reads the toggle unless given, so a watch that builds the state observes it.
     public var sideSessions: Bool
-    /// The header offers Session Info (Debug Settings `agent.inspector`, cx-ncc.101), read like
+    /// The header offers Session Info (Debug Settings `agent.sessionInfo`, cx-ncc.101), read like
     /// `sideSessions`. The page reads it as `inspector` (``json``), a wire name kept so a page and an
     /// app from either side of the rename still agree.
     public var sessionInfo: Bool

@@ -70,7 +70,7 @@ extension ActionRegistry {
     }
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
-    /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
+    /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
     /// reporting a toggle that changed nothing.
     @discardableResult
     public func bindAgentPaneSessionInfo(

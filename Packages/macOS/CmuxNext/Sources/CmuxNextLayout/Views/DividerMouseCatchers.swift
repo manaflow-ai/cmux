@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -45,10 +46,27 @@ public final class DividerMouseCatchers {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
     }
 
-    /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window is visible).
+    /// The frames (window coordinates) of the page windows over the window's content at the last ``update(_:active:)``.
+    private var pages: [CGRect] = []
+
+    /// The frames, in window coordinates, of the page windows over `window`'s content: only a divider area one of them
+    /// covers needs a panel. The New Tab spare's page waits 100 000 pt outside the window (`PageOffscreenParking`) and
+    /// covers nothing (RESIZE VIDEOS Z1: with only that page, every divider had a panel, and each zoom and unzoom landing
+    /// of 12 panes parked or made 11 of them, 13 of the landing frame's 14 ms of main thread).
+    public static func pageFrames(over window: NSWindow) -> [CGRect] {
+        (window.childWindows ?? []).filter { WindowOverlayHost.isPageWindow($0) && $0.isVisible && $0.frame.intersects(window.frame) }
+            .map { window.convertFromScreen($0.frame) }
+    }
+
+    /// A page window came over the content, left it or moved since the last update (a page shown in a pane, the spare
+    /// adopted, a page tab hidden): the window's overlay layer updates the panels again at rest.
+    public var pagesMoved: Bool { Self.pageFrames(over: window) != pages }
+
+    /// Shows one panel per area (window coordinates) that a page window over the content covers, or none when
+    /// `active` is false (no page window is visible).
     public func update(_ areas: [LayoutMouseArea], active: Bool) {
-        let wanted = active && window.isVisible ? areas : []
+        pages = Self.pageFrames(over: window)
+        let wanted = active && window.isVisible ? areas.filter { area in pages.contains { $0.intersects(area.rect) } } : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
             panels[id] = nil
