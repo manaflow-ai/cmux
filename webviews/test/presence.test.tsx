@@ -60,8 +60,7 @@ async function mount() {
   }
   act(() => root?.unmount());
   root = createRoot(doc.getElementById("root")!);
-  return (shown: boolean, placement?: string) =>
-    act(() => root!.render(<Panel shown={shown} placement={placement} />));
+  return (shown: boolean, placement?: string) => act(() => root!.render(<Panel shown={shown} placement={placement} />));
 }
 
 /// Every phase the panel rendered with, in order.
