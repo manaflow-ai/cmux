@@ -191,6 +191,23 @@ def app_binary(tag):
     return matches[0]
 
 
+def bundle_path(tag):
+    """The tag's .app bundle (the folder three levels above its binary)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag))))
+
+
+def front_app(launch):
+    """Whether the launched app is the frontmost app now (`lsappinfo front`), with both pids."""
+    try:
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True, timeout=5).stdout
+        match = re.search(r'"pid"\s*=\s*(\d+)', info)
+        front = int(match.group(1)) if match else None
+    except (OSError, subprocess.SubprocessError):
+        front = None
+    return {"front_pid": front, "app_pid": launch.pid, "front": front is not None and front == launch.pid}
+
+
 def pgrep(pattern):
     """Pids of THIS user's processes whose command matches (pgrep -U: another account's process of the same tag on a
     shared mini is never selected, signalled or counted)."""
@@ -405,35 +422,67 @@ def stop(pids, timeout=10):
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
-    def __init__(self, tag, scratch, extra_env=None):
-        read_fd, write_fd = os.pipe()
+    def __init__(self, tag, scratch, extra_env=None, active=False):
+        """`active`: launch through LaunchServices (`open`), as a Dock click does, so the app is the active app with
+        its window in front (#32552 follow-up); the marks come on a FIFO (`CMUX_NEXT_LAUNCH_MARKS_PATH`). Otherwise the
+        bench spawns the binary with no activation (`CMUX_NEXT_NO_ACTIVATE`) and passes a pipe."""
+        self.tag = tag
+        self.active = active
+        self.hold_fd = None
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+            **({} if active else {"CMUX_NEXT_NO_ACTIVATE": "1"}), "CMUX_NEXT_SOCKET_MODE": "automation",
             # "test" placement puts every window at the agent test size on the last screen, in front, and ignores the
             # saved frame; "restore" lets the app reopen each window at its saved frame (#32493). With no activation
             # the restored window is ordered behind, never key (WindowActivation); it still draws (automation launch).
-            **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" else {}),
+            **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" and not active else {}),
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-            "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
-        with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
-            # The bench's own clock (pre-main gap owner, STATUS 1800): the app's marks count from the kernel's
-            # p_starttime, so the time before Popen and the arrival of each mark are kept too. main_start's arrival
-            # minus spawned_at is the spawn-to-main time this process saw, independent of p_starttime.
+        if active:
+            fifo = os.path.join(scratch, f"launch-marks-{time.monotonic_ns()}.fifo")
+            os.mkfifo(fifo, 0o600)
+            read_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+            # The bench holds a writer too, so the reader sees no end of file before the app opens its end, nor
+            # between the app's exit and the drain in quit().
+            self.hold_fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+            env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = fifo
+            command = ["/usr/bin/open", "-a", bundle_path(tag)] + [arg for key, value in env.items()
+                                                                  for arg in ("--env", f"{key}={value}")]
+            # LaunchServices gives the app launchd's limits, as a Finder or Dock launch.
             self.spawned_at = time.monotonic()
-            self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
-                                            stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
             self.popen_returned_at = time.monotonic()
-        print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
-        os.close(write_fd)
+            self.process = None
+            print("bench-startup: app launched through LaunchServices (active)", file=sys.stderr, flush=True)
+        else:
+            read_fd, write_fd = os.pipe()
+            env["CMUX_NEXT_LAUNCH_MARKS_FD"] = str(write_fd)
+            with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+                # The bench's own clock (pre-main gap owner, STATUS 1800): the app's marks count from the kernel's
+                # p_starttime, so the time before Popen and the arrival of each mark are kept too. main_start's
+                # arrival minus spawned_at is the spawn-to-main time this process saw, independent of p_starttime.
+                self.spawned_at = time.monotonic()
+                self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+                self.popen_returned_at = time.monotonic()
+            print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
+            os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
         self.arrived = {}  # mark -> ms after spawned_at when its line arrived on the pipe (the bench's clock)
+        self._pid = self.process.pid if self.process else None
+
+    @property
+    def pid(self):
+        """The app's pid: the spawned child, or (active) the tag's app process LaunchServices started."""
+        if self._pid is None:
+            found = app_pids(self.tag)
+            self._pid = found[0] if found else None
+        return self._pid
 
     def wait_for(self, mark, timeout, any_of=False):
         """Reads marks until `mark` (or every mark of a list; with `any_of`,
@@ -466,19 +515,30 @@ class Launch:
         terminal's frame save) are read until the app closes the pipe, into `quit_marks`, never into `marks`."""
         launched = set(self.marks)
         deadline = time.monotonic() + 20  # one limit for the quit, as stop(timeout=20) had
-        try:
-            os.kill(self.process.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-        self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
-        os.close(self.read_fd)
-        if not wait_exit([self.process.pid], max(0.0, deadline - time.monotonic())):
+        pid = self.pid
+        if pid:
             try:
-                os.kill(self.process.pid, signal.SIGKILL)
+                os.kill(pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
-            wait_exit([self.process.pid], 5)
-        self.process.wait()
+        if self.hold_fd is not None:
+            # Active launch: the bench's own writer keeps the FIFO open, so the app's exit is the process's.
+            if pid:
+                wait_exit([pid], 20)
+            os.close(self.hold_fd)
+            self.hold_fd = None
+            self.wait_for("bench.never", 2)  # bench: drains the quit's marks to end of file
+        else:
+            self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
+        os.close(self.read_fd)
+        if pid and not wait_exit([pid], max(0.0, deadline - time.monotonic())):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            wait_exit([pid], 5)
+        if self.process:
+            self.process.wait()
         self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
         for name in self.quit_marks:
             self.arrived.pop(name, None)
@@ -498,6 +558,9 @@ HANG_THRESHOLD_MS = None
 WINDOW_PLACEMENT = "test"
 # --new-session-each-run: STRESS builds a new session before every measured launch (the first relaunch after it).
 NEW_SESSION_EACH_RUN = False
+# --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
+# "inactive" spawns it with no activation (behind, not key).
+ACTIVATION = "inactive"
 
 
 def app_support_tag(tag):
@@ -991,7 +1054,7 @@ def one_run(tag, mode, timeout, profile=None):
         prime.quit()
     # Cold allows no daemon older than this launch; warm and restart allow this step's (the floor taken above).
     floor = time.time() if mode == "cold" else STEP_STARTED_WALL[tag]
-    launch = Launch(tag, scratch)
+    launch = Launch(tag, scratch, active=ACTIVATION == "active")
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -1005,6 +1068,7 @@ def one_run(tag, mode, timeout, profile=None):
             for late in set(launch.marks) - before - {VISIBLE_MARK}:
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
+        launch.front = front_app(launch)  # the measured point: is the app the active, frontmost app?
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
             launch.terminals = launch_terminals(tag)
@@ -1019,6 +1083,8 @@ def one_run(tag, mode, timeout, profile=None):
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
     marks = dict(launch.marks)
     marks["launch_terminals"] = getattr(launch, "terminals", None)
+    marks["front_at_measure"] = getattr(launch, "front", None)
+    marks["activation"] = "active" if launch.active else "inactive"
     marks["quit_marks"] = getattr(launch, "quit_marks", {})
     marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
     marks["frames_after_quit"] = frame_files(tag)
@@ -1198,10 +1264,15 @@ def main():
     parser.add_argument("--new-session-each-run", action="store_true",
                         help="--profile stress: build a new STRESS session before every measured launch, so each run "
                              "is the first relaunch after a new session")
+    parser.add_argument("--activation", choices=["active", "inactive"],
+                        help="active: the measured launch goes through LaunchServices (open), so the app is the "
+                             "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
+                             "point (front_at_measure); inactive: spawned with no activation, behind and not key "
+                             "(default: active for --profile stress with restore placement, else inactive)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
     # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
     # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
@@ -1210,6 +1281,11 @@ def main():
     NEW_SESSION_EACH_RUN = args.new_session_each_run
     if NEW_SESSION_EACH_RUN and args.profile != "stress":
         parser.error("--new-session-each-run needs --profile stress")
+    # STRESS with the app's own restore is the reopen a person gets: the app frontmost and active (Lead 2026-11-02:
+    # an inactive app's main thread runs on E cores, so its launch numbers come out too high).
+    ACTIVATION = args.activation or ("active" if args.profile == "stress" and WINDOW_PLACEMENT == "restore" else "inactive")
+    if ACTIVATION == "active" and WINDOW_PLACEMENT == "test":
+        parser.error("--activation active needs --window-placement restore (the test placement is an agent launch)")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
