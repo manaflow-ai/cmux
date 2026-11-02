@@ -494,9 +494,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string),
                     ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
                                    kind: .string, isRequired: false),
-                    // The name a workspace with no `name` takes (an unnamed launch's session name); never a predecessor's.
-                    ActionArgument(name: "defaultName", title: String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module),
-                                   kind: .string, isRequired: false),
                     ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),

@@ -7,14 +7,18 @@ public import CmuxNextDesign
 ///   file input; nil (tests) shows no file picker.
 /// - `eventSources`: the app's table of processes that post input (`AppServices.personInput.sources`): a pane
 ///   judges whether a key or click is the person's from it, never by a system call per event.
+/// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
+    public let actAsMe: AgentPaneActAsMe?
 
-    /// The defaults (tests): no open panel, and a posting-process table of the pane's own.
-    public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses()) {
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, and no grant.
+    public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(),
+                actAsMe: AgentPaneActAsMe? = nil) {
         self.openPanel = openPanel
         self.eventSources = eventSources
+        self.actAsMe = actAsMe
     }
 }
 
@@ -24,5 +28,7 @@ extension AgentPaneView {
                              pageHost: Bool = false, shared: AgentPaneShared) {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, openPanel: shared.openPanel,
                   eventSources: shared.eventSources)
+        model.transport.gestures.actAsMe = shared.actAsMe
+        showActAsMe(shared.actAsMe)
     }
 }

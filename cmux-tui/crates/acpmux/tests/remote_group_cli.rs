@@ -104,13 +104,10 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
             5
         } else {
             // A generated name can be identical on two peers. Omitting --name
-            // bypasses the app's title-based predecessor-row reuse; the
-            // workspace is still named after the session, qualified by its peer.
-            assert_eq!(args.len(), 9, "{opened}");
+            // bypasses the app's title-based predecessor-row reuse.
+            assert_eq!(args.len(), 7, "{opened}");
             assert!(!args.contains(&"--name"), "{opened}");
-            assert_eq!(args[3], "--default-name", "{opened}");
-            assert!(args[4].starts_with(&format!("{peer}/")), "{opened}");
-            5
+            3
         };
         assert_eq!(&args[key_index + 2..], &["--group", "Remote demo"]);
         assert_eq!(args[key_index], "--key");
@@ -130,7 +127,6 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
                 assert_eq!(&info["name"], prior_name);
                 assert_ne!(args[key_index + 1], prior_key);
             }
-            assert_eq!(info["name"].as_str().map(|name| format!("{peer}/{name}")).as_deref(), Some(args[4]));
             unnamed = Some((id.to_owned(), info["name"].clone(), args[key_index + 1].to_owned()));
         }
         if named {

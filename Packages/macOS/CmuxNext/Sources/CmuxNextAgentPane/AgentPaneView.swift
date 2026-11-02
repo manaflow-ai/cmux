@@ -100,6 +100,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
+    var actAsMeBadge: AgentPaneActAsMeBadge?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -398,6 +400,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            actAsMeBadge?.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }

@@ -89,28 +89,39 @@ import CmuxNextCompat
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
-    /// The clock gestures are timed on (the system uptime; tests set it): a credit a gesture left
-    /// (``AgentPaneTransport/startCredit``) is timed on it too.
-    var uptime: TimeInterval { now() }
+    // MARK: Computer use acting as the person (``AgentPaneActAsMe``)
 
-    /// Uses the gesture's scope-add credit (one attach of a session that is not yet the pane's):
-    /// true once per recorded gesture; the grant credit stays.
-    public func consumeScope() -> Bool {
-        guard let lastScope else { return false }
-        self.lastScope = nil
-        return now() - lastScope <= Self.lifetime
+    /// The grant posted gestures are judged by: the app's one (``AgentPaneShared/actAsMe``); nil grants nothing.
+    public var actAsMe: AgentPaneActAsMe?
+    /// The last key press or click another process posted in the pane, who posted it, and whether the
+    /// grant was on then. A credit of its own: only ``consumePosted(for:)`` spends it, and only for a frame
+    /// the grant covers (Send, Retry, Approve), so it never stands in for the person's ``consume()``.
+    private var lastPosted: (at: TimeInterval, driver: AgentPaneActAsMe.Driver, granted: Bool)?
+
+    /// Another process posted a key press or click in the pane (``AgentPaneView/judge(_:eventWindow:)``).
+    func recordPosted(driver: AgentPaneActAsMe.Driver) {
+        guard let actAsMe else { return }
+        lastPosted = (now(), driver, actAsMe.isOn)
     }
 
-    /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
-    /// is available, its age in seconds, and the outstanding tickets. Never a ticket value.
-    public var debugState: (available: Bool, scopeAvailable: Bool, ageSeconds: Double?, tickets: Int) {
-        (isAvailable, lastScope.map { now() - $0 <= Self.lifetime } ?? false, last.map { now() - $0 }, tickets.count)
+    /// Spends the posted gesture for a frame of `method`: true once per posted gesture made while the grant
+    /// was on and is still on, within ``lifetime``, and only for a method it covers. Each one is logged with
+    /// its driver.
+    func consumePosted(for method: String?) -> Bool {
+        guard let posted = lastPosted, posted.granted, let method, let holder = actAsMe?.lets(method) else { return false }
+        lastPosted = nil
+        guard now() - posted.at <= Self.lifetime else { return false }
+        actAsMe?.recordLetThrough(method: method, holder: holder, driver: posted.driver)
+        return true
     }
 
-    /// ``debugState`` as one log field.
-    public var debugDescription: String {
-        let age = last.map { String(format: "%.3f", now() - $0) } ?? "none"
-        return "gestureAvailable=\(isAvailable) scopeAvailable=\(debugState.scopeAvailable) gestureAge=\(age) tickets=\(tickets.count)"
+    /// A frame of `method` was refused for want of a gesture: when another process's posted input was
+    /// behind a Send, Retry or Approve while the grant is off, the app's consent card asks the person
+    /// (``AgentPaneActAsMe/askOnce()``). The card only asks; nothing is granted here.
+    func noteRefused(_ method: String?) {
+        guard lastPosted != nil, let method, AgentPaneActAsMe.covers.contains(method), let actAsMe, !actAsMe.isOn else { return }
+        lastPosted = nil
+        actAsMe.askOnce()
     }
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
@@ -180,7 +191,7 @@ import CmuxNextCompat
     /// ``reserve(connection:intent:)``; `paid`: the person's gesture was already taken for this
     /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). Module-only.
     func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
-        guard paid || (intent.method == "session/prompt" ? consumeForSend() : consume()) else { return nil }
+        guard paid || (intent.method == "session/prompt" ? consumeForSend() : consume()) || consumePosted(for: intent.method) else { return nil }
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         if intent.method == "session/prompt" {
