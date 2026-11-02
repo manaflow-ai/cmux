@@ -516,11 +516,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
-    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
+    /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
+    /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
     private var pageCanHold: Bool {
         guard let tab else { return false }
-        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
-            && tab.sidePanel.state == nil && tab.deviceEmulation == nil
+        return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
+            && !tab.devToolsController.deviceModeOn && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
     /// Lets go of a held page size; the next layout gives the page its frame.
