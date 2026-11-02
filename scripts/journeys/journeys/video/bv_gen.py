@@ -196,6 +196,22 @@ def ctx_perf(presses=30):
             "source": SOURCE, "budget_seconds": 150, "options": {"key_path": "real"}, "steps": steps}
 
 
+def dtkey(dock, toggles=34):
+    """DT-KEY: real Cmd-Opt-I toggles of a docked DevTools over a light page, each press judged and traced (bv_dtkey)."""
+    jid = f"bv-dtkey-{dock}"
+    steps = setup("dark", "light") + [
+        {"do": "hid_click", "target": {"window_point": [560, 420]}, "title": "focus the page (a real click)"},
+        {"do": "wait", "seconds": 0.4},
+        {"do": "bv_action", "action": DOCK_ACTION[dock], "note": "dock", "fallback_key": {"key": "i", "modifiers": ["cmd", "option"]}},
+        {"do": "bv_devtools", "page": "light", "open": True, "timeout": 5},
+        {"do": "wait", "seconds": 1.0},
+        {"do": "bv_dtkey", "toggles": toggles, "note": "dtkey"}]
+    return {"id": jid, "priority": "P0",
+            "title": f"DT-KEY: {toggles} real Cmd-Opt-I toggles of DevTools docked {dock}, every press traced",
+            "why": "A lost Cmd-Opt-I (1 of 31 closes on cmux22) is a lost shortcut: find where the key goes.",
+            "source": SOURCE, "budget_seconds": 200, "options": {"key_path": "real"}, "steps": steps}
+
+
 END = [{"do": "new_terminal", "via": "key", "name": "bvend"}, {"do": "neutral_prompt"},
        {"do": "type", "text": "echo bv-done-${nonce}", "enter": True, "mark": "done"},
        {"do": "expect", "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
@@ -215,6 +231,7 @@ def main():
             out.append(agent(load, theme))
     out.append(ctx())
     out.append(ctx_perf())
+    out += [dtkey("right"), dtkey("bottom")]
     for j in out:
         j["steps"] += END
         with open(os.path.join(HERE, j["id"] + ".json"), "w") as f:

@@ -232,5 +232,50 @@ def step_bv_budget(j, step):
     return {"runs": runs if step.get("all") else runs[-4:]}
 
 
-STEPS = {"bv_budget": step_bv_budget, "bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
+def _devtools_open(j):
+    rows = [r for r in (j.app.rpc("debug.cef") or {}).get("devtools") or [] if isinstance(r, dict)]
+    return any(bool(r.get("open")) for r in rows), rows
+
+
+def step_bv_dtkey(j, step):
+    """DT-KEY (lead 13:3xZ): TOGGLES real Cmd-Opt-I presses (default 34), each judged by DevTools' state (debug.cef) within
+    `timeout` s (default 2). Per press: the app's input journal key-downs after it (did the key reach the app, in which
+    window), the key router's last interception (debug.key last) and the action runs since (debug.action_budget: did
+    toggleBrowserDeveloperTools run). A press whose state did not flip is a miss: its debug.focus (key window, resolved
+    focus) and debug.cef rows are kept, and the state is put back by the action (origin script) so the next press starts
+    right. Never fails the journey; the result lists every press. Python times here are for polling only, never evidence."""
+    import ext_realkey
+    presses, misses = [], 0
+    for n in range(int(step.get("toggles", 34))):
+        was_open, _ = _devtools_open(j)
+        seq_before = ext_realkey._journal_last_seq(j)
+        last_before = j.app.rpc("debug.key", {"last": True}) or {}
+        budget_before = max([int(r.get("sequence") or 0) for r in (j.app.rpc("debug.action_budget", {"limit": 8}) or {}).get("recent") or []] or [0])
+        ext_realkey.press(j, "i", ["cmd", "option"])
+        flipped = _wait(lambda: _devtools_open(j)[0] != was_open or None, float(step.get("timeout", 2)), 0.05) is not None
+        journal = [e for e in ext_realkey._journal_entries(j, 60) if int(e.get("seq") or 0) > seq_before]
+        keys = [{"seq": e.get("seq"), "window": e.get("window"), "kind": e.get("kind")} for e in journal
+                if "key" in json.dumps(e.get("kind")).lower()]
+        last_after = j.app.rpc("debug.key", {"last": True}) or {}
+        runs = [{"id": r.get("id"), "entrypoint": r.get("entrypoint"), "outcome": r.get("outcome")}
+                for r in (j.app.rpc("debug.action_budget", {"limit": 16}) or {}).get("recent") or []
+                if int(r.get("sequence") or 0) > budget_before]
+        row = {"n": n, "was_open": was_open, "flipped": flipped, "journal_keys": keys,
+               "router_before": last_before, "router_after": last_after, "runs": runs}
+        if not flipped:
+            misses += 1
+            row["focus"] = j.app.rpc("debug.focus") or {}
+            row["cef"] = _devtools_open(j)[1]
+            try:
+                j.app.rpc("action.run", {"action": "devtools.close" if was_open else "devtools.openDocked", "origin": "script"})
+            except Exception as error:  # noqa: BLE001  noted
+                row["restore_error"] = str(error)[:200]
+            _wait(lambda: _devtools_open(j)[0] != was_open or None, 3, 0.1)
+        presses.append(row)
+        time.sleep(float(step.get("gap", 0.6)))
+    _note(j, step.get("note", "dtkey"), {"misses": misses, "presses": len(presses)})
+    return {"misses": misses, "presses": presses}
+
+
+STEPS = {"bv_dtkey": step_bv_dtkey, "bv_budget": step_bv_budget, "bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
          "bv_agent": step_bv_agent}

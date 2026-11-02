@@ -1,0 +1,146 @@
+{
+ "id": "bv-dtkey-bottom",
+ "priority": "P0",
+ "title": "DT-KEY: 34 real Cmd-Opt-I toggles of DevTools docked bottom, every press traced",
+ "why": "A lost Cmd-Opt-I (1 of 31 closes on cmux22) is a lost shortcut: find where the key goes.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 200,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in dark (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "dark"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "set-up: New Browser Workspace (Opt-Cmd-N): the page fills the workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "set-up: the test page typed in the address bar"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "dock",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_dtkey",
+   "toggles": 34,
+   "note": "dtkey"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
