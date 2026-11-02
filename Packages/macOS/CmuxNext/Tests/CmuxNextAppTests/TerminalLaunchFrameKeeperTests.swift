@@ -125,6 +125,14 @@ import Testing
         let extra = frames.keepSaves - saves
         #expect(keys >= 20, "only \(keys) changes in 3 s: the test did not keep the terminal busy") // a loaded runner sleeps longer
         #expect(extra <= 1, "\(extra) saves for \(keys) changes in 3 s: the keeper saves per change, not once per 5 s")
+        // No starvation: a terminal that never goes quiet is still saved again within interval + busy wait.
+        let busyUntil = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < busyUntil {
+            shown.io.send(.output(Data("y".utf8)))
+            try await Task.sleep(for: .milliseconds(30)) // test: keystroke rate
+        }
+        let again = try await Self.eventually(3) { frames.keepSaves > saves + extra }
+        #expect(again, "a terminal that keeps changing was never saved again: its kept frame grows stale without bound")
     }
 
     /// REOPEN VIDEO on build d77b7cfc (6 of 30 kill cycles): a split resized a terminal after its frame was saved, the
@@ -139,11 +147,14 @@ import Testing
         frames.keep("tab_resized", session: shown.session, work: Self.work)
         try #require(try await Self.eventually { !Self.files("tab_resized", in: directory).isEmpty }, "the first frame was never kept")
         let saves = frames.keepSaves
-        // The pane halves (Cmd-D beside it): the terminal gets a new size.
+        // The pane halves (Cmd-D beside it): the surface view gets a new size, as the app's layout gives it. No IO
+        // event comes with it (the app sends its grid on the main actor, not through the IO's resize stream).
+        let before = shown.session.frameChanges.generation
         var frame = shown.window.frame
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
+        #expect(shown.session.frameChanges.generation > before, "the surface's new size counted as no change")
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
         #expect(resaved, "a resized terminal was not saved again within 3 s: a kill now leaves a frame the launch refuses")
     }

@@ -30,7 +30,15 @@ final class TerminalLaunchFrameKeeper {
 
     private let directory: URL
     private let work: BackgroundWork
-    private let clock: any Clock<Duration>
+    /// One clock for the timers' sleeps and the interval math: the continuous clock.
+    private let started: ContinuousClock.Instant = .now
+    private var now: Duration { started.duration(to: .now) }
+    /// Checks of a shown terminal that has drawn nothing yet (a held launch frame, an attach that never came):
+    /// a few, then the next change of the terminal wakes the keeper (no polling while idle).
+    private var notDrawnChecks: [String: Int] = [:]
+    nonisolated static let notDrawnRetries = 4
+    /// Set by ``stop()``: a write already posted to the files lane checks it and drops (the quit writes after it).
+    private let stopFlag = TerminalFrameChanges()
     /// Whether the launch read of the files has ended: files of terminals this run does not show are dropped only then.
     private let readEnded: @MainActor () -> Bool
     private var kept: [String: Kept] = [:]
@@ -49,20 +57,19 @@ final class TerminalLaunchFrameKeeper {
         /// The change count the last check saw.
         var seen: UInt64 = 0
         /// The last save's start.
-        var lastSave: ContinuousClock.Instant?
+        var lastSave: Duration?
         /// Since when a due save waits for the terminal to go quiet.
-        var waitingSince: ContinuousClock.Instant?
+        var waitingSince: Duration?
         /// The terminal's size at the last save: a frame of another size is refused at launch, so a resize saves again
         /// without waiting for ``interval``.
         var savedSize: CGSize?
         var onDisk = false
     }
 
-    init(directory: URL, work: BackgroundWork, clock: any Clock<Duration> = ContinuousClock(),
+    init(directory: URL, work: BackgroundWork,
          readEnded: @escaping @MainActor () -> Bool) {
         self.directory = directory
         self.work = work
-        self.clock = clock
         self.readEnded = readEnded
     }
 
@@ -73,7 +80,7 @@ final class TerminalLaunchFrameKeeper {
         if let old = kept[key], old.session === session { return }
         kept[key]?.timer.cancel()
         let changes = session.frameChanges
-        kept[key] = Kept(session: session, changes: changes, timer: DemandTimer(owner: "terminal.launch-frames.keep-frame", clock: clock))
+        kept[key] = Kept(session: session, changes: changes, timer: DemandTimer(owner: "terminal.launch-frames.keep-frame", clock: ContinuousClock()))
         changes.observe { [weak self] in
             // task-owner: one hop per first change after a check, never per output chunk (TerminalFrameChanges)
             Task { @MainActor [weak self] in self?.changed(key) }
@@ -84,6 +91,7 @@ final class TerminalLaunchFrameKeeper {
     /// The quit path saves every visible frame itself: no keeper save may land after it.
     func stop() {
         stopped = true
+        stopFlag.bump()
         for entry in kept.values { entry.timer.cancel() }
         kept.removeAll()
     }
@@ -101,16 +109,21 @@ final class TerminalLaunchFrameKeeper {
         // Not on screen (hidden, its workspace away, closed): its file goes at once, with no interval.
         guard let session = entry.session, Self.isOnScreen(session) else {
             _ = entry.changes.take()
-            if entry.session == nil { kept[key] = nil }
             remove(key)
+            // Closed or moved out of every window: nothing visits it again; a pane that shows it calls keep() anew.
+            if entry.session?.surfaceView.window == nil {
+                entry.timer.cancel()
+                kept[key] = nil
+                notDrawnChecks[key] = nil
+            }
             return
         }
-        // Laid out at no size for a moment (a split's layout pass): look again, keep the file.
+        // Laid out at no size for a moment (a split's layout pass): keep the file; its next size change wakes the keeper.
         guard session.surfaceView.bounds.width > 0, session.surfaceView.bounds.height > 0 else {
-            entry.timer.schedule(after: Self.idle) { @MainActor [weak self] in await self?.check(key) }
+            _ = entry.changes.take()
             return
         }
-        let now = ContinuousClock.now
+        let now = now
         let generation = entry.changes.generation
         let changedSinceCheck = generation != entry.seen
         entry.seen = generation
@@ -145,9 +158,16 @@ final class TerminalLaunchFrameKeeper {
         // Its own content drawn: never a blank surface over the saved frame, nor the held frame of the last quit.
         guard session.surfaceHasContent, !session.frameHold.isHolding else {
             kept[key]?.lastSave = nil
-            kept[key]?.timer.schedule(after: Self.idle) { @MainActor [weak self] in await self?.check(key) }
+            // A hold ends up to 500 ms after its content is queued: look again a few times, then wait for the
+            // terminal's next change (an attach that never draws costs no wakeups).
+            let tries = notDrawnChecks[key, default: 0] + 1
+            notDrawnChecks[key] = tries
+            if tries <= Self.notDrawnRetries {
+                kept[key]?.timer.schedule(after: Self.idle) { @MainActor [weak self] in await self?.check(key) }
+            }
             return
         }
+        notDrawnChecks[key] = nil
         let size = session.surfaceView.bounds.size
         saves += 1
         // The GPU copy starts on the main actor (the layer's IOSurface); the render waits off it.
@@ -157,8 +177,9 @@ final class TerminalLaunchFrameKeeper {
         kept[key]?.onDisk = true
         kept[key]?.savedSize = size
         // Posted, not awaited: nothing waits for it, so it stays at best effort (BackgroundWork, priority inversion).
-        let written = onWritten
+        let written = onWritten, stopped = stopFlag
         work.post(.bestEffort, mayBlock: .files) {
+            guard stopped.generation == 0 else { return } // the quit saves every frame itself
             TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune)
             written?(key)
         }
@@ -174,8 +195,9 @@ final class TerminalLaunchFrameKeeper {
         if kept[key] != nil { kept[key]?.onDisk = false }
         removals += 1
         let directory = directory
-        let written = onWritten
+        let written = onWritten, stopped = stopFlag
         work.post(.bestEffort, mayBlock: .files) {
+            guard stopped.generation == 0 else { return }
             TerminalLaunchFrames.removeAll(of: key, in: directory)
             written?(key)
         }
