@@ -441,4 +441,27 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         }
     }
     assert!(writes <= 2, "{writes} snapshots during a 2 s resize storm");
+    // The terminal is idle now: its snapshot at the last size still comes,
+    // once the size has held (review round 5 of #31643: an idle terminal's
+    // snapshot was never asked for again).
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    loop {
+        let cols = walk_files(&harness.state)
+            .into_iter()
+            .find(|path| path.extension().is_some_and(|extension| extension == "snap"))
+            .and_then(|path| fs::read(path).ok())
+            .and_then(|bytes| {
+                let rest = bytes.strip_prefix(b"CMUXSNAP1\n")?;
+                let line = rest.split(|byte| *byte == b'\n').next()?;
+                serde_json::from_slice::<serde_json::Value>(line).ok()?["cols"].as_u64()
+            });
+        if cols == Some(99) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no snapshot at the settled size (99 columns) after the storm: {cols:?}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }

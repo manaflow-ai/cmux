@@ -332,3 +332,26 @@ fn held_redraws_past_the_idle_cap_fall_back_to_the_snapshot() {
         "no pass is due when the backoff ends after the drop"
     );
 }
+
+/// Failure-mode table, "full disk" / "flood": during a write backoff no pass
+/// runs before the backoff ends, so the cap holds in `append` itself (review
+/// round 5 of #31643: memory grew by the output rate times the backoff).
+#[test]
+fn a_flood_during_a_backoff_keeps_at_most_the_cap_in_memory() {
+    let store = OutputStore::new(None);
+    store.set_tail_enabled(true);
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3c").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append(&id, &generation, b"x", None);
+    let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
+    log.state.lock().unwrap().store_failed();
+    let chunk = vec![b'y'; 64 * 1024];
+    for _ in 0..(super::super::TAIL_MAX_UNWRITTEN_BYTES / chunk.len() + 8) {
+        store.append(&id, &generation, &chunk, None);
+    }
+    let pending = log.state.lock().unwrap().pending.len();
+    assert!(
+        pending <= super::super::TAIL_MAX_UNWRITTEN_BYTES,
+        "{pending} bytes wait in memory during the backoff"
+    );
+}
