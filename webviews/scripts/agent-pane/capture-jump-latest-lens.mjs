@@ -1,7 +1,8 @@
 // Capture Jump to latest's fisheye lens from the real gallery entry (agent-pane.jump-latest-lens), in
 // Chromium, cropped round the button: each strength, and the shared glass without the lens (before).
 // Usage: bun capture-jump-latest-lens.mjs OUT_DIR [dark|light]
-// Prints each PNG as CAPTURE_BASE64 lines (the fleet log carries them back) and, per variant, how
+// Writes each PNG to OUT_DIR, prints one JPEG sheet of the four discs as SHEET lines (a fleet log's
+// tail carries it back) and, per variant, how
 // many of the disc's pixels differ from the before capture (0 means the lens drew nothing).
 import fs from "node:fs";
 import path from "node:path";
@@ -43,6 +44,8 @@ try {
       colorScheme: scheme,
     });
     const discs = {};
+    /** Each shot's disc and its surroundings, 56 css px square, for one small sheet in the log. */
+    const sheet = [];
     for (const [name, variant] of shots) {
       const page = await context.newPage();
       const url = `${baseUrl}/frame.html?entry=agent-pane.jump-latest-lens&variant=${variant}&colorScheme=${scheme}&width=normal&frame=component`;
@@ -77,16 +80,50 @@ try {
         clip: { x: box.x + 4, y: box.y + 4, width: box.width - 8, height: box.height - 8 },
       });
       discs[name] = disc;
-      const encoded = fs.readFileSync(file).toString("base64");
-      console.log(JSON.stringify({ scheme, name, box, info }));
-      for (let offset = 0; offset < encoded.length; offset += 2000)
-        console.log(`CAPTURE_BASE64 ${path.basename(file)} ${offset} ${encoded.slice(offset, offset + 2000)}`);
+      sheet.push(
+        await page.screenshot({
+          clip: { x: box.x + box.width / 2 - 28, y: box.y + box.height / 2 - 28, width: 56, height: 56 },
+        }),
+      );
+      console.log(JSON.stringify({ scheme, name, box, info }).slice(0, 300));
       await page.close();
     }
     for (const name of ["soft", "medium", "strong"])
       console.log(
         `LENS_DIFF ${scheme} ${name} ${Buffer.compare(discs.before, discs[name]) === 0 ? "same" : "differs"}`,
       );
+    // One JPEG of the four discs side by side (before, soft, medium, strong), short lines so a
+    // fleet log's tail carries it whole: SHEET <scheme> <offset> <base64>.
+    const page = await context.newPage();
+    const jpeg = await page.evaluate(
+      async (pngs) => {
+        const images = await Promise.all(
+          pngs.map(
+            (src) =>
+              new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = reject;
+                image.src = `data:image/png;base64,${src}`;
+              }),
+          ),
+        );
+        const canvas = document.createElement("canvas");
+        canvas.width = images.reduce((sum, image) => sum + image.width, 0);
+        canvas.height = images[0].height;
+        const context = canvas.getContext("2d");
+        let x = 0;
+        for (const image of images) {
+          context.drawImage(image, x, 0);
+          x += image.width;
+        }
+        return canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+      },
+      sheet.map((buffer) => buffer.toString("base64")),
+    );
+    fs.writeFileSync(path.join(out, `sheet-${scheme}.jpg`), Buffer.from(jpeg, "base64"));
+    for (let offset = 0; offset < jpeg.length; offset += 320)
+      console.log(`SHEET ${scheme} ${offset} ${jpeg.slice(offset, offset + 320)}`);
     await context.close();
   } finally {
     await browser.close();
