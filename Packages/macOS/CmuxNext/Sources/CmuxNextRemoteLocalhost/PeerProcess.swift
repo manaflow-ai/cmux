@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Network
 
 /// Who is on the other end of a loopback TCP connection to the proxy.
@@ -35,6 +36,29 @@ enum PeerProcess {
                 remoteAddress: localAddress,
                 remotePort: localPort
             )
+        }
+    }
+
+    /// The scans run one at a time on this queue's own thread: each is a run of blocking `proc_pid*`
+    /// calls (one per socket of the app and of every Chromium helper), so a flood of local
+    /// connections must neither occupy the cooperative pool nor run many scans at once.
+    private static let scanQueue = DispatchQueue(label: "com.cmuxterm.next.remote-localhost.peer-scan", qos: .userInitiated)
+
+    /// `isTrusted`, run on ``scanQueue`` instead of the caller's thread. `scan` is the check itself
+    /// (tests substitute a slow one).
+    static func isTrustedOffPool(
+        peerHost: NWEndpoint.Host,
+        peerPort: UInt16,
+        localHost: NWEndpoint.Host,
+        localPort: UInt16,
+        scan: (@Sendable () -> Bool)? = nil
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            scanQueue.async {
+                continuation.resume(returning: scan?() ?? isTrusted(
+                    peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort
+                ))
+            }
         }
     }
 
