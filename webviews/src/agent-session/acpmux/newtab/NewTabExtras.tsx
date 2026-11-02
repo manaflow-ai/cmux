@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePageNow } from "../../../ui/pageClock";
 import { useNt } from "./strings";
 
 const QUOTES = [
@@ -14,16 +15,13 @@ function dayIndex(now: number): number {
 
 export function NewTabExtras({ widgets, now }: { widgets: ReadonlySet<string>; now: number }) {
   const nt = useNt();
-  const [elapsed, setElapsed] = useState(0);
   const timerOn = widgets.has("timer");
-  useEffect(() => {
-    if (!timerOn) return;
-    const started = Date.now();
-    const update = () => setElapsed(Math.floor((Date.now() - started) / 1000));
-    update();
-    const id = window.setInterval(update, 1000);
-    return () => window.clearInterval(id);
-  }, [timerOn]);
+  const [started, setStarted] = useState<number>();
+  useEffect(() => setStarted(timerOn ? Date.now() : undefined), [timerOn]);
+  // The stopwatch reads wall time on the page's shared second clock, so a hidden page runs no timer
+  // and catches up when shown.
+  const tick = usePageNow(timerOn);
+  const elapsed = started === undefined ? 0 : Math.max(0, Math.floor((tick - started) / 1000));
   const quote = useMemo(() => QUOTES[dayIndex(now)]!, [now]);
   const hour = new Date(now).getHours();
   const warm = nt(hour < 12 ? "extra.morning" : hour < 18 ? "extra.afternoon" : "extra.evening");

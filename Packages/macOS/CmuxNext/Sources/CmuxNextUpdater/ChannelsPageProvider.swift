@@ -5,7 +5,8 @@ public import CmuxNextSettings
 
 /// Settings > Updates' Channels card (`cmux.settings.channels.*`), routed here by prefix: every
 /// ring's recent builds, read on demand, and the Go Back button into a kept build of a slower
-/// ring (``UpdaterService/returnToRing(_:build:)``, the person's click only).
+/// ring (``UpdaterService/returnToRing(_:build:)``), and each build's Switch into it
+/// (``UpdaterService/switchToBuild(_:)``), both the person's click only.
 @MainActor
 public final class ChannelsPageProvider: PageProvider {
     public static let prefix = "cmux.settings.channels."
@@ -75,6 +76,14 @@ public final class ChannelsPageProvider: PageProvider {
             guard let ring = params["ring"]?.stringValue.flatMap(UpdateRing.init(rawValue:)),
                   let build = params["build"]?.stringValue else { throw PageError.invalidParams("ring and build") }
             if let failure = await updater.returnToRing(ring, build: build) { throw PageError(code: "cmux.page.refused", message: failure) }
+            return .object([:])
+        case "cmux.settings.channels.switch_build":
+            // It restarts the app into another build: the person's own click in Settings only.
+            guard context.page == PageDescriptor.settings.id, context.userGesture else {
+                throw PageError(code: "cmux.settings.user_only", message: "only you can switch to another build")
+            }
+            guard let build = params["build"]?.stringValue, !build.isEmpty else { throw PageError.invalidParams("build") }
+            if let failure = await updater.switchToBuild(build) { throw PageError(code: "cmux.page.refused", message: failure) }
             return .object([:])
         case "cmux.settings.channels.update_machine":
             // It runs an update on another machine: the person's own click in Settings only.

@@ -163,8 +163,62 @@ export class SessionPager<S extends Summary> {
     return true;
   }
 
+  /**
+   * Every listed session's `usageStats` as acpmux reads them now, by session id. `usage: true` has
+   * acpmux read each chat's harness records first (at most one pass every 5 s, waited for at most
+   * 750 ms); without it a list carries the last pass's, or none when nothing asked since acpmux
+   * started. Read a page at a time, as `rest`; a cursor that comes back or a list past
+   * `MAX_PAGES` ends it with what came.
+   */
+  async usage(): Promise<Map<string, unknown>> {
+    const found = new Map<string, unknown>();
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = pageOf<S>(
+        await this.request("_acpmux/sessions", { usage: true, limit: SESSION_PAGE, ...(cursor ? { cursor } : {}) }),
+      );
+      for (const session of page.sessions)
+        if (session.usageStats !== undefined) found.set(session.sessionId, session.usageStats);
+      cursor = page.next;
+      if (cursor !== undefined && (seen.has(cursor) || seen.size >= MAX_PAGES)) break;
+      if (cursor !== undefined) seen.add(cursor);
+    } while (cursor !== undefined);
+    return found;
+  }
+
   /** Ends the pages in flight. */
   stop(): void {
     this.run += 1;
   }
+}
+
+/** Whether two `usageStats` read the same but for when acpmux read them. */
+const sameBut = (a: unknown, b: unknown) =>
+  typeof a === "object" &&
+  a !== null &&
+  typeof b === "object" &&
+  b !== null &&
+  JSON.stringify({ ...a, updatedAt: 0 }) === JSON.stringify({ ...b, updatedAt: 0 });
+
+/**
+ * `list` with each session's `usageStats` from `usage` (SessionPager.usage), the same array when
+ * none changed. A session keeps the stats it holds when they are newer (a turn's end announced
+ * them after the read began) or read the same but for `updatedAt` (nothing to draw again), and a
+ * session `usage` does not name keeps its own.
+ */
+export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<string, unknown>): S[] {
+  const at = (stats: unknown) =>
+    typeof (stats as { updatedAt?: unknown } | undefined)?.updatedAt === "number"
+      ? (stats as { updatedAt: number }).updatedAt
+      : -1;
+  let changed = false;
+  const next = list.map((session) => {
+    const stats = usage.get(session.sessionId);
+    if (stats === undefined || at(stats) <= at(session.usageStats) || sameBut(stats, session.usageStats))
+      return session;
+    changed = true;
+    return { ...session, usageStats: stats };
+  });
+  return changed ? next : list;
 }

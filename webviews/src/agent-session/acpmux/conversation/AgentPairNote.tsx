@@ -7,6 +7,7 @@ import { useId, useRef, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxAgentPair } from "../model";
 import { Envelope, PauseCircle } from "./icons";
+import { sliceWhole } from "../../../ui/wholeChars";
 
 export type ResumeAgentPair = (peer: string) => Promise<unknown>;
 
@@ -14,7 +15,7 @@ export type ResumeAgentPair = (peer: string) => Promise<unknown>;
 const SHOWN_HELD = 20;
 /// acpmux sends at most 200 characters of each; a longer one is cut here too.
 const PREVIEW_CHARS = 200;
-const preview = (text: string) => (text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text);
+const preview = (text: string) => (text.length > PREVIEW_CHARS ? `${sliceWhole(text, PREVIEW_CHARS)}…` : text);
 
 /// The cap's window in words, in the pane language: "10 minutes", "2 hours", "90 seconds" (the
 /// largest unit that divides it).

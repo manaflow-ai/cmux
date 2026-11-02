@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # nightly.yml sign-nightly-identity-legacy: "Check out the build's own source for the bundle checks". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The bundle notice check compares the app with ITS OWN source tree (the
+# LICENSE, the toolchain pins, the ghostty/ghostty-next gitlinks and
+# license trees). The copied cmux NEXT build can be older than this run's
+# commit, so the check runs from a checkout of the build's commit
+# (CMUXCommit), with the notices submodule initialized there.
 set -euo pipefail
 short="$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "legacy-app/cmux NIGHTLY.app/Contents/Info.plist")"
 [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$short'" >&2; exit 1; }

@@ -165,7 +165,8 @@ struct AcpmuxRestartStuckTests {
     /// A pane waits on this app's own daemon, which never answers. The person's restart stops it
     /// once (SIGTERM), the waiting handshake ends, and the next handshake starts one daemon. With
     /// no pane waiting, the action stops nothing.
-    @Test func restartAgentServiceRestartsTheWaitedForDaemonOnce() async throws {
+    @Test(.enabled(if: CopiedListenerProbe.runs, "Needs a copied nc listener, which this Mac ends at exec: https://github.com/manaflow-ai/cmux/issues/30978"))
+    func restartAgentServiceRestartsTheWaitedForDaemonOnce() async throws {
         let fixture = try AcpmuxSlowDaemonTests.OwnedFixture()
         let ended = AsyncStream<Int32>.makeStream()
         let silent = try await fixture.silentDaemon { signal in

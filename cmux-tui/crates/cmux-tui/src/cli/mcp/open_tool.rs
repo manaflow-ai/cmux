@@ -202,7 +202,7 @@ impl<B: Backend> Server<B> {
 
     /// `path` as the app must read it: absolute, `~/` expanded, a relative path joined to
     /// the chat's folder (its terminal's working folder, else this server's).
-    fn chat_path(&self, path: &str) -> String {
+    pub(super) fn chat_path(&self, path: &str) -> String {
         use std::path::{Component, Path, PathBuf};
         if let Some(rest) = path.strip_prefix("~/").or((path == "~").then_some(""))
             && let Some(home) = std::env::var_os("HOME")

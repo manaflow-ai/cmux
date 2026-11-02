@@ -142,7 +142,8 @@ fn github_repos_authenticated_get_uses_platform_origin_and_refreshes_once() {
                 state.1 += 1;
                 Ok((
                     200,
-                    json!({"access_token":format!("bearer-{}",state.1),"token_type":"Bearer","expires_at":600_000}),
+                    json!({"access_token":format!("bearer-{}",state.1),"token_type":"Bearer","expires_at":600_000,
+                        "user":"user-test","install":"inst-vm","grant":"grant-test","team":"team-a"}),
                 ))
             }
         }

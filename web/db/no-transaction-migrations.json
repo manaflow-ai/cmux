@@ -2,6 +2,7 @@
   "$comment": "Migrations applied outside a transaction, one statement at a time (web/scripts/cloud-vm/apply-migrations.mjs). Any migration with CONCURRENTLY must be listed; each statement in a listed migration must be safe to run twice. Listed here rather than marked inside migration.sql because drizzle records sha256(migration.sql).",
   "migrations": [
     "20260928120000_cloud_vm_observed_destroy_cleanup_index",
-    "20261025120100_run_sandboxed_environment_validate"
+    "20261025120100_run_sandboxed_environment_validate",
+    "20261030000100_stripe_webhook_inbox_indexes"
   ]
 }

@@ -5,7 +5,10 @@ import Testing
 
 /// A fresh profile's sidebar is pinned: shown, and its Settings and profile row visible with
 /// the pointer elsewhere. Hover-reveal is opt-in (`sidebar.minimalMode`). With one space the
-/// footer holds one switcher, the profile control: no spaces strip beside it (Leo 2026-10-11).
+/// bottom strip still shows that space's dot, the hover target for its + (#30232, Leo 2026-11-01:
+/// "we need for when there's only the existing space for the white dot at the bottom to be
+/// visible and for the plus sign to be acceessible"). This replaces the 2026-10-11 rule that hid
+/// the strip for a lone space.
 @MainActor
 struct SidebarPinnedDefaultTests {
     private func restingSidebar(spaces: Int = 1) -> (SidebarModel, SidebarView) {
@@ -29,9 +32,9 @@ struct SidebarPinnedDefaultTests {
         #expect(!sidebar.minimalHiddenBands.top && !sidebar.minimalHiddenBands.bottom)
     }
 
-    @Test func aLoneSpaceShowsNoStripBesideTheProfileControl() {
+    @Test func aLoneSpaceKeepsItsDotInTheBottomStrip() {
         let (_, sidebar) = restingSidebar()
-        #expect(sidebar.profileBar.isHidden)
+        #expect(!sidebar.profileBar.isHidden)
     }
 
     /// Two spaces keep the strip: it is their only on-screen switcher.
