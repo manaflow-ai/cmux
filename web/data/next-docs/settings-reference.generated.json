@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 555,
+  "count": 557,
   "sections": [
     {
       "id": "general",
@@ -502,7 +502,7 @@
         },
         {
           "key": "computerUse.enabled",
-          "title": "Side by Side",
+          "title": "Computer Use",
           "help": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
           "kind": "toggle",
           "default": false,
@@ -1692,18 +1692,6 @@
           ]
         },
         {
-          "key": "agentPane.display.inspector.placement",
-          "title": "Session Info",
-          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-          "kind": "choice",
-          "default": "overlay",
-          "group": "Agent Chat",
-          "values": [
-            "push",
-            "overlay"
-          ]
-        },
-        {
           "key": "agentPane.display.minimap",
           "title": "Chat Minimap",
           "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
@@ -1738,6 +1726,18 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.placement",
+          "title": "Session Info",
+          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "kind": "choice",
+          "default": "overlay",
+          "group": "Agent Chat",
+          "values": [
+            "push",
+            "overlay"
           ]
         },
         {

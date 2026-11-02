@@ -1164,7 +1164,7 @@
               "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap",
               "agentPane.display.rail.side",
-              "agentPane.display.inspector.placement",
+              "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
             ],
             "title" : {
@@ -10158,7 +10158,7 @@
       },
       "title" : {
         "key" : "settings.computerUse.enabled",
-        "text" : "Side by Side"
+        "text" : "Computer Use"
       },
       "validation" : "portable"
     },
@@ -42088,7 +42088,7 @@
         "text" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
       },
       "kept_on_reset_all" : false,
-      "key" : "agentPane.display.inspector.placement",
+      "key" : "agentPane.display.sessionInfo.placement",
       "keywords" : [
         "agent",
         "chat",
@@ -42110,7 +42110,7 @@
       "path" : [
         "agentPane",
         "display",
-        "inspector",
+        "sessionInfo",
         "placement"
       ],
       "refuses" : [
@@ -42179,7 +42179,7 @@
 
           ],
           "reason" : null,
-          "row" : "setting:agentPane.display.inspector.placement"
+          "row" : "setting:agentPane.display.sessionInfo.placement"
         },
         "socket" : {
           "aliases" : [

@@ -81,16 +81,6 @@
       "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-      "enum" : [
-        "push",
-        "overlay"
-      ],
-      "title" : "Session Info",
-      "type" : "string"
-    },
     "agentPane.display.minimap" : {
       "default" : "compact",
       "description" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
@@ -120,6 +110,16 @@
         "right"
       ],
       "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.sessionInfo.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -1919,7 +1919,7 @@
     "computerUse.enabled" : {
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
-      "title" : "Side by Side",
+      "title" : "Computer Use",
       "type" : "boolean"
     },
     "computerUse.livePreview" : {
