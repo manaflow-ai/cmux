@@ -119,7 +119,9 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
             onFallback(error)
             fallbackReason = String(describing: error)
             linkSince = ContinuousClock.now
-            await native.archive(install: install)
+            // Stop, never revoke: the retry reuses this enrollment, since the server keeps one host network
+            // binding per install and refuses to retarget it to a new device ("cannot be retargeted").
+            await native.stop(install: install)
             return try await link.ensure(install: install)
         }
     }
