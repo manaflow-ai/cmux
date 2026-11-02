@@ -278,16 +278,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
-    /// The page can take keys from now on: Chromium created its browser and a real document finished loading (or failed
-    /// to load). Before that a key reached the empty document a restore then replaced, or a page whose script had not
-    /// run. Once per browser.
+    /// The page can take keys from now on: Chromium created its browser and stopped loading with a real document loaded
+    /// (or an error page). Before that a key reached the empty document a restore then replaced, a page whose script
+    /// had not run, or a document the next navigation of the same load replaced. Once per browser.
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
-    /// A real document of this browser finished loading or failed (``onReadyForKeys``).
+    /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
+    /// The current document is a real page that finished loading, or an error page (not an aborted load).
+    @ObservationIgnored var documentLoaded = false
 
     func attach(browser: Int32) {
         browserID = browser
-        hasDocument = false
+        (hasDocument, documentLoaded) = (false, false)
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
@@ -333,10 +335,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         refreshExtensionActions()
     }
 
-    /// A real document of this browser finished loading or failed: the page takes keys now.
+    /// Chromium stopped loading on a real document or an error page: the page takes keys now.
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
+        host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
     }
 

@@ -29,6 +29,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading {
+                if documentLoaded { documentArrived() } // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
@@ -46,6 +47,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            documentLoaded = false // a new document: the one that loaded before is gone
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -55,7 +57,7 @@ extension CEFTab {
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
-            if PageBackground.isRealPage(committedURL) { documentArrived() } // its script ran: a focused field and listeners exist
+            if PageBackground.isRealPage(committedURL) { documentLoaded = true } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
             documentDidFinishLoad()
@@ -67,9 +69,9 @@ extension CEFTab {
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
-            documentArrived()
-            guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
+            if !error.isBenignInterruption { documentLoaded = true } // an error page; an aborted load (replaced) is none
+            guard let navigation else { return }
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's
