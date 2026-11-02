@@ -36,4 +36,11 @@ public nonisolated struct ShownResizeRange {
                                                  viewportWidth: geometry.stripWidth, gap: style.stripGap)
         return lower...max(lower, ColumnWidthPreset.widthRange.upperBound)
     }
+
+    /// Every row height of `column` after a keyboard press moves the row edge next to `pane`'s row by `delta`
+    /// (a share of the column's height; down is positive): the edge below that row, or above it for the last row.
+    /// Each row keeps its minimum (``RowResize``). Nil when the column has no rows here or nothing moves.
+    public func rowHeights(moving pane: PaneID, in column: LayoutColumn, by delta: Double) -> [RowHeight]? {
+        nil
+    }
 }
