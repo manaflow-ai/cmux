@@ -32,7 +32,7 @@ extension CEFTab {
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
-                documentDidPaint()
+                documentDidSettle()
             }
         case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
@@ -57,7 +57,8 @@ extension CEFTab {
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
-            documentDidFinishLoad()
+            documentDidSettle()
+            samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
