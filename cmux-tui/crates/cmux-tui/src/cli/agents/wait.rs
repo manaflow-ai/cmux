@@ -351,13 +351,12 @@ fn idle<B: Backend>(
         return Err(AgentFailure::Owner(failure.clone()));
     }
     let tabs = app.as_ref().map(|app| app_tabs(&app["topology"])).unwrap_or_default();
-    // A chat created headlessly or still waiting for its app tab exists only
-    // in acpmux. Look up its scoped state before declaring it nonexistent.
-    let current = match activity(target, daemon.as_ref().ok(), &tabs) {
-        Activity::Missing if is_chat_session_id(target) => {
-            chat_activity(backend, session, target, first)?
-        }
-        current => current,
+    // acpmux owns a chat's turn even while the GUI has its tab. A visible
+    // conversation tab may omit agent_state until the app's next refresh;
+    // treating that missing UI field as idle would finish the wait early.
+    let current = match chat_wait_target(target, &tabs) {
+        Some(chat) => chat_activity(backend, session, &chat, target, first)?,
+        None => activity(target, daemon.as_ref().ok(), &tabs),
     };
     match current {
         Activity::Working => Ok(None),
@@ -383,16 +382,31 @@ fn is_chat_session_id(target: &str) -> bool {
     uuid::Uuid::parse_str(target).is_ok()
 }
 
+/// A direct chat session or a visible conversation tab that belongs to one.
+/// In either case, acpmux is the source of its turn's activity. Preserve the
+/// requested tab id for the receipt but use the session id to read its state.
+fn chat_wait_target(target: &str, tabs: &[&Value]) -> Option<String> {
+    if is_chat_session_id(target) {
+        return Some(target.strip_prefix("acp:").unwrap_or(target).to_owned());
+    }
+    tabs.iter()
+        .find(|tab| tab.get("id").and_then(Value::as_str) == Some(target))
+        .and_then(|tab| tab.get("agent_session").and_then(Value::as_str))
+        .filter(|session| is_chat_session_id(session))
+        .map(|session| session.strip_prefix("acp:").unwrap_or(session).to_owned())
+}
+
 /// Acpmux, rather than app topology, owns the turn and queue of a tabless
 /// chat. The same scoped chat-state route used by agents_chat_state enforces
 /// the workspace and session boundary before any activity is disclosed.
 fn chat_activity<B: Backend>(
     backend: &B,
     session: Option<&str>,
+    chat_session: &str,
     target: &str,
     first: bool,
 ) -> Result<Activity, AgentFailure> {
-    let command = super::chat::ChatCommand::State { target: target.to_owned() };
+    let command = super::chat::ChatCommand::State { target: chat_session.to_owned() };
     let info = match backend.chat_in_session(session, &command, None, "agents") {
         Ok(info) => info,
         Err(failure)
@@ -436,6 +450,7 @@ fn chat_activity<B: Backend>(
         match status {
             "closed" => Some("closed"),
             "failed" => Some("failed"),
+            "disconnected" => Some("disconnected"),
             "ready" | "idle" | "done" => Some("idle"),
             // An unfamiliar state is still active until its owner says it is done.
             _ => None,

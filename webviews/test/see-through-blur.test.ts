@@ -55,14 +55,13 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     test("puts the hole in the covered element's own box, its corner no larger than the hole", () => {
       const surface = new DOMRectReadOnlyLike(300, 60, 200, 100);
       const target = new DOMRectReadOnlyLike(20, 10, 600, 400);
-      expect(holeIn(surface, target, { radius: 80, blur: 24, opacity: 1.4 })).toEqual({
+      expect(holeIn(surface, target, { radius: 80, blur: 24 })).toEqual({
         x: 280,
         y: 50,
         width: 200,
         height: 100,
         radius: 50,
         blur: 24,
-        opacity: 1,
       });
     });
 
@@ -208,6 +207,24 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(before * 0.95);
       expect(await page.evaluate(() => document.querySelectorAll("[data-glass-under], svg filter").length)).toBe(0);
+      await page.close();
+    });
+
+    // No in-between blur (Leo, 2026-10-26: "If we're doing blur, we're doing blur. If we're not
+    // doing blur, we're not doing blur. We shouldn't have in-between states ever. That cause
+    // flicker"). A popover caught mid-fade blurred the bars only part way, mixing them with their
+    // sharp selves by its opacity: they are blurred in full while it shows at all, sharp once it is
+    // gone.
+    test("a popover mid-fade blurs the bars in full, never part way", async () => {
+      const page = await open(browser);
+      const before = await barContrast(page, MIDDLE, ...INSIDE);
+      await page.evaluate(() => (document.getElementById("popover")!.style.opacity = "0.3"));
+      await attach(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(before * 0.08);
+      await page.evaluate(() => (document.getElementById("popover")!.style.opacity = "0"));
+      await page.evaluate(() => document.getElementById("popover")!.dispatchEvent(new Event("transitionrun")));
+      await settle(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(before * 0.95);
       await page.close();
     });
 
