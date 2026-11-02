@@ -150,6 +150,32 @@ test("the clone row words each part of a seed and of a copy", () => {
   expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe("Copying the folder instead");
 });
 
+test("completed clone row names the guest-verified checkout commit", () => {
+  const cloud: CloudStartProgress = {
+    key: "k",
+    task: "work on the selected project",
+    state: "starting",
+    hasRepository: true,
+    step: "folder",
+    clone: {
+      state: "done",
+      phase: "complete",
+      checkoutState: "guest_verified",
+      checkoutRepository: "team/project",
+      checkoutCommit: "a".repeat(40),
+    },
+  };
+  expect(startupChecklist(cloud)[1]).toMatchObject({
+    status: "done",
+    detail: "team/project@aaaaaaaaaaaa",
+  });
+  const html = renderToStaticMarkup(<CloudStartView start={cloud} />);
+  expect(html).toContain("team/project@aaaaaaaaaaaa");
+
+  const merelyCopied = { ...cloud, clone: { state: "done" as const, phase: "complete" } };
+  expect(startupChecklist(merelyCopied)[1]?.detail).toBeUndefined();
+});
+
 test("a seed that needs the GitHub App links its install from the clone row", () => {
   const rows = startupChecklist(
     {

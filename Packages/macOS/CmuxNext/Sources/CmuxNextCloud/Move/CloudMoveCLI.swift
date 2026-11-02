@@ -31,10 +31,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// Verified by a finished git-seed job on the guest; absent for copied or cached folders.
+        public var checkoutState: String?
+        public var checkoutRepository: String?
+        public var checkoutCommit: String?
+        public var dependenciesState: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
-                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
+                    checkoutState: String? = nil, checkoutRepository: String? = nil,
+                    checkoutCommit: String? = nil, dependenciesState: String? = nil) {
             self.ok = ok
             self.errorCode = errorCode
             self.error = error
@@ -49,6 +56,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
             self.seedPhase = seedPhase
             self.seedStartedAt = seedStartedAt
             self.seedFinishedAt = seedFinishedAt
+            self.checkoutState = checkoutState
+            self.checkoutRepository = checkoutRepository
+            self.checkoutCommit = checkoutCommit
+            self.dependenciesState = dependenciesState
         }
     }
 
@@ -235,7 +246,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
                             seedState: object["seed_state"] as? String,
                             seedPhase: object["seed_phase"] as? String,
                             seedStartedAt: object["seed_started_at"] as? Double,
-                            seedFinishedAt: object["seed_finished_at"] as? Double)
+                            seedFinishedAt: object["seed_finished_at"] as? Double,
+                            checkoutState: object["checkout_state"] as? String,
+                            checkoutRepository: object["checkout_repository"] as? String,
+                            checkoutCommit: object["checkout_commit"] as? String,
+                            dependenciesState: object["dependencies_state"] as? String)
         return (answer, object, result.status)
     }
 }

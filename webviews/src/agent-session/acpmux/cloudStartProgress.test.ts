@@ -139,6 +139,57 @@ test("a base snapshot is kept as unverified with a visible dependency remedy", (
   });
 });
 
+test("accepts only a completed guest seed's validated checkout commit", () => {
+  const valid = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: {
+      state: "done",
+      phase: "complete",
+      checkout_state: "guest_verified",
+      checkout_repository: "team/project",
+      checkout_commit: "a".repeat(40),
+    },
+  });
+  expect(valid?.clone).toEqual({
+    state: "done", phase: "complete", checkoutState: "guest_verified",
+    checkoutRepository: "team/project", checkoutCommit: "a".repeat(40),
+  });
+
+  const sha256 = cloudStartPushed(begun(), {
+    key: "k-1",
+    clone: {
+      state: "done",
+      checkout_state: "guest_verified",
+      checkout_repository: "team/project",
+      checkout_commit: "b".repeat(64),
+    },
+  });
+  expect(sha256?.clone?.checkoutCommit).toBe("b".repeat(64));
+
+  for (const [state, checkoutRepo, commit] of [
+    ["running", "team/project", "a".repeat(40)],
+    ["done", "team/project/other", "a".repeat(40)],
+    ["done", "team/project", "not-a-commit"],
+    ["done", "team/project", "A".repeat(40)],
+  ]) {
+    const rejected = cloudStartPushed(begun(), {
+      key: "k-1",
+      clone: {
+        state, checkout_state: "guest_verified",
+        checkout_repository: checkoutRepo, checkout_commit: commit,
+      },
+    });
+    expect(rejected?.clone?.checkoutCommit).toBeUndefined();
+    expect(rejected?.clone?.checkoutState).toBeUndefined();
+  }
+  const plannedOnly = cloudStartPushed(begun(), {
+    key: "k-1",
+    clone: { state: "done", head: "b".repeat(40), checkout_repository: "team/project" },
+  });
+  expect(plannedOnly?.clone?.checkoutCommit).toBeUndefined();
+});
+
 test("forwards the environment id and setup ran or cached state", () => {
   const ran = cloudStartPushed(begun(), {
     key: "k-1",

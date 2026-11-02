@@ -260,6 +260,8 @@ extension AgentPaneCloudStart {
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                                     cloneState: String? = nil, clonePhase: String? = nil,
                                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                                    cloneCheckoutState: String? = nil, cloneCheckoutRepository: String? = nil,
+                                    cloneCheckoutCommit: String? = nil,
                                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
                                     setupError: String? = nil, setupHasScript: Bool? = nil,
@@ -273,6 +275,9 @@ extension AgentPaneCloudStart {
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
         if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
+        if let cloneCheckoutState { cloneFields["checkout_state"] = .string(cloneCheckoutState) }
+        if let cloneCheckoutRepository { cloneFields["checkout_repository"] = .string(cloneCheckoutRepository) }
+        if let cloneCheckoutCommit { cloneFields["checkout_commit"] = .string(cloneCheckoutCommit) }
         if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
         if let environmentId { value["environmentId"] = .string(environmentId) }

@@ -140,6 +140,9 @@ pub(super) struct Pushed {
     pub(super) unchanged: bool,
     pub(super) bundle_bytes: u64,
     pub(super) head: Option<String>,
+    /// Git's actual HEAD from a completed guest git.seed.status job.
+    /// Unlike `head`, this never falls back to the local planned commit.
+    pub(super) guest_head: Option<String>,
     pub(super) work: Option<String>,
     pub(super) skipped_files: Value,
     /// The copy's summary line.
@@ -159,6 +162,9 @@ impl Pushed {
             "work": self.work,
             "skipped_files": self.skipped_files,
         });
+        if let Some(head) = &self.guest_head {
+            line.set("guest_head", json!(head));
+        }
         if let Some(copy) = &self.copy {
             line.set("copy", copy.clone());
         }
@@ -460,6 +466,7 @@ fn copy(
         unchanged: summary.written == 0 && summary.deleted == 0,
         bundle_bytes: 0,
         head: None,
+        guest_head: None,
         work: None,
         skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
@@ -497,6 +504,7 @@ fn seeded(mode: &'static str, planned: &Planned, head: Option<&str>) -> Pushed {
         unchanged: planned.unchanged,
         bundle_bytes: planned.bundle_bytes,
         head: Some(head.unwrap_or(&planned.params.head).to_owned()),
+        guest_head: head.map(str::to_owned),
         work: Some(planned.params.work.clone()),
         skipped_files: Value::Array(skipped),
         copy: None,

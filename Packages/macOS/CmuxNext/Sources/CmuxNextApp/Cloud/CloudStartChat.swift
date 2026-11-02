@@ -145,6 +145,8 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size,
                      cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
                      cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
+                     cloneCheckoutState: copy.0.checkoutState, cloneCheckoutRepository: copy.0.checkoutRepository,
+                     cloneCheckoutCommit: copy.0.checkoutCommit,
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
