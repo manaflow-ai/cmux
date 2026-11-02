@@ -163,7 +163,8 @@ describe("editors", () => {
           op !== "cmux.settings.list" &&
           op !== "cmux.settings.snapshot" &&
           op !== "cmux.settings.host.lists" &&
-          op !== "cmux.settings.section.actions",
+          op !== "cmux.settings.section.actions" &&
+          op !== "cmux.settings.backdrop.image.screen_saver",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

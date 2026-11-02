@@ -38,10 +38,15 @@ public struct FrameBudgetCalibration {
     }
 
     /// Times the reference workload `samplesPerCheckpoint` times, after one warm-up run.
-    public mutating func checkpoint() {
+    /// Tests may supply a controlled CPU clock to simulate a runner without timing noise.
+    public mutating func checkpoint(clock: () -> Double = { FrameBudgetCalibration.threadCPU() }) {
         let work = self.reference
         work()
-        let samples = (0..<Self.samplesPerCheckpoint).map { _ in Self.cpuMs { work() } }
+        let samples = (0..<Self.samplesPerCheckpoint).map { _ in
+            let started = clock()
+            work()
+            return (clock() - started) * 1_000
+        }
         checkpoints.append(samples)
     }
 

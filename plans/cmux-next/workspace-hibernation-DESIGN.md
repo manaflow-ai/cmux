@@ -13,7 +13,7 @@ note is the memory half and reuses its idle signal and exemptions.
 
 | Holder | Where | Freed today |
 | --- | --- | --- |
-| Parked `WorkspaceContentController` (views, panes, strips, observations) | app | only at critical pressure (`releaseParked`) |
+| Parked `WorkspaceContentController` (views, panes, strips, observations) | app | only at critical pressure (`releaseParked`); since issue 26046 also past 32 per window (`ParkedWorkspaceBudget`) |
 | Terminal GPU surfaces | app | LRU warm set (4 to 12 hidden surfaces) |
 | Browser pages (WebKit / Chromium renderer) | other processes, counted by the app's footprint | frozen after 30 s; discarded only when cmux.json sets `browser.hibernation` (off by default since #25791) |
 | Agent chat pages (one web content process each, about 75 MB) | other processes | only when `browser.hibernation` is set |

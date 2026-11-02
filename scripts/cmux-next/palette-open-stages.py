@@ -16,9 +16,29 @@ main-thread stall during the open (`debug.hangs`). Builds without the input stag
 
 The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms).
 
+--search-keys WORD times typed keys on Search instead (palette-key, PaletteModel.search): from the terminal tab it
+opens Search (Cmd-Shift-A) --rounds times and types WORD one key at a time through `debug.key` (target palette).
+Per key: rpc_ms, the synchronous `debug.key` round trip (the main thread's whole handling of the key, its search()
+turn included); the always-on signposts key.palette_query_rows (the query's edit to the commit of the frame that
+first shows its final ranked rows) and key.palette_query_answer (to the frame that first shows the agent chats'
+answer for it, with its row count), read with perf-signposts.py's `log stream` recording (a Release or bench build
+has them too); and the longest main-thread stall while the word is typed (`debug.hangs`). Each as p50/p95/p99/max.
+The key p95 <= 4 ms budget (`// perf-hot: 4ms palette-key`) is reported, never gated.
+--seed-chats N writes N Claude Code transcripts where acpmux's chat index reads them: the app runs with a HOME of its
+own under /tmp, and the transcripts go in its `.claude/projects` (a default root of cmux-chat-index's roots table;
+acpmux's own session store is not indexed, and the daemon gets HOME but not CLAUDE_CONFIG_DIR). The account's own
+~/.claude is never read or written; the app's control socket stays in the account's state folder.
+Each chat's first prompt is "Idle cost chat <i>: tidy the build scripts", so type a word they match ("idle"). Before
+typing, the bench asks the app's acpmux for the word until its index answers with rows (window_total > 0), and
+refuses to measure otherwise.
+--stress builds the STRESS session (perf-stress-session.py) before typing. STRESS needs a 1600 x 1000 pt window, which a
+1920 x 1080 display under the menu bar and Dock cannot hold: --vdisplay HZ first makes a 1920 x 1200 virtual main
+display (scripts/ci/frame-pacing/vdisplay.m, as split-spring.sh --vdisplay) for the run.
+
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
+                              [--search-keys WORD] [--seed-chats N] [--stress]
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, importlib.util, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
@@ -32,6 +52,10 @@ parser.add_argument("--budget-ms", type=float, default=16.0)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
+parser.add_argument("--search-keys", help="time typed keys of this word on Search (Cmd-Shift-A), not palette opens")
+parser.add_argument("--seed-chats", type=int, default=0, help="stored chats in the app's acpmux store (--search-keys)")
+parser.add_argument("--stress", action="store_true", help="build the STRESS session before typing (--search-keys)")
+parser.add_argument("--vdisplay", type=float, help="run on a 1920x1200 virtual main display at this refresh rate (Hz)")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -152,6 +176,175 @@ def one_open(params):
     return sample, reply
 
 
+def search_typing(word):
+    """Opens Search and types WORD a key at a time: each key's debug.key round trip (ms), the query frames
+    (the signposts are recorded around all rounds) and the typing's longest stall."""
+    rpc("debug.key", {"key": "a", "modifiers": ["command", "shift"]})
+    time.sleep(opts.interval)  # test harness: Search opens and its first rows land
+    rpc("debug.hangs", {"clear": True})
+    keys = []
+    for char in word:
+        started = time.monotonic()
+        rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
+        keys.append(round((time.monotonic() - started) * 1000, 3))
+        time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
+        # The chat rows on screen for this key (Search's Agent Chats section; at the base, ranked chat rows).
+        shown = (rpc("debug.palette.capture", {"path": os.path.join(SCRATCH, "key.png")}) or {}).get("rows") or []
+        CHAT_ROWS.append(sum(1 for row in shown if str(row).startswith("chat:")))
+    time.sleep(0.4)  # test harness: the last key's answer lands
+    hangs = rpc("debug.hangs") or {}
+    closed = rpc("debug.key", {"key": "escape", "target": "palette"})
+    if isinstance(closed, dict) and closed.get("error"):
+        rpc("debug.key", {"key": "escape"})
+    rpc("debug.key", {"key": "escape", "target": "palette"})
+    time.sleep(0.25)  # test harness: the close animation ends before the next open
+    return keys, hangs.get("max_ms")
+
+
+def distribution(values):
+    return {"n": len(values), "p50": round(pct(values, 0.5), 3), "p95": round(pct(values, 0.95), 3),
+            "p99": round(pct(values, 0.99), 3), "max": round(max(values), 3)} if values else {"n": 0}
+
+
+def load_signposts():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-signposts.py")
+    spec = importlib.util.spec_from_file_location("perf_signposts", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def search_report(word):
+    print(f"\n== Search typed keys: {word!r}, {opts.rounds} rounds", flush=True)
+    search_typing(word)  # warm
+    signposts = load_signposts()
+    recording = signposts.Recording(app.pid, ["key"])
+    keys, stalls = [], []
+    try:
+        for _ in range(opts.rounds):
+            times, stall = search_typing(word)
+            keys += times
+            if stall is not None:
+                stalls.append(stall)
+    finally:
+        parsed = signposts.parse(recording.stop(), None)
+    intervals = [i for i in parsed["intervals"] if not i.get("missed")]
+    rows = [i["ms"] for i in intervals if i["name"] == "key.palette_query_rows"]
+    answered = [i for i in intervals if i["name"] == "key.palette_query_answer"]
+    answers = [i["ms"] for i in answered]
+    answer_rows = [int((i.get("end_fields") or {}).get("rows") or 0) for i in answered]
+    print(f"  signposts: {len(parsed['intervals'])} paired, {parsed['unpaired']} unpaired (queries typed past), "
+          f"{parsed['lost']} lost", flush=True)
+    diagnosis = acpmux_diagnosis(word)
+    print(f"  acpmux for {word!r}: {json.dumps(diagnosis)[:400]}", flush=True)
+    measured_chats = CHAT_ROWS[-len(keys):] if keys else []
+    with_chats = sum(1 for n in measured_chats if n > 0)
+    print(f"  chat rows on screen per key: {with_chats}/{len(measured_chats)} keys showed chats "
+          f"(mean {round(sum(measured_chats) / len(measured_chats), 1) if measured_chats else 0})", flush=True)
+    if not keys:
+        row("Search typed keys", "keys timed", "none", False)
+        return {}
+    table = {"key_rpc": distribution(keys), "key_to_rows_frame": distribution(rows),
+             "key_to_answer_frame": distribution(answers), "stall_max_ms": max(stalls) if stalls else None,
+             "answers": len(answers), "answer_rows_mean": round(sum(answer_rows) / len(answer_rows), 1) if answer_rows else 0}
+    for name in ("key_rpc", "key_to_rows_frame", "key_to_answer_frame"):
+        d = table[name]
+        cells = " ".join(f"{k}={d[k]}" for k in ("n", "p50", "p95", "p99", "max") if k in d)
+        print(f"  Search {name} ms: {cells}", flush=True)
+    print(f"  answers landed: {table['answers']} (mean {table['answer_rows_mean']} chat rows); "
+          f"stall_max={table['stall_max_ms']}", flush=True)
+    row("Search typed keys", "key rpc p95 <= 4 ms (report only)",
+        f"p95 {table['key_rpc'].get('p95')} ms, {len(keys)} keys", True)
+    if opts.seed_chats:
+        # The base has no answer path (its chats are ranked rows): chats on screen is the check that holds for both.
+        row("Search chats shown", "chat rows on screen after typed keys", f"{with_chats}/{len(measured_chats)} keys",
+            with_chats > 0)
+    table["keys_with_chat_rows"] = with_chats
+    table["chat_rows_mean"] = round(sum(measured_chats) / len(measured_chats), 1) if measured_chats else 0
+    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls, "acpmux": diagnosis,
+            "chat_rows": measured_chats}
+
+
+def acpmux_diagnosis(word):
+    """What the app's own acpmux holds for `word`, asked on its socket like the app (report only): its daemon's
+    ACPMUX_HOME, whether its index is ready, and the rows its window gives the query."""
+    import bench_memory as bm  # noqa: E402  (FakeChats.acpmux_socket: the bundle's daemon socket)
+    try:
+        sock_path = bm.FakeChats.acpmux_socket(APP)
+    except SystemExit as error:
+        return {"error": f"no acpmux daemon of this bundle: {error}"}
+    homes = [cmd for _, _, cmd in bm.process_table() if "/bin/acpmux daemon run" in cmd and cmd.startswith(APP)]
+    out = {"socket": sock_path, "daemons": len(homes)}
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(20)
+        conn.connect(sock_path)
+        request = {"jsonrpc": "2.0", "id": 7, "method": "_acpmux/chats_window",
+                   "params": {"window": "bench.diag", "gen": 1, "limit": 5, "topLevel": True, "query": word, "count": True}}
+        conn.sendall((json.dumps(request) + "\n").encode())
+        buf, deadline = b"", time.monotonic() + 20
+        while time.monotonic() < deadline and not ("answer" in out and "window_rows" in out):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                if message.get("id") == 7:
+                    out["answer"] = message.get("result") or message.get("error")
+                elif message.get("method") == "_acpmux/chats_window_changed":
+                    params = message.get("params") or {}
+                    out["window_rows"] = len(params.get("keys") or [])
+                    out["window_total"] = params.get("total")
+            if (out.get("answer") or {}).get("ready") is False and "window_rows" not in out:
+                break
+        conn.close()
+    except OSError as error:
+        out["error"] = str(error)
+    return out
+
+
+def seed_chats(count):
+    """`count` Claude Code transcripts in a HOME of the bench's own (`<home>/.claude/projects`); that HOME.
+
+    Under /tmp, not the step's temp dir: a worker's temp dir may be on another volume, where no chat root is listed
+    (cmux-tui/crates/acpmux/tests/chats_window.rs). One second apart, a day ago, so acpmux's newest-first order is
+    known. Each is the one user record Claude Code writes first (cmux-chat-index's claude adapter reads its prompt)."""
+    home = tempfile.mkdtemp(prefix="palbench-home-", dir="/tmp")
+    projects = os.path.join(home, ".claude", "projects")
+    day_ago = time.time() - 86_400
+    for i in range(count):
+        session = f"00000000-0000-4000-8000-{i:012d}"
+        folder = os.path.join(projects, f"-work-p{i % 40}")
+        os.makedirs(folder, exist_ok=True)
+        record = {"type": "user", "isSidechain": False, "cwd": f"/work/p{i % 40}", "sessionId": session,
+                  "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(day_ago + i)),
+                  "message": {"role": "user", "content": f"Idle cost chat {i}: tidy the build scripts"}}
+        path = os.path.join(folder, f"{session}.jsonl")
+        with open(path, "w") as handle:
+            handle.write(json.dumps(record) + "\n")
+        os.utime(path, (day_ago + i, day_ago + i))
+    print(f"seeded chats: {count} Claude Code transcripts under {projects}", flush=True)
+    return home
+
+
+def wait_for_index(word, seconds=180):
+    """Asks the app's acpmux for `word` until its index answers with rows; the last diagnosis."""
+    deadline = time.monotonic() + seconds
+    diagnosis = {}
+    while time.monotonic() < deadline:
+        diagnosis = acpmux_diagnosis(word)
+        if (diagnosis.get("window_total") or diagnosis.get("window_rows") or 0) > 0:
+            break
+        time.sleep(3)  # test harness: the index scans the seeded transcripts in the background
+    print(f"acpmux index for {word!r}: {json.dumps(diagnosis)[:400]}", flush=True)
+    return diagnosis
+
+
 def summarize(label, samples):
     line = {}
     for stage in STAGES:
@@ -169,6 +362,8 @@ def summarize(label, samples):
 
 def cleanup():
     print("cleanup", flush=True)
+    if VDISPLAY is not None and VDISPLAY.poll() is None:
+        VDISPLAY.terminate()  # the helper this script started; its display arrangement goes with it
     if os.environ.get("PALETTEOPEN_KEEP") or not LAUNCHED:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -194,14 +389,52 @@ def cleanup():
         os.remove(SOCKET)
 
 
+VDISPLAY = None
+CHAT_ROWS = []  # chat rows on screen after each typed key (search_typing)
+
+
+def start_vdisplay(hz):
+    """A 1920x1200 virtual main display at `hz` (split-spring.sh's helper), for STRESS's 1600x1000 window."""
+    global VDISPLAY
+    repo = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    folder = os.path.join(SCRATCH, "vdisplay", "VDisplay.app", "Contents")
+    os.makedirs(os.path.join(folder, "MacOS"), exist_ok=True)
+    binary = os.path.join(folder, "MacOS", "VDisplay")
+    built = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework", "AppKit",
+                            "-framework", "CoreVideo", os.path.join(repo, "scripts/ci/frame-pacing/vdisplay.m"), "-o", binary],
+                           capture_output=True, text=True)
+    if built.returncode != 0:
+        raise SystemExit(f"palette-open: the virtual display helper did not compile: {built.stderr[-600:]}")
+    with open(os.path.join(repo, "scripts/ci/frame-pacing/VDisplay-Info.plist")) as src, open(os.path.join(folder, "Info.plist"), "w") as dst:
+        dst.write(src.read())
+    subprocess.run(["codesign", "-s", "-", "--force", os.path.dirname(folder)], capture_output=True)
+    out = open(os.path.join(SCRATCH, "vdisplay", "out"), "w+")
+    VDISPLAY = subprocess.Popen([binary, str(hz), "3600", "main", "1920x1200"], stdout=out, stderr=subprocess.DEVNULL)
+    line = ""
+    for _ in range(20):
+        out.seek(0)
+        line = next((l for l in out.read().splitlines() if l.startswith(("ready", "error"))), "")
+        if line or VDISPLAY.poll() is not None:
+            break
+        time.sleep(1)  # test harness: a bounded wait for the helper's own ready line
+    if not line.startswith("ready"):
+        raise SystemExit(f"palette-open: no virtual display ({line or 'no line'})")
+    print(f"vdisplay: {line}", flush=True)
+    time.sleep(2)  # test harness: WindowServer settles the new main display before the app opens on it
+
+
 def main():
     global app, SOCKET
+    if opts.vdisplay:
+        start_vdisplay(opts.vdisplay)
     # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
     # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
+    if opts.search_keys and opts.seed_chats:
+        env["HOME"] = seed_chats(opts.seed_chats)
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
     launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
@@ -224,6 +457,23 @@ def main():
         row("setup", "a focused terminal", json.dumps(panes())[:400], False)
         return
     time.sleep(2)  # test harness: shell prompt
+    if opts.search_keys:
+        if opts.stress:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+            spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+            stress = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(stress)
+            summary = stress.Stress(rpc, log=lambda message: print(message, flush=True)).build()
+            print("STRESS-SESSION", json.dumps(summary)[:600], flush=True)
+        if opts.seed_chats:
+            index = wait_for_index(opts.search_keys.split()[0])
+            if not ((index.get("window_total") or index.get("window_rows") or 0) > 0) and not str(index.get("error") or "").startswith("no acpmux"):
+                row("acpmux index", f"rows for {opts.search_keys!r} before typing", json.dumps(index)[:300], False)
+        report = {"tag": TAG, "stress": opts.stress, "seed_chats": opts.seed_chats, "search_keys": search_report(opts.search_keys)}
+        if opts.json:
+            with open(opts.json, "w") as handle:
+                json.dump(report, handle, indent=1)
+        return
     page = os.path.join(SCRATCH, "page.html")
     open(page, "w").write("<!doctype html><title>palette page</title><body style='background:#2980b9;color:white;font:40px "
                           "-apple-system'><input autofocus>" + "<p>palette page row</p>" * 60)
@@ -287,6 +537,11 @@ def main():
 
 try:
     main()
+except Exception as error:  # noqa: BLE001  (a bench step: print why, the finally block exits with the rows)
+    import traceback
+    traceback.print_exc()
+    sys.stdout.flush()
+    row("bench", "ran to the end", f"{type(error).__name__}: {str(error)[:300]}", False)
 finally:
     cleanup()
     print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")

@@ -255,6 +255,10 @@ fn strip_state_write(
         }
         if let Some(saved) = &saved {
             put_saved_tab_group(transaction, saved)?;
+            let linked = groups.groups.values().find(|g| g.saved_id.as_ref() == Some(&saved.id));
+            if let Some(group) = linked {
+                crate::state::store::note_saved_from_pane(transaction, &group.pane_id, &saved.id)?;
+            }
             if let Some(snapshot) = saved_tab_group_snapshot(transaction, &saved.id)? {
                 changes.push(state_upsert("saved_tab_group", &saved.id, snapshot));
             }

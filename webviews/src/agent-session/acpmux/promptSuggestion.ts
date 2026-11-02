@@ -1,4 +1,5 @@
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /// The prompt an idle new chat's empty composer suggests, Tab to take it (Leo 2026-10-18): the open
 /// PR another chat in this checkout made, or else the checkout branch's own open PR as the App read it
@@ -53,7 +54,7 @@ export function promptSuggestion(
     (entry) => working(entry) && (sameTree(entry) || (other(entry) && entry.pullRequest?.number === pr.number)),
   );
   if (busy) return undefined;
-  const title = pr.title.length > TITLE_MAX ? `${pr.title.slice(0, TITLE_MAX - 1).trimEnd()}…` : pr.title;
+  const title = pr.title.length > TITLE_MAX ? `${sliceWhole(pr.title, TITLE_MAX - 1).trimEnd()}…` : pr.title;
   const kind = pr.checks === "failing" ? "failing" : pr.state === "draft" ? "draft" : "open";
   return { kind, number: pr.number, title };
 }

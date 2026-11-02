@@ -10,6 +10,44 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // A move out of an incognito workspace can make another incognito
+    // workspace; its app owns it (incognito_orphans). Every move command
+    // takes part, so none commits outside the serialized moves.
+    let moves = matches!(
+        cmd,
+        Command::MoveTabToNewWorkspace { .. }
+            | Command::MoveTabGroupToNewWorkspace { .. }
+            | Command::MoveScreen { .. }
+            | Command::MoveScreenGroup { .. }
+            | Command::MoveTabToWorkspace { .. }
+            | Command::MoveTab { .. }
+            | Command::MoveTabToSplit { .. }
+            | Command::MoveTabGroup { .. }
+            | Command::MoveTabGroupToSplit { .. }
+            | Command::MoveTabGroupToColumn { .. }
+            | Command::MoveTerminal { .. }
+    );
+    let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    // A remote device's lists leave incognito workspaces out (#31210).
+    if let Ok(reply) = &mut result {
+        incognito_remote::prune_reply(mux, client, reply);
+    }
+    if let Some(claim) = claim
+        && result.is_ok()
+    {
+        claim.finish(mux, client);
+    }
+    result
+}
+
+fn dispatch_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
     // Who a durable legacy command acts as (P8): read once per command.
     let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {

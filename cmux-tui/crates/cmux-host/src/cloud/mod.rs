@@ -31,6 +31,8 @@
 //! and written on their next machine) and `harness_login_thread` (its
 //! thread).
 
+#[cfg(target_os = "linux")]
+mod bootstrap_role;
 pub mod client;
 pub mod github;
 #[cfg(unix)]
@@ -40,6 +42,14 @@ pub mod handoff;
 pub mod harness_login;
 #[cfg(unix)]
 pub mod harness_login_thread;
+pub mod private_bootstrap;
+pub mod receiver;
+#[cfg(target_os = "linux")]
+pub mod receiver_agent;
+#[cfg(target_os = "linux")]
+mod receiver_files;
+#[cfg(target_os = "linux")]
+mod receiver_lifecycle;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -62,3 +72,11 @@ mod trajectory_tests;
 
 #[cfg(test)]
 mod github_repos_tests;
+#[cfg(test)]
+mod receiver_client_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod receiver_files_tests;
+#[cfg(test)]
+mod receiver_read_tests;
+#[cfg(test)]
+mod receiver_reply_tests;

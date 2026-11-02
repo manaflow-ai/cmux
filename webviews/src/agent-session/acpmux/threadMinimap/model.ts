@@ -40,13 +40,22 @@ export const ROW_WIDTH = 36;
 /// The tick's line box; a tick draws `tickLength(progress)` of it from the left.
 export const TICK_BOX = 26;
 /// Pure pane-edge geometry. CSS spacing tokens are read by useRailPlacement, once per layout change.
+/// The inset is the widest spacing step whenever the pane's own gutter leaves the full rail room for
+/// it, so a pane that only grows or shrinks (the sidebar toggle) never moves the rail; it shrinks
+/// toward the narrowest step only once that gutter runs short (Leo, 2026-11-01: "the left side scroll
+/// rail needs to not really get affected by most other layout things it shouldn't really shift much
+/// at all"). It reads the pane's width, never the chat column's (`textInset`), so Session Info pushing
+/// the column does not move it either; the column only compresses or occludes the rail.
 export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
-  spacing = { min: 8, max: 16, compact: 12 },
+  spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.round(paneWidth / 100)));
-  const minimumWidth = spacing.min + spacing.compact;
+  const paneInset = transcriptColumn(paneWidth).inset;
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
+  // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
+  // resting rail fits the page edge; the inset plus that step for the edge strip.
+  const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
