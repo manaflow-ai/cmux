@@ -10,6 +10,14 @@ import Testing
 /// reused across divider ids: a switch moves a panel, it makes no window.
 @Suite(.serialized)
 @MainActor struct DividerCatcherSwitchReuseTests {
+    /// A page window over the whole window, as the Chromium fork adds one: only an area a page covers gets a panel.
+    static func page(over window: NSWindow) -> NSWindow {
+        let page = NSWindow(contentRect: window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        window.addChildWindow(page, ordered: .above)
+        return page
+    }
+
     @Test func aSwitchToAnotherWorkspacesDividerMakesNoNewPanel() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled],
@@ -17,6 +25,8 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.orderFrontRegardless()
+        let page = Self.page(over: window)
+        defer { window.removeChildWindow(page); page.close() }
         let catchers = DividerMouseCatchers(window: window)
         defer { catchers.teardown() }
         func area(_ id: String, x: CGFloat) -> LayoutMouseArea {
@@ -45,6 +55,8 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.orderFrontRegardless()
+        let page = Self.page(over: window)
+        defer { window.removeChildWindow(page); page.close() }
         let catchers = DividerMouseCatchers(window: window)
         defer { catchers.teardown() }
         let a = LayoutMouseArea(id: "a", rect: CGRect(x: 200, y: 0, width: 8, height: 400), resizesColumns: true)
@@ -69,6 +81,8 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.orderFrontRegardless()
+        let page = Self.page(over: window)
+        defer { window.removeChildWindow(page); page.close() }
         let catchers = DividerMouseCatchers(window: window)
         defer { catchers.teardown() }
         let a = LayoutMouseArea(id: "a", rect: CGRect(x: 200, y: 0, width: 8, height: 400), resizesColumns: true)
