@@ -72,3 +72,17 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         return Int(metrics.cursor_row) * 2 >= Int(metrics.rows) ? .bottom : .top
     }
 }
+
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`): the pane follows the pointer with no
+/// spring, so without this the terminal reported a grid on every drag event and its program redrew at each
+/// size while the owner's announcements came a round trip behind the view (torn rows mid-drag). Through the
+/// drag the surface draws its grid reflowed to the pane locally (the reflow preview, as in a split's spring)
+/// and holds the report; when the drag and its release's spring landed, the grid the view fits goes to the
+/// PTY once (none when the release's spring already sent it at its start, `restAt`).
+extension TerminalSurfaceView: PaneResizeGestureFollowing {
+    public func paneResizeGestureDidChange(active: Bool) {
+        guard isFollowingResizeGesture != active else { return }
+        isFollowingResizeGesture = active
+        if !active, isHeldGridPending { updateSurfaceSize() }
+    }
+}
