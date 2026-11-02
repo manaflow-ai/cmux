@@ -72,6 +72,7 @@ struct ClaudeAccountAutoSwitchFixture {
     ) -> ClaudeAccountAutoSwitchAction {
         request.action(
             policy: ClaudeAccountAutoSwitchPolicy(homeDirectory: home),
+            usageLimitReset: ClaudeUsageLimitReset(),
             pane: pane,
             isEnabled: isEnabled,
             storedExhaustion: stored,

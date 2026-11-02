@@ -23,6 +23,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
 
     private let homeDirectory: String
     private let policy: ClaudeAccountAutoSwitchPolicy
+    private let usageLimitReset = ClaudeUsageLimitReset()
     private let exhaustionStore: ClaudeAccountExhaustionStore
     private var ledger = ClaudeAccountAutoSwitchLedger()
     /// Panes whose report is being handled. A report arriving meanwhile is dropped: the pane is
@@ -128,6 +129,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         let now = Date()
         var action = request.action(
             policy: policy,
+            usageLimitReset: usageLimitReset,
             pane: pane,
             isEnabled: isEnabled,
             storedExhaustion: exhaustionStore.exhaustedUntil(now: now),

@@ -15,7 +15,7 @@ import Testing
     private var now: Date { date(2026, 10, 23, 18, 33, in: seoul) }
 
     private func parse(_ message: String, now: Date? = nil, zone: TimeZone? = nil) -> Date? {
-        ClaudeUsageLimitReset.resetDate(inMessage: message, now: now ?? self.now, timeZone: zone ?? seoul)
+        ClaudeUsageLimitReset().resetDate(inMessage: message, now: now ?? self.now, timeZone: zone ?? seoul)
     }
 
     @Test func timeWithZoneSuffix() {
@@ -93,6 +93,6 @@ import Testing
     }
 
     @Test func fallbackIntervalIsFiveHours() {
-        #expect(ClaudeUsageLimitReset.fallbackInterval == 18_000)
+        #expect(ClaudeUsageLimitReset().fallbackInterval == 18_000)
     }
 }

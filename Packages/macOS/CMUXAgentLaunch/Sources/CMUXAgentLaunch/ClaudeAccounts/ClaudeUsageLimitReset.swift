@@ -4,19 +4,26 @@ import Foundation
 /// `You've hit your session limit · resets 6:50pm (Asia/Seoul)`,
 /// `5-hour limit reached ∙ resets 3pm (America/New_York)` or
 /// `You've hit your weekly limit · resets Oct 3 at 9am`.
-public enum ClaudeUsageLimitReset {
-    /// Used by callers when a limit message carries no parseable reset time.
-    public static let fallbackInterval: TimeInterval = 5 * 3600
+public struct ClaudeUsageLimitReset: Equatable, Sendable {
+    /// How long callers treat an account as exhausted when its limit message carries no
+    /// parseable reset time.
+    public let fallbackInterval: TimeInterval
+
+    /// - Parameter fallbackInterval: How long a limit without a parseable reset time lasts;
+    ///   five hours unless given.
+    public init(fallbackInterval: TimeInterval = 5 * 3600) {
+        self.fallbackInterval = fallbackInterval
+    }
 
     private static let pattern =
         #"^(?:([A-Za-z]{3,9})\.?\s+(\d{1,2})\s+at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b(?:\s*\(([^)]*)\))?"#
 
     /// Returns the next instant matching the message's reset time, or nil when none can be parsed.
     /// A zone in parentheses overrides `timeZone`; an unknown zone falls back to it.
-    public static func resetDate(inMessage message: String, now: Date, timeZone: TimeZone) -> Date? {
+    public func resetDate(inMessage message: String, now: Date, timeZone: TimeZone) -> Date? {
         guard let marker = message.range(of: "resets ", options: .backwards) else { return nil }
         let tail = String(message[marker.upperBound...]).trimmingCharacters(in: .whitespaces)
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+        guard let regex = try? NSRegularExpression(pattern: Self.pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: tail, range: NSRange(tail.startIndex..., in: tail))
         else { return nil }
 
@@ -64,7 +71,7 @@ public enum ClaudeUsageLimitReset {
             .min()
     }
 
-    private static func month(named name: String) -> Int? {
+    private func month(named name: String) -> Int? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let prefix = name.prefix(3).lowercased()

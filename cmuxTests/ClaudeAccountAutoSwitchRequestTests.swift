@@ -106,7 +106,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
         let registry = fixture.registry()
         let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
         let work = try #require(registry.account(named: "work"))
-        let reset = try #require(ClaudeUsageLimitReset.resetDate(
+        let reset = try #require(ClaudeUsageLimitReset().resetDate(
             inMessage: fixture.seoulMessage,
             now: fixture.now,
             timeZone: fixture.seoul
@@ -162,7 +162,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
 
         let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
 
-        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
         #expect(exhaustion.quotedReset == nil)
     }
 
@@ -174,7 +174,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
 
         let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
 
-        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
         #expect(exhaustion.quotedReset == nil)
     }
 
@@ -192,7 +192,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
         let exhaustion = try #require(fixture.decide(request, pane: fixture.pane(), now: handledAt).exhaustion)
 
         #expect(exhaustion.quotedReset == nil)
-        #expect(exhaustion.until == handledAt.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == handledAt.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
     }
 
     @Test

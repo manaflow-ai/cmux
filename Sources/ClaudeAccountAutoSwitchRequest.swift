@@ -60,7 +60,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     /// Ignored, with nothing marked, when the setting went off meanwhile, the pane is not a
     /// local Claude pane, a switch of it is running, or the report predates its last automatic
     /// switch (it came from the replaced Claude). Otherwise the current account is exhausted
-    /// until the reset time its limit message gives, or ``ClaudeUsageLimitReset/fallbackInterval``
+    /// until the reset time its limit message gives, or `usageLimitReset`'s fallback interval
     /// from `now`. The next account comes from ``ClaudeAccountAutoSwitchPolicy``, trusted ones
     /// first, skipping exhausted accounts and ones without a Claude config. A free account is
     /// still held back when the pane got input after the limit, its screen isn't Claude's empty
@@ -69,6 +69,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - policy: Chooses the next account; its home directory resolves exhaustion keys.
+    ///   - usageLimitReset: Reads the reset time out of the limit message.
     ///   - pane: What cmux knows about the pane.
     ///   - isEnabled: The setting, read again after the asynchronous trust read.
     ///   - storedExhaustion: The exhaustion file's entries.
@@ -81,6 +82,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///     restart would also discard.
     func action(
         policy: ClaudeAccountAutoSwitchPolicy,
+        usageLimitReset: ClaudeUsageLimitReset,
         pane: Pane,
         isEnabled: Bool,
         storedExhaustion: [String: Date],
@@ -103,12 +105,12 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         // passed ("Oct 25 at 9am" read that afternoon) would expire at once and leave the account
         // looking free; it counts as unparsed.
         let reportedAt = Date(timeIntervalSince1970: Double(occurredAtMs) / 1000)
-        let quotedReset = ClaudeUsageLimitReset.resetDate(inMessage: detail, now: reportedAt, timeZone: timeZone)
+        let quotedReset = usageLimitReset.resetDate(inMessage: detail, now: reportedAt, timeZone: timeZone)
             .flatMap { $0 > now ? $0 : nil }
         let exhaustion = ClaudeAccountAutoSwitchAction.Exhaustion(
             account: current,
             accountKey: current.exhaustionKey(homeDirectory: homeDirectory),
-            until: quotedReset ?? now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval),
+            until: quotedReset ?? now.addingTimeInterval(usageLimitReset.fallbackInterval),
             quotedReset: quotedReset
         )
         let currentKey = exhaustion.accountKey
