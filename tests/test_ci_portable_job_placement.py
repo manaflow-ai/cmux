@@ -8,8 +8,13 @@ the workflows' wiring of its outputs.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
 import datetime as dt
+import gzip
 import importlib.util
+import io
+import json
 import os
 import sys
 import tempfile
@@ -363,6 +368,36 @@ class Decide(unittest.TestCase):
 
 def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
+
+
+class SharedWait(unittest.TestCase):
+    def test_wait_uses_document_once_then_observes_idle_capacity_live(self):
+        idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)]}, scale_sets={})
+        raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+        config = env(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                     SNAPSHOT_TOKEN="synthetic-snapshot", JOBS="control", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1", CI_RUNNER_STATE=raw)
+        clock, paths = [0.0], []
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle_row]} if "/10/runners" in path else {}
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.dict(os.environ, config, clear=True), \
+             mock.patch.object(placement.pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(placement.pool.GitHub, "snapshot", return_value=fresh), \
+             mock.patch.object(placement.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(placement.time, "sleep", side_effect=lambda s: clock.__setitem__(0, clock[0] + s)), \
+             mock.patch.object(placement.signal, "setitimer"), \
+             mock.patch.object(placement, "write") as write, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
 
 
 class Wiring(unittest.TestCase):

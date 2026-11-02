@@ -91,6 +91,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
+    /// A frame another view shows now (``giveAway(_:)``): never made volatile here again.
+    private var givenAwayFrame: IOSurface?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
@@ -490,7 +492,7 @@ public final class TerminalSurfaceView: NSView {
     /// purged one leaves the layer empty until Ghostty's next frame, as before.
     private func holdPresentedFrame(volatile: Bool) {
         if volatile {
-            volatileFrame = presentedFrame
+            volatileFrame = presentedFrame === givenAwayFrame ? nil : presentedFrame
             volatileFrame?.makeVolatile()
         } else if let frame = volatileFrame {
             volatileFrame = nil
@@ -515,6 +517,13 @@ public final class TerminalSurfaceView: NSView {
 
     func endFrameRead(_ frame: IOSurface) {
         if frame === volatileFrame { frame.makeVolatile() }
+    }
+
+    /// `frame` is shown by another view from now on (a replacement session's carried frame): this
+    /// surface, paused or closed, must not mark it volatile under that view.
+    func giveAway(_ frame: IOSurface) {
+        givenAwayFrame = frame
+        if volatileFrame === frame { volatileFrame = nil }
     }
 
     // MARK: Focus
