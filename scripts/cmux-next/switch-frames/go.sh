@@ -14,8 +14,8 @@ echo "go.sh $spec $build $journey $label $vd out $out at $(date -u +%H:%M:%SZ)" 
 python3 scripts/journeys/video-go.py --spec "$spec" --build "$build" --journey "$journey" --label "$label" \
   --vdisplay "$vd" --out "$out" ${SPEC_FILE:+--spec-file "$SPEC_FILE"} >> "$log" 2>&1
 echo "video-go exit $? at $(date -u +%H:%M:%SZ)" >> "$log"
-d=$out/$journey/video
-mov=$(ls "$d"/*.mov 2>/dev/null | head -1)
+d=$(find "$out" -type d -path "*/$journey/video" 2>/dev/null | head -1); d=${d:-$out/$journey/video}
+mov=$(ls "$d"/*.mov 2>/dev/null | grep -v -- "-display.mov" | head -1)
 if [ -n "$mov" ] && [ -s "$mov" ]; then
   base=${mov%.mov}
   /work/tmp/switch-frames/venv/bin/python "$here/judge_switch.py" --video "$mov" --frames "$mov.frames.json" \
