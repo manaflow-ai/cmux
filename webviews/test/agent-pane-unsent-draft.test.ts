@@ -49,16 +49,19 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
     authState?: "signedOut" | "routeAuthNeeded";
     healthState?: "signedOut" | "unknown";
     started?: boolean;
+    /// A New Tab page's context in the handshake, instead of a plain new chat.
+    newTab?: Record<string, unknown>;
   };
   async function newChat({
     draft,
     authState = "signedOut",
     healthState = authState === "signedOut" ? "signedOut" : "unknown",
     started = false,
+    newTab,
   }: ChatOptions = {}): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      ({ draft, authState, healthState, started }) => {
+      ({ draft, authState, healthState, started, newTab }) => {
         const unsent: string[] = [];
         const nativeCalls: { method: string; params: Record<string, unknown> }[] = [];
         Object.assign(window, {
@@ -103,15 +106,16 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
               transport: "mock",
               newSession: !started,
               ...(draft ? { draft } : {}),
+              ...(newTab ? { newTab } : {}),
             }),
           },
         });
       },
-      { draft, authState, healthState, started },
+      { draft, authState, healthState, started, newTab },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(".acpmux-composer-prompt").waitFor();
+    await page.locator(newTab ? ".nt-field .ProseMirror" : ".acpmux-composer-prompt").waitFor();
     return page;
   }
 
@@ -179,6 +183,30 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       expect(calls.filter(({ method }) => method === "chat.leftover").map(({ params }) => params.text)).toEqual([
         "left in a new chat",
       ]);
+      await page.close();
+    });
+
+    test("a New Tab page shows a new chat's leftover as its draft and tells the host it took it (cmux#32276)", async () => {
+      const page = await newChat({ newTab: { layout: "b", kind: "agent", draft: "left in a new chat" } });
+      const field = page.locator(".nt-field .ProseMirror");
+      await page.waitForFunction(
+        () => document.querySelector(".nt-field .ProseMirror")?.textContent?.includes("left in a new chat"),
+        undefined,
+        { timeout: 10_000 },
+      );
+      expect((await field.innerText()).trim()).toBe("left in a new chat");
+      const calls = await page.evaluate(
+        () => (window as unknown as { nativeCalls: { method: string; params: Record<string, unknown> }[] }).nativeCalls,
+      );
+      // Once: the slot keeps it until a page shows it, and gives it up then.
+      expect(calls.filter(({ method }) => method === "chat.leftoverTaken").map(({ params }) => params.text)).toEqual([
+        "left in a new chat",
+      ]);
+      // Nothing sends it.
+      const daemon = await page.evaluate(
+        () => (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog,
+      );
+      expect(daemon.some(({ method }) => method === "acpmux session/prompt")).toBe(false);
       await page.close();
     });
 

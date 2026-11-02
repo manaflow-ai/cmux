@@ -9,6 +9,7 @@ import Testing
         let requests: [AgentPaneRequest] = [
             .unsentDraft(secret),
             .newChatLeftover(secret),
+            .newChatLeftoverTaken(secret),
             .typeAhead(secret),
             .shellRun(command: secret, cwd: "/tmp/\(secret)"),
             .openPreview(URL(string: "http://127.0.0.1/?token=\(secret)")!),

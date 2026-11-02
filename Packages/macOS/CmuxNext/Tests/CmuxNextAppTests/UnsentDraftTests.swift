@@ -62,13 +62,28 @@ struct UnsentDraftTests {
         drafts.wire(other) { "tab-2" }
         _ = await other.respond(to: Self.request("chat.leftover", ["text": "second"]))
 
-        // After a quit: the window's next new chat takes both, once; no other window has any.
+        // After a quit: the window's next New Tab page gets both; no other window has any.
         let relaunched = AgentUnsentDrafts(file: file, files: files)
         #expect(relaunched.seed(for: "tab-1", session: nil) == nil, "the left text is no tab's draft")
-        #expect(relaunched.takeLeftover(inWindow: "window-2") == nil)
-        #expect(relaunched.takeLeftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
-        #expect(relaunched.takeLeftover(inWindow: "window-1") == nil, "a leftover seeds one new chat")
-        #expect(AgentUnsentDrafts(file: file, files: files).takeLeftover(inWindow: "window-1") == nil)
+        #expect(relaunched.leftover(inWindow: "window-2") == nil)
+        #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
+        // A page that never shows (its tab failed to open) gives nothing up: the next page gets it.
+        #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
+        // A page reports it showed the first part; what was left after it was read stays.
+        let page = AgentPaneModel(host: MockAgentPaneHost())
+        relaunched.windowOfTab = { _ in "window-1" }
+        relaunched.wire(page) { "tab-3" }
+        #expect(page.newTabForPage == nil, "only a New Tab page gets it")
+        // A New Tab page its host gave none (a workspace's first page, a restored one) reads its window's.
+        let first = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        relaunched.wire(first) { "tab-4" }
+        #expect(first.newTabForPage?.draft == "held prompt\n\ntyped here\n\nsecond")
+        _ = await page.respond(to: Self.request("chat.leftoverTaken", ["text": "held prompt\n\ntyped here"]))
+        #expect(relaunched.leftover(inWindow: "window-1") == "second")
+        _ = await page.respond(to: Self.request("chat.leftoverTaken", ["text": "second"]))
+        #expect(relaunched.leftover(inWindow: "window-1") == nil, "a leftover seeds one new chat")
+        #expect(AgentUnsentDrafts(file: file, files: files).leftover(inWindow: "window-1") == nil)
+        withExtendedLifetime(relaunched) {}
         withExtendedLifetime(drafts) {}
     }
 
