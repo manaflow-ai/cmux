@@ -471,8 +471,16 @@ export function useSessionInfo({
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
   // The person opened it in this pane (the toggle, a running line's count, the palette), not only a
-  // saved state: a popover shows only then (SessionInfoPresence).
+  // saved state: a popover shows only then (SessionInfoPresence). Both are this chat's: a pane switched
+  // to another chat starts unasked and unsuppressed, so that chat's saved open state never puts a
+  // popover over it either.
   const [asked, setAsked] = useState(false);
+  const [askedFor, setAskedFor] = useState(paneSession);
+  if (askedFor !== paneSession) {
+    setAskedFor(paneSession);
+    setAsked(false);
+    setSuppressed(false);
+  }
   const shown = sessionInfoShown({ on, open, suppressed, covered });
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();

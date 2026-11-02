@@ -319,10 +319,10 @@ test("in a wide pane it floats beside the transcript", async () => {
 // steps aside, still open for its toggle, so the chat and the new tab are what show. Where the gutter
 // cannot hold it the panel pushes the chat (#31423), so it floats over the chat only in a short or too
 // narrow pane, as a popover (sessionInfoPopover), which shows only once the person opens it.
-function FolderPane({ opened }: { opened: string[] }) {
+function FolderPane({ opened, chatSnapshot = snapshot }: { opened: string[]; chatSnapshot?: typeof snapshot }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const sessionInfo = useSessionInfo({
-    snapshot,
+    snapshot: chatSnapshot,
     machineName: "Studio",
     shell,
     onOpenFolder: (path) => opened.push(path),
@@ -403,6 +403,20 @@ test("in a pane too narrow to push, a saved open state leaves the chat clear; th
   expect(card).not.toBeNull();
   expect(card!.dataset.placement).toBe("overlay");
   expect(card!.hasAttribute("data-popover")).toBe(true);
+});
+
+test("a narrow pane switched to another chat starts that chat with its transcript clear", async () => {
+  // The person opened the popover for one chat; the pane then shows another chat whose saved state is
+  // open. The ask was for the first chat, so the second starts unasked.
+  const opened: string[] = [];
+  const container = await mountFolderPane(370, opened, 960);
+  await act(async () => toggle(container).click());
+  expect(panel(container)).not.toBeNull();
+  const other = { ...snapshot, sessionId: "other-chat", summary: { ...snapshot.summary!, sessionId: "other-chat" } };
+  await act(async () => root!.render(<FolderPane opened={opened} chatSnapshot={other} />));
+  expect(panel(container)).toBeNull();
+  await act(async () => toggle(container).click());
+  expect(panel(container)).not.toBeNull();
 });
 
 test("a tall pane with room keeps opening Session Info from its saved state", async () => {
