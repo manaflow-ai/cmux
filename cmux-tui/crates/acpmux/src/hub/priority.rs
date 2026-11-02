@@ -404,22 +404,28 @@ impl Ranking {
         now: i64,
         failing: &HashSet<String>,
     ) -> Vec<Row> {
-        let _ = (marks, now, failing);
-        lanes
-            .iter()
-            .map(|lane| Row {
-                id: lane.id.clone(),
-                title: lane.title.clone(),
-                project: lane.project.clone(),
-                machine: lane.machine.clone().or_else(|| lane.peer.clone()),
-                preview: preview(lane),
-                state: row_state(lane, false, false),
-                since: lane.since,
-                unread: lane.unread,
-                pinned: false,
-                harness: lane.harness.clone(),
-            })
-            .collect()
+        let ranked: Vec<Ranked> =
+            lanes.iter().filter_map(|lane| self.ranked(lane, marks, now, failing)).collect();
+        let (placed, mut free): (Vec<Ranked>, Vec<Ranked>) =
+            ranked.into_iter().partition(|r| marks.placed.contains_key(&r.row.id));
+        free.sort_by(|a, b| {
+            a.tier
+                .cmp(&b.tier)
+                .then(b.row.pinned.cmp(&a.row.pinned))
+                .then(b.since.cmp(&a.since))
+                .then(a.row.id.cmp(&b.row.id))
+        });
+        let mut rows: Vec<Row> = free.into_iter().map(|r| r.row).collect();
+        // The dragged chats go back in where the person put them, the top place first.
+        let mut placed: Vec<(usize, Row)> = placed
+            .into_iter()
+            .map(|r| (marks.placed.get(&r.row.id).copied().unwrap_or(0), r.row))
+            .collect();
+        placed.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.id.cmp(&b.1.id)));
+        for (place, row) in placed {
+            rows.insert(place.min(rows.len()), row);
+        }
+        rows
     }
 
     fn ranked(
@@ -467,8 +473,30 @@ impl Ranking {
         now: i64,
         failing: &HashSet<String>,
     ) -> Option<i64> {
-        let _ = (lanes, marks, now, failing);
-        None
+        lanes
+            .iter()
+            .filter_map(|lane| {
+                if marks.archived.contains(&lane.id) {
+                    return None;
+                }
+                let stamp = stamp(lane);
+                // A snooze on the chat's current state ends; one on an older state no longer applies.
+                if let Some(snooze) = marks.snoozed.get(&lane.id)
+                    && snooze.stamp == stamp
+                    && snooze.until_ms > now
+                {
+                    return Some(snooze.until_ms);
+                }
+                let read = marks.read.get(&lane.id) == Some(&stamp);
+                let state = row_state(lane, read, failing.contains(&lane.id));
+                let kept = marks.pinned.contains(&lane.id) || marks.placed.contains_key(&lane.id);
+                if kept || state != RowState::Idle {
+                    return None;
+                }
+                lane.since.map(|since| since.saturating_add(self.idle_horizon_ms))
+            })
+            .filter(|at| *at > now)
+            .min()
     }
 }
 
