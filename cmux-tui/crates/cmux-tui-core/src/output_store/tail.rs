@@ -1,7 +1,8 @@
 //! Snapshot mode's tail journal: the output a terminal printed after its
 //! last snapshot, so a kill of the daemon and every terminal host (REOPEN-F3)
-//! loses at most the last [`super::TAIL_FLUSH_INTERVAL`] of output, whether
-//! or not the output stopped.
+//! loses only the last [`super::TAIL_FLUSH_INTERVAL`] of output, whether or
+//! not the output stopped (and bytes that changed no stored content; see
+//! `output_store.rs`).
 //!
 //! File: `<terminal id>.tail` = `CMUXTAIL1\n` + one JSON line (`generation`,
 //! `start`: the stream offset of the snapshot it continues) + frames in the
@@ -45,6 +46,17 @@ pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf 
 /// is incognito, or its history was cleared).
 pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
     let _ = fs::remove_file(path(directory, terminal_id));
+}
+
+/// Remove every terminal's tail (the mode is no longer `snapshot`).
+pub(super) fn remove_all(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|extension| extension == SUFFIX) {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 /// Append `bytes` (stream offsets `start..`) to the tail that continues the
@@ -150,7 +162,7 @@ pub(super) fn bytes_after(
     let mut cursor = from;
     let mut out = Vec::new();
     for (start, bytes) in frames {
-        let end = start + bytes.len() as u64;
+        let end = start.saturating_add(bytes.len() as u64);
         if end <= cursor {
             continue;
         }
@@ -165,7 +177,8 @@ pub(super) fn bytes_after(
     out
 }
 
-/// The stream end each tail recorded, by terminal: (generation, end).
+/// The stream end each tail recorded, by terminal: (generation, end), from
+/// the frame headers (no decompression; read once at start).
 pub(super) fn stream_ends(
     directory: &Path,
 ) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
@@ -176,12 +189,47 @@ pub(super) fn stream_ends(
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
-            let (generation, base, frames) = read_file(&path)?;
-            let end =
-                frames.iter().map(|(start, bytes)| start + bytes.len() as u64).fold(base, u64::max);
-            Some((terminal_id, (generation, end)))
+            let (generation, base, end) = header_extent(&path)?;
+            Some((terminal_id, (generation, base.max(end))))
         })
         .collect()
+}
+
+/// (generation, snapshot offset, largest frame end) of a tail file from its
+/// header and frame headers. A cut frame ends the walk.
+fn header_extent(file: &Path) -> Option<(String, u64, u64)> {
+    if fs::metadata(file).ok()?.len() > MAX_TAIL_FILE_BYTES {
+        return None;
+    }
+    let contents = fs::read(file).ok()?;
+    let rest = contents.strip_prefix(MAGIC)?;
+    let newline = rest.iter().position(|byte| *byte == b'\n')?;
+    let header: serde_json::Value = serde_json::from_slice(rest.get(..newline)?).ok()?;
+    let generation = header.get("generation")?.as_str()?.to_owned();
+    let base = header.get("start")?.as_u64()?;
+    let body = rest.get(newline + 1..)?;
+    use crate::terminal_host_protocol::{wire_u32, wire_u64};
+    let mut at = 0_usize;
+    let mut end = base;
+    while body.len().saturating_sub(at) >= FRAME_HEADER_BYTES {
+        let (Some(start), Some(compressed), Some(raw)) =
+            (wire_u64(body, at), wire_u32(body, at + 8), wire_u32(body, at + 12))
+        else {
+            break;
+        };
+        let Some(next) = (at + FRAME_HEADER_BYTES)
+            .checked_add(compressed as usize)
+            .filter(|next| *next <= body.len())
+        else {
+            break;
+        };
+        if raw > MAX_FRAME_RAW_BYTES {
+            break;
+        }
+        end = end.max(start.saturating_add(u64::from(raw)));
+        at = next;
+    }
+    Some((generation, base, end))
 }
 
 /// The snapshot `snapshot` (stream offset `snapshot_end`) with the tail

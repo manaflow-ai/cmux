@@ -1,10 +1,10 @@
 //! The tail flush: the digest a capture saw stands for stored bytes only
-//! when it saw exactly them. (Red form: the flush takes only the digest.)
+//! when it saw exactly them.
 
 use std::sync::{Arc, Mutex};
 
 use super::super::{LogState, OutputStore, TerminalLog};
-use super::flush_tail;
+use super::{Seen, flush_tail};
 use crate::resource::TerminalPublicId;
 
 fn directory(name: &str) -> std::path::PathBuf {
@@ -49,10 +49,22 @@ fn a_chunk_in_flight_at_the_capture_still_reaches_the_tail() {
     let store = OutputStore::new(None);
     let log = log(b"first ");
     let screen_with_chunk = 7;
-    flush_tail(&store, &directory, &log, screen_with_chunk, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: screen_with_chunk, settled: false, end: 6 },
+        false,
+    );
     push(&log, b"chunk");
     // The screen did not change since: the same digest, now settled.
-    flush_tail(&store, &directory, &log, screen_with_chunk, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: screen_with_chunk, settled: true, end: 11 },
+        false,
+    );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
     let _ = std::fs::remove_dir_all(&directory);
     assert_eq!(stored, b"first chunk", "the chunk in flight was held as a redraw");
@@ -67,9 +79,21 @@ fn bytes_after_the_capture_still_reach_the_tail() {
     let screen_with_one = 3;
     // Captured at offset 4; "two" arrived before the flush took the bytes.
     push(&log, b"two ");
-    flush_tail(&store, &directory, &log, screen_with_one, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: screen_with_one, settled: true, end: 4 },
+        false,
+    );
     push(&log, b"three");
-    flush_tail(&store, &directory, &log, screen_with_one, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: screen_with_one, settled: true, end: 13 },
+        false,
+    );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
     let _ = std::fs::remove_dir_all(&directory);
     assert_eq!(stored, b"one two three");
@@ -82,12 +106,13 @@ fn a_redraw_of_exactly_the_stored_bytes_waits_in_memory() {
     let directory = directory("redraw");
     let store = OutputStore::new(None);
     let log = log(b"screen");
-    flush_tail(&store, &directory, &log, 5, false);
-    push(&log, b"\x1b[20;3H\x1b[?25h");
-    flush_tail(&store, &directory, &log, 5, false);
+    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 6 }, false);
+    let redraw = b"\x1b[20;3H\x1b[?25h";
+    push(&log, redraw);
+    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 15 }, false);
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
     let pending = log.state.lock().unwrap().pending.len();
     let _ = std::fs::remove_dir_all(&directory);
     assert_eq!(stored, b"screen");
-    assert_eq!(pending, 9, "the redraw is kept for the next change or snapshot");
+    assert_eq!(pending, redraw.len(), "the redraw is kept for the next change or snapshot");
 }

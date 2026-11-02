@@ -224,15 +224,23 @@ fn kill_all_while_output_streams_restores_every_line_but_the_last_moment() {
     );
 }
 
-/// The last directory line the shell's probe printed.
-fn read_cwd(socket: &Path, surface: u64) -> String {
-    let screen = wait_for_screen(socket, surface, "f3-cwd=/");
+/// The directory line the probe with `label` printed.
+fn read_cwd(socket: &Path, surface: u64, label: &str) -> String {
+    let prefix = format!("{label}=/");
+    let screen = wait_for_screen(socket, surface, &prefix);
     screen
         .lines()
         .rev()
-        .find(|line| line.starts_with("f3-cwd=/"))
+        .find(|line| line.starts_with(&prefix))
         .map(|line| line.trim_end().to_string())
-        .unwrap_or_else(|| panic!("the shell printed no directory: {screen}"))
+        .unwrap_or_else(|| panic!("the shell printed no {label} line: {screen}"))
+}
+
+/// A probe that prints `$PWD` after `label=`; the label is split in the
+/// typed command, so only the shell's output matches it.
+fn cwd_probe(label: &str) -> String {
+    let (head, rest) = label.split_at(2);
+    format!("printf '{head}''{rest}=%s\\n' \"$PWD\"")
 }
 
 /// The respawned shell keeps the directory as the path string it was given:
@@ -243,12 +251,10 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let mut harness = production_harness("kill-all-cwd");
     let (real, link) = symlinked_directory(&harness);
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "cwd", &link);
-    let probe = "printf 'f3-cwd=%s\\n' \"$PWD\"";
-    let wanted = format!("f3-cwd={}", link.display());
-    send_line(&harness.socket, surface, probe);
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-before"));
     assert_eq!(
-        read_cwd(&harness.socket, surface),
-        wanted,
+        read_cwd(&harness.socket, surface, "f3-cwd-before"),
+        format!("f3-cwd-before={}", link.display()),
         "the shell started in {} reports its real path {}",
         link.display(),
         real.display()
@@ -257,13 +263,11 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     kill_everything_and_restart(&mut harness);
     let surface = respawned_surface(&harness, &terminal_id, &incarnation);
     wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
-    // The restored screen holds the old probe's line: clear it first.
-    send_line(&harness.socket, surface, "clear");
-    std::thread::sleep(Duration::from_millis(300));
-    send_line(&harness.socket, surface, probe);
+    // Its own label: the restored screen holds the first probe's line.
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-after"));
     assert_eq!(
-        read_cwd(&harness.socket, surface),
-        wanted,
+        read_cwd(&harness.socket, surface, "f3-cwd-after"),
+        format!("f3-cwd-after={}", link.display()),
         "the respawned shell reports the real path {} instead of {}",
         real.display(),
         link.display()

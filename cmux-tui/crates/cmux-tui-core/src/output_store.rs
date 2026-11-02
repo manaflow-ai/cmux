@@ -25,8 +25,13 @@
 //!     an append-only tail file written every [`TAIL_FLUSH_INTERVAL`]
 //!     (`output_store/tail.rs`; the snapshot is its compaction). A respawn
 //!     after the daemon and its hosts died (a crash, a reboot) seeds the new
-//!     shell with the snapshot plus its tail: at most the last
-//!     [`TAIL_FLUSH_INTERVAL`] of output is lost (REOPEN-F3).
+//!     shell with the snapshot plus its tail (REOPEN-F3). What a kill of
+//!     every process loses: the output of the last [`TAIL_FLUSH_INTERVAL`]
+//!     and one writer pass, plus bytes that changed nothing the content
+//!     digest sees (text, size, screen, history, cursor position: a cursor
+//!     redrawn in place, a color-only change), which wait in memory up to
+//!     [`TAIL_IDLE_BYTES`] so an idle TUI writes nothing. An OS crash can
+//!     lose up to [`TAIL_SYNC_INTERVAL`] more.
 //!   - `full`: the snapshot plus every output byte in per-terminal
 //!     compressed segment files (see `output_store/segments.rs`).
 //!
@@ -258,6 +263,9 @@ struct LogState {
     /// The next pass writes a snapshot whether or not the content changed
     /// (a gap in the tail, cleared history, a mode change).
     force_snapshot: bool,
+    /// A snapshot or tail write failed and was reported; cleared by the next
+    /// success (one report per failing stretch, not one per pass).
+    store_error: bool,
 }
 
 impl LogState {
@@ -287,7 +295,22 @@ impl LogState {
             tail_synced_at: None,
             tail_unsynced: false,
             force_snapshot: false,
+            store_error: false,
         }
+    }
+
+    /// Drop the oldest unwritten bytes past `max`. The stored stream then has
+    /// a gap: in snapshot mode the tail no longer continues and the next
+    /// snapshot starts it again (full mode's segment reads report the gap).
+    fn cap_pending(&mut self, max: usize) {
+        let excess = self.pending.len().saturating_sub(max);
+        if excess == 0 {
+            return;
+        }
+        self.pending.drain(..excess);
+        self.pending_start += excess as u64;
+        self.tail_end = None;
+        self.force_snapshot = true;
     }
 
     fn next_offset(&self) -> u64 {
@@ -1046,7 +1069,10 @@ impl OutputStore {
                     false
                 }
                 None => {
-                    log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    state.dirty = true;
+                    // Bounded while the registry cannot place the terminal.
+                    state.cap_pending(TAIL_MAX_UNWRITTEN_BYTES);
                     unknown = true;
                     false
                 }
