@@ -39,6 +39,28 @@ extension SidebarAgentProfileLabel {
         )
     }
 
+    /// `workspaceIdsToRefresh` for the workspace list as rendered: a full reload rebuilds the
+    /// rows whose shown Claude account row (`shownSnapshots`) differs from what the workspace's
+    /// panes give now.
+    @MainActor
+    static func workspaceIdsToRefresh(
+        afterIndexChange userInfo: [AnyHashable: Any]?,
+        renderContext: VerticalTabsSidebar.WorkspaceListRenderContext,
+        shownSnapshots: SidebarRowSnapshotCache
+    ) -> [UUID] {
+        workspaceIdsToRefresh(
+            afterIndexChange: userInfo,
+            allWorkspaceIds: renderContext.workspaceIds,
+            settings: renderContext.tabItemSettings
+        ) { workspaceId in
+            guard let workspace = renderContext.workspaceById[workspaceId] else { return false }
+            return SidebarWorkspaceSnapshotFactory.claudeAccountRowIsStale(
+                workspace: workspace,
+                shownEntries: shownSnapshots.snapshotsById[workspaceId]?.metadataEntries
+            )
+        }
+    }
+
     /// Whether the notification names the workspaces it changed; a full reload names none.
     private static func namesWorkspaces(_ userInfo: [AnyHashable: Any]?) -> Bool {
         userInfo?["panelIdsByWorkspaceId"] is [UUID: Set<UUID>] || userInfo?["workspaceId"] is UUID
