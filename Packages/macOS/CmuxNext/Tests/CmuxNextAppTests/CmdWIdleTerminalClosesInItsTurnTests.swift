@@ -230,7 +230,18 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             for character in after { try Self.press(String(character), in: window, t) }
             hold.release()
             try await PinnedPageTests.until({ Self.question() != nil }, report: { "no question for the running terminal" })
+            let coordinator = t.services.keyRouter.creationInputCoordinator
+            let atQuestion = "focus \(focused() ?? "nil") resolved \(String(describing: t.services.keyRouter.focus(for: window).0?.focus.state.resolved)) holding \(coordinator.isHolding(in: window)) asking \(TabCloseGuard.asking) selected \(t.pane.stripModel.selectedID?.rawValue ?? "nil") firstResponder \(String(describing: window.firstResponder))"
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            try await Self.turns()
+            let afterCancel = "focus \(focused() ?? "nil") resolved \(String(describing: t.services.keyRouter.focus(for: window).0?.focus.state.resolved)) holding \(coordinator.isHolding(in: window)) end \(String(describing: coordinator.lastHoldEnd(in: window))) selected \(t.pane.stripModel.selectedID?.rawValue ?? "nil") firstResponder \(String(describing: window.firstResponder))"
+            try await Task.sleep(for: .seconds(3))
+            var screens: [String] = []
+            for tab in t.pane.pane.tabs where tab.kind == .pty {
+                let text = (try? await t.connection.request(ReadScreenRequest(surface: tab.surface), timeout: .seconds(5)))?.text ?? "?"
+                screens.append("\(tab.id): \(text.suffix(120))")
+            }
+            Issue.record("DIAG atQuestion: \(atQuestion)\nDIAG afterCancel: \(afterCancel)\nDIAG late: holding \(coordinator.isHolding(in: window)) end \(String(describing: coordinator.lastHoldEnd(in: window)))\nDIAG ids t \(t.tab.id) neighbour \(neighbour.id) running \(running.id)\nDIAG screens \(screens)")
             let typed = try? await t.connection.request(WaitForTextRequest(surface: neighbour.surface, pattern: before + after, timeoutMs: 10_000),
                                                         timeout: .seconds(15))
             let screen = (try? await t.connection.request(ReadScreenRequest(surface: running.surface), timeout: .seconds(5)))?.text ?? ""
