@@ -6,6 +6,7 @@ import {
   restBand,
   tailGap,
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   transcriptGap,
 } from "./transcriptGrid";
@@ -1080,6 +1081,8 @@ const META_GAP = 0;
 let chromeScale = 1;
 const META_ROW_PT = gridLength("transcript-action-control");
 const metaRow = () => META_ROW_PT * chromeScale;
+/// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
+const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -1592,13 +1595,13 @@ function fallbackRowHeight(
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's height (metaRow(), conversation.css
-  // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(metaRow() + TURN_GAP);
+  // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
+  // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return finish(metaRow());
+  if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
@@ -1628,10 +1631,9 @@ function fallbackRowHeight(
   if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
-  // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
-  // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
-  if (row.kind === "turnSummary")
-    return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : metaRow() + TURN_GAP);
+  // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
+  // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
+  if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -1869,8 +1871,7 @@ function measuredRowHeight(
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") {
     if (isOverlayFooter(row)) return 0;
-    const gap = continuation ? MESSAGE_GAP : TURN_GAP;
-    return isEmptyFooter(row) ? Math.max(metaRow(), gap) : metaRow() + gap;
+    return footerRow();
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
@@ -2054,8 +2055,11 @@ function measuredRowHeight(
 /// a footer's when a prompt follows it.
 export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string }>;
 
-export const isOverlayFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.resumable;
+/// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
+/// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
+/// the reply (transcriptGrid.ts `MARK_FOOTER_ROW`; Leo, 2026-11-02: "didn't i always say we can do it
+/// like chatgpt").
+export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
