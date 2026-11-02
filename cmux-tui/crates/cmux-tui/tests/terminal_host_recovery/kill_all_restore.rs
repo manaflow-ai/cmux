@@ -465,3 +465,46 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         std::thread::sleep(Duration::from_millis(200));
     }
 }
+
+#[test]
+fn zz_linux_probe_sizes() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("linux-probe");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "probe", &home);
+    let vt = |s: u64| {
+        let st = request(&harness.socket, serde_json::json!({"cmd":"vt-state","surface":s}));
+        format!("{}x{}", st["cols"], st["rows"])
+    };
+    let created = vt(surface);
+    send_line(&harness.socket, surface, "printf 'probe-%s\\n' ready");
+    wait_for_screen(&harness.socket, surface, "probe-ready\n");
+    std::thread::sleep(Duration::from_millis(500));
+    let snap = |h: &RecoveryHarness| {
+        walk_files(&h.state)
+            .into_iter()
+            .find(|p| p.extension().is_some_and(|e| e == "snap"))
+            .and_then(|p| fs::read(p).ok())
+            .and_then(|b| {
+                let rest = b.strip_prefix(b"CMUXSNAP1\n")?.to_vec();
+                let line = rest.split(|x| *x == b'\n').next()?.to_vec();
+                String::from_utf8(line).ok()
+            })
+    };
+    let snap_before = snap(&harness);
+    let resized = request(
+        &harness.socket,
+        serde_json::json!({"id": 5, "cmd": "resize-surface", "surface": surface, "cols": 99, "rows": 30}),
+    );
+    std::thread::sleep(Duration::from_millis(1500));
+    let after_resize = vt(surface);
+    let snap_after_resize = snap(&harness);
+    kill_everything_and_restart(&mut harness);
+    let surface2 = respawned_surface(&harness, &terminal_id, &incarnation);
+    wait_for_screen(&harness.socket, surface2, RESPAWN_MARKER);
+    let respawned = vt(surface2);
+    panic!(
+        "PROBE created={created} snap_before={snap_before:?} resize_reply={resized} after_resize={after_resize} snap_after_resize={snap_after_resize:?} respawned={respawned} os={}",
+        std::env::consts::OS
+    );
+}
