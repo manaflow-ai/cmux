@@ -1354,7 +1354,8 @@ impl Hub {
         };
         if session.status() == SessionStatus::Closed {
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = cache.entry(id).or_insert_with(|| (generation, String::new(), String::new()));
+            let entry =
+                cache.entry(id).or_insert_with(|| (generation, String::new(), String::new()));
             entry.0 = generation;
             let bytes = serde_json::to_string(&row).unwrap_or_default();
             if with_tools {

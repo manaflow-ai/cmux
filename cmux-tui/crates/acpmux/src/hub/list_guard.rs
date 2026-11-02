@@ -778,11 +778,8 @@ mod tests {
     }
 
     fn cached_rows_equal_uncached(hub: &Hub) {
-        let mut uncached: Vec<Value> = hub
-            .sessions()
-            .iter()
-            .map(|session| hub.session_summary(session))
-            .collect();
+        let mut uncached: Vec<Value> =
+            hub.sessions().iter().map(|session| hub.session_summary(session)).collect();
         super::super::session_pages::sort_session_summaries(&mut uncached);
         assert_eq!(hub.all_session_summaries(), uncached);
     }
@@ -815,10 +812,10 @@ mod tests {
         .unwrap();
         let parent = hub.make_session(parent_meta);
         let child = hub.make_session(child_meta);
-        hub.sessions.lock().unwrap().extend([
-            (parent.id.clone(), parent.clone()),
-            (child.id.clone(), child.clone()),
-        ]);
+        hub.sessions
+            .lock()
+            .unwrap()
+            .extend([(parent.id.clone(), parent.clone()), (child.id.clone(), child.clone())]);
         hub.update_live_session_index(&parent);
         hub.update_live_session_index(&child);
         hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
