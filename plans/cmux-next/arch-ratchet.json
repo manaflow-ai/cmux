@@ -801,6 +801,16 @@
       "owner": "cloud refresh implementation",
       "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 105,
+      "why": "Port of dogfood 23248fdeba4a/f6646860fad3 (+ review fixes 2be9a0cc33a1, a4c01b0b4036, 80723559628f): the key hold and keyboard claim glue reads App-only types (KeyRouter, FocusCoordinator, WindowController, the newTab handler); the claim state machine, buffer lanes, typed-text decision and ownsTypedText are in CmuxNextFocusUI/CmuxNextFocus.",
+      "author": "dogfood-ports",
+      "owner": "dogfood-ports",
+      "receipt": "Review (independent delta review subagent): SHIP at c701cc115252bdfdeb923018f52336fea3650259",
+      "expiry": "2026-11-16"
     }
   ],
   "escape_reviews": [
