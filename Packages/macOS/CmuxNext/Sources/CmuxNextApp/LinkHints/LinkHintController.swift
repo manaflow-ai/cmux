@@ -18,7 +18,6 @@ final class LinkHintController {
         let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
-        var held: [NSEvent] = [] // the keys taken while the page's answer is out: a text field's if it has the keyboard
     }
 
     private var session: Session?
@@ -33,7 +32,7 @@ final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux)
+            let value = try? await tab.evaluate(LinkHintSession.sessionCollectScript, world: .isolated, gesture: .cmux)
             guard !Task.isCancelled else { return }
             self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], editing: value.map(LinkHintSession.editing(from:)) ?? false, from: tab)
         }
@@ -54,6 +53,8 @@ final class LinkHintController {
             cancel()
             return true
         }
+        // Until the labels show, a key is the page's as typed (a text field may have the keyboard, #32573): none is held.
+        guard current.keys.takesKeys || !flags.isEmpty else { return false }
         let outcome: LinkHintSession.Outcome
         if flags.isEmpty, event.keyCode == 51 {
             outcome = current.keys.type(nil)
@@ -64,7 +65,6 @@ final class LinkHintController {
             cancel()
             return false
         }
-        if current.keys.hints == nil { current.held.append(event) }
         session = current
         apply(outcome, on: tab)
         return true
@@ -83,7 +83,7 @@ final class LinkHintController {
         guard var current = session, current.tab === tab else { return }
         let outcome = current.keys.show(targets, editing: editing)
         session = current
-        if outcome == .passThrough { session = nil; return current.held.forEach { NSApp.sendEvent($0) } } // a text field's letters, in order
+        if outcome == .passThrough { return session = nil } // a text field has the keyboard: its letters went to it as typed
         if outcome == .cancel {
             current.notice(LinkHintStrings.noLinks)
             session = nil

@@ -38,15 +38,23 @@ public nonisolated extension LinkHintSession {
         out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href, text });
         if (out.length >= 1000) break;
       }
-      // The page's own answer to whether a text field has the keyboard (the browser's editable-focus flag can be
-      // stale after a load): the focused element through shadow roots; a focused frame may hold a field.
+      return JSON.stringify(out);
+    })()
+    """
+
+    /// ``collectScript``'s targets for a link-hint session, with the page's own answer to whether a text field has the
+    /// keyboard: `{"editing": Bool, "targets": [...]}`. The browser's editable-focus flag can be stale after an
+    /// address-bar load (#32573): then a letter typed into a field started link hints. Window hints keep the plain
+    /// list (``collectScript``).
+    public static let sessionCollectScript = """
+    (() => {
       let active = document.activeElement;
       while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
       const tag = active?.tagName || '';
       const editing = document.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
         tag === 'IFRAME' || tag === 'FRAME' || (tag === 'INPUT' &&
           !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
-      return JSON.stringify({ editing, targets: out });
+      return JSON.stringify({ editing, targets: editing ? [] : JSON.parse(\(collectScript)) });
     })()
     """
 
@@ -120,20 +128,20 @@ public nonisolated extension LinkHintSession {
         return String(array.dropFirst().dropLast())
     }
 
-    /// The collect script's answer: whether a text field has the keyboard, and the targets.
+    /// ``sessionCollectScript``'s answer: whether a text field has the keyboard, and the targets.
     private struct Answer: Decodable {
         var editing: Bool?
         var targets: [LinkHintTarget]
     }
 
-    /// The collect script's answer; an answer of targets only (an older script) is not editing.
+    /// The answer of ``sessionCollectScript``, or of ``collectScript`` (targets only: not editing).
     private static func answer(from value: BrowserJSValue) -> Answer? {
         guard case .string(let json) = value else { return nil }
         let data = Data(json.utf8)
         return (try? JSONDecoder().decode(Answer.self, from: data)) ?? (try? JSONDecoder().decode([LinkHintTarget].self, from: data)).map { Answer(editing: nil, targets: $0) }
     }
 
-    /// Whether the collect script found a text field with the keyboard.
+    /// Whether the page said a text field has the keyboard.
     package static func editing(from value: BrowserJSValue) -> Bool { answer(from: value)?.editing == true }
 
     /// The targets the collect script returned; empty when it returned
