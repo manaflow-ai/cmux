@@ -55,7 +55,7 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
   type Measured = {
     gaps: Record<string, number | null>;
     footer: { glyph: number; button: number; pitch: number | null; inkLeft: number; proseLeft: number } | null;
-    bubble: { paddingBlock: number; paddingInline: number; radius: number } | null;
+    bubble: { oneLine: number; paddingInline: number; radius: number } | null;
     rows: string[];
   };
 
@@ -185,7 +185,7 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
           : null,
         bubble: style
           ? {
-              paddingBlock: parseFloat(style.paddingTop),
+              oneLine: Math.round(bubbleElement!.getBoundingClientRect().height * 100) / 100,
               paddingInline: parseFloat(style.paddingLeft),
               radius: parseFloat(style.borderTopLeftRadius),
             }
@@ -254,11 +254,12 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       },
     );
     (BUBBLE.pending ? test.failing : test)(
-      `the prompt bubble pads ${BUBBLE.paddingBlock}/${BUBBLE.paddingInline} with a ${BUBBLE.radius} radius (${theme.file})`,
+      `a one-line prompt bubble is ${BUBBLE.oneLine}px tall, ${BUBBLE.paddingInline}px in at the sides, with a ${BUBBLE.radius} radius (${theme.file})`,
       async () => {
-        const bubble = (await of(theme)).bubble;
-        const { pending: _, ...want } = BUBBLE;
-        expect(bubble).toEqual(want);
+        const bubble = (await of(theme)).bubble!;
+        expect(Math.abs(bubble.oneLine - BUBBLE.oneLine)).toBeLessThanOrEqual(0.5);
+        expect(bubble.paddingInline).toBe(BUBBLE.paddingInline);
+        expect(bubble.radius).toBe(BUBBLE.radius);
       },
     );
   }
