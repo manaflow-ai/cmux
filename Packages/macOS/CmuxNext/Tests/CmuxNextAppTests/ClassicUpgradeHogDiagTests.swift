@@ -159,7 +159,7 @@ struct ClassicUpgradeHogDiagTests {
 }
 
 /// Collects a pipe's bytes from its readability handler.
-final class DiagBuffer: @unchecked Sendable {
+nonisolated final class DiagBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
     func append(_ more: Data) { lock.lock(); data.append(more); lock.unlock() }
