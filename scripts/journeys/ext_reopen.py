@@ -618,13 +618,16 @@ def step_reopen_video(j, step):
         movie_dir.mkdir(parents=True, exist_ok=True)
         cua = Cua()
         try:
+            # The pointer away from the sync points before the film starts.
+            cua.tool("move_cursor", {"x": float(screen.get("w") or 1920) - 620, "y": 11, "scope": "desktop"}, check=False)
             cua.tool("start_recording", {"output_dir": str(movie_dir), "record_video": True})
             record["record_started_wall"] = time.time()
             time.sleep(LEAD_SECONDS)
-            # The film's clock: the real pointer jumps between two points on the menu bar at known wall times.
+            # The film's clock: the real pointer jumps to four new points on the menu bar (never visited before in
+            # this film, so each point's first change on film is the arrival) at known wall times.
             sync = []
             w = float(screen.get("w") or 1920)
-            for x in (w - 340, w - 140, w - 340, w - 140):
+            for x in (w - 460, w - 360, w - 260, w - 160):
                 before_move = time.time()
                 cua.tool("move_cursor", {"x": x, "y": 11, "scope": "desktop"}, check=False)
                 sync.append({"x": x, "y": 11, "sent_wall": before_move, "done_wall": time.time()})
