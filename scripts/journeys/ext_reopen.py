@@ -1293,8 +1293,8 @@ def step_reopen_browser_keys(j, step):
     modifier, so they must reach the restored view that had the keyboard (a page's text field). Only then the socket:
     the app settles and is identified again. Records the first key's time from the new process's main() (kernel
     start + the app's main_start mark)."""
-    text = j.sub(step["text"])
-    if not re.fullmatch(r"[a-z0-9]+", text):
+    text = j.sub(step.get("text", ""))
+    if not re.fullmatch(r"[a-z0-9]+", text) and not (text == "" and step.get("cmd_l") is False):
         raise D.StepError(f"reopen_browser_keys: marker must be lowercase letters and digits, not {text!r}")
     record = {"how": "quit-keep-hid"}
     env = j.app.launch_env()
@@ -1321,7 +1321,7 @@ def step_reopen_browser_keys(j, step):
         if cmd_l:
             record["cmdl_wall"] = _desktop_key(keys, "l", ["cmd"])
         record["marker_wall"] = [_desktop_key(keys, ch) for ch in text]
-        record["first_key_wall"] = record["cmdl_wall"] if cmd_l else record["marker_wall"][0]
+        record["first_key_wall"] = record["cmdl_wall"] if cmd_l else (record["marker_wall"][0] if text else None)
     finally:
         keys.close()
         cua.close()
@@ -1334,7 +1334,8 @@ def step_reopen_browser_keys(j, step):
     main_wall = (record["process_start_wall"] + marks["main_start"] / 1000.0
                  if record.get("process_start_wall") and isinstance(marks.get("main_start"), (int, float)) else None)
     if main_wall:
-        record["first_key_ms_from_main_provisional"] = round((record["first_key_wall"][0] - main_wall) * 1000, 1)
+        if record.get("first_key_wall"):
+            record["first_key_ms_from_main_provisional"] = round((record["first_key_wall"][0] - main_wall) * 1000, 1)
         record["window_ms"] = round(marks.get("first_window_frame_committed", 0) - marks["main_start"], 1)
         record["window_listed_ms_from_main_provisional"] = round((record["window_listed_wall"] - main_wall) * 1000, 1)
     # The named terminals: look them up again in the restored topology (the driver's relaunch does the same).
