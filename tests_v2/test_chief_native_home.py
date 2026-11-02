@@ -2,6 +2,8 @@
 """Chief Home uses an ordinary workspace, preserving the local workspace list.
 
 Run against an explicitly named tagged app socket:
+Chief is off by default: turn on chief-enabled-release with `cmux __internal_flags` first.
+
 CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock python3 tests_v2/test_chief_native_home.py
 """
 
