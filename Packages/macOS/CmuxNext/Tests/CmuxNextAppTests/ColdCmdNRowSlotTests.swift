@@ -37,8 +37,8 @@ struct ColdCmdNRowSlotTests {
             await settings.reload()
             services.settings = settings
             try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
-            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-            try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+            try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
 
             // These workspaces were persisted before AppServices and the first window connected; this is a true cold restore.
             await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
@@ -88,9 +88,9 @@ struct ColdCmdNRowSlotTests {
                 kind: .machine(SidebarMachine(id: MachineID(machine), name: "This Mac", kind: .local)), nodes: [])
             ]
             // The document's drawn projection is a hop behind, as on a cold launch.
-            let document = try #require(SidebarDocStore.current)
+            let document = try #require(services.sidebarDoc.store)
             document.shownVersion = document.version &- 1
-            let catchingUp = NewWorkspaceDefaultSlot.layoutCatchingUp(rowsAt: document.shownChanges)
+            let catchingUp = NewWorkspaceDefaultSlot.layoutCatchingUp(document, rowsAt: document.shownChanges)
             #expect(catchingUp)
             let coldFrame = PendingWorkspaceRows.adding([probe], to: staleSections, home: nil, catchingUp: catchingUp)
             #expect(coldFrame.flatMap(\.workspaces).isEmpty, "a stale cold layout must not draw a top or bottom frame")
@@ -131,9 +131,9 @@ struct ColdCmdNRowSlotTests {
             let target = try #require(store.workspaces.first { $0.name == "cold-target" }?.id, "new workspace never entered the store")
             // Settled: the daemon confirmed the new row's document item and the list draws the projection of the
             // document's current version, so no later reconciliation is still on its way to the list.
-            let docMachines = SidebarDocWiring.docMachines(services.machines)
+            let docMachines = services.sidebarDoc.docMachines
             await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-                guard let doc = SidebarDocStore.current, docMachines.item(workspace: target) != nil else { return false }
+                guard let doc = services.sidebarDoc.store, docMachines.item(workspace: target) != nil else { return false }
                 return doc.shownVersion == doc.version && Self.rows(list.displayed).contains(target)
             }
             try #require(docMachines.item(workspace: target) != nil, "the daemon never confirmed the new row's document item")

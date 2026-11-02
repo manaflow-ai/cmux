@@ -6,15 +6,19 @@
 /// it. With the feature (the standalone `acpmux` binary, this crate's tests)
 /// the stamped value is the default. Without either, `unstamped`.
 pub fn build() -> &'static str {
-    INSTALLED_BUILD.get().copied().unwrap_or(DEFAULT_BUILD)
+    INSTALLED_BUILD.get().copied().unwrap_or_else(default_build)
 }
 
 static INSTALLED_BUILD: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
 #[cfg(feature = "build-id")]
-const DEFAULT_BUILD: &str = acpmux_build_id::BUILD;
+fn default_build() -> &'static str {
+    acpmux_build_id::build()
+}
 #[cfg(not(feature = "build-id"))]
-const DEFAULT_BUILD: &str = "unstamped";
+fn default_build() -> &'static str {
+    "unstamped"
+}
 
 /// Records this process's build id. The first call wins: a running daemon's
 /// build never changes. Call it before anything reads `build()`.

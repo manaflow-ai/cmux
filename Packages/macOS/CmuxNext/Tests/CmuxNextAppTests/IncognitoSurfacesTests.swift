@@ -33,7 +33,7 @@ struct IncognitoSurfacesTests {
         var key = WorkspaceKey.generate()
         if incognito {
             let window = services.windows.newIncognitoWindow()
-            key = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+            key = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
         }
         let store = DaemonStore()
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", name: "deploy keys")])
@@ -76,7 +76,7 @@ struct IncognitoSurfacesTests {
     @Test func anIncognitoPasskeyBannerNamesNothing() async throws {
         let services = Self.services()
         let window = services.windows.newIncognitoWindow()
-        let secret = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
         func workspace(_ id: UInt64, _ key: WorkspaceKey, tab: String) -> WorkspaceSnapshot {
             let page = TabSnapshot(surface: .init(rawValue: id), tabResourceID: ResourceID(rawValue: tab), kind: .browser, url: "https://bank.example")
             let pane = PaneSnapshot(id: .init(rawValue: id), tabs: [page])

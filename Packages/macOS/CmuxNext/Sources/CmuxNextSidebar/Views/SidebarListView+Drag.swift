@@ -148,12 +148,12 @@ extension SidebarListViewComponents {
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = selectionRevealKey
-            let sentBefore = SidebarDocStore.current?.lastIntentKey
+            let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
-            settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
+            settling?.key = doc.document?.lastIntentKey // nil already: refused inside the call
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
             // rows and the card go back as for a refusal.
-            if settling != nil, SidebarDocStore.current?.lastIntentKey == sentBefore { settling = nil }
+            if settling != nil, doc.document?.lastIntentKey == sentBefore { settling = nil }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
