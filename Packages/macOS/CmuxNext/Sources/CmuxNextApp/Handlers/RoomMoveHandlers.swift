@@ -40,9 +40,14 @@ enum RoomMoveHandlers {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let group = try context.personalGroup(invocation)
-            let id = group.id, target = room.id
-            context.services.machines.local.send("update-personal-group") { try await $0.updatePersonalGroup(id, room: target) }
-            context.services.sidebarDoc.store?.moveGroup(id.rawValue, toSpace: target.rawValue)
+            let id = group.id, target = room.id, home = context.services.machines.local
+            // The personal update moves the workspace pins only while the stored space differs, and syncs it into the
+            // document: the document's own write goes after it, or it could win and leave the workspaces behind.
+            let document = context.services.sidebarDoc.store, from = document?.groupRoom(id.rawValue)
+            context.services.registry.track(Task { @MainActor in
+                guard await home.failure("update-personal-group", { try await $0.updatePersonalGroup(id, room: target) }) == nil else { return }
+                document?.moveGroup(id.rawValue, toSpace: target.rawValue, from: from)
+            })
         }
     }
 
