@@ -215,6 +215,21 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     // flicker"). A popover caught mid-fade blurred the bars only part way, mixing them with their
     // sharp selves by its opacity: they are blurred in full while it shows at all, sharp once it is
     // gone.
+    // The rail's preview card follows the pointer from row to row by its own inline transform, with
+    // no resize or child change (threadMinimap/PreviewCard.tsx): the blur follows it there.
+    test("a surface moved by its inline transform takes its blur with it", async () => {
+      const page = await open(browser);
+      await attach(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      const before = await barContrast(page, MIDDLE, ...OUTSIDE);
+      await page.evaluate(() => (document.getElementById("popover")!.style.transform = "translateX(-200px)"));
+      await settle(page);
+      // Its new place, over the left bars, is blurred; its old place is sharp again.
+      expect(await barContrast(page, MIDDLE, 48, 232)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 268, 436)).toBeGreaterThan(before * 0.9);
+      await page.close();
+    });
+
     test("a popover mid-fade blurs the bars in full, never part way", async () => {
       const page = await open(browser);
       const before = await barContrast(page, MIDDLE, ...INSIDE);
