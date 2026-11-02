@@ -223,6 +223,8 @@ public nonisolated struct KeyBindingDefaults {
         // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
         // "all common vscode shortcuts").
         "toggleChecklistItemComplete", "toggleSplitZoom",
+        // Opt-Cmd-L: VS Code's Toggle Find in Selection.
+        "splitBrowserRight",
     ]
 
     /// Actions whose default key a terminal program also uses (Ctrl-_ is

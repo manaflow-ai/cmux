@@ -38,10 +38,12 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   person's New Terminal (and New Browser, with tileBrowsers) takes the Auto Layout path; a browser
   opens as a tab, then moves into its own pane. CLI, MCP and scripts always get a tab. Settings
   window (General > Columns) and cmux.json; `PanePlacementSettingsTests` checks the defaults.
-- New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's
-  text Look Up uses it only in text views). It replaces Cmd-Shift-Opt-N; rebind under
-  `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D stays macOS's
-  Dock shortcut and Split Browser Right.
+- New Column is Ctrl-Opt-Cmd-L and New Row Ctrl-Opt-Cmd-J (key set B, Lawrence 2026-11-01). The pattern: the focus keys plus Option: Ctrl-Cmd-L / J move right / down, Ctrl-Opt-Cmd-L / J make a column / row there (PaneCreateKeySetTests).
+  New Column was Ctrl-Cmd-D (2026-10-02), but macOS's Look Up (system hot key 70, on by default)
+  takes a real Ctrl-Cmd-D in every app before cmux sees it, so New Column never ran on a Mac with
+  default settings; Split Browser Right's Opt-Cmd-D was macOS's Dock hiding (hot key 52). It is now
+  Opt-Cmd-L. `MacOSSystemShortcutsTests` keeps every default cmux key off the macOS shortcuts that are on
+  by default. Rebind under `shortcuts.bindings.newColumn` in cmux.json or in Settings > Keyboard.
 - The refusal HUD stays for every action refused from the keyboard or menu (user decision).
 - Not done: `layout.closeSizing` (even/neighbor). The app cannot apply it to closes it does not
   initiate (the last tab exiting, other clients) without inferring from its mirror, which the
@@ -51,7 +53,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 
 - Cmd-D / Cmd-Shift-D always split the focused pane inside its own column: never create a column,
   never scroll. Too narrow at the minimum pane width: refuse with a short HUD message.
-- New Column (default Ctrl-Cmd-D) appends a column right after the
+- New Column (default Ctrl-Opt-Cmd-L) appends a column right after the
   current one and scrolls to reveal it; the only creating command that scrolls.
 - `layout.splitSizing`: `even` (default; every pane along the split axis in that column gets equal
   size) | `halve` (only the split pane halves).

@@ -95,7 +95,7 @@ struct KeybindingsFileRelaunchTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let session = "cn-keys-\(UUID().uuidString.prefix(8).lowercased())"
         let command = ActionID(rawValue: "nextSurface")
-        let text = "cmd+ctrl+opt+j x y"
+        let text = "cmd+ctrl+opt+u x y"  // no default key starts it (Ctrl-Opt-Cmd-J is New Row)
         let keys = try #require(KeybindingReports.keys(from: text))
 
         let first = try await Launch(root: root, session: session, binary: binary)

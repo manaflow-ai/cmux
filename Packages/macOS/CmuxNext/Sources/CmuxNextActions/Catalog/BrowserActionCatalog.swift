@@ -176,10 +176,12 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard],
                 requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints-split"
             ),
+            // Opt-Cmd-L: not Opt-Cmd-D, macOS's Dock hiding (system hot key 52, on by
+            // default), which takes it before cmux (MacOSSystemShortcutsTests, PaneCreateKeySetTests).
             ActionDescriptor(
                 id: "splitBrowserRight",
                 title: String(localized: "action.splitBrowserRight", defaultValue: "Split Browser Right", bundle: .module),
-                keywords: ["browser", "split"], defaultShortcut: Shortcut("d", modifiers: [.option, .command]),
+                keywords: ["browser", "split"], defaultShortcut: Shortcut("l", modifiers: [.option, .command]),
                 category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "browser split-right", mainMenu: .view
             ),

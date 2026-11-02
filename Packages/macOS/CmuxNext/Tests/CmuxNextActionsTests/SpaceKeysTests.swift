@@ -56,10 +56,10 @@ import Testing
     /// A rebind in Settings or cmux.json takes every default key of the action with it.
     @Test func aRebindDropsTheDefaultsAndTheAliases() {
         let registry = Self.registry()
-        registry.setShortcutOverride(Shortcut("j", modifiers: [.control, .option, .command]), for: "space.next")
+        registry.setShortcutOverride(Shortcut("u", modifiers: [.control, .option, .command]), for: "space.next")
         #expect(Self.winner(Shortcut(Self.right, modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.next")
         #expect(Self.winner(Shortcut("]", modifiers: [.option, .command]), Self.terminal, registry: registry)?.command != "space.next")
-        #expect(Self.winner(Shortcut("j", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.next")
+        #expect(Self.winner(Shortcut("u", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.next")
     }
 
     /// Mission Control owns Ctrl-arrows and Ctrl-digits (Switch to Desktop, Move a Space): no space key
