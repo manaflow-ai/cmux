@@ -1683,7 +1683,8 @@ impl Brain {
             return;
         };
         // Every finished one under the close setting; else a short task's
-        // (a run under SHORT_TASK whose report left nothing to land), so a
+        // (a run under SHORT_TASK whose report left nothing to land and waits on
+        // nothing: no question, build or answer pending), so a
         // sidebar does not fill with workspaces of one-off asks. Its chat
         // stays readable (zoom).
         let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
@@ -1692,7 +1693,7 @@ impl Brain {
             && !sub
                 .report
                 .as_deref()
-                .is_some_and(crate::sub_watch::unlanded);
+                .is_some_and(|r| crate::sub_watch::unlanded(r) || crate::sub_watch::awaits_more(r));
         if !(self.sub_close_on_finish || short) {
             return;
         }
