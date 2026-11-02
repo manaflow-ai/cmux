@@ -54,6 +54,8 @@ export interface Env {
   readonly CMUX_VM_MESH_EXPERIMENT?: string;
   /** Stack team ids allowed into the mesh experiment: comma or space separated. */
   readonly CMUX_VM_MESH_TENANT_IDS?: string;
+  /** Service key ids (CMUX_VM_SERVICE_KEYS `id`) that have the mesh experiment for every team they act for, when CMUX_VM_MESH_EXPERIMENT is "1". */
+  readonly CMUX_VM_MESH_SERVICE_IDS?: string;
   /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
@@ -113,6 +115,7 @@ const meshServices = (env: Env) =>
     meshConfigLayer({
       experiment: parseMeshExperiment(env.CMUX_VM_MESH_EXPERIMENT),
       tenantIds: parseTenantList(env.CMUX_VM_MESH_TENANT_IDS),
+      serviceIds: parseTenantList(env.CMUX_VM_MESH_SERVICE_IDS),
     }),
   );
 

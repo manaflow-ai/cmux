@@ -83,7 +83,7 @@ const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 const gate = Effect.gen(function* () {
   const principal = yield* CurrentPrincipal;
   const config = yield* MeshConfig;
-  if (!config.enabledFor(principal.tenantId)) return yield* Effect.fail(experimentOff());
+  if (!config.enabledFor(principal.tenantId, actorRef(principal.actor))) return yield* Effect.fail(experimentOff());
   return principal;
 });
 
@@ -705,7 +705,7 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
       const found = yield* store.findEnrollmentCode(codeSha256, parsed.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.findEnrollmentCode")));
       // Not this mesh's live code: a code of another mesh presented here is burned (burning an unknown hash does nothing).
       if (Option.isNone(found)) return yield* refuse(experimentOff());
-      if (!config.enabledFor(found.value.tenantId)) return yield* Effect.fail(experimentOff());
+      if (!config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(experimentOff());
       const code = found.value;
       const actor = actorOf(code.createdBy);
       if (Option.isNone(actor)) return yield* refuse(experimentOff());
@@ -1250,7 +1250,7 @@ const withSignedDevice = <A, E, R>(
     if (Option.isNone(parsed)) return yield* Effect.fail(experimentOff());
     const store = yield* MeshStore;
     const found = yield* store.findDeviceForSignedRequest(parsed.value).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceForSignedRequest")));
-    if (Option.isNone(found) || !config.enabledFor(found.value.tenantId)) return yield* Effect.fail(experimentOff());
+    if (Option.isNone(found) || !config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(experimentOff());
     const { tenantId, ...row } = found.value;
     const installPublicKey = row.installPublicKey;
     if (installPublicKey === null) return yield* Effect.fail(experimentOff());
