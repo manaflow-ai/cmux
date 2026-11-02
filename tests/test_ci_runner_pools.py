@@ -101,6 +101,23 @@ class Declared(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
 
+    def test_the_watch_runs_the_pinned_linux_pool_spill_with_main_as_fallback(self) -> None:
+        # cmux#31884: the queue-aware spill runs from a reviewed feat-cmux-next commit beside main's policy.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [checkout] = [s for s in steps if s.get("id") == "spill-tooling"]
+        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        self.assertEqual(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
+                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
+        self.assertTrue(checkout.get("continue-on-error"))
+        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
+        # Without the checkout, or when the spill fails, main's policy still runs alone.
+        self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
+
 
 class Evidence(unittest.TestCase):
     def test_it_reads_the_variable_the_switch_writes(self) -> None:
@@ -399,12 +416,13 @@ class Main(unittest.TestCase):
     def test_a_macos_only_overflow_record_does_not_freeze_linux_runner_on_a_dead_member(self) -> None:
         # 2026-11-01: the record (04:23Z) changed only macOS variables; RUNNER_POOLS marked 32 vCPU dead at
         # 05:30Z and moved linux to 16 vCPU, but LINUX_RUNNER stayed on 32 and its jobs queued there.
-        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404"}),
+        # The declared linux pool is now 4 then 16 vCPU (32 vCPU left it on 2026-11-01), so the dead member is 4.
+        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404"}),
                                               runner_pools.load_pools())
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
-                                          dead_now={"blacksmith-32vcpu-ubuntu-2404"}, served_now=(), now=NOW)
+                                          dead_now={"blacksmith-4vcpu-ubuntu-2404"}, served_now=(), now=NOW)
         self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
-        live = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}
+        live = {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}
         self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
                          [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
         # The switch's own change stays the switch's, and an unreadable record still defers everything.
@@ -412,7 +430,7 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.mirror_writes(value, live, record="not json"), [])
         self.assertEqual(runner_pools.mirror_writes(value, live, record='{"since": "x"}'), [])
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
@@ -446,7 +464,7 @@ class Main(unittest.TestCase):
     def test_the_overflow_watch_hands_in_what_the_mirror_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
-                 if str(step.get("run", "")).strip() == "python3 scripts/ci/runner_pools.py"]
+                 if "python3 scripts/ci/runner_pools.py" in str(step.get("run", ""))]
         self.assertTrue(steps)
         for step in steps:
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
