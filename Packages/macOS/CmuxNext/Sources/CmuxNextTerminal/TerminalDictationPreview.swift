@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The live hypothesis shown while terminal dictation is recording. It is
@@ -55,7 +55,7 @@ public final class TerminalDictationPreview: NSView {
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public func show(volatileText: String) {
-        let text = volatileText.isEmpty ? "Listening…" : "Listening… (volatileText)"
+        let text = volatileText.isEmpty ? "Listening…" : "Listening… \(volatileText)"
         label.stringValue = text
         setAccessibilityLabel(text)
         isHidden = false
