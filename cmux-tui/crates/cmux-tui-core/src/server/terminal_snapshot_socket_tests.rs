@@ -1239,8 +1239,8 @@ fn a_hidden_snapshot_viewer_gets_output_once_a_second_and_at_once_when_shown() {
         );
     }
     assert!(
-        output_events <= 3,
-        "{output_events} output events for 21 writes in 2 s to a hidden viewer: each wakes the app (want at most one per second)"
+        output_events <= 4,
+        "{output_events} output events for 21 writes in 2 s to a hidden viewer: each wakes the app (want the first at once, then at most one per second)"
     );
     let title_at = title_on_attach_at.expect("the hidden viewer never got the title bytes");
     assert!(
