@@ -576,10 +576,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // without its opt-in): the person sees it here, not only in daemon.log.
                     let refused = crate::daemon::saved_listen_refusal().await;
                     if json_out {
-                        let mut out = json!({"running": false, "error": e.to_string()});
-                        if let Some(why) = &refused {
-                            out["refused"] = json!(why);
-                        }
+                        let out = match &refused {
+                            Some(why) => {
+                                json!({"running": false, "error": e.to_string(), "refused": why})
+                            }
+                            None => json!({"running": false, "error": e.to_string()}),
+                        };
                         print_json(&out)
                     } else {
                         println!("daemon not running ({e})");
