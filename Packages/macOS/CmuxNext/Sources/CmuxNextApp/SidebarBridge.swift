@@ -259,10 +259,8 @@ final class SidebarBridge {
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
-        model.docDrag = services.sidebarDoc.docMachines.drag() // the sidebar document's drag half, nil keeps the older resolver
+        model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
-        model.docDrag?.room = state?.profileID.rawValue
-        model.docDrag?.spaces = services.sidebarDoc.spaces
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store

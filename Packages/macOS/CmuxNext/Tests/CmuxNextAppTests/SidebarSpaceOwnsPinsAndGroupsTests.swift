@@ -269,8 +269,8 @@ import Testing
     @Test func movingAGroupToASpaceStoresItsSpace() async throws {
         let remote = RecordingRemote(document: Self.groupDocument)
         let store = try await Self.loadedStore(remote)
-        store.moveGroup(GroupID("itm_g"), toSpace: Self.work)
-        store.moveGroup(GroupID("itm_g"), toSpace: Self.home)
+        store.moveGroup("itm_g", toSpace: Self.work)
+        store.moveGroup("itm_g", toSpace: Self.home)
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty }
         let sent = remote.applied.flatMap { $0 }
         #expect(sent.count == 1 && sent.first?["op"] as? String == "group.update"

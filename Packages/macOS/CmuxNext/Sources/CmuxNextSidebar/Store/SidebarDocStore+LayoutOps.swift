@@ -54,10 +54,11 @@ extension SidebarDocStore {
         if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
     }
 
-    /// Group `group` moved to space `room` (Move Group to Space): its stored space follows, so it stays in `room` once
-    /// no workspace of it lists there (an empty group lists only in its own space).
-    public func moveGroup(_ group: GroupID, toSpace room: String) {
-        let id = item(group: group)
+    /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
+    /// stored space follows, so it stays in `room` once no workspace of it lists there (an empty group lists only in its
+    /// own space).
+    public func moveGroup(_ group: String, toSpace room: String) {
+        let id = item(group: GroupID(group))
         guard case .group? = records.items[id]?.body, records.items[id]?.room != room else { return }
         send(ops: [["op": "group.update", "id": id, "patch": ["profile": room]]], title: Self.moveTitle, undoable: false)
     }

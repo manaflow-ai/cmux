@@ -22,6 +22,13 @@ public final class SidebarDocument {
 
     /// This document over the machines' daemon stores.
     public var docMachines: SidebarDocMachines { SidebarDocMachines(document: { [weak self] in self?.store }, stores: stores, machine: machine) }
+    /// The drag half for a window on space `room`: what it lists follows the window's space and the spaces that exist.
+    public func drag(room: String?) -> SidebarDocDrag? {
+        var drag = docMachines.drag()
+        drag?.room = room
+        drag?.spaces = spaces
+        return drag
+    }
     /// The document is shown: band edits go to it, not to the older layout owner.
     public var isActive: Bool { store.map { $0.isActive && $0.shown != nil } ?? false }
     /// The store while it is shown (`isActive`), else nil.
