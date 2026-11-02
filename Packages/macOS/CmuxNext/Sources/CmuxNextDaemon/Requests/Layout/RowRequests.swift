@@ -23,3 +23,21 @@ public struct NewRowRequest: TerminalSpawningRequest {
         try options.encode(to: encoder)
     }
 }
+
+/// `set-row-heights` (`rows-v1`): every row of one column at once. `fit`
+/// requires a sum of exactly 1000.
+public struct SetRowHeightsRequest: DaemonRequest {
+    public typealias Response = EmptyResponse
+    public static let command = "set-row-heights"
+    public static let requiredCapability: String? = DaemonCapability.rows.rawValue
+    public var column: ColumnID
+    public var heights: [RowHeightValue]
+    public var fit: Bool
+    public var transaction: UInt64?
+    public init(column: ColumnID, heights: [RowHeightValue], fit: Bool = false, transaction: UInt64? = nil) {
+        self.column = column
+        self.heights = heights
+        self.fit = fit
+        self.transaction = transaction
+    }
+}
