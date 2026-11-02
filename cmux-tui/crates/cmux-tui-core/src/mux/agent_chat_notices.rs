@@ -118,13 +118,13 @@ struct ScheduledCacheTtl {
 #[derive(Default)]
 struct CacheTtlQueue {
     entries: HashMap<(String, String), ScheduledCacheTtl>,
-    epochs: HashMap<String, (u64, Vec<CacheTtlSpec>)>,
+    epochs: HashMap<String, (u64, Vec<CacheTtlSpec>, bool)>,
 }
 
 impl CacheTtlQueue {
-    fn observe(&mut self, target: CacheTtlTarget, now: Instant) {
+    fn observe(&mut self, target: CacheTtlTarget, now: Instant, now_ms: u64) {
         let session = target.session.clone();
-        let signature = (target.idle_since, target.timers.clone());
+        let signature = (target.idle_since, target.timers.clone(), target.eligible());
         if self.epochs.get(&session) == Some(&signature) {
             return;
         }
@@ -134,12 +134,16 @@ impl CacheTtlQueue {
             return;
         }
         for spec in &target.timers {
+            let elapsed = now_ms.saturating_sub(target.idle_since);
+            let elapsed = (target.idle_since > 10_000_000_000)
+                .then(|| Duration::from_millis(elapsed))
+                .unwrap_or_default();
             self.entries.insert(
                 (session.clone(), spec.id.clone()),
                 ScheduledCacheTtl {
                     target: target.clone(),
                     spec: spec.clone(),
-                    due: now + spec.after,
+                    due: now + spec.after.saturating_sub(elapsed),
                 },
             );
         }
@@ -174,7 +178,9 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
             None => receiver.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
         };
         match command {
-            Ok(CacheTtlCommand::Observe(target)) => queue.observe(target, Instant::now()),
+            Ok(CacheTtlCommand::Observe(target)) => {
+                queue.observe(target, Instant::now(), crate::startup_timings::unix_now_ms())
+            }
             Ok(CacheTtlCommand::Remove(session)) => queue.remove(&session),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let Some(live) = mux.upgrade() else { return };
@@ -1410,16 +1416,16 @@ mod tests {
             muted: false,
             timers: vec![spec.clone()],
         };
-        queue.observe(target.clone(), now);
+        queue.observe(target.clone(), now, 100);
         assert!(queue.take_due(now + Duration::from_secs(59)).is_empty());
         assert_eq!(queue.take_due(now + Duration::from_secs(60)).len(), 1);
         assert!(queue.take_due(now + Duration::from_secs(61)).is_empty());
 
-        queue.observe(target.clone(), now);
+        queue.observe(target.clone(), now, 100);
         let mut working = target;
         working.idle_since = 200;
         working.works_below = true;
-        queue.observe(working, now + Duration::from_secs(1));
+        queue.observe(working, now + Duration::from_secs(1), 200);
         assert!(queue.take_due(now + Duration::from_secs(120)).is_empty());
     }
 }
