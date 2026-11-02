@@ -166,7 +166,7 @@ class App:
 
     @staticmethod
     def bundle_of(pid):
-        exe = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        exe = subprocess.run(["ps", "-ww", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
         m = re.match(r"(.*?\.app)/", exe)
         return m.group(1) if m else None
 
@@ -178,9 +178,9 @@ class App:
         pid = self.daemon_state.get("pid") if isinstance(self.daemon_state, dict) else None
         lines = []
         if pid:
-            lines = subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))], capture_output=True, text=True).stdout.splitlines()
+            lines = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(int(pid))], capture_output=True, text=True).stdout.splitlines()
         if self.app_path and not any("--socket" in line for line in lines):
-            lines = [line for line in subprocess.run(["ps", "axo", "args="], capture_output=True, text=True).stdout.splitlines()
+            lines = [line for line in subprocess.run(["ps", "-ww", "-ax", "-o", "args="], capture_output=True, text=True).stdout.splitlines()
                      if line.startswith(self.app_path + "/") and "--headless" in line]
         for line in lines:
             m = re.search(r"--socket[ =](\S+)", line)
@@ -503,7 +503,7 @@ def cmd_build(a):
 def stop_page_server(pid, out):
     """SIGTERM to the page server build started (its own session), only while that pid still runs
     `tuikit.py serve --dir OUT`: a reused pid is never signalled."""
-    args = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
+    args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
     if "tuikit.py serve" not in args or ("--dir %s " % out) not in args + " ":
         return "not running (pid %d now runs %r)" % (pid, args.strip()[:120])
     try:
