@@ -57,10 +57,12 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
 }
 
 
-/// The app server link of a non-production build: the Native device route first, and this Mac's
-/// `cmux link` for an install whose Native route fails (a team the development Worker has no Native
-/// mesh for answers 400), so turning Native on never leaves such a team with no machine. The fallback
-/// holds until sign-out (``archive(install:)``), and `onFallback` says why it was taken.
+/// The app server link's Native device route, opt-in with `CMUX_NEXT_CLOUD_NATIVE_LINK=1`, with this Mac's
+/// `cmux link` for an install whose Native route fails to start (a team the Worker has no Native mesh for
+/// answers 400), so turning Native on never leaves such a team with no machine. The fallback holds until
+/// sign-out (``archive(install:)``), and `onFallback` says why it was taken. Not the default: a team with
+/// a Native mesh can still hold machines made on the direct transport, whose `connect_info` has no Native
+/// network, and the Native link cannot dial those (cmux#28950 review at 30a7996aabee).
 @MainActor
 public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let native: any CloudLinkLaunching
@@ -78,17 +80,9 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
         return bundled?[key] ?? ProcessInfo.processInfo.environment[key]
     }
 
-    /// `=1`: Native only, with no `cmux link` fallback.
-    public nonisolated static var forced: Bool { setting == "1" }
-
-    /// Which route the app server link takes: `=1` Native, `=0` `cmux link`, otherwise Native
-    /// on a non-production backend and `cmux link` on production.
-    public nonisolated static func choice(production: Bool, setting: String? = CloudNativeFirstLauncher.setting) -> Choice {
-        switch setting {
-        case "1": .native
-        case "0": .link
-        default: production ? .link : .native
-        }
+    /// Which route the app server link takes: `=1` Native first, anything else `cmux link`.
+    public nonisolated static func choice(setting: String? = CloudNativeFirstLauncher.setting) -> Choice {
+        setting == "1" ? .native : .link
     }
 
     public init(native: any CloudLinkLaunching, link: (any CloudLinkLaunching)?,
