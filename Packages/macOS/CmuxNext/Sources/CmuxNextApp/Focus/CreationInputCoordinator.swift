@@ -155,13 +155,13 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused live terminal (never a cancelled stand-in), or comes while that terminal's close still reads (two quick Cmd-Ws), keys typed meanwhile are the close's (P0 close-then-type).
+    /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused live terminal (never a cancelled stand-in), or while that terminal's close reads, the tab its pane selects now (a quick second Cmd-W), keys typed meanwhile are the close's (P0 close-then-type). Another terminal's close (its close button) opens no lane: its Cancel must never type them into it.
     /// `hides`: the close takes its tabs out of the strip while it reads, so every key typed in the window meanwhile is
     /// the close's, whatever the focus moved to (`CreationInputBuffer.openClose(closing:machine:takesEveryKey:)`).
     func beginClose(of tabs: [TabModel], in window: NSWindow?, hides: Bool = false) -> CreationInputBuffer.Ticket? {
         let live = tabs.filter(\.isLiveTerminal).map(\.id)
         guard let window, ActionRunScope.viewChangeAllowed(), let controller = router?.focus(for: window).0, let focused = controller.focus.state.terminalTab, !live.isEmpty,
-              live.contains(focused) || buffers[window.windowNumber]?.isClosing(tab: focused) == true else { return nil }
+              live.contains(focused) || buffers[window.windowNumber]?.isClosing(tab: focused) == true && controller.focus.state.resolved.pane.flatMap({ controller.content?.paneController(key: $0)?.stripModel.selectedID?.rawValue }).map(live.contains) == true else { return nil }
         return buffer(in: window).openClose(closing: live.contains(focused) ? [focused] + live.filter { $0 != focused } : live,
                                             machine: controller.content?.daemon.machineID, takesEveryKey: hides)
     }
