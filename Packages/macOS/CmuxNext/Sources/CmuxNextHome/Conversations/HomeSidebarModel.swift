@@ -79,6 +79,16 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
     public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
 
+    /// ``unreadConversations`` from the rows alone, with no search and no display work (time strings, people,
+    /// avatars): what Home's unread indicator outside the list reads, in the list's order (the pinned rows first,
+    /// the main Chief leading them).
+    public static func unreadConversations(pinned: [InboxRow], rest: [InboxRow], unreadMarks: Set<ConversationID>,
+                                           mainChief: ConversationID?) -> [ConversationID] {
+        var pinned = pinned
+        if let mainChief, let at = pinned.firstIndex(where: { $0.id == mainChief }) { pinned.insert(pinned.remove(at: at), at: 0) }
+        return (pinned + rest).filter { ($0.unread > 0 || unreadMarks.contains($0.id)) && !$0.summary.muted }.map(\.id)
+    }
+
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
     /// `chiefAvatars`: each Chief's own avatar by participant id; a Chief not in it draws

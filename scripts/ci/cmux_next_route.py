@@ -141,6 +141,7 @@ SWIFT_JOB_INPUTS = (
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
+    "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",

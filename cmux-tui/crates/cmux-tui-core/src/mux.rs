@@ -276,6 +276,8 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+#[cfg(test)]
+pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;

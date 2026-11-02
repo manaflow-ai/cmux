@@ -80,7 +80,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
-import { failedRowOf, failedRowTrustRetry, type TrustRouter } from "./failedRowTrustRetry";
+import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
   authText,
@@ -10693,7 +10693,8 @@ function AcpmuxPane() {
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
             cancelEpoch: trustCancelEpoch.current,
           };
-          const routeForSend: TrustRouter = (error, again, declined) =>
+          // `again` may be absent: a held prompt the hold puts back runs no step after Trust.
+          const routeForSend = (error: unknown, again?: () => void, declined?: () => void): boolean =>
             routeTrustFor(sendOwner, error, again, declined);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends

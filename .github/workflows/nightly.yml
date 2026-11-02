@@ -2205,8 +2205,10 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
+      # Only after the restore above. The warm builder's kept checkouts carry this workspace's own
+      # paths; dropping their state re-fetched every package (32-222 s, runs 41444184160, 41439348303).
       - name: Sanitize Swift package cache
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && steps.release-derived-data.outputs.mode == ''
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
@@ -2459,12 +2461,17 @@ jobs:
           python3 "$check" "${peers[@]}"
 
       # A stalled upload once held the Mac 39 min (run 40460194731): 10 min,
-      # then one retry that replaces a partial upload.
+      # then one retry that replaces a partial upload. upload-artifact sends 8 MB
+      # blocks 5 at a time by default: the 413 MB app took 92-211 s (2-4.5 MB/s, a
+      # block every 3-17 s; runs 41430382728-41444184160) and the signers wait on
+      # this job's end. 32 at a time, as ci-macos.yml's product upload; same bytes.
       - name: Upload unsigned nightly app
         id: upload-unsigned
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         continue-on-error: true
         timeout-minutes: 10
+        env: &artifact-upload-concurrency
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "32"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2477,6 +2484,7 @@ jobs:
       - name: Upload unsigned nightly app (retry)
         if: steps.upload-unsigned.outcome == 'failure'
         timeout-minutes: 10
+        env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2497,6 +2505,8 @@ jobs:
       - name: Keep the nightly-next dSYMs for publication
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true')
         continue-on-error: true
+        # 221 MB in 34-108 s at the default 5 blocks, before the job can end.
+        env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -5721,9 +5731,11 @@ jobs:
           path: nightly-out
 
       # One nightly-next feed writer at a time across runs (publish-lease.sh), from the first
-      # feed read to the read-back. TTL: this job's whole 180-minute timeout, so a holder's lease
-      # never expires while it can still write; publish-release-notes passes the same TTL, since
-      # a waiter judges expiry by its own. The wait (60 minutes) is added to the timeout.
+      # feed read to the read-back. TTL 15 minutes, renewed every minute by a heartbeat that
+      # dies with the job, so a dead holder blocks the feed one TTL, inside its 30-minute
+      # freshness bound; publish-release-notes passes the same TTL, since a waiter judges
+      # expiry by its own. Max hold: this job's 180-minute timeout. The wait (60 minutes) is
+      # added to the timeout.
       - name: Take the nightly-next publish lease
         id: lease
         if: needs.decide.outputs.track == 'nightly-next'
@@ -5735,7 +5747,9 @@ jobs:
           # Shared with publish-release-notes: notes ordering relies on the same lock.
           LEASE_KEY: nightly-next/locks/publish-nightly-next.json
           LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
-          LEASE_TTL: 10800
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          LEASE_MAX_HOLD: 10800
           LEASE_WAIT: 3600
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh lock
 
@@ -6028,7 +6042,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-readback.sh
 
       - name: Release the nightly-next publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *next-publish-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
@@ -7062,8 +7076,9 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      # The old feed's lease (publish-lease.sh), before its order check reads it. TTL: this
-      # job's whole 150-minute timeout; the wait (60 minutes) is added to the timeout.
+      # The old feed's lease (publish-lease.sh), before its order check reads it. TTL 15
+      # minutes, renewed every minute while the job lives; max hold: this job's 150-minute
+      # timeout. The wait (60 minutes) is added to the timeout.
       - name: Take the old feed's publish lease
         id: lease
         if: env.SIGN_SKIP == 'false'
@@ -7074,7 +7089,9 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           LEASE_KEY: nightly-next/locks/legacy-identity-publish.json
           LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
-          LEASE_TTL: 9000
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          LEASE_MAX_HOLD: 9000
           LEASE_WAIT: 3600
         run: bash scripts/ci/nightly-steps/publish-lease.sh lock
 
@@ -7224,7 +7241,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/legacy-identity-readback.sh
 
       - name: Release the old feed's publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *legacy-publish-lease
         run: bash scripts/ci/nightly-steps/publish-lease.sh unlock
 
@@ -7693,7 +7710,7 @@ jobs:
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes --pr-media
+            --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
           # Extend the published index only when its signature verifies.
           previous=""
           # The first cmux NEXT build carries the history over from the old feed.
@@ -7808,7 +7825,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
       - name: Release the nightly-next publish lease
-        if: always() && steps.lease.outcome == 'success'
+        if: always() && steps.lease.outcome != 'skipped'
         env: *next-publish-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
