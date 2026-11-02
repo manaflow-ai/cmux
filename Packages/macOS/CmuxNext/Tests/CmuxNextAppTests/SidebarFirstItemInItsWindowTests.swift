@@ -19,6 +19,11 @@ import Testing
 /// (`WindowManager.dispatching(eventFrom:_:)`, what `CmuxApplication.sendEvent` does), and the key
 /// window record names another window (window A: the record lags after Cmd-Tab, or the app is not
 /// active), so only the window the input came from can say where it acts.
+///
+/// MW-1b: window B opens two ways. `newWindow()` keeps it on window A's space; New Window as the
+/// person runs it (Cmd-Shift-N, `newWindow`) opens it on a new space (spaces-overhaul-DESIGN.md rule
+/// 3). On a new space B's own Home was made unpinned, so in the default space only: it joined B but
+/// B's space never listed it, and Cmd-1 or Home showed nothing (VIDEO EXTRA probe, feat 35c4c3bd).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SidebarFirstItemInItsWindowTests {
     enum Entry: String, CaseIterable, CustomTestStringConvertible {
@@ -35,8 +40,8 @@ struct SidebarFirstItemInItsWindowTests {
         var testDescription: String { rawValue }
     }
 
-    @Test(arguments: Entry.allCases)
-    func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry) async throws {
+    @Test(arguments: Entry.allCases, [false, true])
+    func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry, newSpace: Bool) async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let keyWindow = services.keyWindowSource
             defer { services.keyWindowSource = keyWindow }
@@ -50,12 +55,22 @@ struct SidebarFirstItemInItsWindowTests {
             try await PinnedPageTests.until({ windowA.state.workspaceID == ownA && windowA.state.page == nil },
                                             report: { "window A shows \(windowA.state.workspaceID ?? "nil")" })
 
-            let idB = services.windows.newWindow()
-            try await PinnedPageTests.until({
-                services.windows.controller(for: idB) != nil && !services.windows.registry.members(of: idB).isEmpty
-            }, within: .seconds(60), report: { "windows \(services.windows.controllers.map(\.state.id))" })
-            let windowB = try #require(services.windows.controller(for: idB))
+            let before = Set(services.windows.controllers.map(\.state.id))
+            if newSpace {
+                // New Window as the person runs it: a new space (its personal state must be loaded for that).
+                try await PinnedPageTests.until({ services.machines.local.store.personal.isLoaded }, within: .seconds(30))
+                #expect(services.registry.perform("newWindow", invocation: ActionInvocation(origin: .user)))
+            } else {
+                _ = services.windows.newWindow()
+            }
+            let opened = { services.windows.controllers.first { !before.contains($0.state.id) && !services.windows.registry.members(of: $0.state.id).isEmpty } }
+            try await PinnedPageTests.until({ opened() != nil }, within: .seconds(60),
+                                            report: { "windows \(services.windows.controllers.map(\.state.id))" })
+            let windowB = try #require(opened())
+            let idB = windowB.state.id
             try await PinnedPageTests.until({ windowB.state.workspaceID != nil }, within: .seconds(30))
+            let roomB = windowB.state.profileID
+            #expect((roomB != windowA.state.profileID) == newSpace, "window B is on space \(roomB), window A on \(windowA.state.profileID)")
             services.keyWindowSource = { [weak windowB] in windowB?.window }
             try await PinnedPageTests.until({ SidebarCmdNumberTwiceTests.topItemsSettled(windowB, services) }, within: .seconds(30), report: {
                 "window B's top items never settled: " + SidebarCmdNumberTwiceTests.report(windowB, services, picked: nil, orderAtPick: nil)
@@ -69,6 +84,7 @@ struct SidebarFirstItemInItsWindowTests {
                 return
             }
             let shownB = windowB.state.workspaceID
+            #expect(shownB.flatMap(services.workspace(id:))?.isAnyHome != true, "window B shows a Home before the input")
             let (shownA, pageA, membersA) = (windowA.state.workspaceID, windowA.state.page, services.windows.registry.members(of: windowA.state.id))
             @MainActor func report() -> String {
                 let owner = { (id: String?) in id.flatMap { services.windows.registry.value.owner(of: $0) } ?? "none" }
@@ -77,6 +93,7 @@ struct SidebarFirstItemInItsWindowTests {
                     + "window B shows \(windowB.state.workspaceID ?? "nil") (was \(shownB ?? "nil"), owner \(owner(windowB.state.workspaceID))), "
                     + "B selects \(String(describing: SidebarNavigation.current(in: windowB, services))); store Home \(homeA.id) in \(owner(homeA.id)); "
                     + "window Homes \(services.daemon.store.workspaces.filter(\.isWindowHome).map { "\($0.id) in \(owner($0.id))" })"
+                    + "; window B's space \(windowB.state.profileID) (was \(roomB)), lists \(services.windows.registry.members(of: idB))"
             }
 
             // The key window record names window A from here on: B's input must not depend on it.
@@ -110,6 +127,7 @@ struct SidebarFirstItemInItsWindowTests {
             let homeB = try #require(windowB.state.workspaceID)
             #expect(homeB != homeA.id, "window B shows window A's Home: \(report())")
             #expect(services.windows.registry.value.owner(of: homeB) == idB, "window B's Home is not in window B: \(report())")
+            #expect(windowB.state.profileID == roomB, "Home moved window B off its space \(roomB): \(report())")
             #expect(windowA.state.workspaceID == shownA && windowA.state.page == pageA, "\(entry) in window B changed window A: \(report())")
             #expect(services.windows.registry.members(of: windowA.state.id) == membersA, "window A's workspaces changed: \(report())")
         }
