@@ -77,8 +77,6 @@ struct CloudMachineCreateFlow {
     var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
-    /// The holds the person's feed shows answered (the feed owner pushes each closed item); nil reads none.
-    var holds: CloudApprovalHolds?
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
@@ -153,20 +151,14 @@ struct CloudMachineCreateFlow {
                     guard await ask(request) else { throw Failure.declined }
                     confirmed = true
                 }
-                if holds?.isAnswered(request) == true {
-                    // The feed already shows it answered elsewhere (cmux#32354): nothing to answer or record here.
-                    approved = request
-                    attempt = 1
-                    continue
-                }
                 onAnswering(request)
                 do {
                     try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
-                            where Self.alreadyAnswered(failure, request: request, answeredEarlier: request == answering) {
+                            where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
-                } catch let failure as CloudApprovalAnswer.Failure where Self.itemClosed(failure, request: request) {
+                } catch let failure as CloudApprovalAnswer.Failure where failure.answeredElsewhere(request: request) {
                     // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
                     // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
                     approved = request
@@ -201,24 +193,6 @@ struct CloudMachineCreateFlow {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
             throw Failure.upgradeRequired(.server)
         }
-    }
-
-    /// The approval item for `request` is no longer open to answer: an attempt already answered it. The
-    /// request has ended ("state"), or, after an attempt with this key began answering it
-    /// (`answeredEarlier`), it still reads pending (`integration.approval.get` shows a running approved op
-    /// as pending) while its feed item is closed.
-    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String, answeredEarlier: Bool) -> Bool {
-        switch failure {
-        case .mismatch(let r, let reason) where r == request: reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
-        case .answered(let r): answeredEarlier && r == request
-        case .notInFeed, .mismatch, .refused: false
-        }
-    }
-
-    /// This team's feed item for `request` is closed: answered elsewhere. Another team's item, or none, is
-    /// the closed-item mismatch, which fails (cmux#32354).
-    static func itemClosed(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
-        if case .answered(request) = failure { true } else { false }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.

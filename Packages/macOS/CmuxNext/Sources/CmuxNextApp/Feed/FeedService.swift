@@ -46,8 +46,7 @@ final class FeedService {
     /// Told every owner-confirmed item (snapshot and events), never the overlay
     /// (the agent permission feed bridge reads answers here).
     var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
-    /// Hears each Cloud approval hold the owner closes, the moment the person answers it on any device.
-    private let approvalHolds: CloudApprovalHolds?
+    private let approvalHolds: CloudApprovalHolds?  // hears each Cloud hold the owner closes (answered on any device)
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
@@ -55,8 +54,7 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, approvalHolds: CloudApprovalHolds? = nil,
-         appActive: @escaping @MainActor () -> Bool) {
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
         (self.auth, self.approvalHolds) = (auth, approvalHolds)
         self.showcase = showcase
         (self.acpmuxEnvironment, self.appActive) = (acpmuxEnvironment, appActive)

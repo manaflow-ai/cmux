@@ -34,8 +34,13 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     let call: Call
+    /// Whether the person's feed already shows `request` answered (the feed owner's push of its closed
+    /// item, cmux#32354); such a request is not looked up or answered again.
+    let answered: @Sendable (_ request: String) async -> Bool
 
-    public init(call: @escaping Call) { self.call = call }
+    public init(call: @escaping Call, answered: @escaping @Sendable (_ request: String) async -> Bool = { _ in false }) {
+        (self.call, self.answered) = (call, answered)
+    }
     /// The mismatch reason when no feed item of the create's team carries the request (another team's, or none).
     public static let closedItem = "feed item or team"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.approval")
@@ -55,6 +60,7 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     private func checkedApprove(request: String, op: String, params: Data, team: String) async throws {
+        if await answered(request) { throw Failure.answered(request: request) }
         let read = try await post("v1/read", ["op": "integration.approval.get", "params": ["request": request]])
         let held = read["value"] as? [String: Any] ?? [:]
         guard held["op"] as? String == op else { throw Failure.mismatch(request: request, reason: "op") }
@@ -109,6 +115,27 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
                   action?["tool"] as? String == op, !team.isEmpty, approval?["team"] as? String == team else { return false }
             return poster?["kind"] as? String == "integration" && poster?["scope"] as? String == "system:cloud:\(team)"
         }?["id"] as? String
+    }
+}
+
+extension CloudApprovalAnswer.Failure {
+    /// The approval item for `request` is no longer open to answer: an attempt already answered it. The
+    /// request has ended ("state"), or, after an attempt with this key began answering it
+    /// (`answeredEarlier`), it still reads pending (`integration.approval.get` shows a running approved op
+    /// as pending) while its feed item is closed.
+    public func alreadyAnswered(request: String, answeredEarlier: Bool) -> Bool {
+        switch self {
+        case .mismatch(let r, let reason) where r == request:
+            reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
+        case .answered(let r): answeredEarlier && r == request
+        case .notInFeed, .mismatch, .refused: false
+        }
+    }
+
+    /// The person answered `request` elsewhere (this team's item is closed); not answered here. Another
+    /// team's item, or none, is the closed-item mismatch, which fails (cmux#32354).
+    public func answeredElsewhere(request: String) -> Bool {
+        if case .answered(request) = self { true } else { false }
     }
 }
 

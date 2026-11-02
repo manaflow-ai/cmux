@@ -65,17 +65,17 @@ import Testing
         }
     }
 
-    /// The production flow's shape: the real `CloudApprovalAnswer` for team_a over `backend`.
+    /// The production flow's shape: the real `CloudApprovalAnswer` for team_a over `backend`, told what the feed shows answered.
     private func flow(_ backend: Backend, holds: CloudApprovalHolds? = nil) -> CloudMachineCreateFlow {
-        let approvals = CloudApprovalAnswer(call: { _, body in try await MainActor.run { try backend.session(body) } })
+        let approvals = CloudApprovalAnswer(call: { _, body in try await MainActor.run { try backend.session(body) } },
+                                            answered: { request in await holds?.isAnswered(request) ?? false })
         return CloudMachineCreateFlow(
             run: { _, args, _, _ in try await MainActor.run { try backend.run(args) } },
             confirm: { _ in true },
             approve: { request, op, params in
                 try await approvals.approve(request: request, op: op, params: try JSONEncoder().encode(params), team: "team_a")
             },
-            pause: { _ in },
-            holds: holds)
+            pause: { _ in })
     }
 
     @Test func aHoldAnsweredOnThePhoneFirstGoesOnWithTheOpsAnswer() async throws {

@@ -96,7 +96,7 @@ extension CloudService {
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
     /// call, and `team` is the team its approvals are answered for.
     private func appServerFlow(team: String, run: @escaping CloudAppOp) -> CloudMachineCreateFlow {
-        let approvals = CloudApprovalAnswer(call: sessionCall())
+        let approvals = CloudApprovalAnswer(call: sessionCall()) { [approvalHolds] in await approvalHolds.isAnswered($0) }
         return CloudMachineCreateFlow(
             run: run,
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
@@ -106,8 +106,7 @@ extension CloudService {
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
-            },
-            holds: approvalHolds
+            }
         )
     }
 
