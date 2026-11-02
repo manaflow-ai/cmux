@@ -280,6 +280,7 @@ export function EnvironmentSection({
               ref={addRepositoryButton}
               type="button"
               className="acpmux-session-info-row acpmux-session-info-row--button"
+              data-action="add-repository"
               aria-haspopup="dialog"
               aria-expanded={repositoryPickerOpen}
               data-open={repositoryPickerOpen ? "" : undefined}
