@@ -20,7 +20,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -31,7 +31,14 @@ seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame.
+first terminal frame. --profile stress seeds one priming launch with the standard
+STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
+one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
+the measured launch restores 14 visible terminals; its runs wait for the first
+terminal frame. Its pages' local server is closed once the session is built, so
+every run restores the same pages with no server (like for like across runs). Per-pane launch marks (launch.visible_terminals_drawn, the LAST
+visible terminal's saved frame) are reported when the build has them: a run that
+showed a saved frame waits up to VISIBLE_GRACE_S more for it.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -60,7 +67,13 @@ from bench_launch import account_home, finder_limits, limits_line, require_gui_s
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
+# The reopen number (#31621): every visible terminal's saved frame shown, the last pane's time.
+VISIBLE_MARK = "launch.visible_terminals_drawn"
+VISIBLE_GRACE_S = 1.5
 AGENT_MARK = "agent_pane.handshake_end"
+# A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
+# the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
+SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -131,7 +144,9 @@ MARKS = [
     ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
-    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    ("terminal.launch_frame_shown", "the FIRST terminal's saved frame shown (not the launch number)"),
+    # The launch number: the LAST terminal of the first window frame to show its saved frame (max over panes).
+    ("launch.visible_terminals_drawn", "every visible terminal's saved frame shown (the last pane)"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
@@ -396,7 +411,10 @@ class Launch:
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+            # "test" placement puts every window at the agent test size on the last screen, in front, and ignores the
+            # saved frame; "restore" lets the app reopen each window at its saved frame (#32493). With no activation
+            # the restored window is ordered behind, never key (WindowActivation); it still draws (automation launch).
+            **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" else {}),
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
             "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
@@ -444,10 +462,26 @@ class Launch:
         return True
 
     def quit(self):
-        """Quits the app only; the daemon keeps running (keep sessions)."""
+        """Quits the app only; the daemon keeps running (keep sessions). The marks the quit writes (`quit.*`, each
+        terminal's frame save) are read until the app closes the pipe, into `quit_marks`, never into `marks`."""
+        launched = set(self.marks)
+        deadline = time.monotonic() + 20  # one limit for the quit, as stop(timeout=20) had
+        try:
+            os.kill(self.process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
         os.close(self.read_fd)
-        stop([self.process.pid], timeout=20)
+        if not wait_exit([self.process.pid], max(0.0, deadline - time.monotonic())):
+            try:
+                os.kill(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            wait_exit([self.process.pid], 5)
         self.process.wait()
+        self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
+        for name in self.quit_marks:
+            self.arrived.pop(name, None)
 
 
 RUN_TAGS = []
@@ -460,6 +494,10 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --window-placement: "test" (the agent test window, the saved frame ignored) or "restore" (the app's own restore).
+WINDOW_PLACEMENT = "test"
+# --new-session-each-run: STRESS builds a new session before every measured launch (the first relaunch after it).
+NEW_SESSION_EACH_RUN = False
 
 
 def app_support_tag(tag):
@@ -776,8 +814,9 @@ def seed_realistic(tag, scratch, timeout):
     reset_state(tag)
     prime = Launch(tag, scratch)
     try:
-        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
-            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
         daemon = Client(daemon_socket(tag), timeout=10)
 
         def workspaces():
@@ -844,6 +883,46 @@ def seed_realistic(tag, scratch, timeout):
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
+def seed_stress(tag, scratch, timeout):
+    """Fills the tag's state with the standard STRESS session (see --profile stress) and leaves the daemon running."""
+    import importlib.util  # noqa: E402
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    stress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stress)
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
+        app_client(tag).close()  # the control socket answers
+        socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
+        session = stress.Stress(stress.socket_rpc(socket_path))
+        try:
+            summary = session.build()
+        finally:
+            # The page server lives only in this process: close it now, so every measured run (this invocation's
+            # and a later one's, which finds the marker) restores the same pages with no server behind them.
+            session.close()
+        print("BENCH-STRESS " + json.dumps(summary), flush=True)
+    finally:
+        prime.quit()
+    with open(seeded_marker(tag), "w") as out:
+        out.write(f"stress placement={WINDOW_PLACEMENT}\n")
+
+
+def seeded_stress(tag):
+    """A STRESS session seeded under this run's window placement: one saved under the other placement restores
+    another window size, so it is seeded again."""
+    try:
+        with open(seeded_marker(tag)) as marker:
+            text = marker.read()
+    except OSError:
+        return False
+    return text.startswith("stress") and f"placement={WINDOW_PLACEMENT}" in text
+
+
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
@@ -883,9 +962,13 @@ def one_run(tag, mode, timeout, profile=None):
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "stress")
     if profile == "empty":
         reset_state(tag)
+    elif profile == "stress":
+        if NEW_SESSION_EACH_RUN or not seeded_stress(tag):
+            seed_stress(tag, scratch, timeout)
+        final = [FINAL_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
@@ -912,7 +995,20 @@ def one_run(tag, mode, timeout, profile=None):
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if reached and "terminal.launch_frame_shown" in launch.marks:
+            # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
+            # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
+            # Only that mark is kept from the grace: other marks landing in it would count for a build without the
+            # mark (it waits the whole grace) and not for one with it (it ends at once), so the rows would differ.
+            before = set(launch.marks)
+            launch.wait_for(VISIBLE_MARK, VISIBLE_GRACE_S)
+            for late in set(launch.marks) - before - {VISIBLE_MARK}:
+                launch.marks.pop(late, None)
+                launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
+        if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
+            launch.terminals = launch_terminals(tag)
+            launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -922,6 +1018,10 @@ def one_run(tag, mode, timeout, profile=None):
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
     marks = dict(launch.marks)
+    marks["launch_terminals"] = getattr(launch, "terminals", None)
+    marks["quit_marks"] = getattr(launch, "quit_marks", {})
+    marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
+    marks["frames_after_quit"] = frame_files(tag)
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
@@ -938,6 +1038,32 @@ def one_run(tag, mode, timeout, profile=None):
     print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
                                        "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
     return marks
+
+
+def launch_terminals(tag):
+    """The launch's visible terminals (debug.timings `launch_terminals`): by tab key, when each asked for its saved
+    frame, when it showed (`frame_shown_ms`) or why it did not (`missed`: no_frame, size, scale, live), and the max."""
+    errors = []
+    for _ in range(3):
+        try:
+            reply = app_client(tag, timeout=2).call("debug.timings")
+            result = reply.get("result")
+            if isinstance(result, dict) and "launch_terminals" in result:
+                return {"panes": result["launch_terminals"], "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
+            errors.append(json.dumps(reply.get("error") or reply)[:300])
+        except (OSError, ValueError, SystemExit) as error:
+            errors.append(str(error)[:300])
+        time.sleep(0.2)  # bench: the control socket answers again
+    return {"panes": None, "errors": errors}
+
+
+def frame_files(tag):
+    """The saved terminal frames on disk after the quit: {file: bytes} (TerminalLaunchFrames' folder)."""
+    directory = os.path.join(app_support_tag(tag), "terminal-launch-frames")
+    try:
+        return {name: os.path.getsize(os.path.join(directory, name)) for name in sorted(os.listdir(directory))}
+    except OSError:
+        return None
 
 
 def launch_stalls(tag):
@@ -1048,9 +1174,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
-    parser.add_argument("--profile", choices=["empty", "realistic"],
-                        help="empty: no saved state before each run; realistic: a seeded day's work "
-                             "(default: whatever state the tag has)")
+    parser.add_argument("--profile", choices=["empty", "realistic", "stress"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work; stress: the "
+                             "standard STRESS session (default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
@@ -1064,11 +1190,26 @@ def main():
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
+    parser.add_argument("--window-placement", choices=["test", "restore"],
+                        help="test: every window at the agent test size (1100 x 720) on the last screen, in front, the "
+                             "saved frame ignored; restore: the app reopens each window at its saved frame, ordered "
+                             "behind and not key (default: restore for --profile stress, else test). STRESS numbers "
+                             "from before restore was its default had a smaller window and are not comparable")
+    parser.add_argument("--new-session-each-run", action="store_true",
+                        help="--profile stress: build a new STRESS session before every measured launch, so each run "
+                             "is the first relaunch after a new session")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN
     HANG_THRESHOLD_MS = args.hangs
+    # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
+    # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
+    # relaunch after a seed refused every saved frame for its size.
+    WINDOW_PLACEMENT = args.window_placement or ("restore" if args.profile == "stress" else "test")
+    NEW_SESSION_EACH_RUN = args.new_session_each_run
+    if NEW_SESSION_EACH_RUN and args.profile != "stress":
+        parser.error("--new-session-each-run needs --profile stress")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:

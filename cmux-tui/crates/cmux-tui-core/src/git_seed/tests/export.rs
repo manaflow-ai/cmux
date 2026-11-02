@@ -290,3 +290,57 @@ fn an_export_refuses_a_dirty_submodule() {
     assert_eq!(status["error_code"], "seed.submodule_local_work", "{status}");
     assert!(!bundle.exists());
 }
+
+/// A Mac that merged one export and then hit a conflict on the next stays
+/// on the first: the machine keeps that record (`refs/cmux-base/*`) out of
+/// gc while newer exports replace `refs/cmux-back/*`, and an export from it
+/// still compares with it (cmux#31014).
+#[test]
+fn a_retry_after_a_conflict_still_has_the_macs_base() {
+    let (world, folder, first) = seeded("export-retry");
+    let service = world.service();
+    let export_from = |since: &Snapshot, name: &str| {
+        let status = export(&service, &export_params(&folder, since, &world.home.join(name)));
+        assert_eq!(status["state"], "done", "{status}");
+        status
+    };
+    let as_since = |status: &Value| Snapshot {
+        bundle: PathBuf::new(),
+        head_ref: first.head_ref.clone(),
+        head: status["head"].as_str().unwrap().to_owned(),
+        index: status["index"].as_str().unwrap().to_owned(),
+        work: status["work"].as_str().unwrap().to_owned(),
+        stash: None,
+    };
+    // The Mac merges this one: its base is now `merged`.
+    write(&folder.join("a"), "a\nfrom the machine\n");
+    let merged = as_since(&export_from(&first, "one.bundle"));
+    assert!(git(&folder, &["for-each-ref", "refs/cmux-base"]).is_empty(), "the seed is no base");
+    // Two exports the Mac could not merge: its base stays `merged`.
+    write(&folder.join("a"), "a\nfrom the machine\nagain\n");
+    let conflicted = export_from(&merged, "two.bundle");
+    write(&folder.join("a"), "a\nfrom the machine\nonce more\n");
+    let newest = export_from(&merged, "three.bundle");
+    assert_ne!(conflicted["work"], newest["work"]);
+    assert_eq!(
+        git(&folder, &["rev-parse", "refs/cmux-back/work"]),
+        newest["work"].as_str().unwrap()
+    );
+    assert_eq!(git(&folder, &["rev-parse", "refs/cmux-base/work"]), merged.work);
+    git(&folder, &["reflog", "expire", "--expire=now", "--all"]);
+    git(&folder, &["gc", "-q", "--prune=now"]);
+    for sha in [&merged.work, &merged.index] {
+        git(&folder, &["cat-file", "-e", &format!("{sha}^{{commit}}")]);
+    }
+    // Back to the base's files: unchanged against the kept record.
+    write(&folder.join("a"), "a\nfrom the machine\n");
+    let same = export_from(&merged, "four.bundle");
+    assert_eq!(same["unchanged"], true, "{same}");
+    assert_eq!(same["work"], merged.work.as_str());
+    // A Mac that merged the newest one moves on: the old base goes.
+    write(&folder.join("a"), "a\nfrom the machine\nlast\n");
+    let after = export_from(&as_since(&same), "five.bundle");
+    assert_eq!(after["unchanged"], false, "{after}");
+    let base = git(&folder, &["rev-parse", "refs/cmux-base/work"]);
+    assert_eq!(base, merged.work, "the Mac's base is the back record it was on");
+}

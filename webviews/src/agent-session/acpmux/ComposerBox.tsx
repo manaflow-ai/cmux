@@ -15,6 +15,7 @@ import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
+import { ComposerListAnchor } from "./backdropLayer";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -70,7 +71,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
-  /// The box's first children: menus anchored to the field (the `/` and `@` lists) and hidden inputs.
+  /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
+  /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
   /// What a press on the card around the text focuses; unset, the prompt.
   onCardPress?(): void;
@@ -227,11 +229,21 @@ export function ComposerBox({
     else prompt.current?.focus();
   };
   const shownChips = chips;
+  // The box the `/` and `@` lists in `top` float above, drawn outside its glass (backdropLayer.tsx).
+  const [boxElement, setBoxElement] = useState<HTMLDivElement | null>(null);
+  const attachBox = useCallback(
+    (node: HTMLDivElement | null) => {
+      setBoxElement(node);
+      if (typeof boxRef === "function") boxRef(node);
+      else if (boxRef) boxRef.current = node;
+    },
+    [boxRef],
+  );
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
-        ref={boxRef}
+        ref={attachBox}
         className="ui-glass ui-glass-floats acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
@@ -239,7 +251,9 @@ export function ComposerBox({
         inert={inert}
         onMouseDown={focusFromCard}
       >
-        {top}
+        <ComposerListAnchor box={boxElement} inert={inert}>
+          {top}
+        </ComposerListAnchor>
         <AttachmentStrip
           attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
           {...(pending
@@ -350,7 +364,7 @@ export function ComposerBox({
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
               ComposerFoot, in both looks. The granted-permission status gets no slot of its own
-              (hq#1957 item 15 compact row): grants live in the permission mode's Access menu. */}
+              (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"
             data-footer-look={plainFooter ? "plain" : undefined}

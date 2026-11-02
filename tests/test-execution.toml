@@ -270,6 +270,20 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_pools_copy.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every fromJSON(vars.RUNNER_POOLS).<pool> read names a pool declared in .github/runners.json and that the copy equals main's pools; run python3 tests/test_ci_runner_pools_copy.py yourself after changing a pool read or the pools (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_ci_overflow_pick_reads_pool.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -841,6 +855,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_spend.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2170,6 +2188,10 @@ path = "tests/test_check_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_toast_targets.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
@@ -2304,6 +2326,10 @@ path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_r2_cas.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
 
@@ -2411,6 +2437,16 @@ lane = "linux-guard"
 path = "tests/test_nightly_tree_source_marker.py"
 lane = "manual"
 reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
+lane = "manual"
+reason = "Portable unit tests for the overflow watch's hosted light rescue (main runs the script at a pinned commit). Run python3 -m unittest tests.test_ci_hosted_light_rescue. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_linux_pool_spill.py"
+lane = "manual"
+reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY_ROOT pointing at the trusted main policy checkout; the spill rules run without it. Run python3 -m unittest tests.test_ci_linux_pool_spill with that variable set. No new CI gate."
 
 [[test]]
 path = "tests/test_ci_runner_pool_reconcile.py"

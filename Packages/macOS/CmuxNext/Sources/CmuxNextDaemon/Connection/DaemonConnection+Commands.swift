@@ -67,9 +67,28 @@ extension DaemonConnection {
     @discardableResult
     public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false,
                                reason: CloseReason? = nil, ifEmpty: Bool = false) async throws -> WorkspaceMutationResult {
-        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals,
-                                                reason: endTerminals ? reason : nil,
-                                                ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation()))
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty))
+    }
+
+    /// How long a workspace close waits for the daemon's answer before its caller decides it from the store: the
+    /// safety net for a daemon that keeps its socket open and never answers. Not a deadline for a busy daemon.
+    public static let closeReplyBound: Duration = .seconds(60)
+
+    /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, the connection's
+    /// end (``LineTransport`` fails every pending request on close), or `bound` (``closeReplyBound``) with no answer
+    /// (`DaemonError.timedOut`), never the 2 s client deadline. A busy daemon still commits a close it answers late (a
+    /// batch of 50 under load took 11.7 s), so a close that gave up on the 2 s clock called a closed workspace refused:
+    /// its row came back, "The workspace could not be closed." showed, and Undo missed it. Sent once: a close waiting on
+    /// a slow daemon adds no re-sends to its load.
+    @discardableResult
+    public func closeWorkspaceAwaitingReply(_ key: WorkspaceKey, endTerminals: Bool = false, reason: CloseReason? = nil,
+                                            ifEmpty: Bool = false, within bound: Duration) async throws -> WorkspaceMutationResult {
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty), timeout: bound)
+    }
+
+    private func closeWorkspaceRequest(_ key: WorkspaceKey, endTerminals: Bool, reason: CloseReason?, ifEmpty: Bool) -> CloseWorkspaceRequest {
+        CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals, reason: endTerminals ? reason : nil,
+                              ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation())
     }
 
     /// Whether this daemon takes `if_empty` on `close-workspace`.

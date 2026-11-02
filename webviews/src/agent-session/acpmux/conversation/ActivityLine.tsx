@@ -7,7 +7,7 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
-import { Spinner } from "./icons";
+import { Envelope, TerminalSquare } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { formatDuration } from "./turns";
 import { useTicking, workingLabel } from "./WorkingFor";
@@ -23,7 +23,7 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
     const [before, after = ""] = t("send.sending", { target: "\u0000" }).split("\u0000");
     return (
       <TranscriptActivityRow
-        icon={<Spinner size={16} loading />}
+        icon={<Envelope />}
         before={before}
         name={sendName}
         after={after}
@@ -34,7 +34,10 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
     );
   }
   return (
-    <div className="cv-activity">
+    <div className="cv-activity cv-tool">
+      <span className="cv-tool__icon" aria-hidden="true">
+        {row.doingCommand ? <TerminalSquare /> : null}
+      </span>
       {row.text ? (
         <>
           <span className="cv-activity__label">{row.text}</span>

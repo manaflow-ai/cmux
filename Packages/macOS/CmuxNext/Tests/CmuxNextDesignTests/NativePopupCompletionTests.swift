@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupCompletionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupCompletionTests {
     private func model() throws -> NativePopupModel {
         try #require(NativePopupModel.decode([
             "schemaVersion": 1, "id": "completion", "revision": 1,
@@ -24,6 +25,7 @@ import Testing
     }
 
     @Test func completesSelectedOrFirstSuggestionUsingNamedText() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let content = NativePopupContent()
         content.update(try model())
         let field = try search(content)
@@ -44,6 +46,7 @@ import Testing
     }
 
     @Test func unchangedShiftTabImeDisabledAndGenericMenusPassThrough() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let content = NativePopupContent()
         var next = try model()
         content.update(next)
@@ -74,12 +77,13 @@ import Testing
     }
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func completionHostKeepsOpenAndRejectsStaleOrDisabledIdentities() throws {
+        defer { closeTheWindowsThisTestOpened() }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView = page
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var events: [[String: Any]] = []
         let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }

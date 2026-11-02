@@ -246,7 +246,19 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   accounts: accounts(),
   ...extra,
 });
-const variants: Record<string, SettingsPageVariant> = {};
+const variants: Record<string, SettingsPageVariant> = {
+  "model-picker-placement-inherited": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    note: "The normal placement row shows the existing left rail preference before a new choice is saved.",
+  }),
+  "model-picker-placement-symbols": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
+    note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+};
 for (const category of categories) {
   const allThemes = category.id === "theme";
   variants[category.id] = variant(category.id, { allThemes });
@@ -344,6 +356,12 @@ Object.assign(variants, {
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
+  "appearance-presets": variant("appearance", {
+    options: { values: { "appearance.backgroundOpacity": 0.8, "appearance.backgroundBlur": "frosted" } },
+    steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-presets"]'), wait('[role="menuitemradio"]')],
+    note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
   }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
   "font-picker-open": variant("appearance", {
@@ -1332,6 +1350,83 @@ const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
   { selector: `${row(key)} .row-title` },
   { selector: `${row(key)} + [data-row-key] .row-title` },
 ]);
+
+const githubConnection = {
+  title: "GitHub",
+  detail: "Connected",
+  busy: false,
+  connect: "Connect GitHub",
+  disconnect: "Disconnect",
+  confirm: "Disconnect GitHub? Agents will lose access through this connection.",
+  cancel: "Cancel",
+  refresh: "Refresh",
+  canConnect: false,
+  connections: [
+    {
+      id: "sample-github",
+      canDisconnect: true,
+      account: "sample-team",
+      status: "Connected",
+      permissions: ["contents:write", "pull_requests:write"],
+    },
+  ],
+};
+for (const treatment of ["balanced", "compact", "inline"]) {
+  variants[`github-connect-${treatment}`] = variant("accounts", {
+    accounts: accounts({}, { github: githubConnection }),
+    note: `GitHub App connection: ${treatment} treatment. Balanced uses the existing Accounts spacing.`,
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"]'));
+      const card = ctx.document.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+      card.scrollIntoView({ block: "center" });
+      if (treatment !== "balanced") {
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          treatment === "compact"
+            ? '[data-card="github-connection"] .row { padding-block: 4px; } [data-card="github-connection"] .accounts-body { margin-top: 4px; }'
+            : '[data-card="github-connection"] .row { display: flex; align-items: center; gap: 16px; } [data-card="github-connection"] .accounts-body { margin: 0; padding: 0; }';
+        card.append(style);
+      }
+    },
+  });
+}
+variants["github-connect-comparison"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+});
+variants["github-connect-empty"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
+variants["github-connect-pending"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Finish connecting in your browser, then refresh.",
+      },
+    },
+  ),
+});
+variants["github-connect-confirm"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
+    await ctx.click({ selector: '[data-github-action="disconnect"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
+  },
+});
 
 export default settingsPageEntry({
   id: "pages.settings",

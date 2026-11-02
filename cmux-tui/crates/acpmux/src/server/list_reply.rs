@@ -27,12 +27,14 @@ tokio::task_local! {
 }
 
 /// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
-/// true if the reply went whole (not as its too-large error).
+/// true if the reply went whole (not as its too-large error). The request's future is made on the
+/// heap (`heap_future.rs`): this future, the task's, and their poll frames hold only its pointer.
 pub(super) async fn scope<F: Future>(
     id: Value,
     method: &str,
-    request: F,
+    request: impl FnOnce() -> F,
 ) -> (F::Output, Option<bool>) {
+    let request = crate::heap_future::heap(request);
     let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
     REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
 }
@@ -52,12 +54,20 @@ fn whole(params: &Value) -> bool {
         .all(unset)
 }
 
+fn excludes_closed(params: &Value) -> bool {
+    params
+        .get("excludeStatus")
+        .and_then(Value::as_array)
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some("closed")))
+}
+
 /// Waits out this connection's pace, then sends `make` of the shared list as the reply,
 /// once it is current; outside a request task, returns it.
 async fn reply(
     hub: &Hub,
     conn: &Conn,
     limit: Option<u64>,
+    live_only: bool,
     make: impl Fn(&Snapshot) -> Result<Arc<String>, RpcError>,
 ) -> Result<Value, RpcError> {
     let guard = &hub.list_guard;
@@ -65,7 +75,11 @@ async fn reply(
     // Read before each list is: a notice counted after it may tell a change the list lacks.
     let mut seen = notices();
     // The first list: built before it is paced, so the pace is the build's.
-    let mut first = if guard.window().is_zero() { Some(guard.snapshot(hub).await) } else { None };
+    let mut first = if guard.window().is_zero() {
+        Some(if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await })
+    } else {
+        None
+    };
     let wait = guard.reserve(&conn.list_pace, guard.share(limit)).map_err(busy)?;
     tokio::time::sleep(wait).await;
     for reads in 0..=REBUILDS {
@@ -73,7 +87,7 @@ async fn reply(
             Some(list) => list,
             None => {
                 seen = notices();
-                guard.snapshot(hub).await
+                if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
         let text = make(&list)?;
@@ -118,7 +132,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     let by_bytes = unset("limit") && unset("orderBy");
     let tools = with_tools(params)?;
     if tools || !whole(params) {
-        return reply(hub, conn, limit, |list| {
+        return reply(hub, conn, limit, excludes_closed(params), |list| {
             if by_bytes {
                 return within_limit(raw, |budget| list.bounded(hub, params, tools, budget));
             }
@@ -127,7 +141,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         })
         .await;
     }
-    reply(hub, conn, None, |list| {
+    reply(hub, conn, None, excludes_closed(params), |list| {
         // The cached whole list, as the client reads it (masked for a peer, which may lengthen
         // it), when that fits in one message; else its pages.
         if list.whole.len() <= LIST_PAGE_BYTES {
@@ -148,7 +162,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
 /// A connection served as a peer (it proved this launch's peer token) reads only this
 /// daemon's own sessions: the link drops every row mirrored from a peer (`peer.rs`
-/// `watch_sessions`), and with them big-red's list was 17 MB with tools on 2026-10-30, past
+/// `watch_sessions`), and with them one lane VM's list was 17 MB with tools on 2026-10-30, past
 /// the message limit, so no peer's handshake there finished. Built from the own sessions
 /// alone, never from the whole list, once per snapshot.
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
@@ -166,7 +180,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
             Some(Value::Object(known)) => Some(known),
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
-        return reply(hub, conn, None, |list| {
+        return reply(hub, conn, None, false, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
                 (true, false) => "own tools masked",
@@ -199,7 +213,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         Some(Value::String(text)) => Some(text.as_str()),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
-    reply(hub, conn, None, |list| {
+    reply(hub, conn, None, excludes_closed(params), |list| {
         let full = list.full_rows(hub);
         // An ACP row holds its summary whole, so rows already over the budget are no whole
         // reply: that one is not made only to be dropped.

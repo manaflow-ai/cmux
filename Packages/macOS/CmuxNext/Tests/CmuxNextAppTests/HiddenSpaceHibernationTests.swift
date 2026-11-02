@@ -106,6 +106,8 @@ import Testing
         func hibernationResidents() -> [WorkspaceHibernationResident] { residents }
         var shown: Set<String> = []
         func hibernationShownWorkspaces() -> Set<String> { shown }
+        var spaces: Set<String> = []
+        func hibernationShownSpaces() -> Set<String> { spaces }
         func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { policy }
         func hibernate(workspace: String) {
             hibernatedCalls.append(workspace)
@@ -189,6 +191,35 @@ import Testing
         hibernation.noteShown(["a"])
         host.shown = ["b"]
         hibernation.noteShown(["b"]) // hidden again 30 s later: the pass due in 30 s stays
+        #expect(deadline.delays.count == 1)
+    }
+
+    /// Closing the last window that shows a space hides it with no observable change (`WindowManager.controllers`
+    /// is not observable, so the shown-set follow can miss it): the window lifecycle hook re-reads the shown sets
+    /// and plans a pass within a minute, ahead of the pending normal deadline, and never pushes out a sooner one (#30854).
+    @Test func closingTheLastWindowOfASpaceReArmsAPendingLaterDeadline() {
+        let clock = Clock()
+        let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
+        let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deadline = Deadline()
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
+                                               now: { clock.now })
+        host.shown = ["a"]
+        host.spaces = ["work", "play"]
+        hibernation.windowsDidChange() // two windows opened, one per space
+        hibernation.pass() // b's normal deadline is armed, an hour out
+        #expect(deadline.isScheduled)
+        deadline.delays = []
+        host.spaces = ["work"] // the play window closed; a is still shown in work
+        hibernation.windowsDidChange()
+        #expect(deadline.delays == [.seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))])
+        clock.advance(seconds: 30)
+        host.spaces = ["work", "play"]
+        hibernation.windowsDidChange() // reopened: hides nothing
+        host.spaces = ["work"]
+        hibernation.windowsDidChange() // closed again 30 s later: the pass due in 30 s stays
         #expect(deadline.delays.count == 1)
     }
 

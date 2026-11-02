@@ -21,6 +21,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "approve",
     "decline",
     "collapse",
+    // `workspace group create --reuse`: the room's group of that name when it has one.
+    "reuse",
     "patch",
     "candidates",
     "catalog",

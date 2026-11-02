@@ -112,8 +112,15 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
+    Capability {
+        id: "queue-approval-v1",
+        wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
+    },
     // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
     Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
+    // The owner reads a queued prompt whole, its blocks and revision (`hub/queue_approve.rs`).
+    Capability { id: "queue-get-v1", wire: &[method::MUX_QUEUE_GET] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
@@ -194,9 +201,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
-    // Labs team-scoped agent messaging over the mesh relay. The daemon keeps
-    // this capability visible even when the flag is off so clients can explain
-    // the opt-in instead of treating it as an unknown method.
+    // Team-scoped agent messaging over the mesh relay, on wherever a hub is
+    // configured. The daemon keeps this capability visible even when it is off
+    // so clients can explain why instead of treating it as an unknown method.
     Capability {
         id: "team-messaging-v1",
         wire: &[
@@ -329,6 +336,10 @@ mod tests {
         let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "caps-test"}});
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
+        assert!(
+            client.daemon_lists(TRIGGER_CHAT),
+            "trigger chat capability must gate its CLI helper"
+        );
 
         let printed: Value = serde_json::from_str(&render(true)).unwrap();
         assert_eq!(printed, json!({"capabilities": expected}));

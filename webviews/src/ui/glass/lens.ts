@@ -18,6 +18,7 @@ import {
   GLASS_ATTRIBUTE,
   GLASS_CLASS,
   LENS_ATTRIBUTE,
+  LIVE_BACKGROUND_ATTRIBUTE,
   NATIVE_GLASS_ATTRIBUTE,
   installBackdropFallback,
   powerOfTwo,
@@ -379,7 +380,7 @@ class GlassLens {
     this.rootWatch = new MutationObserver(this.reconcile);
     this.rootWatch.observe(this.root, {
       attributes: true,
-      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, "data-reduce-transparency"],
+      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE, "data-reduce-transparency"],
     });
     this.mutations = new MutationObserver(this.onMutations);
     this.reconcile();
@@ -410,6 +411,8 @@ class GlassLens {
       this.capable &&
       this.mode !== "plain" &&
       !this.root.hasAttribute(NATIVE_GLASS_ATTRIBUTE) &&
+      // A live background (ui/liveBackground) is drawn in the page: the host's still would cover it.
+      !this.root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE) &&
       this.backdrop.image !== null &&
       this.backdrop.rect !== null;
     if (want !== this.armed) {

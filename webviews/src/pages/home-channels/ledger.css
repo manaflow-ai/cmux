@@ -36,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
@@ -2069,4 +2070,27 @@
     border-inline-start: 0;
     box-shadow: none;
   }
+}
+
+/* A compact presentation choice; the conversation title gives up space first. */
+.lg-presentation {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.lg-presentation button {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px;
+  background: transparent;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-presentation button[aria-pressed="true"] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.lg-run-transcript {
+  margin: 8px 0;
+  min-height: 24px;
 }

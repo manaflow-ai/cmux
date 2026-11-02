@@ -37,7 +37,7 @@ jobs:
     # standard CI route and needs no secrets or write token. Let the shared
     # Linux runner expression absorb overflow instead of consuming hosted
     # capacity.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -56,6 +56,7 @@ jobs:
             .github/runners.json
             scripts/ci/runner_pools.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/cloud_overflow_switch.py
             scripts/ci/runner_label_policy.py

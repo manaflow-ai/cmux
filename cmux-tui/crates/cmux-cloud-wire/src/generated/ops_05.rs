@@ -4,6 +4,151 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenParams {
+    pub items: Vec<FeedItemId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResult {
+    pub items: Vec<FeedSeenResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.seen declares.
+    FeedSeenError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
+    FeedSnoozeOp {
+        name: "feed.snooze",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedSnoozeParams,
+        result: FeedSnoozeResult,
+        error: FeedSnoozeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeParams {
+    pub items: Vec<FeedItemId>,
+    pub until: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResult {
+    pub items: Vec<FeedSnoozeResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.snooze declares.
+    FeedSnoozeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Move archived items back to the active list.
+    FeedUnarchiveOp {
+        name: "feed.unarchive",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedUnarchiveParams,
+        result: FeedUnarchiveResult,
+        error: FeedUnarchiveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveParams {
+    pub items: Vec<FeedItemId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveResult {
+    pub items: Vec<FeedUnarchiveResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.unarchive declares.
+    FeedUnarchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Allow a validated path through the caller's private network.
+    FirewallCreateOp {
+        name: "firewall.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: FirewallCreateParams,
+        result: FirewallCreateResult,
+        error: FirewallCreateError,
+    }
+}
+
 wire_enum! {
     FirewallCreateParamsSourceProtocol {
         Tcp = "tcp",
@@ -755,145 +900,4 @@ pub struct HomeRequestsListResultRequestsItem {
     pub created_at: String,
     pub expires_at: String,
     pub trusted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeRequestsListResult {
-    pub requests: Vec<HomeRequestsListResultRequestsItem>,
-}
-
-wire_errors! {
-    /// The error codes home.requests.list declares.
-    HomeRequestsListError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
-    HomeSearchOp {
-        name: "home.search",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:planetscale",
-        risk: "read",
-        principals: [Session, Install],
-        params: HomeSearchParams,
-        result: HomeSearchResult,
-        error: HomeSearchError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchParams {
-    pub q: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub author: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<Timestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchResultHitsItemRangesItem {
-    pub start: i64,
-    pub length: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchResultHitsItem {
-    pub conversation: ConversationId,
-    pub title: Option<String>,
-    pub seq: i64,
-    pub message_id: String,
-    pub author: ParticipantId,
-    pub created_at: Timestamp,
-    pub snippet: String,
-    pub ranges: Vec<HomeSearchResultHitsItemRangesItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchResult {
-    pub hits: Vec<HomeSearchResultHitsItem>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes home.search declares.
-    HomeSearchError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).
-    HomeSettingsSetOp {
-        name: "home.settings.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: HomeSettingsSetParams,
-        result: HomeSettingsSetResult,
-        error: HomeSettingsSetError,
-    }
-}
-
-wire_enum! {
-    HomeSettingsSetParamsAllowRequestsFrom {
-        Anyone = "anyone",
-        Teams = "teams",
-        Nobody = "nobody",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_email: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_phone: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_requests: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_same_domain: Option<bool>,
-}
-
-wire_enum! {
-    HomeSettingsSetResultAllowRequestsFrom {
-        Anyone = "anyone",
-        Teams = "teams",
-        Nobody = "nobody",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetResult {
-    pub discoverable_by_email: bool,
-    pub discoverable_by_phone: bool,
-    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
-    pub email_requests: bool,
-    pub trust_same_domain: bool,
 }

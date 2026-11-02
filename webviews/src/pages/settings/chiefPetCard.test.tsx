@@ -33,6 +33,9 @@ test("the page shows every character, the chosen one checked while the pet is of
     "moon",
     "moon-blue",
     "mochi",
+    "captain",
+    "sprout",
+    "bolt",
     "fox-arctic",
     "machine-violet",
     "machine-gold",
@@ -42,7 +45,7 @@ test("the page shows every character, the chosen one checked while the pet is of
     "orb-hood",
   ]);
   // The pet is off by default, but every Chief surface wears the default character, orb, wherever it
-  // sits in the grid (Series 1 without the orbs, Mochi, Series 2, then the orbs): it is the one checked.
+  // sits in the grid (Series 1 without the orbs, the animated sets, Series 2, then the orbs): it is the one checked.
   expect(checked(pet)).toBe("orb");
   expect(pet.dataset.enabled).toBe("false");
   // The card draws both rows: no plain toggle or menu for them below it.

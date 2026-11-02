@@ -42,7 +42,7 @@ export function CodeHeader({
   const t = useT();
   return (
     <div className="cv-codeblock__header">
-      {look === "row" && <CodeBrackets size={17} strokeWidth={1.2} />}
+      {look === "row" && <CodeBrackets size={16} strokeWidth={1.2} />}
       {look !== "corner" && <span>{label ?? languageLabel(lang, t)}</span>}
       <span className="cv-codeblock__actions">{children}</span>
     </div>

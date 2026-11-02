@@ -1,6 +1,7 @@
 // The messages other sessions sent that the agent has not read yet, as one collapsed group at the
-// transcript's end (pendingMessages.ts). Closed, it is one line: a chevron, how many messages from
-// how many sessions, and the senders, muted and cut to the line. Opened, its messages sit under it
+// transcript's end (pendingMessages.ts). Closed, it is one tool row (MessageGroupHead.tsx): the
+// sender's harness mark (several sessions: the messages glyph), how many messages from how many
+// sessions, the senders muted and cut to the line, and the chevron on hover. Opened, its messages sit under it
 // grouped by sender: the sender's mark and name (a click opens its chat), then each of its messages
 // as its own received line, whole when opened, with its actions. Whether the group is open lasts
 // while the page does (incomingOpened.ts), so it survives the virtualized list and new arrivals,
@@ -11,14 +12,11 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { Icon } from "../icons/Icon";
-import { rowIconSize } from "../icons/iconSize";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { bySender } from "./pendingMessages";
 import { SenderName } from "./IncomingMessageCard";
+import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import "./PendingMessagesCard.css";
-
-const ROW_ICON = rowIconSize(12);
 
 export function PendingMessagesCard({
   row,
@@ -72,20 +70,21 @@ export function PendingMessagesCard({
     <div className="cv-pending" data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
       <div className="cv-pending__line" data-find-skip="">
-        <button
-          type="button"
+        <MessageGroupHead
+          sender={groupSender(
+            countSources.map((group) => {
+              const first = group.rows.at(-1);
+              return first?.incoming?.kind === "message" ? first.incoming.message : undefined;
+            }),
+          )}
+          count={count}
+          senders={names.join(", ")}
+          open={open}
+          bodyId={bodyId}
+          onToggle={() => show(!open)}
           className="cv-pending__toggle"
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          title={names.join(", ")}
-          onClick={() => show(!open)}
-        >
-          <span className="cv-pending__icon">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-          </span>
-          <span className="cv-pending__count">{count}</span>
-          <span className="cv-pending__senders">{names.join(", ")}</span>
-        </button>
+          iconClassName="cv-pending__icon"
+        />
       </div>
       {open && (
         <div id={bodyId} className="cv-pending__body">

@@ -73,6 +73,13 @@ pub(in crate::server) struct Room {
     timing: Timing,
 }
 
+impl Room {
+    /// The room's origin.
+    pub(in crate::server) fn url(&self) -> &str {
+        &self.url
+    }
+}
+
 enum Cmd {
     /// Send `guests` and the pending kicks again (a guest was kicked).
     Reconcile,

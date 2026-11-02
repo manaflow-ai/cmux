@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
 // Background work is visible (Leo: "where is the background showing?"). With Session Info off
-// (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
+// (Debug Settings `agent.sessionInfo`), the summary card lists the chat's background commands live
 // (session-info/processes.ts `backgroundCommands`, whose merge session-info-tasks.test.tsx covers),
 // running ones first with their time and Stop, and finished work as compact status cards; the chats
 // the agent started sit under Subagents with their state; an empty card draws one quiet line instead

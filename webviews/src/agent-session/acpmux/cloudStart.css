@@ -30,7 +30,6 @@
   background: transparent;
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 .acpmux-cloud-start[data-initialized="true"] .acpmux-cloud-start__summary { color: var(--agent-muted); }
 .acpmux-cloud-start__checklist { padding: 4px 16px 12px; }
@@ -46,7 +45,7 @@
 .acpmux-cloud-start__time { margin-left: 4px; color: var(--agent-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acpmux-cloud-start__detail { grid-column: 2 / -1; margin: -3px 0 5px; color: var(--agent-muted); line-height: 1.35; }
 .acpmux-cloud-start__log-tail { white-space: pre-wrap; font-family: var(--font-mono, ui-monospace); font-size: .9em; }
-.acpmux-cloud-start__link { padding: 0; border: 0; color: var(--agent-link, #60a5fa); background: none; font: inherit; text-decoration: underline; cursor: pointer; }
+.acpmux-cloud-start__link { padding: 0; border: 0; color: var(--agent-link, #60a5fa); background: none; font: inherit; text-decoration: underline; }
 .acpmux-cloud-start__status {
   display: flex;
   align-items: center;

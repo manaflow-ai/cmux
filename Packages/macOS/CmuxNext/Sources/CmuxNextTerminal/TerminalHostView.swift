@@ -42,6 +42,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -68,6 +71,20 @@ public final class TerminalHostView: NSView {
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(topOverlay, positioned: .above, relativeTo: banner)
             }
             needsLayout = true
         }
@@ -261,12 +278,12 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
-    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
-    /// for working out a terminal's grid before its host exists.
+    /// The width a surface gets in a host `hostWidth` points wide (less the scroller's strip), for working out a
+    /// terminal's grid before its host exists. The strip is the host's own (``TerminalScroller/reservedWidth``): the
+    /// terminal's scroller is pinned to ``SystemScrollers/nativeStyle`` whatever the system's "Show scroll bars"
+    /// setting, so a Mac set to legacy scrollers (a mini with no trackpad) reserves nothing either.
     public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
-        let reserved = NSScroller.preferredScrollerStyle == .legacy
-            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
-        return max(0, hostWidth - reserved)
+        max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
@@ -331,6 +348,11 @@ public final class TerminalHostView: NSView {
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.

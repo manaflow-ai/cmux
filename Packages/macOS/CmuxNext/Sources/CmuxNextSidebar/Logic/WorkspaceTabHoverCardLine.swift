@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// What one tab row of the workspace hover card says: its detail line and its trailing text, from the
 /// tab's facts and the card's `WorkspaceTabHoverCardStyle`. Pure, so tests read it without a view.
 struct WorkspaceTabHoverCardLine: Equatable {
-    /// The muted line under (or after) the title; never empty, the tab's kind when it has no other fact.
+    /// The muted line under (or after) the title; empty when the tab has no fact worth a line.
     var detail: String { parts.joined(separator: Self.separator) }
     /// The detail line's facts, in order.
     var parts: [String]
@@ -17,11 +17,16 @@ struct WorkspaceTabHoverCardLine: Equatable {
 
     static let separator = " · "
 
-    init(_ tab: SidebarTab, style: WorkspaceTabHoverCardStyle, now: Date) {
+    /// `machine`: where the tab's workspace runs, as the card names it (`machineWord`); nil leaves the
+    /// machine out (a tab elsewhere still names its own).
+    init(_ tab: SidebarTab, style: WorkspaceTabHoverCardStyle, now: Date, machine: SidebarMachine? = nil) {
         var parts: [String] = []
         var placeIndex: Int?
+        let title = Self.title(tab)
         for field in style.detail where field != style.trailing {
-            guard let text = Self.text(field, of: tab, now: now) else { continue }
+            guard let text = Self.text(field, of: tab, now: now, machine: machine, style: style),
+                  // Never the same text twice: a part that repeats the title ("~" under "~") says nothing.
+                  text.caseInsensitiveCompare(title) != .orderedSame, !parts.contains(text) else { continue }
             if field == .place { placeIndex = parts.count }
             parts.append(text)
         }
@@ -30,10 +35,10 @@ struct WorkspaceTabHoverCardLine: Equatable {
             parts.insert(work, at: 0)
             placeIndex = placeIndex.map { $0 + 1 }
         }
-        if parts.isEmpty { parts = [Self.kindWord(tab.kind)] }
+        // No fact, no line: never a bare kind word ("New Tab" over "Tab", Leo 2026-11-01).
         self.parts = parts
         self.placeIndex = placeIndex
-        trailing = style.trailing.flatMap { Self.text($0, of: tab, now: now) }
+        trailing = style.trailing.flatMap { Self.text($0, of: tab, now: now, machine: machine, style: style) }
         stateWord = Self.stateWord(tab.state)
     }
 
@@ -81,13 +86,47 @@ struct WorkspaceTabHoverCardLine: Equatable {
     }
 
     /// One fact of `tab` as the card writes it; nil when the tab has none.
-    static func text(_ field: WorkspaceTabHoverCardStyle.Field, of tab: SidebarTab, now: Date) -> String? {
+    static func text(_ field: WorkspaceTabHoverCardStyle.Field, of tab: SidebarTab, now: Date, machine: SidebarMachine? = nil,
+                     style: WorkspaceTabHoverCardStyle = .standard) -> String? {
         switch field {
         case .kind: kindWord(tab.kind)
-        case .place: nonEmpty(tab.kind == .browser ? tab.host : tab.folder)
+        case .place: tab.kind == .browser ? pagePlace(tab) : nonEmpty(tab.folder)
         case .branch: nonEmpty(tab.branch)
         case .state: stateWord(tab.state)
         case .time: tab.lastActivity.flatMap { WorkspaceHoverCardContent.age(since: $0, now: now) }
+        case .model: tab.kind == .agentChat || tab.kind == .conversation ? nonEmpty(tab.model) : nil
+        case .command: tab.kind == .terminal || tab.kind == .remoteTerminal ? nonEmpty(tab.command) : nil
+        case .machine: machineText(tab, workspace: machine, namesLocal: style.namesLocalMachine)
+        }
+    }
+
+    /// A page's place: its host and path ("github.com/manaflow-ai/cmux/pull/12"), or only the path when
+    /// the title already is the host (a page whose title never loaded), so the line never repeats the title.
+    static func pagePlace(_ tab: SidebarTab) -> String? {
+        guard let host = nonEmpty(tab.host) else { return nil }
+        let path = tab.path ?? ""
+        if host.caseInsensitiveCompare(title(tab)) == .orderedSame { return nonEmpty(path) }
+        return host + path
+    }
+
+    /// Where an agent chat or terminal tab runs; nil for pages and New Tab pages, which run here.
+    static func machineText(_ tab: SidebarTab, workspace: SidebarMachine?, namesLocal: Bool) -> String? {
+        switch tab.kind {
+        case .terminal, .remoteTerminal, .agentChat, .conversation: break
+        case .browser, .newTab, .other: return nil
+        }
+        if let own = nonEmpty(tab.machine) { return own }
+        guard let workspace else { return nil }
+        if workspace.kind == .local { return namesLocal ? Strings.hoverCardThisMac : nil }
+        return machineWord(workspace)
+    }
+
+    /// A machine as the card names it: "This Mac", "Cloud", or its name (the card's host row's words).
+    static func machineWord(_ machine: SidebarMachine) -> String {
+        switch machine.kind {
+        case .local: Strings.hoverCardThisMac
+        case .cloud: Strings.hoverCloud
+        case .ssh, .server: machine.name
         }
     }
 

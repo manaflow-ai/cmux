@@ -54,6 +54,7 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
@@ -172,8 +173,8 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // settings' last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing, named, hosted, participant) in ObservationStream({
-                () -> (Bool, Int, String, Bool, Bool, String?, Bool, String?) in
+            for await (isChief, _, title, cloud, typing, named, hosted, participant, lastSeq) in ObservationStream({
+                () -> (Bool, Int, String, Bool, Bool, String?, Bool, String?, Seq) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
@@ -184,7 +185,7 @@ final class HomeHostView: NSView {
                 return (chief, store.transcriptVersion[id] ?? 0, name ?? row?.summary.title ?? "", service.isCloudConversation(id),
                         row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
                         service.cloudChiefPlacement(of: conversation)?.placed != true,
-                        row.flatMap { HomeService.soleChief(of: $0.summary.participants) })
+                        row.flatMap { HomeService.soleChief(of: $0.summary.participants) }, row?.summary.lastSeq ?? 0)
             }) {
                 guard let self else { return }
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
@@ -197,9 +198,9 @@ final class HomeHostView: NSView {
                 petRows.chief = participant
                 self.isChief = isChief
                 openPendingSettings()
-                // The Chief types while its turn runs: the compose bar offers Stop.
                 isWorking = isChief && typing
                 transcript.isWorking = isWorking
+                turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {
                     showsCloud = cloud
                     showsHosted = hosted

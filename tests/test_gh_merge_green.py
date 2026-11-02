@@ -747,7 +747,9 @@ jobs:
     def test_refusal_prints_repair_guidance(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, check_name="other-check")
+            # Into feat-cmux-next ci-status is not required (ci.yml skips it there); a red cmux-next run refuses.
+            result = self.run_helper(directory, marker, check_name="other-check",
+                                     cmux_next_runs=(("completed", "failure", 1),))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("fix:", result.stderr)
@@ -1389,7 +1391,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
         return work, head, directory / "bin"
 
     def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None,
-                  policy_status=0, policy_payload=None, check_conclusion="success", **kwargs):
+                  policy_status=0, policy_payload=None, check_conclusion="success",
+                  cmux_next_runs=(("completed", "success", 1),), **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
         Path(directory, "pr-head").write_text(head)
@@ -1424,7 +1427,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
             marker = Path(directory) / "merged"
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
-                check_conclusion=check_conclusion,
+                check_conclusion=check_conclusion, cmux_next_runs=cmux_next_runs,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args))
         finally:
             HEAD = saved[0]
@@ -1651,7 +1654,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
     def test_host_policy_skip_preserves_github_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker, log = self.run_merge(
-                directory, {"webviews/Good.tsx": "x\n"}, policy_status=3, check_conclusion="failure")
+                directory, {"webviews/Good.tsx": "x\n"}, policy_status=3,
+                cmux_next_runs=(("completed", "failure", 1),))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertNotIn("bun", log)

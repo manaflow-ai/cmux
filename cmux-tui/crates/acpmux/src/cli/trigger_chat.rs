@@ -44,7 +44,8 @@ fn operation(input: Value) -> Result<&'static str> {
     }
 }
 
-/// Read and execute one trigger operation. A daemon that does not advertise
+/// Read and execute one trigger operation. An unavailable daemon is retryable
+/// (exit 75). A connected daemon that does not advertise
 /// `trigger-chat-v1` is a hard unsupported result for callers (exit 82 is
 /// applied by the package launcher); this command never falls back to a normal
 /// person prompt.
@@ -66,7 +67,15 @@ pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
     let input: Value = serde_json::from_slice(&bytes).context("trigger-chat: invalid JSON")?;
     let op = operation(input.clone())?;
     let token = required(&input, "token", 8192)?;
-    let client = crate::daemon::connect_without_caller(true).await?;
+    let client = crate::daemon::connect_without_caller(true).await.map_err(|error| {
+        crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "trigger_daemon_unavailable",
+            format!("trigger-chat: daemon unavailable: {error:#}"),
+        )
+        .with_exit(75)
+        .retryable()
+    })?;
     if !client.daemon_lists(crate::capabilities::TRIGGER_CHAT) {
         return Err(anyhow::Error::new(
             crate::cli::errors::AppError::new(
@@ -121,7 +130,8 @@ pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
                 )
                 .await?
         }
-        _ => unreachable!(),
+        // `operation` accepts only the three above.
+        _ => return Err(anyhow!("trigger-chat: operation must be ensure, send or status")),
     };
     serde_json::to_writer(std::io::stdout(), &result)?;
     println!();

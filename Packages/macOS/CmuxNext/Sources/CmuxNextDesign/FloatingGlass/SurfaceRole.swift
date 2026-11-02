@@ -73,7 +73,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
 
 extension FloatingGlassStyle {
     /// The sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass.
-    nonisolated public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
+    nonisolated public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
                                                          darkRim: (0.22, 0.04), lightRim: (0.8, 0.08), castsShadow: false)
     /// Toasts: a rounded rect, never a capsule, even on one line.
     nonisolated public static let toast = FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,

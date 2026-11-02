@@ -16,22 +16,16 @@ struct CloudVmKindTests {
         return try JSONDecoder().decode(CloudAttachEndpoint.self, from: Data(body.utf8))
     }
 
-    @Test func onlyOwnerStartsTheLinkAtTheVMBoundary() throws {
+    /// The word's rules are Rust's (cmux-cloud-start-core `vm_kind`, with their cases); this checks the
+    /// app's decoder (a value of another type fails the attach, never owner) and that the endpoint and
+    /// the link read the word from there.
+    @Test func theWordComesFromTheRustRulesAndAMalformedValueIsNeverOwner() throws {
         let owner = try endpoint(#""owner""#)
-        #expect(owner.vmKind == "owner")
-        #expect(owner.callerOwnsVM)
+        #expect(owner.callerOwnsVM && !owner.callerIsTeammate)
         #expect(CloudMachineLink.vmKindArguments(owner) == ["--vm-kind", "owner"])
-        for kind in [#""team""#, "null", #""Owner""#, #""""#] {
-            let other = try endpoint(kind)
-            #expect(!other.callerOwnsVM, "\(kind)")
-            #expect(CloudMachineLink.vmKindArguments(other).isEmpty, "\(kind)")
-        }
-    }
-
-    @Test func anOlderServerKeepsTheSandboxAndAMalformedValueIsNeverOwner() throws {
-        let older = try endpoint(nil)
-        #expect(older.vmKind == nil)
-        #expect(CloudMachineLink.vmKindArguments(older).isEmpty)
+        let team = try endpoint(#""team""#)
+        #expect(!team.callerOwnsVM && team.callerIsTeammate && CloudMachineLink.vmKindArguments(team).isEmpty)
+        #expect(try endpoint(nil).vmKind == nil && !(try endpoint(nil).callerOwnsVM))
         for malformed in ["1", "true", #"{"kind":"owner"}"#, #"["owner"]"#] {
             #expect(throws: (any Error).self, "\(malformed)") { _ = try endpoint(malformed) }
         }

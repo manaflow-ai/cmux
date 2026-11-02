@@ -19,8 +19,9 @@
 // subtitles are bad"): one leading glyph (the spinner while it works, else its own icon or its
 // harness's mark), never a second kind glyph beside it; the title; one muted trailing meta (what it
 // spent, a state worth reading, its time); the chevron. No agent-type subtitle on the line (the
-// tooltip and the hover card keep it). The tray reserves a status-word track beside the time,
-// including Running and Done, so every state keeps the same control geometry.
+// tooltip and the hover card keep it). The time and the state word end the line as one cluster
+// right beside the chevron (or beside Stop on a line that has one), never floating mid-row
+// (cmux#31492); Stop and the chevron keep their fixed columns.
 import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -29,7 +30,9 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -38,6 +41,7 @@ export function AgentLine({
   name,
   detail,
   progress,
+  progressAgent,
   status,
   state,
   time,
@@ -67,6 +71,7 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -116,6 +121,8 @@ export function AgentLine({
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
@@ -175,17 +182,19 @@ export function AgentLine({
       </span>
       {trayColumns ? (
         <>
-          {/* The tray reserves a visible status track for every row. Keeping the word in the same
-              track for quiet (Running/Done/Cancelled) rows prevents a missing state from pulling
-              the duration toward the title or moving the Stop and chevron columns. */}
-          <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
-            <Tick className="acpmux-summary-agent__state" text={state} />
-          </span>
-          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-            {time}
+          {/* The time and the state word, one trailing cluster set against the line's end: right
+              beside the chevron, or beside Stop on a line that has one (cmux#31492: the time and
+              "Done" floated mid-row, a Stop track and a status track's slack away from the chevron). */}
+          <span className="acpmux-agent-line__trail">
+            <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+              {time}
+            </span>
+            <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
+              <Tick className="acpmux-summary-agent__state" text={state} />
+            </span>
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
-              last at the line's end: the column the header's and View all's chevrons end in. */}
+              last at the line's end: the column the header's chevron ends in. */}
           <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">

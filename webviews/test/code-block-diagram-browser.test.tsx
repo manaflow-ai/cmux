@@ -183,6 +183,41 @@ await requireBrowserLane("code-block-diagram-browser.test.tsx", async () => {
       }
     });
 
+    test("an unlabeled card's corner actions never cover its first line", async () => {
+      // cmux#30689: the actions float over the card's top-right corner with no room kept for them,
+      // so a long first line ran under them. The line keeps the strip's width after its end, so
+      // scrolled to its end it stays clear of the strip, whether it is far wider than the card or
+      // only reaches under the strip.
+      const fences = [`${"x".repeat(200)}!\n└─ two`, `${"y".repeat(72)}!\nsecond`];
+      const html = renderToStaticMarkup(
+        <Markdown>{fences.map((code) => `\`\`\`\n${code}\n\`\`\`\n`).join("\n")}</Markdown>,
+      );
+      const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+      try {
+        await page.setContent(
+          `<html><head><style>${css}</style></head><body><div id="column" style="width:560px;font-size:14px">${html}</div></body></html>`,
+        );
+        const cards = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>(".cv-codeblock--corner")].map((card) => {
+            const pre = card.querySelector<HTMLElement>(".cv-code-plain")!;
+            const strip = card.querySelector<HTMLElement>(".cv-codeblock__header")!.getBoundingClientRect();
+            const node = pre.querySelector(".cv-code-plain__line")!.firstChild!;
+            const end = () => {
+              const range = document.createRange();
+              range.setStart(node, (node.textContent ?? "").length - 1);
+              range.setEnd(node, (node.textContent ?? "").length);
+              return range.getBoundingClientRect().right;
+            };
+            pre.scrollLeft = pre.scrollWidth;
+            return { scrolledEndClear: end() <= strip.left };
+          }),
+        );
+        expect(cards).toEqual([{ scrolledEndClear: true }, { scrolledEndClear: true }]);
+      } finally {
+        await page.close();
+      }
+    });
+
     test("a labeled fence keeps its header row and label", async () => {
       const html = renderToStaticMarkup(<Markdown>{"```python\nprint('│')\n```\n"}</Markdown>);
       const page = await browser.newPage({ viewport: { width: 900, height: 400 } });

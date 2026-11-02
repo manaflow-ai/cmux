@@ -90,9 +90,11 @@ public final class AgentPaneDroppedPaths {
     /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
     /// where its contents came from, as only the person's own drop or paste can say
     /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
-    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
+    /// `madeAt` (seconds since 1970): when the gesture happened, for one recorded after its page took
+    /// it (a Chromium drop, reported by the page's drop message: the drag's entry); now otherwise.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind, madeAt: TimeInterval? = nil) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), wall())
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), madeAt ?? wall())
     }
 
     /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:

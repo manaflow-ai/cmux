@@ -6,6 +6,10 @@
   font: inherit;
   color: var(--cv-text);
 }
+/* An inbox batch's head is a tool row (MessageGroupHead.css); the batch is its narrow-pane container. */
+.cv-lane-batch[data-kind="inbox"] {
+  container-type: inline-size;
+}
 .cv-lane-batch__toggle {
   display: flex;
   box-sizing: border-box;

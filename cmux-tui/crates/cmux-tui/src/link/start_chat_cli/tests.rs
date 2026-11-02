@@ -9,16 +9,105 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
+use super::trust::trusted_at;
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, valid_environment,
-    valid_key, valid_repo, valid_workspace,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
+    valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
 /// The account a send began in, as the App spells it: the user and the team.
 const ACCOUNT: &str = "user-leo/team-a";
+
+#[test]
+fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspace_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other-vm")).expect("bind");
+    let retry = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other-vm", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], Value::Null);
+    assert_eq!(answer["new_name"], "cloud-chats");
+    assert_eq!(answer["create_team"], "billed-team");
+    assert_eq!(answer["create_sent"], true);
+    assert_eq!(answer["create_key"], Keys::of(&key).create);
+    assert_eq!(pin(&path, &key, ACCOUNT, "created-vm", None)["ok"], true);
+    assert_eq!(
+        plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
+        "created-vm"
+    );
+}
+
+#[test]
+fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let original = Keys::of(&key);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
+        true
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
+    let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
+        "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["machine"], Value::Null);
+    assert_eq!(fresh["new_name"], "cloud-chats-2");
+    assert_ne!(fresh["create_key"], original.create);
+    assert_eq!(fresh["tab_key"], original.tab);
+    let new_key = fresh["create_key"].as_str().expect("rotated key");
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", new_key)["ok"], true);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key)["ok"], false);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_key"], new_key);
+    assert_eq!(plan(&path, &request)["create_sent"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, new_key)["ok"], true);
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other")).expect("bind");
+    let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    assert_eq!(plan(&path, &request)["machine"], "other");
+}
+
+#[test]
+fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_durable")["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_reordered")["ok"], false);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-b", "pane_durable")["ok"], false);
+    let retry = json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], "vm-a");
+    assert_eq!(answer["target_pane"], "pane_durable");
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
+    assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
 
 fn send(key: &str) -> Send {
     Send::new(key, ACCOUNT)
@@ -321,6 +410,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         local: local.into(),
         subpath: subpath.into(),
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
+        acpmux_home: None,
     }
 }
 
@@ -394,6 +484,110 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+/// A copy cannot report machine boot or harness startup: both are outside its lifetime.
+fn assert_copy_timings(answer: &Value) {
+    let started = answer["seed_started_at"].as_f64().expect("copy start timestamp");
+    let finished = answer["seed_finished_at"].as_f64().expect("copy finish timestamp");
+    assert!(started > 0.0);
+    assert!(finished >= started);
+    for key in
+        ["machine_started_at", "machine_finished_at", "harness_started_at", "harness_finished_at"]
+    {
+        assert!(answer.get(key).is_none(), "copy must not report {key}");
+    }
+}
+
+#[test]
+fn copy_answer_reports_clone_timing_only() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let answer = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(answer["seed_state"], json!("done"));
+    assert_eq!(answer["seed_phase"], json!("complete"));
+    assert_copy_timings(&answer);
+
+    let cached = copy.run(&path, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    assert_eq!(cached["seed_state"], json!("done"));
+    assert_eq!(cached["seed_phase"], json!("cached"));
+    assert_eq!(cached["copied"], json!(false));
+    assert_copy_timings(&cached);
+}
+
+/// Capture at ff3f8c9b (2026-11-01): a send to Cloud from a folder this Mac trusts opened its copy on
+/// the machine behind "Trust the cloud-proof repo?", and the first message never went. The copy
+/// answers whether this Mac's acpmux trusts the chat's folder (its own record, as `acp.trust.get`
+/// reads it), so the App records the same answer for the copy there; anything else is asked there.
+#[test]
+fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
+    let dir = scratch();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let project = root.join("paint");
+    let app = project.join("web");
+    std::fs::create_dir_all(&app).unwrap();
+    let home = root.join("acpmux");
+    std::fs::create_dir_all(&home).unwrap();
+    let paths = |record: &Path| acpmux::trust::Paths {
+        claude_json: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        record: record.to_path_buf(),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let record = home.join("trust.json");
+    let folder = project.to_string_lossy().into_owned();
+    // No answer yet: asked on the machine.
+    assert!(!trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, json!({ (folder.clone()): "trusted" }).to_string()).unwrap();
+    assert!(trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, json!({ (folder.clone()): "untrusted" }).to_string()).unwrap();
+    assert!(!trusted_at(&paths(&record), &folder));
+    std::fs::write(&record, "not json").unwrap();
+    assert!(!trusted_at(&paths(&record), &folder), "unreadable trust is not trusted");
+
+    // The answer is for the chat's folder (`subpath` in the copied one), and only with a home given.
+    let mut copy = copy_of(&folder, "web");
+    assert_eq!(copy.local_chat(), app.to_string_lossy());
+    assert!(!copy.source_trusted(), "no acpmux home: never trusted");
+    copy.acpmux_home = Some(home);
+    let ledger = ledger_in(dir.path());
+    let answer = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(answer["source_trusted"], json!(false), "{answer}");
+    let chat = app.to_string_lossy().into_owned();
+    std::fs::write(&record, json!({ (chat): "trusted" }).to_string()).unwrap();
+    let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
+    let failed = StartCopy { key: key(), ..copy }
+        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
+    assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
+}
+
+#[test]
+fn failed_copy_and_ledger_answers_finish_the_clone_clock() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let failed = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+        Err(("sync_failed".into(), "copy refused".into()))
+    });
+    assert_eq!(failed["ok"], json!(false));
+    assert_eq!(failed["seed_state"], json!("failed"));
+    assert_eq!(failed["seed_phase"], json!("copy"));
+    assert_eq!(failed["error"], json!("copy refused"));
+    assert_copy_timings(&failed);
+
+    // A regular file cannot contain a ledger directory.
+    let file = dir.path().join("not-a-directory");
+    std::fs::write(&file, "file").unwrap();
+    let failed = copy.run(&file.join("ledger.json"), &|_: &Path, _: &Path, _: &str| {
+        panic!("cannot copy without a ledger")
+    });
+    assert_eq!(failed["ok"], json!(false));
+    assert_eq!(failed["seed_state"], json!("failed"));
+    assert_eq!(failed["seed_phase"], json!("ledger"));
+    assert_copy_timings(&failed);
 }
 
 #[test]
@@ -1063,6 +1257,49 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
 }
 
+/// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+/// sr2-tunnel-probe". Another machine picked for a send whose first try did not run there re-pins
+/// the send (`pin`): its retry plans the picked machine, copies afresh there, and the workspace takes
+/// the picked machine too.
+#[test]
+fn a_repick_moves_a_sends_retry_to_the_picked_machine() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send_key = key();
+    let machines = json!([
+        {"id": "vm-sr2", "title": "sr2-tunnel-probe", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+        {"id": "vm-zesty", "title": "zesty-indigo-lemur", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    ]);
+    let request = json!({"key": send_key, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": true, "machines": machines})
+        .to_string();
+    // A workspace's first send makes a machine of its own (pick.rs), which the App pins.
+    assert_eq!(plan(&path, &request)["machine"], Value::Null);
+    let (from, to) = ("vm-sr2", "vm-zesty");
+    assert_eq!(pin(&path, &send_key, ACCOUNT, from, Some("ws-a"))["ok"], json!(true));
+    // The first try's copy finished there.
+    let copy = StartCopy {
+        key: send_key.clone(),
+        machine: from.into(),
+        ..copy_of("/Users/me/src/paint", "")
+    };
+    let pushes = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *pushes.borrow_mut() += 1;
+        Ok(json!({}))
+    };
+    assert_eq!(copy.run(&path, &push)["copied"], json!(true));
+    // Without the repick, the retry stays where it was.
+    assert_eq!(plan(&path, &request)["machine"], json!(from));
+    // The person picks the other machine.
+    assert_eq!(pin(&path, &send_key, ACCOUNT, to, Some("ws-a"))["ok"], json!(true));
+    assert_eq!(plan(&path, &request)["machine"], json!(to));
+    let moved = StartCopy { machine: to.into(), ..copy }.run(&path, &push);
+    assert_eq!(moved["copied"], json!(true), "{moved}");
+    assert_eq!(*pushes.borrow(), 2);
+    let pins = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(pins.workspace_machine("ws-a", ACCOUNT).as_deref(), Some(to));
+}
+
 const ENV: &str = "env_0123456789abcdef01234567";
 
 #[test]
@@ -1094,6 +1331,7 @@ fn the_folders_github_remote_is_the_repo() {
     assert!(valid_repo("a.b/c_d-e"));
     assert!(!valid_repo(&format!("o/{}", "n".repeat(140))));
     assert!(valid_environment(ENV));
+    assert!(valid_environment("denv_0123456789abcdef01234567"));
     for bad in ["env_0123", "env_0123456789ABCDEF01234567", "abc_0123456789abcdef01234567"] {
         assert!(!valid_environment(bad), "{bad}");
     }
@@ -1222,7 +1460,8 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
     assert_eq!(
         made,
         json!({"ok": true, "machine": "vm-1", "team": "team_p", "created": true, "snapshot": "snap_x",
-               "environment": {"id": "denv_1", "status": "ready"}})
+               "environment": {"id": "denv_1", "status": "ready"}, "environment_id": "denv_1",
+               "setup": {"state": "done", "status": "ready"}})
     );
     let bound = ensure_answer(Ok(json!({"machine": {"id": "vm-1"}, "created": false})));
     assert_eq!(
@@ -1282,6 +1521,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(answer["ok"], json!(true), "{answer}");
     assert_eq!(answer["machine"], json!("vm-hot"));
     assert_eq!(answer["ensured"]["environment"], json!({"id": "denv_1", "status": "ready"}));
+    assert_eq!(answer["ensured"]["environment_id"], json!("denv_1"));
+    assert_eq!(answer["ensured"]["setup"], json!({"state": "done", "status": "ready"}));
     assert_eq!(answer["repo"], json!("me/paint"));
     assert_eq!(
         asked.borrow().as_slice(),
@@ -1346,6 +1587,35 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+}
+
+#[test]
+fn setup_state_distinguishes_ran_cached_running_failed_and_no_script() {
+    let ran = setup_state(
+        &json!({"status": "building", "steps": [
+            {"id": "install", "state": "done", "started_at": 1000, "finished_at": 3500}
+        ]}),
+        false,
+    )
+    .unwrap();
+    assert_eq!(ran, json!({"state": "done", "started_at": 1000, "finished_at": 3500}));
+
+    let cached = setup_state(&json!({"status": "ready", "steps": []}), true).unwrap();
+    assert_eq!(cached, json!({"state": "done", "status": "ready"}));
+
+    let running = setup_state(&json!({"status": "building", "steps": []}), false).unwrap();
+    assert_eq!(running, json!({"state": "running", "status": "building"}));
+
+    let failed = setup_state(
+        &json!({"status": "failed", "steps": [
+            {"id": "install", "state": "failed", "detail": "setup exited 1"}
+        ]}),
+        false,
+    )
+    .unwrap();
+    assert_eq!(failed, json!({"state": "failed", "status": "failed", "error": "setup exited 1"}));
+
+    assert_eq!(setup_state(&json!({"status": "ready", "steps": []}), false), None);
 }
 /// The copy's answer carries how the push went: a seed, or the copy with why
 /// and the GitHub App's install link, and the files left on this Mac.

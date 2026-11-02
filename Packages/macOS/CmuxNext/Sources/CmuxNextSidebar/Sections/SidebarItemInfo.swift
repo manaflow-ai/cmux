@@ -262,4 +262,15 @@ extension SidebarItemInfo {
         if info.isMissing, let label = item.label { info.title = label }
         return info
     }
+
+    /// A workspace item no open workspace answers: dimmed under its stored
+    /// name, or hidden when it has none. Without a name it would be an
+    /// anonymous workspace glyph whose click does nothing (a pin from an old
+    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
+    /// The layout keeps it, so it draws again when its workspace comes back.
+    public static func closedWorkspace(_ item: LayoutItem) -> SidebarItemInfo {
+        var info = fallback(for: item)
+        if item.label == nil { info.isHidden = true }
+        return info
+    }
 }

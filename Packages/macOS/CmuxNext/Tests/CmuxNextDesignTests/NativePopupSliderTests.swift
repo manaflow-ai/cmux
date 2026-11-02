@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupSliderTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupSliderTests {
     private func descriptor(style: NativePopupSliderStyle = .accent) -> NativePopupSlider {
         NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                  NativePopupSliderStop(value: "high", label: "High", description: "More careful", accessibilityLabel: "High, recommended")],
@@ -28,7 +29,7 @@ import Testing
         #expect(values.isEmpty)
         #expect(view.slider.doubleValue == 1)
         #expect(view.currentLabel.stringValue == "High")
-        #expect(view.currentLabel.toolTip == "More careful")
+        #expect(view.currentLabel.themedToolTip == "More careful")
         #expect(view.slider.accessibilityLabel() == "Effort")
         #expect(view.slider.accessibilityValueDescription() == "High, recommended")
         view.slider.keyDown(with: key(36))
@@ -40,6 +41,24 @@ import Testing
         #expect(values == ["1", "0"])
         #expect(view.currentLabel.stringValue == "Low")
         #expect(closes == 2)
+    }
+
+    /// The slider's parts and a slider row's accessory keep to the padded box of the popup's other
+    /// rows (``PopupRowView/contentGuide``), not to insets of their own.
+    @Test func partsSpanThePopupRowsPaddedBox() {
+        let spec = descriptor()
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "1", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: view.preferredHeight)
+        view.layout()
+        let box = PopupRowView.Layout()
+        #expect(view.slider.frame.minX == box.leading)
+        #expect(view.slider.frame.maxX == 240 - box.trailing)
+        let rowView = PopupRowView(leading: nil, title: "Row")
+        rowView.frame = NSRect(x: 0, y: 0, width: 240, height: box.minHeight)
+        rowView.layoutSubtreeIfNeeded()
+        #expect(rowView.contentGuide.frame.minX == box.leading)
+        #expect(rowView.contentGuide.frame.maxX == 240 - box.trailing)
     }
 
     @Test func numericPositionOverridesNamedRestingIdentity() {
@@ -61,7 +80,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let model = NativePopupModel(schemaVersion: 1, id: "numeric", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320,
@@ -95,7 +114,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let spec = descriptor()
         var model = NativePopupModel(schemaVersion: 1, id: "effort", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),

@@ -93,6 +93,18 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
+    "checklist-setup-ran": {
+      note: "The setup script ran for this environment, with its install timing shown on the row.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", startedAt: 10_000, finishedAt: 12_400 },
+        },
+      },
+    },
     "checklist-setup-running": {
       note: "The derived environment is still building its setup snapshot.",
       props: {

@@ -97,7 +97,8 @@ With the cmux app running, `machine ls` also lists its Cloud machines
 pub(super) const MACHINE_VM_HELP: &str = "\
 Cloud machines through the cmux VM API (vm.cmux.dev):
   run       Run a command on a fresh machine, deleted when it ends (--sync, --pull, --keep)
-  new       Create a machine
+  new       Make a Cloud machine (with the app signed in, the one your sidebar
+            shows; `cmux machine new --help`)
   show      Show a machine (`cmux machine show ID`)
   pause     Pause a machine, keeping its memory
   resume    Resume a paused machine
@@ -116,6 +117,7 @@ cmux API instead, for `cmux cloud`'s machines. Use `cmux cloud resize-machine`
 to resize one.
 
 Old spellings still work: `cmux vm …` for every verb (`cmux vm ls` lists the
-VM API's machines), and create, get, delete, `token create` and
-`client-session create` for new, show, rm, `key new` and `access new`.
+VM API's machines), `cmux cloud new-machine` for `machine new`, and create, get,
+delete, `token create` and `client-session create` for new, show, rm, `key new`
+and `access new`.
 ";

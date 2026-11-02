@@ -29,7 +29,7 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.held)
+            || session.queue().iter().any(|q| !q.aside())
         {
             return;
         }
@@ -78,6 +78,7 @@ impl Hub {
         let mut has_retry_marker = false;
         let mut turn_stopped = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
+        let mut cloud_mobile = false;
         let (mut ended, mut floor_cancelled) = (false, false);
         let kinds = [
             "turn_started",
@@ -112,6 +113,8 @@ impl Hub {
                     has_retry_marker = false;
                     control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
                     trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     ended = false;
                     floor_cancelled = false;
                 }
@@ -170,6 +173,7 @@ impl Hub {
         if scanned.is_err() {
             return;
         }
+        session.floor.cloud_mobile_turn.store(cloud_mobile, std::sync::atomic::Ordering::SeqCst);
         if manual_recorded {
             manual = None;
         }
@@ -195,7 +199,9 @@ impl Hub {
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {
             Ok(config) => {
-                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+                let configured = config.auto_resume_delays_ms.clone();
+                drop(config);
+                super::effective_delays(configured)
             }
             Err(_) => {
                 let (hub, session) = (self.clone(), session.clone());
@@ -309,6 +315,7 @@ impl Hub {
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
         if let Some(outcome) = self.logged_prompt(session, &id) {
+            let outcome = outcome.unwrap_or_default();
             if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
                 // The retry can be stopped while startup is still pending, before its
                 // turn_started. That Stop names the new turn, not the failed cut turn.
@@ -535,7 +542,7 @@ mod tests {
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
             if ["message_stop", "stop_message", "stop_without_message"].contains(&point) {
                 assert_eq!(
-                    restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
+                    restored.logged_prompt(&session, "original~resume-1").unwrap().unwrap()["stopReason"],
                     "cancelled"
                 );
                 let (again, session) = restart(&restored, &session).await;

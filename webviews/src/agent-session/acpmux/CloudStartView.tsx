@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
+import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook } from "./cloudStart.experiment";
 import {
   CLOUD_START_STEPS,
@@ -8,7 +9,8 @@ import {
   type CloudStartupSetup,
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
-import { useT, type Translate } from "./i18n";
+import { fileSizeLabel } from "./FileAttachment";
+import { paneLanguage, usePaneLanguage, useT, type StringKey, type Translate } from "./i18n";
 import "./cloudStart.css";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";
@@ -20,6 +22,7 @@ type ChecklistStep = {
   detail?: string;
   logTail?: string;
   action?: boolean;
+  link?: { href: string; label: string };
 };
 
 function elapsed(startedAt: number | undefined, finishedAt: number | undefined, now = Date.now()): string | undefined {
@@ -51,13 +54,49 @@ function setupStatus(setup: CloudStartupSetup | undefined): ChecklistStatus | un
   return "pending";
 }
 
-function cloneDetail(operation: CloudStartupOperation | undefined): string | undefined {
+/** Words for a seed's phase (cmux-tui `link/seed_cli.rs`); any other phase shows as it came. */
+const PHASE_KEYS: Record<string, StringKey> = {
+  clone: "cloudStartup.phase.clone",
+  fetch: "cloudStartup.phase.fetch",
+  bundle: "cloudStartup.phase.bundle",
+  checkout: "cloudStartup.phase.checkout",
+  submodules: "cloudStartup.phase.submodules",
+  lfs: "cloudStartup.phase.lfs",
+};
+
+function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate, language: string): string | undefined {
   if (!operation) return undefined;
-  const parts = [operation.phase];
   const progress = operation.progress;
-  if (progress?.objects !== undefined && progress.totalObjects !== undefined)
-    parts.push(`${progress.objects}/${progress.totalObjects} objects`);
-  if (progress?.receivedBytes !== undefined) parts.push(`${Math.round(progress.receivedBytes / 1024)} KB`);
+  const size = (bytes: number | undefined) => fileSizeLabel(bytes, language);
+  const parts: (string | undefined)[] = [];
+  if (operation.phase === "cached") parts.push(t("cloudStartup.cached"));
+  else if (operation.phase === "complete") {
+    // The row's check mark says it finished; only a seed that copied instead says so.
+    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+  } else if (operation.phase === "copy" || progress?.filesTotal !== undefined) {
+    // The streamed copy: files, then bytes.
+    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+    if (progress?.filesTotal !== undefined)
+      parts.push(
+        t("cloudStartup.copyingFiles", {
+          done: (progress.filesDone ?? 0).toLocaleString(language),
+          total: progress.filesTotal.toLocaleString(language),
+        }),
+      );
+    if (progress?.receivedBytes !== undefined && progress.bytesTotal !== undefined)
+      parts.push(
+        t("cloudStartup.ofSize", { done: size(progress.receivedBytes) ?? "", total: size(progress.bytesTotal) ?? "" }),
+      );
+  } else if (operation.phase === "upload") {
+    parts.push(t("cloudStartup.phase.upload", { size: size(progress?.bytesTotal ?? progress?.receivedBytes) ?? "" }));
+  } else {
+    const key = operation.phase ? PHASE_KEYS[operation.phase] : undefined;
+    parts.push(key ? t(key) : operation.phase);
+    const total = progress?.totalObjects;
+    if (progress?.objects !== undefined && total)
+      parts.push(`${Math.min(100, Math.floor((progress.objects / total) * 100))}%`);
+    else if (progress?.receivedBytes) parts.push(size(progress.receivedBytes));
+  }
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
@@ -68,12 +107,26 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.",
   "cloudStartup.cached": "cached",
   "cloudStartup.harness": "Started {harness}",
+  "cloudStartup.copyInstead": "Copying the folder instead",
+  "cloudStartup.copyingFiles": "{done} of {total} files",
+  "cloudStartup.ofSize": "{done} of {total}",
+  "cloudStartup.installApp": "Install the cmux GitHub App to clone it next time",
+  "cloudStartup.phase.upload": "Sending your changes ({size})",
+  "cloudStartup.phase.clone": "Cloning from GitHub",
+  "cloudStartup.phase.fetch": "Fetching from GitHub",
+  "cloudStartup.phase.bundle": "Applying your changes",
+  "cloudStartup.phase.checkout": "Checking out files",
+  "cloudStartup.phase.submodules": "Getting submodules",
+  "cloudStartup.phase.lfs": "Getting large files",
 };
 export function startupChecklist(
   start: CloudStartProgress,
   t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[key] ?? key).replace("{harness}", String(values.harness ?? "Harness")),
+    (DEFAULT_STARTUP_STRINGS[key] ?? key)
+      .replace("{harness}", String(values.harness ?? "Harness"))
+      .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
   now = Date.now(),
+  language: string = paneLanguage(),
 ): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
   const failedStep =
@@ -117,9 +170,10 @@ export function startupChecklist(
         ? "error"
         : (stoppedCloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending")),
     duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt, now),
-    ...(cloneDetail(start.clone) || start.clone?.error
-      ? { detail: cloneDetail(start.clone) || start.clone?.error }
+    ...(cloneDetail(start.clone, t, language) || start.clone?.error
+      ? { detail: cloneDetail(start.clone, t, language) || start.clone?.error }
       : {}),
+    ...(start.clone?.installUrl && { link: { href: start.clone.installUrl, label: t("cloudStartup.installApp") } }),
   };
   const hasScript = start.setup?.hasScript;
   const setupState = setupStatus(start.setup);
@@ -224,16 +278,12 @@ export function CloudStartView({
   const arm = experimentArm(cloudStartLook);
   const failed = start.state === "failed";
   const [expanded, setExpanded] = useState(!start.initialized);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (start.initialized || start.state === "failed") return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [start.initialized, start.state]);
+  const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     setExpanded(start.initialized !== true);
   }, [start.initialized]);
-  const rows = startupChecklist(start, t, now);
+  const language = usePaneLanguage();
+  const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
   const openEnvironment = () => {
     const options = {
@@ -251,7 +301,7 @@ export function CloudStartView({
       data-look={arm}
       data-initialized={start.initialized ? "true" : undefined}
     >
-      {bubble && !failed && (
+      {bubble && (
         <div className="cv-user">
           <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
         </div>
@@ -279,7 +329,7 @@ export function CloudStartView({
           )}
         </button>
         {expanded && (
-          <div className="acpmux-cloud-start__checklist" aria-label="Cloud startup checklist">
+          <div className="acpmux-cloud-start__checklist" aria-label={t("cloudStartup.checklist")}>
             {rows.map((step) => (
               <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}>
                 <span className="acpmux-cloud-start__mark">{mark(step, t)}</span>
@@ -300,6 +350,13 @@ export function CloudStartView({
                     {step.detail}
                   </span>
                 ) : null}
+                {step.link && (
+                  <span className="acpmux-cloud-start__detail">
+                    <a className="acpmux-cloud-start__link" href={step.link.href} target="_blank" rel="noreferrer">
+                      {step.link.label}
+                    </a>
+                  </span>
+                )}
               </div>
             ))}
           </div>

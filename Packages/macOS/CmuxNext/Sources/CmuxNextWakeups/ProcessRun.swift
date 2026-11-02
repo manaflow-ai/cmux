@@ -195,7 +195,10 @@ final class ProcessRun: Sendable {
         case .merge:
             stderrConfigured = posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
         case .separate:
-            stderrConfigured = posix_spawn_file_actions_adddup2(&actions, errorPipe!.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+            // .separate always creates errorPipe above; a missing pipe fails the configured guard below.
+            stderrConfigured = errorPipe.map {
+                posix_spawn_file_actions_adddup2(&actions, $0.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+            } ?? EBADF
         }
         let stdinConfigured: Int32
         if let input {
@@ -203,11 +206,22 @@ final class ProcessRun: Sendable {
         } else {
             stdinConfigured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) }
         }
+        // The child starts with no signal blocked and every signal at its default, as Foundation's Process
+        // gives its children. This spawn runs on a GCD worker thread, and Darwin's workqueue threads block
+        // every asynchronous signal (SIGTERM, SIGINT, SIGHUP...); posix_spawn passes the calling thread's mask
+        // on, and exec keeps it. Without this the whole group started with TERM blocked: the stop signal
+        // stayed pending in git and its hooks, and only the grace's SIGKILL ended them.
+        var unblocked = sigset_t(), defaults = sigset_t()
+        sigemptyset(&unblocked)
+        sigfillset(&defaults)
         let configured = posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDOUT_FILENO) == 0
             && stderrConfigured == 0
             && stdinConfigured == 0
             && (request.directory?.path.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } ?? 0) == 0
-            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
+            && posix_spawnattr_setsigmask(&attributes, &unblocked) == 0
+            && posix_spawnattr_setsigdefault(&attributes, &defaults) == 0
+            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT
+                                                           | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)) == 0
             && posix_spawnattr_setpgroup(&attributes, 0) == 0
         guard configured else {
             sources.forEach { $0.cancel() }

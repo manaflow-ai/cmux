@@ -223,3 +223,81 @@ fn cloud_repo_tools_receive_complete_protected_caller_identity() {
     assert_eq!(env[crate::hub::person::CALLER_SOCKET_ENV], env["ACPMUX_SOCKET"]);
     assert_eq!(env["CMUX_BIN"], "/bin/cmux");
 }
+
+/// The session's tool allowlist reaches the `acpmux` server as well as `cmux`, so with
+/// no `cmux` to fold into (cmux.json turns MCP off) the standalone server still filters
+/// its own tools, after `for_session` too (#30082 review).
+#[test]
+fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        (super::SERVERS_ENV.to_owned(), "cmux,acpmux".to_owned()),
+        (super::MCP_TOOLS_ENV.to_owned(), super::CHIEF_TURN_TOOLS.to_owned()),
+    ]);
+    // As production builds them: `for_session` resets the server's env to its credentials.
+    let folded = tools.scoped(&env).for_session("s-allowlist").folded();
+    assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
+    let acpmux = &folded.servers[0];
+    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert!(
+        acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
+        "{:?}",
+        acpmux.env
+    );
+}
+
+/// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
+/// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
+/// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
+/// hook prints still reaches Claude Code.
+#[test]
+fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hook-skew-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let script = |name: &str, body: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let run = |command: &str| {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        // A binary that is gone never reads its input: the write may fail with a broken pipe.
+        let _ = child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#);
+        child.wait_with_output().unwrap()
+    };
+    let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    let old =
+        words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
+    let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
+    assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
+    let out = run(&super::hook_command(&old));
+    assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
+    // A binary that is gone does not block either.
+    let gone = words(root.join("gone").to_string_lossy().into_owned());
+    assert!(run(&super::hook_command(&gone)).status.success());
+    // The hook's own answer still gets through.
+    let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
+    let out = run(&super::hook_command(&deny));
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
+    let _ = std::fs::remove_dir_all(&root);
+}

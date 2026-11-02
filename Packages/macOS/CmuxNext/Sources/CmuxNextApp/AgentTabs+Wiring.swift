@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.ChatColumnPlacement
@@ -96,15 +97,13 @@ extension AgentTabStore {
 
     /// The key-hold token of the new workspace holding tab `key` (kept until its create returns).
     func firstPageToken(of key: String, in store: DaemonStore) -> String? {
-        guard !firstPageTokens.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard !firstPageTokens.isEmpty, let workspace = store.workspace(holdingTab: key) else { return nil }
         return firstPageTokens[workspace.handle]
     }
 
     /// The held seed of the new workspace holding tab `key`, taken once.
     func firstChatSeed(of key: String, in store: DaemonStore) -> AgentPaneSeedSource? {
-        guard !firstChats.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard !firstChats.isEmpty, let workspace = store.workspace(holdingTab: key) else { return nil }
         return firstChats.removeValue(forKey: workspace.handle)
     }
 
@@ -112,7 +111,12 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources),
+                                 attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
+        tabs.cloudRepositoryLocal = { [weak services] in
+            guard let services else { throw DaemonError.notConnected }
+            return try await services.daemon.cloudRepositoryLocal()
+        }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
@@ -148,6 +152,10 @@ extension AgentTabStore {
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
+        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
+            guard let services, let tabs, let workspace = tabs.lookup(tabs.resolve(key))?.store.workspace(holdingTab: tabs.resolve(key)) else { return nil }
+            return services.windows.windowID(ofWorkspace: workspace.id)
+        }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
@@ -181,6 +189,8 @@ extension AgentTabStore {
             AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
         }
         tabs.localSessionHost = chief.localRouter(tabs.host)
+        // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
+        tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
@@ -380,10 +390,11 @@ extension AgentTabStore {
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
-            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudTeamMachine = services.machines.session(daemon.machineID)?.harnessLogin?.skippedTeamMachine == true
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
@@ -432,10 +443,7 @@ extension AgentTabStore {
             } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
                 // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
                 // one on the Cloud app server link, through the API Worker with the person's session.
-                host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title) { [weak services, weak cloud] in
-                    guard let services, let cloud else { return .failed("") }
-                    return await services.cloud.restartWithApprovals(cloud)
-                }
+                host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title, restart: { [weak services, weak cloud] in guard let services, let cloud else { return .failed("") }; return await services.cloud.restartWithApprovals(cloud) }, prepare: { [weak services, weak cloud] preparation in guard let services, let cloud else { return false }; return await services.cloud.restartWithApprovalsIfIdle(cloud, preparation) })
             }
             return host
         }
@@ -492,6 +500,8 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
+        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs
     }

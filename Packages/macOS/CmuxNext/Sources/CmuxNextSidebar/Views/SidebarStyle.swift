@@ -10,6 +10,10 @@ enum SidebarStyle {
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
     /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
     static let rowEdgeGap: CGFloat = 1.5
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card.
+    /// ChatGPT's sidebar keeps five device pixels (2.5 pt at 2x) here, with no resize line or
+    /// chrome shade in the band. This is scaled with the rest of the sidebar geometry.
+    static var rowToPaneGap: CGFloat { Metrics.scale(2.5) }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
@@ -144,7 +148,7 @@ enum SidebarStyle {
     /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
     /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
-    static var groupChromeShape: Bool { SidebarTunables.groupChromeShape.value && SidebarGroupHeaderStyle.tunable.value == .band }
+    static var groupChromeShape: Bool { SidebarTunables.groupChromeShapeOn && SidebarGroupHeaderStyle.tunable.value == .band }
     /// The members' line: 2 pt normally, 4 pt in the connected-shape prototype.
     static var groupBarWidth: CGFloat { groupChromeShape ? Metrics.space2 : Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
