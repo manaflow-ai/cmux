@@ -465,7 +465,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
-            control.toolTip = line.help
+            control.themedToolTip = line.help
             self.toggle = control
         }
         if !line.menu.isEmpty {
@@ -474,11 +474,11 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         }
         if line.reorderable {
             grip = Self.image("line.3.horizontal", font: Typography.caption, tint: colors.tertiary)
-            grip?.toolTip = line.reorderLabel ?? line.title
+            grip?.themedToolTip = line.reorderLabel ?? line.title
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
-        toolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
+        themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
         setAccessibilityElement(true)
         setAccessibilityLabel([line.title, line.detail, line.subtitle, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)
@@ -760,7 +760,7 @@ final class SessionInfoButtonView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 4
         addSubview(content)
-        toolTip = button.label
+        themedToolTip = button.label
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(button.label)
