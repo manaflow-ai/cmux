@@ -117,7 +117,11 @@ async function mount({
   tabCwd = "/Users/you",
   peerStart = "ok",
   peerResources,
+  startCwd,
+  folderless = false,
 }: {
+  startCwd?: string;
+  folderless?: boolean;
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
@@ -126,6 +130,7 @@ async function mount({
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
   const calls: Call[] = [];
@@ -138,7 +143,11 @@ async function mount({
         if (params?.peer && peerStart === "none") return undefined;
         return "session-1";
       case "environment.list":
-        return { environments: SAVED };
+        return {
+          environments: folderless
+            ? [...SAVED, { id: "empty", name: "Default folder", kind: "local", updatedAt: 1 }]
+            : SAVED,
+        };
       case "environment.save": {
         const environment = params!.environment as Record<string, unknown>;
         return { environment: { ...environment, id: "new-1", updatedAt: 9 } };
@@ -156,6 +165,7 @@ async function mount({
   const actions = newTabScreenActions({
     callNative,
     cwd: tabCwd,
+    chatCwd: startCwd,
     leave: noop,
     selectSession: noop,
     showAllChats: noop,
@@ -165,28 +175,40 @@ async function mount({
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <NewTabScreen
-        snapshot={noChat([], {
-          peers: ["devbox", "cloud-1"],
-          peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
-          ...(peerResources ? { peerResources } : {}),
-        })}
-        lastAgent="claude"
-        cwd={tabCwd}
-        projects={[
-          { cwd: APP, label: "app" },
-          { cwd: API, label: "api" },
-        ]}
-        environments={previews}
-        onConnect={noop}
-        onNewWorktree={(cwd) => {
-          let folder: string | undefined;
-          return newWorktree(callNative, cwd, (used) => {
-            folder = used;
-          }).then(() => folder);
+      <SignInContext.Provider
+        value={{
+          signedOut: {},
+          logIn: noop,
+          readSessionAuth: async (query) => {
+            calls.push({ method: "session.auth", params: query });
+            return { state: "unknown", source: "authCheck" };
+          },
         }}
-        {...actions}
-      />,
+      >
+        <NewTabScreen
+          snapshot={noChat([], {
+            peers: ["devbox", "cloud-1"],
+            peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+            ...(peerResources ? { peerResources } : {}),
+          })}
+          lastAgent="claude"
+          cwd={tabCwd}
+          startCwd={startCwd}
+          projects={[
+            { cwd: APP, label: "app" },
+            { cwd: API, label: "api" },
+          ]}
+          environments={previews}
+          onConnect={noop}
+          onNewWorktree={(cwd) => {
+            let folder: string | undefined;
+            return newWorktree(callNative, cwd, (used) => {
+              folder = used;
+            }).then(() => folder);
+          }}
+          {...actions}
+        />
+      </SignInContext.Provider>,
     ),
   );
   await settle();
@@ -304,6 +326,9 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
   const calls = await mount();
   await openMachines();
   await click(row("Devbox API"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
+  });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
@@ -327,6 +352,9 @@ test("a saved local environment with Use worktree asks in a new worktree of its 
   const calls = await mount();
   await openMachines();
   await click(row("API worktree"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude" },
+  });
   await ask("fix the build");
   expect(started(calls).map((call) => call.method)).toEqual([
     "git.worktree.create",
@@ -368,6 +396,9 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   const calls = await mount();
   await openMachines();
   await click(row("devbox"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", host: "devbox" },
+  });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
   // The prompt takes the keyboard back, as after a folder pick.
   expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
@@ -618,4 +649,15 @@ test("a direct start keeps its draft until the first prompt is accepted, includi
   finish();
   await retry;
   expect(left).toBe(1);
+});
+
+test("a folderless local environment preflights the host start folder, not the inherited tab folder", async () => {
+  const calls = await mount({ folderless: true, tabCwd: API, startCwd: APP });
+  await openMachines();
+  await click(row("Default folder"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", cwd: APP },
+  });
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).toBe(APP);
 });
