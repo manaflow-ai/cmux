@@ -247,16 +247,32 @@ impl ConnectionSurfaceScheduler {
         client: u64,
         writer: &MessageWriter,
     ) {
+        // A create that panics ends its slot, and the loop goes on to the
+        // creates waiting behind it: nobody else would start them. The
+        // first panic goes on to the caller (the terminal pool reports it)
+        // once the loop has nothing more to start.
+        if let Some(panic) = self.commit_ready_creations_catching(mux, client, writer) {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    fn commit_ready_creations_catching(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        writer: &MessageWriter,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
+        let mut panicked = None;
         loop {
             let slot = {
                 let mut queue = self.creations.state.lock().recover_poison();
-                let Some(head) = queue.slots.front() else { return };
+                let Some(head) = queue.slots.front() else { return panicked };
                 let may_start =
                     queue.running == 0 || (head.groupable && queue.running_unjoined == 0);
                 if !may_start || head.launched.lock().recover_poison().is_none() {
-                    return;
+                    return panicked;
                 }
-                let Some(slot) = queue.slots.pop_front() else { return };
+                let Some(slot) = queue.slots.pop_front() else { return panicked };
                 queue.running += 1;
                 queue.running_unjoined += 1;
                 slot
@@ -265,15 +281,25 @@ impl ConnectionSurfaceScheduler {
             // Ends the slot also when the create panics (the pool catches
             // it): later creates of the connection wait for this one.
             let end = SlotEnd { scheduler: self, slot: &slot, joined: &joined };
-            let keep_open = if slot.groupable {
-                crate::mux::with_group_join_notice(
-                    self.join_notice(mux, client, writer, joined.clone()),
-                    || self.commit_creation(mux, client, &slot, writer),
-                )
-            } else {
-                self.commit_creation(mux, client, &slot, writer)
-            };
+            let committed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if slot.groupable {
+                    crate::mux::with_group_join_notice(
+                        self.join_notice(mux, client, writer, joined.clone()),
+                        || self.commit_creation(mux, client, &slot, writer),
+                    )
+                } else {
+                    self.commit_creation(mux, client, &slot, writer)
+                }
+            }));
             drop(end);
+            let keep_open = match committed {
+                Ok(keep_open) => keep_open,
+                Err(panic) => {
+                    eprintln!("cmux-tui: a terminal create of client {client} panicked");
+                    panicked.get_or_insert(panic);
+                    true
+                }
+            };
             if !keep_open {
                 self.close();
             }

@@ -21,7 +21,7 @@
 //! a burst of scripted splits becomes one model update; a group never waits
 //! for a creation that has not arrived, so a lone creation commits at once.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Condvar, Mutex};
 
 use super::*;
@@ -43,6 +43,13 @@ pub(crate) struct CreationGroups {
 #[derive(Default)]
 struct GroupsState {
     next_id: u64,
+    /// The group whose leader may take the creation fence next. Leaders
+    /// take it in group order, which is the order the groups were started,
+    /// so a later group never commits before an earlier one: a connection's
+    /// split that cannot join its open group (full) commits after it.
+    fence_next: u64,
+    /// Groups after `fence_next` whose leader already released its turn.
+    fence_done: BTreeSet<u64>,
     /// The group that still takes members: its leader waits for the fence
     /// or holds it, and its commit has not started.
     open: Option<u64>,
@@ -102,6 +109,8 @@ pub(super) struct GroupSeat<'a> {
     index: usize,
     turn_ended: bool,
     answered: bool,
+    /// The leader released its group's turn at the creation fence.
+    fence_turn_released: bool,
 }
 
 impl CreationGroups {
@@ -137,7 +146,14 @@ impl CreationGroups {
                 (id, 0)
             }
         };
-        GroupSeat { groups: self, group, index, turn_ended: false, answered: false }
+        GroupSeat {
+            groups: self,
+            group,
+            index,
+            turn_ended: false,
+            answered: false,
+            fence_turn_released: false,
+        }
     }
 
     fn with_state<R>(&self, body: impl FnOnce(&mut GroupsState) -> R) -> R {
@@ -152,6 +168,32 @@ impl CreationGroups {
 impl GroupSeat<'_> {
     pub(super) fn is_leader(&self) -> bool {
         self.index == 0
+    }
+
+    /// The leader: wait until every earlier group released the creation
+    /// fence's turn.
+    pub(super) fn wait_fence_turn(&self) {
+        debug_assert!(self.is_leader());
+        let mut state = self.groups.state.lock().recover_poison();
+        while state.fence_next != self.group {
+            state = self.groups.changed.wait(state).recover_poison();
+        }
+    }
+
+    /// The leader: its group is done with the creation fence; the next
+    /// group's leader may take it.
+    pub(super) fn release_fence_turn(&mut self) {
+        if !self.is_leader() || self.fence_turn_released {
+            return;
+        }
+        self.fence_turn_released = true;
+        let group = self.group;
+        self.groups.with_state(|state| {
+            state.fence_done.insert(group);
+            while state.fence_done.remove(&state.fence_next) {
+                state.fence_next += 1;
+            }
+        });
     }
 
     /// The leader holds the fence: the first turn starts.
@@ -283,6 +325,7 @@ impl Drop for GroupSeat<'_> {
     /// for) must not hold its group: its turn passes on, and a leader that
     /// leaves ends the group, so no member runs without the fence.
     fn drop(&mut self) {
+        self.release_fence_turn();
         let (index, turn_ended, answered, leader) =
             (self.index, self.turn_ended, self.answered, self.is_leader());
         self.groups.with_state(|state| {
@@ -371,7 +414,12 @@ impl Mux {
         }
         let fence = seat.is_leader().then(|| {
             self.run_creation_before_fence_hook();
-            let fence = self.creation_wait(|| self.resource_creation_execution.lock().unwrap());
+            // The fence guards no data: a creation that panicked under it
+            // leaves nothing half done for the next one to see.
+            let fence = self.creation_wait(|| {
+                seat.wait_fence_turn();
+                self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner)
+            });
             seat.fence_held();
             fence
         });
@@ -405,6 +453,7 @@ impl Mux {
         drop(activity);
         let committed = seat.answer(answers);
         drop(fence);
+        seat.release_fence_turn();
         own.or(committed)
             .unwrap_or_else(|| Err(anyhow::anyhow!("the creation group gave its leader no answer")))
     }
