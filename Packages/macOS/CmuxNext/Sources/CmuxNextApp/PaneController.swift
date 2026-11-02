@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
 
