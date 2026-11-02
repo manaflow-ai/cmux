@@ -684,11 +684,13 @@ export function NewTabPage({
     }
   };
   // The row is the field's text area (the I-beam shows over all of it): a press beside the
-  // field focuses it; the field and the kind switch keep their own presses. Pointer only, so the
-  // row is presentation: keys reach the field itself.
+  // field, or on its padding above and below the text, focuses it; the editable text and the
+  // kind switch keep their own presses. Pointer only, so the row is presentation: keys reach the
+  // field itself.
   const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element;
-    if (fieldElement()?.contains(target) || target.closest("fieldset, button")) return;
+    const editable = fieldElement()?.querySelector('[contenteditable="true"]');
+    if (editable?.contains(target) || target.closest("fieldset, button")) return;
     event.preventDefault();
     field.current?.focus();
   };

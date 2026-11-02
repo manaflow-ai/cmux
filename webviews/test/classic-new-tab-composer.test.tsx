@@ -155,3 +155,14 @@ test("in a prompt of several lines, ↑ moves the caret up a line and ↓ on the
   // ↓ has none: it steps the rows.
   expect(await press("ArrowDown")).toBe(true);
 });
+
+test("a press on the classic field's padding, above or below its text, focuses the editor", async () => {
+  const field = await render();
+  await act(async () => field.editor.blur());
+  expect(window.document.activeElement).not.toBe(field.editor);
+  // The press lands on the field's own wrapper (its padding), not on the editable text.
+  const press = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  await act(async () => field.field.dispatchEvent(press));
+  expect(press.defaultPrevented).toBe(true);
+  expect(field.editor.contains(window.document.activeElement)).toBe(true);
+});
