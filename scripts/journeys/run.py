@@ -137,6 +137,13 @@ def validate(spec):
         problems.append(f"budget_seconds must be in (0, {JOURNEY_SECONDS}] (one lease)")
     kinds = set()
     for index, step in enumerate(spec.get("steps") or [], 1):
+        gap = step.get("known_gap")
+        if gap is not None:  # a named known gap's fallback steps run like the journey's own (driver run_gap_fallback)
+            for sub in (gap.get("fallback") or []) if isinstance(gap, dict) else []:
+                if sub.get("do") not in STEP_NAMES:
+                    problems.append(f"step {index}: known_gap fallback names an unknown do {sub.get('do')!r}")
+            if not isinstance(gap, dict) or not gap.get("name") or not gap.get("ref"):
+                problems.append(f"step {index}: known_gap needs a name and a ref")
         if step.get("do") not in STEP_NAMES:
             problems.append(f"step {index}: unknown do {step.get('do')!r} (one of {', '.join(sorted(STEP_NAMES))})")
         for cond in step.get("all", []) if step.get("do") == "expect" else []:

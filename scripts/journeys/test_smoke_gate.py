@@ -240,7 +240,7 @@ class Verdicts(unittest.TestCase):
             self.assertEqual(r["failing_step"]["do"], "expect")
             self.assertIn("cols3", r["failing_step"]["error"])
             text = open(os.path.join(tmp, "out", "summary.txt")).read()
-            self.assertIn("first failure after the KNOWN GAP at step 43: expect:", text)
+            self.assertIn("first failure after the KNOWN GAP at step 43: step 49 expect:", text)
 
     def test_every_real_new_column_key_check_has_the_known_gap_and_a_fallback(self):
         with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
@@ -250,8 +250,9 @@ class Verdicts(unittest.TestCase):
         for i in keyed:
             gap = steps[i + 1].get("known_gap")
             self.assertTrue(gap and gap["key_path"] == "real_hid" and gap["ref"] == "STATUS 1712/1724", i)
-            self.assertEqual([s["do"] for s in gap["fallback"]], ["smoke_key", "wait", "action", "expect"])
-            self.assertEqual(gap["fallback"][2]["action"], "newColumn")
+            self.assertEqual([s["do"] for s in gap["fallback"]], ["smoke_key", "wait", "expect", "action", "expect"])
+            self.assertEqual(gap["fallback"][3]["action"], "newColumn")
+            self.assertEqual((gap["key"], gap["modifiers"], gap["problems"]), ("d", ["control", "cmd"], ["0 new columns, not 1"]))
 
     def test_a_passed_round_with_a_key_gap_is_not_run(self):
         with tempfile.TemporaryDirectory() as tmp:

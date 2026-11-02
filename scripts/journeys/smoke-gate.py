@@ -198,7 +198,8 @@ def failing_step(out):
     for step in result.get("steps", []):
         # `finally` steps (app_log, debug.focus, close all) only record or clean up: never the round's failing step.
         if step.get("ok") is False and not step.get("finally"):
-            return {"do": step.get("do"), "title": step.get("title"), "error": (step.get("error") or "")[:400]}
+            return {"index": step.get("index"), "do": step.get("do"), "title": step.get("title"),
+                    "error": (step.get("error") or "")[:400]}
     return None
 
 
@@ -632,9 +633,14 @@ def main(argv=None):
                          + (f" -- {row['errors'][0]}" if row["errors"] else ""))
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
+        if detail and r["failing_step"].get("index") is not None:
+            detail = f"step {r['failing_step']['index']} " + detail
         if detail and r.get("known_gap_steps"):
-            # The first failure AFTER the known gap (the gap step itself is never the failing step).
-            detail = f"first failure after the KNOWN GAP at step {r['known_gap_steps'][0][0]}: " + detail
+            # The first failure AFTER a known gap (a gap step itself is never the failing step): name the last gap
+            # step before it.
+            at = r["failing_step"].get("index") or 0
+            before = [i for i, _ in r["known_gap_steps"] if i is not None and i < at] or [r["known_gap_steps"][0][0]]
+            detail = f"first failure after the KNOWN GAP at step {before[-1]}: " + detail
         hog = r["pressure"]
         lines.append(f"  round {r['round']:2d} (slot {r.get('slot')}) on {r['host']} ({r.get('key_path')}): "
                      + ("replaced" if r.get("replaced") else r["status"]) + (f" -- {detail}" if detail else "")

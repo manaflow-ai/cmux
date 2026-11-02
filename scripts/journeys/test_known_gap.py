@@ -55,23 +55,41 @@ class Stub(D.Journey):
             if outcome == "fail":
                 self.evidence.append({"kind": "app", "pass": False, "check": "c"})
                 raise D.StepError(f"{step.get('name')} failed")
+            if outcome == "zero-columns":  # the known gap's own fault: the real key made nothing
+                self.evidence.append({"kind": "app", "pass": False, "check": "smoke_same_widths",
+                                      "detail": {"problems": ["0 new columns, not 1"]}})
+                raise D.StepError("smoke_same_widths never held")
+            if outcome == "width-changed":  # a column was made but an old width changed: a real R3b red
+                self.evidence.append({"kind": "app", "pass": False, "check": "smoke_same_widths",
+                                      "detail": {"problems": ["1 existing columns changed width"]}})
+                raise D.StepError("smoke_same_widths never held")
+            if outcome == "zero-and-blank":  # 0 columns AND a blank frame: the frame fault is real
+                self.evidence.append({"kind": "app", "pass": False, "check": "smoke_same_widths",
+                                      "detail": {"problems": ["0 new columns, not 1"]}})
+                self.evidence.append({"kind": "frame", "pass": False, "check": "smoke_frame", "detail": {}})
+                raise D.StepError("smoke_same_widths, smoke_frame never held")
+            if outcome == "gone":
+                raise D.TerminalGone("TERMINAL GONE")
             if outcome == "notrun":
                 raise D.NotRun("cannot judge")
             for kind in ("app", "daemon", "frame"):
                 self.evidence.append({"kind": kind, "pass": True, "check": kind})
-            return {"key_path": step["key_path"]} if step.get("key_path") else {}
+            if step.get("key_path"):
+                return {"key_path": step["key_path"], "key": step.get("key", "d"), "modifiers": step.get("modifiers", ["control", "cmd"])}
+            return {}
         return run
 
 
-GAP = {"name": "New Column real key", "ref": "STATUS 1712/1724", "key_path": "real_hid",
+GAP = {"name": "New Column real key", "ref": "STATUS 1712/1724", "key_path": "real_hid", "key": "d",
+       "modifiers": ["control", "cmd"], "problems": ["0 new columns, not 1"],
        "fallback": [{"do": "x", "name": "escape", "outcome": "fail", "optional": True},
                     {"do": "x", "name": "action"}, {"do": "x", "name": "fallback-check"}]}
 
 
-def journey(key_path="real_hid", later="ok", fallback_check="ok"):
+def journey(key_path="real_hid", later="ok", fallback_check="ok", check="zero-columns", modifiers=("control", "cmd")):
     gap = dict(GAP, fallback=[dict(s, outcome=fallback_check) if s["name"] == "fallback-check" else s for s in GAP["fallback"]])
-    return [{"do": "x", "name": "key", "key_path": key_path},
-            {"do": "x", "name": "check", "outcome": "fail", "known_gap": gap},
+    return [{"do": "x", "name": "key", "key_path": key_path, "modifiers": list(modifiers)},
+            {"do": "x", "name": "check", "outcome": check, "known_gap": gap},
             {"do": "x", "name": "later", "outcome": later}]
 
 
@@ -99,6 +117,27 @@ class KnownGap(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertTrue(result["reason"].startswith("step 3 (x): later failed"), result["reason"])
         self.assertIn("after step 2: KNOWN GAP", result["reason"])
+
+    def test_a_column_made_with_a_changed_width_is_a_real_failure(self):
+        j, result = self.run_steps(journey(check="width-changed"))
+        self.assertEqual(result["status"], "fail")
+        self.assertNotIn("KNOWN GAP", result["reason"])
+        self.assertEqual(j.calls, ["key", "check"])
+
+    def test_zero_columns_with_a_blank_frame_is_a_real_failure(self):
+        j, result = self.run_steps(journey(check="zero-and-blank"))
+        self.assertEqual(result["status"], "fail")
+        self.assertNotIn("KNOWN GAP", result["reason"])
+
+    def test_a_terminal_gone_is_never_the_gap(self):
+        j, result = self.run_steps(journey(check="gone"))
+        self.assertEqual(result["status"], "fail")
+        self.assertNotIn("KNOWN GAP", result["reason"])
+
+    def test_another_bound_key_is_a_real_failure(self):
+        j, result = self.run_steps(journey(modifiers=("option", "cmd")))
+        self.assertEqual(result["status"], "fail")
+        self.assertNotIn("KNOWN GAP", result["reason"])
 
     def test_on_the_debug_key_path_the_check_is_a_real_failure(self):
         j, result = self.run_steps(journey(key_path="debug.key"))

@@ -1688,7 +1688,7 @@ class Journey:
                             self.known_views.add(view["terminal_id"])
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
-                    gap = self.known_gap_of(step)
+                    gap = self.known_gap_of(step, error, self.evidence[evidence_before:])
                     if not gap:
                         raise
                     # A KNOWN GAP (the spec's `known_gap`): this check failed for a reason that is open and named, on
@@ -1733,7 +1733,8 @@ class Journey:
                     # Between steps, never inside one: no step's own timing includes the sample (review S1).
                     self.sample_daemons(f"after step {index + 1} ({step['do']})")
             if not_judged:
-                raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
+                gaps = "; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps)
+                raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged) + (f"; {gaps}" if gaps else ""))
             if self.known_gaps:
                 # Every step after the gap ran and passed; the gap itself is open, so this is no pass.
                 raise NotRun("; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps)
@@ -1793,14 +1794,29 @@ class Journey:
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
 
-    def known_gap_of(self, step):
-        """The step's `known_gap` when it applies now: {"name", "ref", "key_path", "fallback"}. It applies only when the
-        step before it took the gap's key path (default "real_hid"): the same check on another path is a real result."""
+    def known_gap_of(self, step, error, rows):
+        """The step's `known_gap` when it applies to THIS failure, else None. It applies only when all hold:
+          - the step before ran and took the gap's key path (default "real_hid") with exactly the gap's key and
+            modifiers (once KEY SET A or B changes the build's binding, the gap no longer matches and the check is a
+            real result again);
+          - the failure is no TerminalGone;
+          - every failed check of the step is `smoke_same_widths` whose only problem is the gap's own text (default
+            "0 new columns, not 1": the key made nothing). A column made with a changed width, a blank frame or any
+            other fault is a real result."""
         gap = step.get("known_gap")
-        if not isinstance(gap, dict) or not self.steps:
+        if not isinstance(gap, dict) or not self.steps or isinstance(error, TerminalGone):
             return None
         before = self.steps[-1]
+        result = before.get("result") if isinstance(before.get("result"), dict) else {}
         if before.get("ok") is not True or before.get("key_path") != gap.get("key_path", "real_hid"):
+            return None
+        if "key" in gap and (result.get("key") != gap["key"]
+                             or sorted(result.get("modifiers") or []) != sorted(gap.get("modifiers") or [])):
+            return None
+        failed = [r for r in rows if not r.get("pass")]
+        want = gap.get("problems", ["0 new columns, not 1"])
+        if not failed or any(r.get("check") != "smoke_same_widths" or not isinstance(r.get("detail"), dict)
+                             or r["detail"].get("problems") != want for r in failed):
             return None
         return gap
 
@@ -1809,10 +1825,15 @@ class Journey:
         with `fallback_of`. A step marked `optional` (closing what the stray key opened) is recorded and never fails
         the journey; any other failure is a real result (StepError), and a step that cannot be judged is not run."""
         for sub in steps:
+            if now() > self.deadline:
+                raise Deadline(f"the lease deadline came during the known gap's fallback at step {gap_index + 1}")
             record = {"index": gap_index + 1, "do": sub["do"], "title": sub.get("title", ""), "fallback_of": gap_index + 1}
             t = now()
+            handler = getattr(self, "step_" + sub["do"], None)
+            if handler is None:
+                raise StepError(f"the known gap's fallback names an unknown step {sub['do']!r}")
             try:
-                record["result"] = getattr(self, "step_" + sub["do"])(sub)
+                record["result"] = handler(sub)
                 record["ok"] = True
                 path = record["result"].get("key_path") if isinstance(record["result"], dict) else None
                 if path:
@@ -1821,7 +1842,7 @@ class Journey:
                 record["ok"], record["error"] = (None if sub.get("optional") else False), str(error)[-600:]
                 if not sub.get("optional"):
                     self.steps.append(dict(record, seconds=round(now() - t, 3)))
-                    if isinstance(error, NotRun):
+                    if isinstance(error, (NotRun, TerminalGone)):
                         raise
                     raise StepError(f"the known gap's fallback step {sub['do']} ({sub.get('title', '')[:60]}): {error}")
             record["seconds"] = round(now() - t, 3)
