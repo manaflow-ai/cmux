@@ -1,0 +1,54 @@
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextCloud
+import CmuxNextDaemonService
+import CmuxNextWakeups
+import Foundation
+import Testing
+
+/// A composer Cloud start (`cloud.startChat`) and Move to Cloud on the Cloud app server's link,
+/// the link every DEV and tagged build uses. The app link's carrier socket serves each connection
+/// as its own dial of the machine's daemon (`first-party-apps/cloud/server/src/link/carrier.rs`,
+/// up to 64 at once), so the CLIs' copy takes a connection of its own beside the app's, as
+/// `cmux link machine update` already does (``CloudLinkSession/currentSocket``). Neither the start
+/// nor the machine's connect refuses that link any more (HQ capture run 41392333978: the start card
+/// failed at "Set up a Cloud machine" with `unavailable` and no machine was made).
+@Suite
+@MainActor
+struct CloudStartChatAppLinkTests {
+    /// The start is refused only for Cloud off by policy or a signed-out account, whatever the link.
+    @Test func aStartOnTheAppServerLinkIsNotRefused() {
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
+        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
+    }
+
+    /// A machine on the app link goes on to its own state checks: a deleting one is refused as
+    /// deleting, never as a link that can't take a chat.
+    @Test func aMachineOnTheAppLinkIsNotRefusedForItsLink() async {
+        let session = CloudMachineSession(machine: CloudMachine(id: "vm-app", status: .deleting, displayName: "App VM"),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: "vm-app"), resolver: UnusedLinkResolver()),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: "tab-1"), origin: .user)
+        do {
+            _ = try await CloudMove.connected(session, invocation)
+            Issue.record("a deleting machine connected")
+        } catch let failure as CloudMove.Failure {
+            Issue.record("refused for its link: \(failure.message)")
+        } catch let failure as ActionFailure {
+            #expect(failure.message == CloudStrings.machineChanging(.deleting))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+}
+
+/// A link resolver the test never reaches: the deleting machine is refused before it connects.
+private struct UnusedLinkResolver: CloudLinkResolver {
+    func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+        throw CloudLinkError.unsupported
+    }
+
+    func close(_ key: CloudLinkKey) async {}
+}
