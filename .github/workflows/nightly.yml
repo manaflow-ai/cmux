@@ -6353,8 +6353,8 @@ jobs:
   # After publish-nightly (#25957), and only when the release signer pool (legacy-signer-dmg) did not sign
   # the build: a continued submission, another run's build, a requirement, or a pool failure.
   sign-nightly-identity-legacy:
-    needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, legacy-signer-dmg]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && needs.legacy-signer-dmg.outputs.signed_ok != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, legacy-signer-dmg, verify-nightly-identity-legacy-pool]
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && (needs.legacy-signer-dmg.outputs.signed_ok != 'true' || needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 == '') && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
     # One signing slot per run: a newer run signs alongside an older one and
@@ -6986,13 +6986,15 @@ jobs:
       # prunes them itself.
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
+      # The pool signer counts only once verify-nightly-identity-legacy-pool tested its DMG; otherwise the macOS signer
+      # (which then runs as the fallback) supplies every input below.
       # One signer signed: the release signer pool (legacy-signer-dmg, its outputs set only when it signed)
       # or the macOS signer, which runs only when the pool did not.
-      SIGN_RESULT: ${{ needs.legacy-signer-dmg.outputs.signed_ok == 'true' && 'success' || needs.sign-nightly-identity-legacy.result }}
-      SIGN_SKIP: ${{ needs.legacy-signer-dmg.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip }}
-      SIGN_OK: ${{ needs.legacy-signer-dmg.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok }}
+      SIGN_RESULT: ${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.signed_ok == 'true' && 'success' || needs.sign-nightly-identity-legacy.result }}
+      SIGN_SKIP: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.skip) || needs.sign-nightly-identity-legacy.outputs.skip }}
+      SIGN_OK: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.signed_ok) || needs.sign-nightly-identity-legacy.outputs.signed_ok }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
-      SIGNED_SHA256: ${{ needs.legacy-signer-dmg.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
+      SIGNED_SHA256: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.dmg_sha256) || needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
       TESTED_SHA256: ${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
     steps:
       - *checkout-default
@@ -7062,7 +7064,7 @@ jobs:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
           SPARKLE_CHANNEL: cmux-next
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.legacy-signer-dmg.outputs.minimum_system_version || needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
+          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.minimum_system_version) || needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: bash scripts/ci/nightly-steps/legacy-identity-appcast.sh
 
       - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
@@ -7099,10 +7101,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending == 'true' }}
-          NOTARIZE: ${{ needs.legacy-signer-dmg.outputs.notarize || needs.sign-nightly-identity-legacy.outputs.notarize || 'failure' }}
+          NOTARIZE: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.notarize) || needs.sign-nightly-identity-legacy.outputs.notarize || 'failure' }}
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
-          APPLE: ${{ needs.legacy-signer-dmg.outputs.apple || needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
-          REQUIREMENT_REFUSED: ${{ needs.legacy-signer-dmg.outputs.requirement_refused || needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
+          APPLE: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.apple) || needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
+          REQUIREMENT_REFUSED: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.requirement_refused) || needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
         run: bash scripts/ci/nightly-steps/legacy-identity-resolve.sh
 
       - name: Store the accepted submission's metadata
@@ -7194,9 +7196,9 @@ jobs:
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
       NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}
       SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}
-      SIGN_SKIP: ${{ needs.legacy-signer-dmg.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip }}
+      SIGN_SKIP: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.skip) || needs.sign-nightly-identity-legacy.outputs.skip }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
-      SIGN_OK: ${{ needs.legacy-signer-dmg.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok }}
+      SIGN_OK: ${{ (needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.signed_ok) || needs.sign-nightly-identity-legacy.outputs.signed_ok }}
       TESTED: ${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
       ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
       PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}
