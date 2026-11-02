@@ -1,7 +1,7 @@
 // With Session Info on (the host's default, AgentPaneTunables.sessionInfo), the old summary card is gone:
 // no summary button, no card, no subagent rows and no "Open new subagents in panes" checkbox, and
 // Session Info opens on Environment. Leo, 2026-10-31, on the summary card at the top of the pane:
-// "I HATE THAT TOP BIT". #26390 switched `agent.inspector` off, so the header offered the summary
+// "I HATE THAT TOP BIT". #26390 switched `agent.inspector` (now `agent.sessionInfo`) off, so the header offered the summary
 // card instead (summary/SummaryCard.tsx, summary/SubagentStatusList.tsx); this PR turns it back on.
 // The off case is the control: it proves the selectors find the card when it is there.
 // CMUX_BROWSER_TESTS=1 bun test test/session-info-no-summary-card.test.ts

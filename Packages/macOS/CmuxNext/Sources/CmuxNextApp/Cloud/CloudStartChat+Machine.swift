@@ -86,12 +86,24 @@ extension CloudStartChat {
             if !listed.contains(id) { await cloud.refresh() } // the platform's (personal, non-production sign-ins, where workspace machines are served): list it for the attach
             invocation.arguments["machine"] = .string(id)
         } else {
-            let request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: account.last ?? nil)
+            if cloud.configuration.linkSource == .appServer, !plan.createSent {
+                _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: Self.accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
+            }
+            var request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
+            request.wasSent = plan.createSent
             try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list.
-            let created = try await cloud.createMachine(name: plan.newName, startedByPerson: invocation.origin == .user,
-                                                        request: request) {
-                try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+            let created: CloudMachineSession
+            do {
+                created = try await cloud.createMachine(name: plan.newName, startedByPerson: invocation.origin == .user,
+                                                            request: request, onAppServerSent: { team in
+                    _ = try Self.checked(await cli.startChatCreateSent(key: start.key, account: Self.accountText(account), team: team, createKey: plan.createKey))
+                }) {
+                    try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+                }
+            } catch let failure as CloudAppOpFailure where cloud.configuration.linkSource == .appServer && !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+                _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: Self.accountText(account), createKey: plan.createKey))
+                throw failure
             }
             // Unpinned, a retry would plan afresh and could open the chat on another machine.
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: Self.accountText(account), machine: created.machineID, workspace: workspace))

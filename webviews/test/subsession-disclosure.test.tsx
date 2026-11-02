@@ -142,7 +142,8 @@ test("collapsed groups follow child sessions after their start calls finish", as
   );
   const status = () => container.querySelector(".cv-disclosure__status")!;
   expect(status().textContent).toContain("Working");
-  expect(status().querySelector("svg")).not.toBeNull();
+  // No spinner beside the status: its words say it works (Leo, no spinners on tool calls, #32196).
+  expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "input" }));
   expect(status().textContent).toContain("1 waiting");
   expect(status().querySelector("svg")).toBeNull();
@@ -151,7 +152,7 @@ test("collapsed groups follow child sessions after their start calls finish", as
   await act(async () => setChild({ lane: "failed", retry: { attempt: 1, of: 4 } }));
   expect(status().textContent).toContain("Working");
   expect(status().textContent).not.toContain("failed");
-  expect(status().querySelector("svg")).not.toBeNull();
+  expect(status().querySelector("svg")).toBeNull();
   await act(async () => setChild({ lane: "working", waitsForSlot: true }));
   expect(status().textContent).toContain("1 waiting");
   await act(async () => setChild({ lane: "idle" }));

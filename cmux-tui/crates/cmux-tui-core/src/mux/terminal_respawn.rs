@@ -273,9 +273,18 @@ impl Mux {
         // workspace first at a start). A retry after a backoff takes none:
         // it must not hold the line for its delay.
         let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
+        // A respawn that starts at once is sized into the Kitty budget now:
+        // its reservation then never waits for another respawn's launch.
+        // One after a backoff is not: it would shrink running terminals for
+        // the length of the backoff.
+        let kitty_expectation = plan
+            .delay
+            .is_zero()
+            .then(|| mux.expect_kitty_image_respawn(plan.old_runtime.as_ref(), plan.slot));
         let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            let _kitty_expectation = kitty_expectation;
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
             let turn = match ticket {
