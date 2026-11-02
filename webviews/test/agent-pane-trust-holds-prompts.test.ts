@@ -370,7 +370,9 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     expect(prompts.filter((prompt) => prompt.sessionId === ASKING).map((prompt) => prompt.text)).toEqual([
       "use OAuth after all",
     ]);
-    expect(await heldRow(page, "use OAuth after all").count()).toBe(0);
+    // Not held: no prompt waits for folder trust. Its row may stay in acpmux's queue (a steer reads
+    // Steering until it runs, and this stand-in never runs it), so the held note is what tells.
+    expect(await page.locator(".acpmux-queue-held").count()).toBe(0);
     expect(await trustAsk(page).count()).toBe(1);
     await page.context().close();
   });
