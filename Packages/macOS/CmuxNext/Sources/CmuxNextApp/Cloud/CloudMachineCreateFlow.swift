@@ -10,14 +10,16 @@ import Foundation
 /// 2. `cloud.machine.create` goes once with one idempotency key and origin
 ///    `user` (the verified app; the server refuses a money op otherwise).
 /// 3. The Mac relay calls it with the install token, so the backend answers
-///    `approval.pending {request}`. The flow shows the native confirmation
-///    if no person clicked in this flow yet; on the click it answers that
-///    exact request as the person's session (`feed.answer`), then retries
-///    with the SAME key until the op's answer arrives (bounded; the
-///    approved op runs in the backend after the answer).
+///    `approval.pending {request}`. The flow answers that exact request as
+///    the person's session (`feed.answer`), then retries with the SAME key
+///    until the op's answer arrives (bounded; the approved op runs in the
+///    backend after the answer).
 ///
-/// The flow never answers an approval without a native confirmation click
-/// in this flow, and a declined confirmation sends nothing more.
+/// The flow never answers an approval without a person's native click in
+/// this flow: for a create the person started, that click is their own
+/// gesture (the composer's Cloud send, a menu, the palette), so no second
+/// confirmation shows; for any other create it is step 1's confirmation.
+/// A declined confirmation sends nothing more.
 @MainActor
 struct CloudMachineCreateFlow {
     /// What the person confirms: the exact machine the create asks for.
@@ -105,13 +107,15 @@ struct CloudMachineCreateFlow {
             throw Failure.upgradeRequired(need.reason)
         }
         let machine = Self.named(name, askedBy: askedBy)
-        let confirmed = !startedByPerson
-        if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
+        // A person's own gesture is the confirmation; a create nobody started asks first. Either
+        // way a person has confirmed before anything is sent, so the backend's hold is answered
+        // without a second prompt (Leo: pick Cloud, send, "and then it just works").
+        if !startedByPerson { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed,
+        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { request in
             await confirm(.approval(request: request, machine))
