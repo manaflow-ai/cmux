@@ -167,7 +167,7 @@ fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
     let pty = surface.as_pty().unwrap();
 
     pty.frame_requests.defer_scroll(OUTPUT_OFFSET, false);
-    pty.publish_geometry_commit(crate::surface::pty_surface::GeometryCommit {
+    pty.publish_geometry_commit(GeometryCommit {
         changed: true,
         scroll: Some((RESIZE_OFFSET, false)),
     });
