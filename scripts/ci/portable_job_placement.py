@@ -44,8 +44,14 @@ LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
-REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh live
-capacity observation, including after the admission wait expires.
+REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
+capacity observation, including after the admission wait expires. The trusted
+runner-state document supplies that observation when its source timestamp is at
+most five minutes old; otherwise the reader calls the live API. Its publisher
+waits 120 seconds between refresh attempts during a whole-fleet repair pass.
+Busy flags reflect that observation and do not reserve a runner. Workflow context captures the
+variable when the run starts, so a delayed picker may need the live fallback even
+when publication continues. REQUIRE_LIVE_CAPACITY keeps the same age bound.
 """
 from __future__ import annotations
 
