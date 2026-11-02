@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The vertical tab list sends the strip's intents (Leo 2026-10-20): a click selects, Cmd-click adds
 /// to the selection, the speaker mutes, a header collapses its group, New Tab opens one, a right-click
 /// asks for the strip's menus, and collapsing it reserves the narrow width.
-@MainActor @Suite(.serialized) struct VerticalTabListViewTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct VerticalTabListViewTests {
     @MainActor final class Harness {
         let model: TabStripModel
         let list: VerticalTabListView
@@ -59,7 +60,7 @@ import Testing
 
     @Test func clickingARowSelectsItAndCmdClickAddsIt() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click(at: try harness.point(.tab(TabID("t1"))))
         #expect(harness.intents == [.select(TabID("t1"))])
         try harness.click(at: try harness.point(.tab(TabID("t2"))), .command)
@@ -68,7 +69,7 @@ import Testing
 
     @Test func theSpeakerMutesWithoutSelecting() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         // Hover the row first: the speaker's place follows the close button's.
         let row = try harness.point(.tab(TabID("t2")))
         harness.list.updateHover(at: harness.list.convert(row, from: nil))
@@ -81,7 +82,7 @@ import Testing
 
     @Test func theHeaderCollapsesItsGroupAndNewTabOpensOne() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click(at: try harness.point(.groupHeader(TabGroupID("g"))))
         try harness.click(at: try harness.point(.newTab))
         #expect(harness.intents == [.toggleGroupCollapsed(TabGroupID("g")), .newTab(after: nil)])
@@ -89,7 +90,7 @@ import Testing
 
     @Test func rightClicksAskForTheStripsMenus() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         _ = harness.list.menu(for: try harness.event(.rightMouseDown, at: try harness.point(.tab(TabID("t1")))))
         _ = harness.list.menu(for: try harness.event(.rightMouseDown, at: try harness.point(.groupHeader(TabGroupID("g")))))
         _ = harness.list.menu(for: try harness.event(.rightMouseDown, at: try harness.point(.newTab)))
@@ -99,7 +100,7 @@ import Testing
 
     @Test func collapsingReservesTheNarrowWidthAndHidesTitles() {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.list.reservedWidth == VerticalTabListView.expandedWidth)
         harness.list.isCollapsed = true
         #expect(harness.list.reservedWidth == VerticalTabListView.collapsedWidth)

@@ -211,3 +211,107 @@ fn the_wire_is_the_apps_shape() {
     assert_eq!(reply["step"], "skip");
     assert_eq!(reply["reason"], "caller-not-owner");
 }
+
+/// The setting wins, else only DEV and dogfood builds pass a login (moved from the app's
+/// `CloudStartChatLoginTests.theSettingWinsElseOnlyDogfoodBuildsPassALogin`).
+#[test]
+fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
+    assert!(passes_harness_login(true, None));
+    assert!(!passes_harness_login(false, None));
+    assert!(passes_harness_login(false, Some(true)));
+    assert!(passes_harness_login(true, Some(true)));
+    // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
+    assert!(!passes_harness_login(true, Some(false)));
+    assert!(!passes_harness_login(false, Some(false)));
+    // The one call resolves the gate from the build and its setting, over a `gate` sent with them.
+    let d = |dogfood, setting| Inputs {
+        dogfood: Some(dogfood),
+        setting,
+        gate: !dogfood,
+        ..cached(owner())
+    };
+    assert_eq!(decide(&d(true, None)).step, Step::Install);
+    assert!(decide(&d(true, None)).gate);
+    assert_eq!(decide(&d(true, Some(false))).reason, Reason::BuildGateOff);
+    assert_eq!(decide(&d(false, None)).reason, Reason::BuildGateOff);
+    assert_eq!(decide(&d(false, Some(true))).step, Step::Install);
+}
+
+/// The chat's harness, the guest probe's output and the machine probe's output go into the one
+/// call (cmux#32416): it resolves them, so the app has no other FFI call whose failure would read
+/// as `no-transfer-for-harness` or `guest-kind-unread`.
+#[test]
+fn the_one_call_resolves_the_harness_and_the_probes() {
+    let raw = |harness: &str, guest: Option<&str>, probe: Option<(i64, &str)>| Inputs {
+        harness: Some(harness.into()),
+        provider: None,
+        guest_stdout: guest.map(str::to_owned),
+        guest_kind: None,
+        machine_probe: probe.map(|(exit_code, stdout)| crate::machine_login::Probe {
+            exit_code,
+            stdout: stdout.into(),
+        }),
+        machine_login: None,
+        ..cached(owner())
+    };
+    let d = decide(&raw("", Some("vm-kind:owner\n"), Some((0, "none\n"))));
+    assert_eq!((d.step, d.reason), (Step::Install, Reason::InstallCached));
+    assert_eq!(d.provider, Some(Provider::Claude));
+    assert_eq!(d.guest_kind.as_deref(), Some("owner"));
+    assert_eq!(d.machine_login, Some(MachineLogin::None));
+    assert_eq!(
+        decide(&raw("claude-sr2", Some("motd\nvm-kind:team\n"), None)).guest_kind.as_deref(),
+        Some("team")
+    );
+    // A harness with no transfer, and Codex, which keeps its broker flow.
+    let pi = decide(&raw("pi", None, None));
+    assert_eq!((pi.reason, pi.provider), (Reason::NoTransfer, None));
+    assert!(!pi.reads_machine);
+    assert_eq!(decide(&raw("codex", None, None)).provider, Some(Provider::Codex));
+    // A probe that printed no marker, or one that never ran.
+    assert_eq!(decide(&raw("", Some("motd\n"), None)).reason, Reason::GuestUnread);
+    assert_eq!(decide(&raw("", None, None)).reason, Reason::GuestUnread);
+    assert_eq!(decide(&raw("", Some("vm-kind:\n"), None)).reason, Reason::GuestNotOwner);
+    // The machine probe's word, else its exit code.
+    let kept = decide(&raw("", Some("vm-kind:owner\n"), Some((0, "session\n"))));
+    assert_eq!(
+        (kept.reason, kept.machine_login),
+        (Reason::MachineLoginKept, Some(MachineLogin::Session))
+    );
+    assert_eq!(
+        decide(&raw("", Some("vm-kind:owner\n"), Some((0, "")))).reason,
+        Reason::MachineLoginKept
+    );
+    assert_eq!(decide(&raw("", Some("vm-kind:owner\n"), Some((1, "")))).step, Step::Install);
+    assert_eq!(
+        decide(&raw("", Some("vm-kind:owner\n"), Some((0, "rejected")))).step,
+        Step::Install
+    );
+    // The record names the resolved values.
+    let summary = decide(&raw("codex", None, None)).summary;
+    assert!(
+        summary.starts_with("skip (no-transfer-for-harness): gate on, provider codex,"),
+        "{summary}"
+    );
+}
+
+/// The probe to run comes back on the decision, so the app asks nothing else before it reads the guest.
+#[test]
+fn the_decision_carries_the_guest_probe() {
+    let d = decide(&Inputs { guest_kind: None, ..owner() });
+    assert!(d.reads_machine);
+    assert_eq!(d.guest_kind_probe, GUEST_KIND_PROBE);
+    let reply = serde_json::to_value(&d).unwrap();
+    assert!(reply["guestKindProbe"].as_str().unwrap().contains("/etc/cmux/vm-kind"));
+    assert_eq!(reply["provider"], "claude");
+    assert_eq!(reply["guestKind"], serde_json::Value::Null);
+    assert_eq!(reply["gate"], true);
+    let request: Inputs = serde_json::from_str(
+        r#"{"dogfood":true,"harness":"","signedIn":true,"callerOwns":true,"guestStdout":"vm-kind:team\n","machineProbe":{"exitCode":0,"stdout":"rejected\n"},"cached":true}"#,
+    )
+    .unwrap();
+    let reply = serde_json::to_value(decide(&request)).unwrap();
+    assert_eq!(reply["step"], "install");
+    assert_eq!(reply["guestKind"], "team");
+    assert_eq!(reply["machineLogin"], "rejected");
+}

@@ -152,4 +152,61 @@ struct ColdFocusedTerminalTypeAheadTests {
             }
         }
     }
+
+    /// Review of #32352: Cmd-N, a line typed for the new workspace, then a click (the person left it), then the create's
+    /// reply, and the window shows the workspace one frame later (the store applies daemon events once per frame). The
+    /// line was typed for that workspace and it opens: the line runs in its terminal. Before, the flush no longer waited
+    /// for a workspace the person left, and dropped the line in the reply's turn.
+    @Test func aLineTypedForANewWorkspaceBeforeTheClickRunsThereWhenItShowsAFrameAfterTheReply() async throws {
+        try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }) { services, connection in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let daemon = controller.content?.daemon ?? services.daemon
+            @MainActor func describe() -> String {
+                "window shows \(controller.focus.currentState().topology.workspace ?? "-"), focus \(controller.focus.state.resolved), first responder \(String(describing: window.firstResponder))"
+            }
+            // Two workspaces with a terminal each; the window shows the first one.
+            let first = try #require(await services.windows.createWorkspace(into: controller.state.id))
+            let made = try #require(await services.windows.createWorkspace(into: controller.state.id))
+            try await PinnedPageTests.until({ daemon.store.firstTerminalTab(ofWorkspace: made) != nil },
+                                            report: { "the new workspace never had a terminal: \(describe())" })
+            let surface = try #require(daemon.store.firstTerminalTab(ofWorkspace: made)?.surface)
+            try await connection.send(surface, text: "echo ready$((3*3))\r")
+            let ready = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "ready9", timeoutMs: 20_000), timeout: .seconds(25))
+            try #require(ready?.matched == true, "the new workspace's shell never answered")
+            try await PinnedPageTests.until({
+                if controller.focus.currentState().topology.workspace != first { services.windows.show(workspaceID: first, in: controller.state) }
+                return controller.focus.currentState().topology.workspace == first
+            }, report: { "waiting for the first workspace: \(describe())" })
+            let coordinator = services.keyRouter.creationInputCoordinator
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "an earlier hold never ended" })
+            coordinator.holdLimit = .seconds(5)
+
+            // Cmd-N: the person's new workspace (its create is the one above), and a line typed for it.
+            let ticket = try #require(coordinator.beginWorkspace(in: controller), "the person's new workspace opened no key hold")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            for character in "echo nw\(nonce)x$((6*7))\r" {
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                          context: nil, characters: String(character), charactersIgnoringModifiers: String(character),
+                                                          isARepeat: false, keyCode: character == "\r" ? 36 : 0))
+                #expect(services.keyRouter.interceptKeyDown(event, in: window), "the hold did not take a key typed for the new workspace")
+            }
+            // The person clicks (they left it), then the reply comes while the window does not show the workspace yet.
+            let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 300, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            coordinator.personActed(in: window, event: click)
+            coordinator.resolve(ticket, landed: true, workspace: made, in: window)
+            try await Task.sleep(for: .milliseconds(100)) // the reply's turn and the flush it schedules pass first
+            services.windows.show(workspaceID: made, in: controller.state) // the frame after: the window shows it
+
+            let ran = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "nw\(nonce)x42", timeoutMs: 15_000), timeout: .seconds(20))
+            let screen = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable"
+            #expect(ran?.matched == true, "the line typed for the new workspace before the click never ran there: \(screen.suffix(300))\n\(describe())")
+        }
+    }
 }

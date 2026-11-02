@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ struct VerticalTabsMenuTests {
         let design = DesignSettings()
         context.design = design
         let store = WorkspaceVerticalTabs(defaults: try #require(UserDefaults(suiteName: "VerticalTabsMenuTests.\(UUID().uuidString)")))
-        VerticalTabsHandlers.bind(into: services.registry, context: context, store: store)
+        VerticalTabsActions(host: context, store: store).bind(into: services.registry)
         return Fixture(services: services, design: design, store: store)
     }
 
@@ -35,36 +36,36 @@ struct VerticalTabsMenuTests {
         let f = try Self.fixture()
         f.store.set(false, for: "ws_off", allWorkspaces: true)
         #expect(f.store.choice(for: "ws_off") == false)
-        let action = try #require(f.registry.action(for: VerticalTabsHandlers.allWorkspaces))
+        let action = try #require(f.registry.action(for: VerticalTabsActions.allWorkspaces))
         #expect(action.targetState?(ActionInvocation()) == false)
-        #expect(f.registry.perform(VerticalTabsHandlers.allWorkspaces))
+        #expect(f.registry.perform(VerticalTabsActions.allWorkspaces))
         #expect(f.design.verticalTabs)
-        #expect(f.registry.action(for: VerticalTabsHandlers.allWorkspaces)?.targetState?(ActionInvocation()) == true)
-        #expect(f.registry.action(for: VerticalTabsHandlers.allWorkspaces)?.paletteState?() == true)
+        #expect(f.registry.action(for: VerticalTabsActions.allWorkspaces)?.targetState?(ActionInvocation()) == true)
+        #expect(f.registry.action(for: VerticalTabsActions.allWorkspaces)?.paletteState?() == true)
         // Turned on for all, every workspace shows vertical tabs: a workspace's own Off goes.
         #expect(f.store.choice(for: "ws_off") == nil)
         #expect(f.store.isVertical("ws_off", allWorkspaces: f.design.verticalTabs))
-        #expect(f.registry.perform(VerticalTabsHandlers.allWorkspaces))
+        #expect(f.registry.perform(VerticalTabsActions.allWorkspaces))
         #expect(!f.design.verticalTabs)
     }
 
     @Test func autoExpandOnHoverIsACheckedToggleOfItsSetting() throws {
         let f = try Self.fixture()
         #expect(f.design.verticalTabsExpandOnHover, "on by default")
-        #expect(f.registry.action(for: VerticalTabsHandlers.expandOnHover)?.targetState?(ActionInvocation()) == true)
-        #expect(f.registry.perform(VerticalTabsHandlers.expandOnHover))
+        #expect(f.registry.action(for: VerticalTabsActions.expandOnHover)?.targetState?(ActionInvocation()) == true)
+        #expect(f.registry.perform(VerticalTabsActions.expandOnHover))
         #expect(!f.design.verticalTabsExpandOnHover)
-        #expect(f.registry.action(for: VerticalTabsHandlers.expandOnHover)?.targetState?(ActionInvocation()) == false)
+        #expect(f.registry.action(for: VerticalTabsActions.expandOnHover)?.targetState?(ActionInvocation()) == false)
     }
 
     @Test func collapseTabsReadsExpandTabsWhileCollapsed() throws {
         let f = try Self.fixture()
-        #expect(f.registry.action(for: VerticalTabsHandlers.collapse)?.targetTitle?(ActionInvocation()) == nil, "the catalog's Collapse Tabs")
-        #expect(f.registry.perform(VerticalTabsHandlers.collapse))
+        #expect(f.registry.action(for: VerticalTabsActions.collapse)?.targetTitle?(ActionInvocation()) == nil, "the catalog's Collapse Tabs")
+        #expect(f.registry.perform(VerticalTabsActions.collapse))
         #expect(f.store.isCollapsed)
-        #expect(f.registry.action(for: VerticalTabsHandlers.collapse)?.targetTitle?(ActionInvocation()) == "Expand Tabs")
-        #expect(f.registry.action(for: VerticalTabsHandlers.collapse)?.paletteTitle?() == "Expand Tabs")
-        #expect(f.registry.perform(VerticalTabsHandlers.collapse))
+        #expect(f.registry.action(for: VerticalTabsActions.collapse)?.targetTitle?(ActionInvocation()) == "Expand Tabs")
+        #expect(f.registry.action(for: VerticalTabsActions.collapse)?.paletteTitle?() == "Expand Tabs")
+        #expect(f.registry.perform(VerticalTabsActions.collapse))
         #expect(!f.store.isCollapsed)
     }
 
@@ -72,12 +73,12 @@ struct VerticalTabsMenuTests {
     /// Turn On Vertical Tabs and Use Vertical Tabs for All Workspaces stay. The pane's own rows stay in More.
     @Test func aStripsMenuLeavesOutTheRowsOfAVerticalList() throws {
         let f = try Self.fixture()
-        let menu = TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: "p_none"), registry: f.registry)
+        let menu = f.registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: "p_none"))
         let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id.rawValue }
-        #expect(ids.contains(VerticalTabsHandlers.toggle.rawValue))
-        #expect(ids.contains(VerticalTabsHandlers.allWorkspaces.rawValue))
-        #expect(!ids.contains(VerticalTabsHandlers.collapse.rawValue))
-        #expect(!ids.contains(VerticalTabsHandlers.expandOnHover.rawValue))
+        #expect(ids.contains(VerticalTabsActions.toggle.rawValue))
+        #expect(ids.contains(VerticalTabsActions.allWorkspaces.rawValue))
+        #expect(!ids.contains(VerticalTabsActions.collapse.rawValue))
+        #expect(!ids.contains(VerticalTabsActions.expandOnHover.rawValue))
         let more = try #require(menu.items.last?.submenu, "the strip's earlier rows stay in More")
         func all(_ menu: NSMenu) -> [String] {
             menu.items.flatMap { (ActionRegistry.menuRun(of: $0).map { [$0.id.rawValue] } ?? []) + ($0.submenu.map(all) ?? []) }
@@ -87,8 +88,7 @@ struct VerticalTabsMenuTests {
 
     @Test func anEmptyTabBarMenuKeepsItsMachineScopeOnEveryRow() throws {
         let f = try Self.fixture()
-        let menu = TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: "p_remote"), registry: f.registry,
-                                     machineID: "ssh-remote")
+        let menu = f.registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: "p_remote"), machineID: "ssh-remote")
         func all(_ menu: NSMenu) -> [ActionMenuPayload] {
             menu.items.flatMap { item in
                 let own = (item.representedObject as? ActionMenuPayload).map { [$0] } ?? []
