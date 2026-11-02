@@ -3265,9 +3265,13 @@ jobs:
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') && (needs.build-nightly-app.outputs.browser_data_proven != 'true') }}
         run: bash scripts/ci/nightly-steps/browser-data-proof-finish.sh
 
+      # Signing waits on this job's end. On a dedicated nightly Mac the default 5 blocks
+      # at a time took 65-156 s (median 85 s, runs 41455121554-41488515134), against
+      # 3 s on Blacksmith Linux; 32 at a time, as the unsigned-app upload since #32343.
       - &upload-prepared-app-for-signin
         name: Upload prepared app for signing
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
