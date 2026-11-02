@@ -162,12 +162,14 @@ import Testing
         await Self.drainMain()
         closing.showSelected()
         await Self.drainMain()
+        let shown = try #require(app.cache.existingTerminal(tab), "fixture: the pane that came back shows a terminal")
         for _ in 0..<3 { app.root.advanceFrame(Self.dt); app.committed.run() }
         app.settle()
         app.committed.run()
         await Self.drainMain()
 
         #expect(closing.currentTabKey == tab, "the pane that came back does not show its tab (\(closing.currentTabKey ?? "nil"))")
-        #expect(app.cache.existingTerminal(tab) != nil, "a held release ran after the pane came back and took its terminal")
+        #expect(app.cache.existingTerminal(tab) === shown,
+                "a held release ran after the pane came back: it took the terminal the pane showed (the pane blanked and attached again)")
     }
 }
