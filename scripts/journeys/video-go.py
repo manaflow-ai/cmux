@@ -73,6 +73,17 @@ def main():
     opts = ap.parse_args()
     if not os.environ.get("CMUX_AGENT_ID"):
         ap.error("export CMUX_AGENT_ID first (capture leases carry their owner)")
+    # The build first: a GO is a mini held for this round now, never while the build still runs (the scheduler
+    # withdraws a GO with no lease after 240 s). A wait timeout leaves the job running: wait again, never resubmit.
+    while True:
+        state = json.loads(subprocess.run(["cmux-ci", "status", opts.build], capture_output=True, text=True).stdout or "{}").get("state")
+        if state == "done":
+            break
+        if state in ("failed", "cancelled", "superseded"):
+            print(f"build {opts.build} is {state}: no round", flush=True)
+            return 75
+        subprocess.run(["cmux-ci", "wait", opts.build], capture_output=True)
+        time.sleep(20)
     used, deadline, not_run = set(), time.time() + opts.go_wait_hours * 3600, 0
     for n in range(opts.rounds):
         go, why = gate.await_go(opts.spec, MINIS, used, deadline)
