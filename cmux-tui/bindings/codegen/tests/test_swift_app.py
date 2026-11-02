@@ -348,7 +348,10 @@ class BindingErrorTests(unittest.TestCase):
 class CheckAndWriteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        # The repository sits one level down, so a path that escapes it stays inside this temp folder
+        # (`../Requests` is temp/Requests, never a shared folder) and tearDown removes it.
+        self.root = Path(self.temp.name) / "repo"
+        self.root.mkdir()
         import json
 
         (self.root / "schema.json").write_text(json.dumps(layout_document()), encoding="utf-8")
