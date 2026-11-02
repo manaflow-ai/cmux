@@ -81,3 +81,36 @@ fn splits_sent_on_one_connection_commit_in_one_group_and_reply_in_order() {
         .collect::<Vec<_>>();
     assert_eq!(revisions.len(), 1, "the four splits wrote projections at {revisions:?}");
 }
+
+/// A create that panics still ends its slot (review of #32461): before, a
+/// panic skipped the slot's end, so the connection never drained and every
+/// later create of the connection waited for good to send its reply,
+/// holding a terminal work worker.
+#[test]
+fn a_split_that_panics_still_ends_its_slot() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let (writer, _outbound) = captured_writer();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    // crash-allow: unit test only; the panic stands in for a defect inside a create.
+    mux.set_creation_before_effect_hook_for_test(Box::new(|| panic!("a create panics")));
+    for id in 20..22 {
+        let request = json!({"id": id, "cmd": "split", "pane": pane, "dir": "down"});
+        assert!(handle_connection_frame(
+            &mux,
+            client,
+            ClientTransport::Unix,
+            &request.to_string(),
+            &writer,
+            &scheduler,
+        ));
+    }
+    scheduler.finish();
+    assert!(
+        scheduler.wait_for_completion(Some(Duration::from_secs(10))),
+        "the connection's creates did not all end after one of them panicked"
+    );
+}
