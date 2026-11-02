@@ -32,10 +32,6 @@ extension CloudStartChat {
 
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way.
-    func passHarnessLogin(_ start: AgentPaneCloudStart, machine: CloudMachineSession) async -> Bool {
-        await passHarnessLogin(harness: start.harness, machine: machine)
-    }
-
     func passHarnessLogin(harness: String?, machine: CloudMachineSession) async -> Bool {
         let cloud = services.cloud, provider = Self.loginProvider(harness: harness), userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID

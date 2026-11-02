@@ -185,9 +185,7 @@ struct CloudStartSession {
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
         await passHarnessLogin(session, agent: agent)
-        try still(name)
-        let daemon = session.daemon
-        guard let host = AgentTabStore.registryHost(of: daemon) else {
+        guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
@@ -203,11 +201,10 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         try still(name)
-        let started: AgentTabRemoteStart.Started
-        let tabKey: String
+        let started: AgentTabRemoteStart.Started, tabKey: String
         do {
             let tabs = services.agentTabs
-            let pending = try tabs.open(in: anchor.pane.handle, of: daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
+            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
             tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
             let listed = await CloudWait.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
@@ -383,9 +380,7 @@ struct CloudStartSession {
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
-    func passHarnessLogin(_ session: CloudMachineSession, agent: String) async {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
-    }
+    func passHarnessLogin(_ session: CloudMachineSession, agent: String) async { _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session) }
 
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
