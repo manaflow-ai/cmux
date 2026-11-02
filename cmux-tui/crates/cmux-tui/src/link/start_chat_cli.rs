@@ -275,7 +275,10 @@ pub(super) fn plan_with(
     }
     let keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
+    let repo = request.local.as_deref().and_then(folder_repo);
+    let platform_eligible = ensures(&request, repo.as_deref());
     let planned = Ledger::update(ledger, |pins| {
+        let pinned_before = pins.machine(&send);
         let destination = pick::destination(
             &send,
             &request.account,
@@ -286,7 +289,17 @@ pub(super) fn plan_with(
             request.user.as_deref(),
             request.loaded,
         );
-        if let Destination::Machine(id) = &destination {
+        let verify_key = match (&destination, workspace) {
+            (Destination::Machine(id), Some(workspace))
+                if platform_eligible && pinned_before.as_deref() != Some(id.as_str()) =>
+            {
+                pins.platform_create_key(workspace, &request.account, id)
+            }
+            _ => None,
+        };
+        if let Destination::Machine(id) = &destination
+            && verify_key.is_none()
+        {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
             // and a machine another workspace has never becomes this one's too.
@@ -294,13 +307,52 @@ pub(super) fn plan_with(
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
-        destination
+        (destination, verify_key)
     });
-    let repo = request.local.as_deref().and_then(folder_repo);
     let mut line = keys.json();
     let fields = match planned {
-        Ok(Destination::Machine(id)) => json!({"ok": true, "machine": id}),
-        Ok(Destination::New) if ensures(&request, repo.as_deref()) => {
+        Ok((Destination::Machine(id), Some(create_key))) => {
+            let mut credential = String::new();
+            let _ = stdin.read_line(&mut credential);
+            if credential.trim().is_empty() {
+                return refused("not_signed_in", "the platform credential is missing for this workspace");
+            }
+            let ask = Ensure {
+                workspace: workspace.unwrap_or_default().to_string(),
+                create_key,
+                repo: repo.clone().unwrap_or_default(),
+                git_ref: None,
+                environment: request.environment.clone(),
+                platform: None,
+            };
+            // This uses the first creation key: if the server lost its binding, the same request reaches its
+            // original VM. A changed repo or setup is refused by the platform's durable bootstrap check.
+            let checked = ensure_answer(ensure(&ask, credential.trim()));
+            let Some(returned) = checked.get("machine").and_then(Value::as_str) else { return checked };
+            if returned != id {
+                return refused("workspace_machine.changed", "the platform returned a different workspace machine");
+            }
+            let pinned = Ledger::update(ledger, |pins| {
+                if let Some(workspace) = workspace
+                    && !pick::claim(pins, workspace, &request.account, &id)
+                {
+                    return false;
+                }
+                pins.record(&id, &send);
+                true
+            });
+            match pinned {
+                Ok(true) => json!({"ok": true, "machine": id, "ensured": {
+                    "created": checked.get("created"), "snapshot": checked.get("snapshot"),
+                    "environment": checked.get("environment"),
+                    "environment_id": checked.get("environment_id"), "setup": checked.get("setup"),
+                }}),
+                Ok(false) => return refused("workspace_machine.changed", "this workspace chose another machine"),
+                Err(error) => return refused("ledger_failed", format!("{error:#}")),
+            }
+        }
+        Ok((Destination::Machine(id), None)) => json!({"ok": true, "machine": id}),
+        Ok((Destination::New, _)) if platform_eligible => {
             let mut credential = String::new();
             let _ = stdin.read_line(&mut credential);
             let ask = Ensure {
@@ -324,8 +376,10 @@ pub(super) fn plan_with(
                     // Pinned before the App opens anything there, as a machine the App made.
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
-                        if let Some(workspace) = workspace {
-                            pick::claim(pins, workspace, &request.account, id);
+                        if let Some(workspace) = workspace
+                            && pick::claim(pins, workspace, &request.account, id)
+                        {
+                            pins.record_platform(workspace, &request.account, id, &ask.create_key);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -346,7 +400,7 @@ pub(super) fn plan_with(
                 Err(error) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => json!({
+        Ok((Destination::New, _)) => json!({
             "ok": true,
             "machine": null,
             "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
