@@ -67,8 +67,13 @@ def first_pane(case_id, heavy):
     steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
              {"do": "new_terminal", "via": "key", "name": case_id},
              {"do": "neutral_prompt"},
-             {"do": "name_pane", "as": "p0"},
-             {"do": "window_place", "title": "set-up: the window at 90% x 90% of the screen", "fraction": [0.05, 0.05, 0.9, 0.9]}]
+             {"do": "name_pane", "as": "home"},
+             {"do": "window_place", "title": "set-up: the window at 90% x 90% of the screen", "fraction": [0.05, 0.05, 0.9, 0.9]},
+             # The launch workspace (Home) has an agent chat docked left as its main pane: the case gets a workspace of
+             # its own, so its panes are the only ones on the screen.
+             {"do": "action", "action": "workspace.newAtBottom", "title": "set-up: a new workspace for the case"},
+             {"do": "adopt_pane", "as": "p0"},
+             {"do": "neutral_prompt"}]
     return steps + ([tuikit_file()] if heavy else []) + start_load(0, heavy)
 
 
