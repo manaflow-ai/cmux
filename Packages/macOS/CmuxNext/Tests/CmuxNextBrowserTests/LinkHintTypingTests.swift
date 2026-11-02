@@ -50,10 +50,13 @@ struct LinkHintTypingTests {
         typed.forEach { held.hold($0, typedAt: 11) }
         let sent = held.release(after: .passThrough)
         replays.mark(sent)
-        let passed = sent.filter { replays.isReplay($0) }
-        #expect(passed.count == typed.count, "a key sent back to the page was taken again: \(typed.count - passed.count) of \(typed.count)")
-        #expect(sent.allSatisfy { !replays.isReplay($0) }, "a key sent back was let through twice")
-        #expect(!replays.isReplay(Key()), "a key never sent back was let through")
+        var passed = 0, passedAgain = 0
+        for key in sent where replays.isReplay(key) { passed += 1 }
+        for key in sent where replays.isReplay(key) { passedAgain += 1 }
+        let stranger = replays.isReplay(Key())
+        #expect(passed == typed.count, "a key sent back to the page was taken again: \(typed.count - passed) of \(typed.count)")
+        #expect(passedAgain == 0, "a key sent back was let through twice")
+        #expect(!stranger, "a key never sent back was let through")
     }
 
     /// v6 of #32537 doubled the first letters (REOPEN VIDEO 7710: "fieldfieldkeysok", "ffieldkeysok"): a key the page
