@@ -84,12 +84,38 @@ struct SidebarChatFrontTests {
         #expect(Self.row(workspace, newTabPages: [shell.id]).title == "Fix login")
     }
 
+    /// Copy Agent Identifier on a workspace (`rowChat`) copies the chat the row is named for: with an idle shell in
+    /// front, the working chat, not merely the first chat (before the move it took the first one, which the row did
+    /// not show).
+    @Test func copyAgentIdentifierTakesTheChatTheRowShows() throws {
+        var tabs = [TabSnapshot(surface: 1, terminalID: "10", kind: .pty, title: "zsh", cwd: NSHomeDirectory())]
+        for (surface, session) in [(2, "s1"), (3, "s2")] {
+            var chat = TabSnapshot(surface: SurfaceID(rawValue: UInt64(surface)), kind: .conversation, title: "about:blank")
+            chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: session, harness: "claude"))
+            tabs.append(chat)
+        }
+        let panes = [PaneSnapshot(id: 1, focusedAt: 3, tabs: [tabs[0]]), PaneSnapshot(id: 2, focusedAt: 1, tabs: [tabs[1]]),
+                     PaneSnapshot(id: 3, focusedAt: 2, tabs: [tabs[2]])]
+        let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1),
+                                      b: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)))
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "workspace-7",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: layout, panes: panes)])]))
+        let workspace = try #require(store.workspaces.first)
+        let working = try #require(workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession?.session == "s2" })
+        working.agent = AgentStatus(surface: working.surface, state: .working, agent: "claude")
+        let mapping = SidebarMapping.shared
+        #expect(mapping.frontTab(workspace, selectedTab: { _ in nil })?.kind == .pty)
+        #expect(mapping.rowChat(workspace, selectedTab: { _ in nil })?.agentSession?.session == "s2")
+        #expect(mapping.faceTab(workspace, selectedTab: { _ in nil })?.id == working.id, "the row is named for the same chat")
+    }
+
     /// The titlebar (`WorkspaceAutoNameReader.titlebarName`) reads the same tab.
     @Test func theTitlebarReadsTheChatToo() throws {
         let workspace = try Self.workspace(shell: "~")
         let mapping = SidebarMapping.shared
         let front = mapping.frontTab(workspace, selectedTab: { _ in nil })
         #expect(front?.kind == .pty)
-        #expect(mapping.labelTab(front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))?.agentSession?.session == "s1")
+        #expect(mapping.faceTab(workspace, selectedTab: { _ in nil })?.agentSession?.session == "s1")
     }
 }
