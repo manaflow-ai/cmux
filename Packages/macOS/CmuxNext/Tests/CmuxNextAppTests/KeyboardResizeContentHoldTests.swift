@@ -44,6 +44,8 @@ struct KeyboardResizeContentHoldTests {
         defer { window.closeAfterTest() }
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
+        var afterCommit: [@MainActor () -> Void] = []
+        root.context.afterCommit = { afterCommit.append($0) }
         for view in provider.views.values { view.sizes.removeAll() }
         let host1 = try #require(root.context.hosts["p1"]), host2 = try #require(root.context.hosts["p2"])
         let before = (host1.frame, host2.frame)
@@ -55,11 +57,13 @@ struct KeyboardResizeContentHoldTests {
             frames += 1
         }
         root.layoutSubtreeIfNeeded()
+        for work in afterCommit { work() }
+        root.layoutSubtreeIfNeeded()
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(host1.frame != before.0 && host2.frame != before.1, "the press moved nothing")
         for (pane, view) in provider.views {
             #expect(view.sizes.count <= 1, "\(pane)'s content resized \(view.sizes.count) times in one key press: \(view.sizes.prefix(4))")
-            #expect(view.frame.size == root.context.hosts[pane].map { $0.content.frame.size }, "\(pane) did not land at its final size")
+            #expect(view.frame.size == view.superview?.bounds.size, "\(pane) did not land at its final size")
         }
     }
 }
