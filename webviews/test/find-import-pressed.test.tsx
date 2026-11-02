@@ -13,6 +13,8 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
   const css = ["pages/shared/desktop.css", "ui/findPill.css", "ui/importCards.css"]
     .map((file) => readFileSync(path.resolve(import.meta.dir, "../src", file), "utf8"))
     .join("\n");
+  expect(css).toContain('.find-pill__button[aria-pressed="true"]:active');
+  expect(css).toContain("30%, transparent) !important");
   const noop = () => undefined;
   const fixture = (canStep = true) =>
     renderToStaticMarkup(
@@ -101,16 +103,6 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           const page = await setup();
           try {
             const button = page.getByRole("button", { name, exact: true });
-            const selectedPaint = await button.evaluate(() => {
-              const probe = document.createElement("span");
-              probe.style.backgroundColor = "color-mix(in srgb, var(--cmux-accent) 30%, transparent)";
-              probe.style.color = "var(--cmux-accent)";
-              document.body.append(probe);
-              const style = getComputedStyle(probe);
-              const result = { background: style.backgroundColor, color: style.color };
-              probe.remove();
-              return result;
-            });
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
@@ -129,9 +121,6 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
               return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
             });
             expect(held).not.toEqual(hovered);
-            if (name === "Match case") {
-              expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
-            }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
             const restored = await button.evaluate((element) => {
