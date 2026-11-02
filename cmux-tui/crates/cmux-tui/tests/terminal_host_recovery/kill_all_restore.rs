@@ -224,6 +224,17 @@ fn kill_all_while_output_streams_restores_every_line_but_the_last_moment() {
     );
 }
 
+/// The last directory line the shell's probe printed.
+fn read_cwd(socket: &Path, surface: u64) -> String {
+    let screen = wait_for_screen(socket, surface, "f3-cwd=/");
+    screen
+        .lines()
+        .rev()
+        .find(|line| line.starts_with("f3-cwd=/"))
+        .map(|line| line.trim_end().to_string())
+        .unwrap_or_else(|| panic!("the shell printed no directory: {screen}"))
+}
+
 /// The respawned shell keeps the directory as the path string it was given:
 /// a directory reached through a symlink is not shown as its real path.
 #[test]
@@ -234,18 +245,9 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "cwd", &link);
     let probe = "printf 'f3-cwd=%s\\n' \"$PWD\"";
     let wanted = format!("f3-cwd={}", link.display());
-    let read_cwd = |surface: u64| {
-        let screen = wait_for_screen(&harness.socket, surface, "f3-cwd=/");
-        screen
-            .lines()
-            .rev()
-            .find(|line| line.starts_with("f3-cwd=/"))
-            .map(|line| line.trim_end().to_string())
-            .unwrap_or_else(|| panic!("the shell printed no directory: {screen}"))
-    };
     send_line(&harness.socket, surface, probe);
     assert_eq!(
-        read_cwd(surface),
+        read_cwd(&harness.socket, surface),
         wanted,
         "the shell started in {} reports its real path {}",
         link.display(),
@@ -260,7 +262,7 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     std::thread::sleep(Duration::from_millis(300));
     send_line(&harness.socket, surface, probe);
     assert_eq!(
-        read_cwd(surface),
+        read_cwd(&harness.socket, surface),
         wanted,
         "the respawned shell reports the real path {} instead of {}",
         real.display(),
