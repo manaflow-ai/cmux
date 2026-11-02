@@ -44,10 +44,10 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
     /// separately under each account, and cmux does not merge them. `targetIsNewer` tells which
     /// copy was written last, by modification time.
     case diverged(targetIsNewer: Bool)
-    /// The target has the session's transcript only in the other layout (flat `<sid>.jsonl`
-    /// against nested `<sid>/messages/<sid>.jsonl`), so the copies cannot be compared, and
-    /// copying the source in would either replace the target's sidecar tree or leave two
-    /// transcripts of one session.
+    /// The target has the session's transcript in the other layout (flat `<sid>.jsonl` against
+    /// nested `<sid>/messages/<sid>.jsonl`), alone or beside a copy in the source's layout, so
+    /// the copies cannot be compared, and copying the source in would either replace the
+    /// target's sidecar tree or leave two transcripts of one session.
     case layoutMismatch
 }
 
@@ -61,10 +61,10 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 /// Code only appends, so a target that is a prefix of the source is refreshed, a target that
 /// already holds the whole source is kept, and copies that diverged are refused with
 /// ``ClaudeTranscriptAccountSyncError/diverged(targetIsNewer:)`` without touching either one.
-/// A target whose copy is only in the other transcript layout is refused the same way
-/// (``ClaudeTranscriptAccountSyncError/layoutMismatch``). The target's sidecar follows its
-/// transcript: it is replaced only on a refresh, or filled in when the copies are identical and
-/// the target has none.
+/// A target with a copy in the other transcript layout, alone or beside one in the source's
+/// layout, is refused the same way (``ClaudeTranscriptAccountSyncError/layoutMismatch``). The
+/// target's sidecar follows its transcript: it is replaced only on a refresh, or filled in when
+/// the copies are identical and the target has none.
 ///
 /// Nothing is ever deleted from the source, and a target with turns the source lacks is never
 /// overwritten. The transcript and the sidecar are each staged as a temporary sibling in the
@@ -120,11 +120,12 @@ public struct ClaudeTranscriptAccountSync: Sendable {
         let hasSourceSidecar = fileManager.fileExists(atPath: sourceSidecar, isDirectory: &isDirectory)
             && isDirectory.boolValue
         let hasTargetTranscript = fileManager.fileExists(atPath: targetTranscript)
-        // Only a copy at the source's own layout can be compared; one in the other layout is
-        // refused before anything is touched.
-        if !hasTargetTranscript, ClaudeTranscriptForkSeeder.transcriptLocation(
+        // Only a copy at the source's own layout can be compared. One in the other layout is
+        // refused before anything is touched, also beside a copy at the source's layout: the
+        // refresh would replace the `<sid>/` tree that holds a nested copy, or keep two copies.
+        if ClaudeTranscriptForkSeeder.transcriptLocations(
             projectPath: targetProject, sessionID: request.sessionID, fileManager: fileManager
-        ) != nil {
+        ).contains(where: { $0.relativePath != source.relativePath }) {
             throw ClaudeTranscriptAccountSyncError.layoutMismatch
         }
 
