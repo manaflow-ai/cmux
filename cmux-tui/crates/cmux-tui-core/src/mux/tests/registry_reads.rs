@@ -227,6 +227,19 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
         std::thread::spawn(move || mux.hold_workspace_registry_for_test(entered, release_receiver))
     };
     entered_receiver.recv().unwrap();
+    // No writer can commit while the registry lock is held.
+    let held_revision = mux
+        .registry_connection
+        .read_committed(|connection| {
+            let value: String = connection.query_row(
+                "SELECT value FROM meta WHERE key = 'resource_revision'",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(value.parse::<u64>()?)
+        })
+        .expect("a file registry has a reader")
+        .unwrap();
     let (answered, answered_receiver) = std::sync::mpsc::channel();
     let reader = {
         let mux = mux.clone();
@@ -248,9 +261,31 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     holder.join().unwrap();
     reader.join().unwrap();
     assert_eq!(during.len(), 4, "a list read waited for the registry lock: answered {during:?}");
+    // The shells keep committing (directory, progress) until the hold, so
+    // compare what those commits do not change: the listed ids, and the
+    // ping's generation; its revision is the one committed at the hold.
+    let ids = |value: &Value| {
+        value
+            .as_array()
+            .map(|rows| rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
     for ((operation, response), expected) in during.iter().zip(&expected) {
         assert_eq!(response["ok"], true, "{operation}: {response}");
-        assert_eq!(&response["result"], expected, "{operation} read the same committed rows");
+        if *operation == "session.ping" {
+            assert_eq!(
+                response["result"]["cursor"]["generation"], expected["cursor"]["generation"],
+                "{operation}: {response}"
+            );
+            assert_eq!(
+                response["result"]["cursor"]["revision"].as_str().map(str::to_owned),
+                Some(held_revision.to_string()),
+                "{operation} read the revision committed at the hold"
+            );
+        } else {
+            assert!(!ids(expected).is_empty(), "{operation} lists rows");
+            assert_eq!(ids(&response["result"]), ids(expected), "{operation} listed the same rows");
+        }
     }
     mux.shutdown();
     drop(mux);
