@@ -24,8 +24,10 @@ public final class AgentPaneModel {
     /// loading state shows the page in one frame instead of fading it in
     /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``). False
     /// for a chat read cold, for a page that says nothing, and for the host's
-    /// own give-up path, each of which keeps the fade.
+    /// own give-up path, which keep the fade unless a child-window page is replacing a saved frame.
     public internal(set) var paintedFromKeptTail = false
+    /// The first reveal came from the page's after-render report, rather than the watchdog.
+    @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
@@ -165,6 +167,9 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The New Tab context came from the spare pool's prepare (the tab a Cmd-T would make), not from a tab: the
+    /// handshake (a reconnect too) never takes its folder, which is no tab's yet (SHORTCUT FRAMES F2 review).
+    @ObservationIgnored public internal(set) var newTabPrepared = false
     /// The binary on the socket when the last handshake was refused with a daemon this app may
     /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
     /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
@@ -344,7 +349,7 @@ public final class AgentPaneModel {
         newTab = nil
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
-        (hasPainted, paintedFromKeptTail) = (false, false)
+        (hasPainted, paintedFromKeptTail, pageReportedPaint) = (false, false, false)
         return true
     }
 
@@ -379,6 +384,7 @@ public final class AgentPaneModel {
         case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .addAccount(let account): return await account.reply(in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
         case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
@@ -405,7 +411,10 @@ public final class AgentPaneModel {
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
-            if !hasPainted { paintedFromKeptTail = fromKeptTail }
+            if !hasPainted {
+                paintedFromKeptTail = fromKeptTail
+                pageReportedPaint = true
+            }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)

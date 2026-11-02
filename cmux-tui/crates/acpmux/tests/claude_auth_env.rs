@@ -891,8 +891,14 @@ async fn current_machine_credentials_survive_nested_claude_cleanup() {
     assert_eq!(found(&current)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
     assert_eq!(found(&current)["base"], "https://current.invalid");
     std::fs::remove_file(file).unwrap();
-    let (revoked, _) = ask_as(&d, "claude", "machine-nested-revoked").await;
-    assert!(revoked.is_err(), "a revoked credential survived nested cleanup");
+    let (revoked, turn) = ask_as(&d, "claude", "machine-nested-revoked").await;
+    let error = revoked.expect_err("a revoked credential survived nested cleanup");
+    // A generic launch or socket failure is an error too. Verify the fake Claude actually
+    // started and rejected the missing auth, rather than rewarding an unrelated failure.
+    assert!(error.contains("Claude is not signed in here."), "{error}");
+    assert!(error.contains("(Claude said: Not logged in · Please run /login)"), "{error}");
+    assert_eq!(turn["status"], "failed", "{turn}");
+    assert_eq!(turn["errorText"], error.as_str(), "{turn}");
 }
 
 /// A version-manager prefix passes, but never a secret under it: the agent

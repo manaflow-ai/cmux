@@ -553,7 +553,12 @@ async fn canonical_fork_boundaries_keep_the_phones_full_access_requirement() {
     let original = hub.events(&source, 0, 10_000).unwrap();
     let through = original.iter().find(|event| event.kind == "turn_result").unwrap().seq;
     let count = hub.sessions().len();
-    for boundary in [json!({"live": true}), json!({"throughSeq": through})] {
+    for boundary in [
+        json!({"live": true}),
+        json!({"throughSeq": through}),
+        json!({"beforePromptId": "first", "requestId": "phone-before-first"}),
+        json!({"beforePromptId": "second", "requestId": "phone-before-second"}),
+    ] {
         let mut params = boundary.clone();
         params["sessionId"] = json!(source);
         let reply = phone.call("acp.session.fork", marked(params)).await;

@@ -179,6 +179,9 @@ export type TurnView = {
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
 
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((id) => b.has(id));
+
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -318,6 +321,20 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  // Reused turns were drawn with the previous view's folds. A row after them can change which
+  // background turns fold (cmux#30535), so a different set draws every turn again.
+  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+    return turnViewFrom(rows, expanded, {
+      now,
+      working,
+      clockOffset,
+      liveRuns,
+      sessionStatus,
+      lineBelow,
+      agentFamily,
+      waitingSteers,
+      messageBreaks,
+    });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
@@ -730,9 +747,12 @@ function shapeTurn(
     if (work.length && !dialogue) {
       folded = !claudeGroups;
       const from = segment.anchor.at;
+      // Its label counts the fold's messages (`previous`), which can change while the summary's and
+      // the answer's versions do not: the count is part of the version, so the memoized row redraws.
+      const previous = foldMixesMessages(work) ? foldedMessages(work) : undefined;
       const worked: AcpmuxRow = {
         id,
-        version: version * 2 + (open ? 1 : 0),
+        version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -744,7 +764,7 @@ function shapeTurn(
         // and the worked for is if it's one contiguous thing ... let's follow those"): work with the
         // agent's own messages between it reads "N previous messages", one stretch of work alone
         // "Worked for".
-        ...(foldMixesMessages(work) && { previous: foldedMessages(work) }),
+        ...(previous !== undefined && { previous }),
       };
       if (!claudeGroups) shaped.push(worked);
       // Open, each run of its work folds into its summary line between the commentary, as in a
@@ -845,13 +865,56 @@ function shapeTurn(
     const failed = tail[lastSummary]!;
     tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
-  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
-  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
+  // Its clock runs from the running turn's first row, after the last turn the agent ended on its
+  // own, never from the prompt's turn's end: a chat that woke itself all night read "Thinking 11h"
+  // under a turn that had just started (Leo, 2026-10-29: "why the fuck are you still depicted as
+  // thinking for 11 hours?").
+  const ended = tail[lastSummary]?.at ?? summary.at;
+  const since = Math.max(ended, tail[lastSummary + 1]?.at ?? ended);
+  // Each turn the agent started on its own ends as a prompt's turn does: its reply's footer is a row
+  // with the reply to copy, in the slot its live line held while the reply streamed (a reply alone
+  // too, not only work), so its end moves nothing (design/transcript-spacing.md "Reply footer").
+  const answered = withTailAnswers(tail);
+  if (
+    live &&
+    liveRuns &&
+    lineBelow &&
+    (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply))
+  )
+    shaped.push(...liveTurn({ ...summary, at: since }, answered, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
+/// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
+/// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
+/// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
+function withTailAnswers(tail: AcpmuxRow[]): AcpmuxRow[] {
+  let from = 0;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < tail.length; at += 1) {
+    const row = tail[at]!;
+    if (row.kind !== "turnSummary") continue;
+    const body = tail.slice(from, at);
+    from = at + 1;
+    if (row.text) continue;
+    const answer = body[answerAt(body)];
+    if (!answer) continue;
+    out ??= [...tail];
+    out[at] = {
+      ...row,
+      text: answer.text,
+      answerId: answer.id,
+      turnCopy: turnCopyParts(body),
+      version: row.version * VERSION_SPAN + answer.version,
+    };
+  }
+  return out ?? tail;
+}
+
 const VERSION_SPAN = 1_000_000;
+/// Room in a Worked for row's version for its fold's message count (`previous`).
+const PREVIOUS_SPAN = 4096;
 
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {

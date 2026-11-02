@@ -642,7 +642,8 @@
         "CmuxNextDesign",
         "CmuxNextRemoteFetch",
         "CmuxNextTestSupport",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -1915,6 +1916,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDesign",
         "CmuxNextTerminal",
         "CmuxNextTestSupport"
       ],
