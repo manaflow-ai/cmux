@@ -33,6 +33,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Chats(..)
             | Command::Process(..)
             | Command::Worktree(..)
+            | Command::Group(..)
             | Command::Attach { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
@@ -381,7 +382,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match if ephemeral || probe {
+                None => match if ephemeral || probe || args.no_parent {
                     before_deadline(
                         deadline,
                         setup_name,
@@ -435,10 +436,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
+                    // An unnamed launch still names its workspace for the session (never
+                    // `workspace-N`), through an argument that reuses no predecessor row.
+                    let peer = v.get("peer").and_then(Value::as_str);
+                    let default_name = launch::default_workspace_name(&name, session_id, peer);
                     launch::show_in_group(
                         &id,
                         &name,
                         title,
+                        default_name.as_deref(),
                         group,
                         daemon_cli_path.as_deref(),
                         deadline,
@@ -967,6 +973,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -1007,7 +1014,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             println!("id:        {}", g("sessionId"));
             println!("agent:     {}  (agent session {})", g("harness"), g("agentSessionId"));
             println!("cwd:       {}", g("cwd"));
-            println!("status:    {}", g("status"));
+            // Its agent restarts on its profile's new launch when the turn ends.
+            let respawn = v
+                .get("respawnPending")
+                .and_then(Value::as_str)
+                .map(|why| format!("  (respawn pending: {why})"))
+                .unwrap_or_default();
+            println!("status:    {}{respawn}", g("status"));
             println!("mode:      {}", g("currentModeId"));
             println!("model:     {}", g("model"));
             println!("policy:    {}", g("policy"));

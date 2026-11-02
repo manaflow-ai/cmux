@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import type { NativeMenuBinding } from "./nativeMenuBindings";
 import type { HeaderQuickTool } from "./headerQuickTools";
 import {
   dispatchNativeRowTool,
   createNativeMenuKeys,
+  fitNativeRowMenus,
   nativeRowToolBindings,
   onNativeRowToolInvocation,
-  type NativeRowPanel,
   type NativeRowExtras,
+  type NativeRowPanel,
+  type RowToolBinding,
 } from "./nativeRowTools";
 import type { Translate } from "../i18n";
 
@@ -18,16 +21,35 @@ export interface NativeRowToolsHost {
 
 /// Publish only changed values. Callback identities can change with a render without sending tools
 /// again; invocation always uses the current handlers. Hidden headers/unmount clear the native list.
+export interface NativeRowMenus {
+  customize?: ReadonlyMap<string, NativeMenuBinding>;
+  extra?: readonly RowToolBinding[];
+  /// The worktree, pull request and Needs You tools the header hands to the native row.
+  extras?: NativeRowExtras;
+  t?: Translate;
+}
+
 export function useNativeRowTools(
   host: NativeRowToolsHost | undefined,
   quick: readonly HeaderQuickTool[],
-  extras?: NativeRowExtras,
-  t?: Translate,
+  menus?: NativeRowMenus,
 ): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
   const [menuKeys] = useState(createNativeMenuKeys);
-  const bindings = nativeRowToolBindings(quick, host?.panel, extras, t, menuKeys);
+  const baseBindings = nativeRowToolBindings(quick, host?.panel, menus?.extras, menus?.t, menuKeys).map((binding) => {
+    const context = menus?.customize?.get(binding.tool.id);
+    return context
+      ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
+      : binding;
+  });
+  const extraBindings = (menus?.extra ?? []).slice(0, 16);
+  // Reserve room for host-owned controls such as the chat menu so the 16-tool protocol cap
+  // cannot silently discard the extra that supplies the native overflow button.
+  const bindings: RowToolBinding[] = fitNativeRowMenus([
+    ...baseBindings.slice(0, Math.max(0, 16 - extraBindings.length)),
+    ...extraBindings,
+  ]);
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });

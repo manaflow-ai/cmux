@@ -141,7 +141,7 @@
 
 .group-title {
   margin: 0 0 7px 2px;
-  font-size: 12.5px;
+  font-size: var(--text-detail);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -253,7 +253,7 @@
 
 .row-help,
 .row-key {
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   line-height: 1.35;
 }
 
@@ -274,7 +274,7 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -350,6 +350,19 @@
 .link-button,
 .channel-link {
   color: var(--accent-text);
+}
+
+/* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
+   and kept while its switch runs, so the track reads as a list, not a column of buttons. */
+.channel-build .channel-switch {
+  opacity: 0;
+}
+
+.channel-build:hover .channel-switch,
+.channel-build:focus-within .channel-switch,
+.channel-build:has([data-popup-open]) .channel-switch,
+.channel-build .channel-switch[data-busy] {
+  opacity: 1;
 }
 
 /* P3: the Theme section. */
@@ -549,7 +562,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -744,6 +757,60 @@
   color: var(--accent-text);
 }
 
+/* A group's first row carries its heading (Starred, All Themes) in the space above it, outside the
+ * row's highlight; the pointer passes through it. */
+.theme-option:has(> [data-group-start]) {
+  position: relative;
+  margin-top: 20px;
+}
+
+.theme-group-heading {
+  position: absolute;
+  top: -18px;
+  left: 6px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--muted-text);
+  pointer-events: none;
+}
+
+/* The star: shown on the highlighted or hovered row and always once starred. Its slot is always
+ * there, so the name never moves; only the star itself takes the hover fill. */
+.theme-option-star {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -3px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-text);
+  visibility: hidden;
+}
+
+.theme-option[data-highlighted] .theme-option-star,
+.theme-option:hover .theme-option-star,
+.theme-option:has([data-popup-open]) .theme-option-star,
+.theme-option-star[data-starred] {
+  visibility: visible;
+}
+
+.theme-option-star:hover {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
+}
+
+.theme-option-star[data-starred] {
+  color: var(--accent-text);
+}
+
+.theme-option-star[data-starred] .icon {
+  fill: currentColor;
+}
+
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
@@ -751,6 +818,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;

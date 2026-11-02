@@ -181,8 +181,16 @@ async fn lane_report_transcript_reply_read_consumes_its_ended_turn_not_state_onl
         assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 0);
         let messages = archive(&mut person, &parent).await;
         assert_eq!(messages.len(), 1);
-        let projections = person.message_events(&parent).await;
+        // The report's own projection; the parent's log also holds its sender copy of the
+        // prompt it sent the lane (#27038), which is another message (cx-85ske2).
+        let projections: Vec<_> = person
+            .message_events(&parent)
+            .await
+            .into_iter()
+            .filter(|event| event["messageId"] == messages[0]["promptId"])
+            .collect();
         assert_eq!(projections.len(), 1, "the archive preserves the durable message projection");
+        assert_eq!(projections[0]["sender"]["sessionId"], json!(lane), "{projections:#?}");
         person.ok("session/cancel", json!({"sessionId": parent})).await;
     }
 }

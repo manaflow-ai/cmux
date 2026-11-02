@@ -35,7 +35,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "newColumnLeft",
                 title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
                 keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
-                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .pane, symbol: "rectangle.lefthalf.inset.filled", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
@@ -374,6 +374,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 keywords: ["machines", "pane", "vm", "snapshots", "cloud"], category: .pane, symbol: "cloud",
                 surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "artifacts.show",
+                title: String(localized: "action.artifacts.show", defaultValue: "Show Artifacts", bundle: .module),
+                keywords: ["artifacts", "memory", "memories", "notes", "history", "saved"], category: .pane, symbol: "shippingbox",
+                surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux

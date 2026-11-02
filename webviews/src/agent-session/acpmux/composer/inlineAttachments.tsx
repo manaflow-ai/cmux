@@ -11,13 +11,15 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
-import { Spinner } from "../conversation/icons";
-import { useT } from "../i18n";
+import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
+import { usePaneLanguage, useT } from "../i18n";
+import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -58,6 +60,10 @@ export function useInlineAttachments(options: Options) {
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
   const sentIds = useRef(new Set<string>());
+  /// From a send until its clear is done (the same task): the clear takes the text's nodes out, and a
+  /// file among them still uploading holds the send (useSendWhenAttached) and is never cancelled by
+  /// it. Only the person's own edit cancels one (review of #26667).
+  const clearing = useRef(false);
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
@@ -70,6 +76,7 @@ export function useInlineAttachments(options: Options) {
   // for it, its attachments come with it (keptAttachments.ts).
   useLayoutEffect(() => {
     seen.current = options.text;
+    placedNow.current = placedIn(options.text, true);
   }, [options.text]);
 
   const keep = (attachment: ComposerAttachment) => {
@@ -103,6 +110,16 @@ export function useInlineAttachments(options: Options) {
     cancelled.current.has(id) ||
     live.current.pending.some((chip) => chip.id === id) ||
     sourceFor(id) !== undefined;
+  /// The attachments placed in the text: the editor's own nodes, never text the person typed or
+  /// pasted in a token's shape (review of #26667); read from `markdown`, as the editor reads a value,
+  /// before the editor is made. `all`: also the nodes of ids the composer does not know.
+  const placedIn = (markdown: string, all = false) => {
+    const ids = live.current.field.current?.inlineIds();
+    if (!ids) return inlineTokenIds(markdown, all ? undefined : known);
+    return all ? ids : ids.filter(known);
+  };
+  /// The nodes in the text the last edit left, or the value from outside put there, by id.
+  const placedNow = useRef<string[]>([]);
   /// Whether `id` went with a prompt and has not been put back.
   const isSent = (id: string) =>
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
@@ -120,31 +137,33 @@ export function useInlineAttachments(options: Options) {
     ready() {
       const { attachments, field, placing } = live.current;
       if (!placing()) return;
-      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current, known));
+      const marks = new Set(placedIn(field.current?.value() ?? seen.current));
       const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
       if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
-      const before = seen.current;
       seen.current = markdown;
-      const stale = inlineTokenIds(markdown).filter(isSent);
+      const nodes = placedIn(markdown, true);
+      const stale = nodes.filter(isSent);
       // After the edit's own render: the field is still dispatching it.
       if (stale.length)
         queueMicrotask(() => stale.filter(isSent).forEach((id) => live.current.field.current?.removeInline(id)));
-      const was = inlineTokenIds(before, known);
-      const now = inlineTokenIds(markdown, known);
+      const was = placedNow.current.filter(known);
+      const now = nodes.filter(known);
+      placedNow.current = nodes;
       if (!was.length && !now.length) return;
       const kept = new Set(now);
       const had = new Set(was);
       const gone = new Set(was.filter((id) => !kept.has(id)));
       const came = now.filter((id) => !had.has(id));
       const { setAttachments, attachmentsRef, pending, cancel } = live.current;
-      for (const id of gone)
-        if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) {
-          cancelled.current.add(id);
-          cancel(id);
-        }
+      if (!clearing.current)
+        for (const id of gone)
+          if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) {
+            cancelled.current.add(id);
+            cancel(id);
+          }
       // Undo of a loading chip's deletion: it reads again under its id and loads in its node; one whose
       // file is not kept leaves the text, never an empty atom.
       for (const id of came) {
@@ -188,17 +207,22 @@ export function useInlineAttachments(options: Options) {
       const next = reordered(attachmentsRef.current, id, index);
       attachmentsRef.current = next;
       setAttachments(() => next);
-      const inText = new Set(inlineTokenIds(seen.current, known));
+      const inText = new Set(placedIn(seen.current));
       if (inText.size > 1)
         field.current?.orderInline(next.filter((each) => inText.has(each.id)).map((each) => each.id));
     },
-    /// The attachments sent with a prompt are gone for good: no undo brings them back.
+    /// The attachments sent with a prompt are gone for good: no undo brings them back. The send's
+    /// clear follows in the same task (Composer.tsx `clear`).
     sent(ids: Iterable<string>) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
         sentIds.current.add(id);
       }
+      clearing.current = true;
+      queueMicrotask(() => {
+        clearing.current = false;
+      });
     },
     /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
     /// while the person types (InlineChip is memoized).
@@ -277,6 +301,7 @@ const InlineChip = memo(function InlineChip({
   originalFailed: string | undefined;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -303,30 +328,55 @@ const InlineChip = memo(function InlineChip({
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
       >
         {pending!.failed ? (
-          <button type="button" className="acpmux-md-inline-retry" onClick={() => onRetry(id)}>
-            {t("composer.retryAttachment")}
-          </button>
-        ) : (
+          <>
+            {pending!.image ? (
+              <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
+            ) : pending!.video ? (
+              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
+            ) : (
+              <FileDoc size={14} className="acpmux-attachment-failed-icon" />
+            )}
+            <RetryButton
+              className="acpmux-attachment-retry acpmux-md-inline-retry"
+              reason={pending!.failed}
+              onRetry={() => onRetry(id)}
+            />
+          </>
+        ) : pending!.progress === undefined ? (
           <Spinner loading size={14} className="acpmux-md-inline-spinner" />
+        ) : (
+          <UploadProgress value={pending!.progress} name={name} size={14} />
         )}
         {remove}
       </span>
     );
-  // A huge paste: its name; a click puts its text back in the prompt at its place.
-  if (attachment.kind === "pasted")
+  // A huge paste: a small page of its first lines (TextAttachmentCard); a click puts its text back
+  // in the prompt at its place.
+  if (attachment.kind === "pasted") {
+    const text = attachment.text ?? "";
+    const lines = pasteLines(text);
+    const label = `${t("composer.pastedText")} · ${t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
     return (
       <span
-        className="acpmux-md-inline-chip"
+        className="acpmux-md-inline-chip acpmux-text-card"
         data-state="ready"
         data-kind="file"
-        /* tooltip-allow: a long name is cut to the chip */ title={attachment.name}
+        data-preview="text"
+        /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
+        title={t("composer.pastedText.edit")}
       >
-        <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
-          {attachment.name}
+        <button
+          type="button"
+          className="acpmux-md-inline-retry acpmux-text-card__open"
+          aria-label={`${attachment.name || pasteName(text)}, ${label}`}
+          onClick={() => onExpand(id)}
+        >
+          <TextAttachmentCard text={text} label={label} />
         </button>
         {remove}
       </span>
     );
+  }
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (

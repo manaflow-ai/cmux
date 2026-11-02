@@ -59,10 +59,9 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             return
         }
-        hidden.formUnion(Self.tabKeys(of: hidden, in: model))
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
         let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
         guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
@@ -149,12 +148,12 @@ extension SidebarListViewComponents {
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = selectionRevealKey
-            let sentBefore = SidebarDocStore.current?.lastIntentKey
+            let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
-            settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
+            settling?.key = doc.document?.lastIntentKey // nil already: refused inside the call
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
             // rows and the card go back as for a refusal.
-            if settling != nil, SidebarDocStore.current?.lastIntentKey == sentBefore { settling = nil }
+            if settling != nil, doc.document?.lastIntentKey == sentBefore { settling = nil }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
@@ -497,7 +496,7 @@ extension SidebarListViewComponents {
             case let (.workspace(id), rowView as WorkspaceRowView):
                 rowView.isDropTarget = drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             case let (.group(id), header as GroupHeaderRowView):
-                header.isDropTarget = drag?.target == .intoGroup(id)
+                header.isDropTarget = highlightsDropGroup(id)
             default:
                 break
             }

@@ -34,6 +34,7 @@ export interface NativeRowTool {
   badge?: string;
   text?: string;
   menu?: NativeRowMenuItem[];
+  contextMenu?: NativeRowMenuItem[];
 }
 export interface NativeRowMenuItem {
   id: string;
@@ -43,6 +44,7 @@ export interface NativeRowMenuItem {
   url?: string;
   role?: "destructive";
   children?: NativeRowMenuItem[];
+  separatorBefore?: boolean;
 }
 export interface NativeRowPanel {
   id: "inspector" | "summary";
@@ -69,7 +71,10 @@ export interface NativeRowExtras {
 export interface RowToolBinding {
   tool: NativeRowTool;
   run?: () => void;
-  menuRuns?: ReadonlyMap<string, () => void>;
+  runMenu?: (id: string) => void;
+  /// A future publisher can reserve these rows before variable menus consume the aggregate budget.
+  menuPriority?: "fixed" | "variable";
+  /// Checks or asks folded after the fixed rows, at whole rows, with a "+N more" summary.
   variableMenu?: NativeRowMenuItem[];
 }
 
@@ -234,7 +239,7 @@ function worktreeBinding(
       toggled: false,
       menu,
     },
-    menuRuns: runs,
+    runMenu: (id) => runs.get(id)?.(),
   };
 }
 function pullRequestBinding(
@@ -275,7 +280,7 @@ function pullRequestBinding(
       toggled: value.state === "open",
       menu,
     },
-    menuRuns: runs,
+    runMenu: (id) => runs.get(id)?.(),
     variableMenu,
   };
 }
@@ -356,10 +361,49 @@ function needsYouBinding(extra: NativeRowNeedsYou, t: Translate, key: NativeMenu
             },
           ],
     },
-    menuRuns: runs,
+    runMenu: (id) => runs.get(id)?.(),
     variableMenu: menu,
   };
 }
+function boundedMenu(items: readonly NativeRowMenuItem[]): NativeRowMenuItem[] {
+  return items.slice(0, NATIVE_MAX_MENU_ITEMS).map((item) => ({
+    ...item,
+    id: boundedNativeText(item.id, "item"),
+    label: boundedNativeText(item.label),
+    ...(item.children ? { children: boundedMenu(item.children) } : {}),
+  }));
+}
+
+/// Bound every native menu in one payload. Fixed menus are reserved first; variable menus are
+/// truncated at whole rows so the aggregate decoder budget remains valid for every publisher.
+export function fitNativeRowMenus(bindings: readonly RowToolBinding[]): RowToolBinding[] {
+  let remaining = NATIVE_MAX_TOTAL_MENU_ITEMS;
+  const order = bindings
+    .map((binding, index) => ({ binding, index }))
+    .sort((a, b) => Number(b.binding.menuPriority === "fixed") - Number(a.binding.menuPriority === "fixed"));
+  const result = bindings.slice();
+  for (const { binding, index } of order) {
+    const boundTool = { ...binding.tool };
+    for (const key of ["menu", "contextMenu"] as const) {
+      const source = boundTool[key];
+      if (!source) continue;
+      const kept: NativeRowMenuItem[] = [];
+      for (const item of boundedMenu(source)) {
+        const cost = menuCost(item);
+        if (cost <= remaining && kept.length < NATIVE_MAX_MENU_ITEMS) {
+          kept.push(item);
+          remaining -= cost;
+        }
+      }
+      boundTool[key] = kept;
+    }
+    boundTool.label = boundedNativeText(boundTool.label, "Tool");
+    if (boundTool.badge !== undefined) boundTool.badge = boundedNativeText(boundTool.badge, "0");
+    result[index] = { ...binding, tool: boundTool };
+  }
+  return result;
+}
+
 export function nativeRowToolBindings(
   quick: readonly HeaderQuickTool[],
   panel?: NativeRowPanel,
@@ -399,7 +443,14 @@ export function nativeRowToolBindings(
       run,
     })),
   ];
-  return fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS));
+  return fitNativeRowMenus(fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS)));
+}
+function findMenuItem(items: readonly NativeRowMenuItem[] | undefined, id: string): NativeRowMenuItem | undefined {
+  for (const item of items ?? []) {
+    if (item.id === id) return item;
+    const child = findMenuItem(item.children, id);
+    if (child) return child;
+  }
 }
 export function dispatchNativeRowTool(value: unknown, bindings: readonly RowToolBinding[]): void {
   if (!value || typeof value !== "object") return;
@@ -409,12 +460,10 @@ export function dispatchNativeRowTool(value: unknown, bindings: readonly RowTool
   if (!binding?.tool.enabled) return;
   if (event.menuItemId !== undefined) {
     if (typeof event.menuItemId !== "string") return;
-    const menu = binding.tool.menu ?? [];
-    const item =
-      menu.find((entry) => entry.id === event.menuItemId) ??
-      menu.flatMap((entry) => entry.children ?? []).find((entry) => entry.id === event.menuItemId);
-    if (!item || !item.enabled) return;
-    binding.menuRuns?.get(event.menuItemId)?.();
+    // Only a row the host was actually sent, and that is enabled, runs: stale or truncated ids do nothing.
+    const item = findMenuItem(binding.tool.menu, event.menuItemId) ?? findMenuItem(binding.tool.contextMenu, event.menuItemId);
+    if (!item?.enabled) return;
+    binding.runMenu?.(event.menuItemId);
     return;
   }
   if (binding.tool.menu?.length) return;

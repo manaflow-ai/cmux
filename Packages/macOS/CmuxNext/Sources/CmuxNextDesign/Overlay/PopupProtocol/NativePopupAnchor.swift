@@ -1,0 +1,16 @@
+import Foundation
+
+/// NativePopupAnchor on the native popup wire.
+public struct NativePopupAnchor: Codable, Equatable, Sendable {
+    public var `left`: Double
+    public var `top`: Double
+    public var `right`: Double
+    public var `bottom`: Double
+
+    public init(left: Double, top: Double, right: Double, bottom: Double) {
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+    }
+}

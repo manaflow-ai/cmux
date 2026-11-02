@@ -13,6 +13,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { REST_GAP } from "../src/agent-session/acpmux/model";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -192,13 +194,26 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastActions = userRow("Ship it when green.").querySelector(".cv-user__actions")!;
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
       const firstContent = afterFirst.querySelector(".cv-md, .cv-worked") ?? afterFirst;
-      const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked");
+      // A Claude turn's first run line, where a Codex turn draws Worked for (turns.ts claudeGroups).
+      const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked, .cv-tool");
       // Turn footers only: a reply's own row (cv-reply-actions) reuses their look.
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
+      // The reply's last line's text box (its content area, the line less its half-leading), the
+      // footer's 24px line, and the next prompt's bubble: the line sits in the middle of that room.
+      const lastLineBottom = (node: Element) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lines = [...range.getClientRects()].filter((box) => box.height > 0);
+        return lines.at(-1)!.bottom;
+      };
+      const firstFooter = footers[0]!;
+      const firstFooterReply = reply("Not yet: the hosted test run");
       return {
+        footerRoomAbove: rect(firstFooter).top - lastLineBottom(firstFooterReply),
+        footerRoomBelow: rect(last).top - rect(firstFooter).bottom,
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
@@ -209,30 +224,33 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       };
     });
 
-  test("meta rows hug their message and the rhythm has no empty bands", async () => {
+  test("action rows sit in the gap under their message and the rhythm has no empty bands", async () => {
     const page = await open();
     const measured = await gaps(page);
-    // The meta row starts 4px under its bubble and is one compact 24px line.
-    expect(measured.metaRowUnderBubble).toBeGreaterThanOrEqual(2);
-    expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(6);
-    expect(measured.metaRowHeight).toBeGreaterThanOrEqual(20);
-    expect(measured.metaRowHeight).toBeLessThanOrEqual(24);
-    // An older prompt's hidden row reserves only its own line (4 + 24), then the 8px message gap.
+    // design/grid.md (leo-workspace), Transcript: a message's action row takes no layout height and
+    // is laid in the gap under its message, and its controls are 28 boxes (col-left: "whose 28
+    // button therefore starts 6 left of the line"). Base held a 24px meta row 4px under the bubble;
+    // the grid replaces it with the 28 action control laid in the gap.
+    const control = gridLength("transcript-action-control");
+    expect(Math.abs(measured.metaRowHeight - control)).toBeLessThanOrEqual(1);
+    expect(measured.metaRowUnderBubble).toBeGreaterThanOrEqual(-3);
+    expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(3);
+    // An older prompt's hidden row reserves no line of its own: the next block follows at the gap.
     expect(measured.olderPromptToNext).toBeLessThanOrEqual(37);
-    // "Worked for" follows the prompt's meta row at the message gap.
+    // The turn's first line (a run's, in this Claude chat) follows right under the prompt's action box.
     expect(measured.promptToWorked).toBeGreaterThanOrEqual(0);
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
-    // A reply's footer starts right under the reply.
-    expect(measured.replyToFooterText).toBeGreaterThanOrEqual(0);
-    expect(measured.replyToFooterText).toBeLessThanOrEqual(10);
-    // Turns sit a fixed 16px apart (--cv-turn-gap, tightened from 24px in 4ae4a48893cf): the
-    // footer's line to the next prompt.
-    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
-    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
-    // The last footer uses that same turn gap before the floating composer; there is no extra
-    // runway under every transcript.
-    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
-    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
+    // A reply's footer is a row of its own, ChatGPT's 32 buttons 8 under the reply's box
+    // (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always say we can do
+    // it like chatgpt"); its time shares the buttons' line.
+    expect(Math.abs(measured.replyToFooterText - gridLength("gap-footer"))).toBeLessThanOrEqual(1);
+    // A prompt follows the footer at the turn gap, the footer's 32 box never in it.
+    expect(Math.abs(measured.footerToNextPrompt - gridLength("gap-turn"))).toBeLessThanOrEqual(1);
+    expect(Math.abs(measured.footerRoomBelow - gridLength("gap-turn"))).toBeLessThanOrEqual(1);
+    // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
+    // and a half body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every
+    // state).
+    expect(Math.abs(measured.lastFooterToComposer - REST_GAP)).toBeLessThanOrEqual(1);
     await page.close();
   });
 });

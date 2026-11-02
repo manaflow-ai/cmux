@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
@@ -322,6 +323,15 @@ const keyboardMenu: Play = async (ctx) => {
   });
 };
 
+// The chat's grants, revocable with default settings: the chat menu's Revoke Granted Access lists
+// each one (header/grantsMenu.ts), now that the composer's mode menu lists the modes alone.
+const revokeAccessOpen: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Revoke Granted Access" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
+};
+
 const keyboardSubmenu: Play = async (ctx) => {
   await openMenu(ctx);
   await ctx.focus({ role: "menuitem", name: "Hand off to…" });
@@ -414,11 +424,13 @@ const nativeComparisonPlay =
       await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
       if (ctx.document.querySelector(".acpmux-header-worktree, .acpmux-header-pr"))
         throw new Error("native row tools still rendered in the web header");
-    } else {
-      await ctx.waitFor(
-        () => ctx.document.querySelector(".acpmux-header-worktree") && ctx.document.querySelector(".acpmux-header-pr"),
-      );
+      if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+        throw new Error("native chat overflow must not leave a duplicate DOM trigger");
+      return;
     }
+    await ctx.waitFor(
+      () => ctx.document.querySelector(".acpmux-header-worktree") && ctx.document.querySelector(".acpmux-header-pr"),
+    );
     ctx.find({ role: "button", name: "Chat actions" });
   };
 
@@ -481,7 +493,7 @@ export default componentEntry<HeaderToolsProps>({
       play: nativeComparisonPlay(false),
     },
     "native-row-tools": {
-      note: "Web side of the native opt-in: worktree, pull request, Summary and quick actions are host-owned. Needs You and the chat menu stay web. The gallery does not render the Swift row.",
+      note: "Web side of the native opt-in: worktree, pull request, Summary, quick-action icons, their customization menus and chat overflow are host-owned. Needs You keeps its web button and anchored rich list. The gallery does not render the Swift row. No default changes.",
       props: {
         ...nativeComparison,
         nativeRowTools: {
@@ -682,6 +694,23 @@ export default componentEntry<HeaderToolsProps>({
         },
       },
       play: openMenu,
+    },
+    "menu-revoke-access": {
+      height: 860,
+      note: "A chat whose folder is trusted and that allows a command for the chat: Revoke Granted Access ends the tools rows and lists each grant; a pick revokes it. Grants live here, in every chat with default settings, not in the composer's mode menu (Leo, 2026-10-29).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const revoke = revokeAccessRows([
+            { id: "folder-trust", label: "Trusted atlas", onRemove: noop },
+            { id: "chat-permission", label: "Allow for this chat", onRemove: noop },
+          ]);
+          return [...rows.slice(0, archive), ...revoke, "separator", ...rows.slice(archive)];
+        },
+      },
+      play: revokeAccessOpen,
     },
     "menu-cloud-machine-running": {
       height: 860,

@@ -4,7 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close [--report-closed-ids]
@@ -36,7 +36,7 @@ USAGE
   cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse] [--reuse]
   cmux workspace group create --remote <host> [--name <value>]
   cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
@@ -58,7 +58,10 @@ Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
-the session closes at its next start. Workspace groups and rooms are
+the session closes at its next start. --top puts the new workspace first in
+the sidebar (below Home), whatever workspaces.newPlacement says. move
+--index <n> moves a workspace to place n of list (the sidebar order) and
+in the session order; it stays in its section and group. Workspace groups and rooms are
 personal: they live in this Mac's home session. --remote makes a remote
 group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
 user@host) and its new workspaces run there. --parent makes a group inside
@@ -162,8 +165,8 @@ USAGE
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
-or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
+name. A group has no color until one is given: grey, blue, red, yellow, green,
+pink, purple, cyan, orange, a custom #RRGGBB, or none. A group icon is one emoji, an SF Symbol name, or a stored
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS

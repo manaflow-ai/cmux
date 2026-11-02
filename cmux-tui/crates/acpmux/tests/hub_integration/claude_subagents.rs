@@ -149,9 +149,61 @@ async fn a_chat_works_until_its_background_subagent_ends() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// manaflow-ai/cmux#25563: a hidden chat whose turn ended while its background Claude subagent
+/// still runs is not unread yet (the task is not done); it turns unread, and its tab hears
+/// "finished", when that subagent ends.
+#[tokio::test]
+async fn a_hidden_chat_turns_unread_when_its_background_subagent_ends() {
+    let root = std::env::temp_dir().join(format!("acpmux-bgunread-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let gate = root.join("gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    c.request("_acpmux/view", json!({"sessionId": id, "visible": false})).await.unwrap();
+    let mut events = hub.subscribe();
+
+    let said = format!("bg-agent-gate: {}", gate.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let s = hub.session_summary(&session);
+    assert_eq!(s["lastTurn"]["status"], "completed", "{s}");
+    assert!(s["subagentsWorkingSince"].is_u64(), "{s}");
+    assert_eq!(s["unread"], false, "its background subagent still runs: {s}");
+
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
+    wait_for(&mut events, "never turned unread", || {
+        hub.session_summary(&session)["unread"] == true
+    })
+    .await;
+    let s = hub.session_summary(&session);
+    assert!(s["subagentsWorkingSince"].is_null(), "{s}");
+    let read: Vec<_> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "status" && e.msg.get("read").is_some())
+        .map(|e| e.msg["read"].clone())
+        .collect();
+    assert_eq!(read, [json!(false)], "watchers heard it turn unread once");
+
+    // Shown, then a turn that ends in view while nothing runs below it: seen, no dot.
+    c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    assert_eq!(hub.session_summary(&session)["unread"], false);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Waits until `done` holds: checked now and again after each log line the
 /// hub broadcasts (no polling); panics with `what` after 10 s.
-async fn wait_for(
+pub(super) async fn wait_for(
     events: &mut tokio::sync::broadcast::Receiver<acpmux::hub::HubEvent>,
     what: &str,
     mut done: impl FnMut() -> bool,

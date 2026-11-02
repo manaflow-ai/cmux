@@ -10,9 +10,10 @@ with examples; `--json` on any command prints the raw response.
 | --- | --- |
 | Start a session and give it a first prompt, without opening the TUI | `acpmux new -m codex -n fix-27310 -d "Fix the failing test"` |
 | Start one in its own worktree on a brief that reports back | `acpmux new -n fix-27310 --worktree ~/Projects/cmux@origin/main --prompt-file ~/notes/brief.md --report-to coord -d` |
+| Start one from inside a session that is not its child (its turns never show there) | `acpmux new -n scratch --no-parent -d "Look into the flaky test"` |
 | Run one prompt and print only the final reply | `acpmux run -m claude "Summarize the open TODOs"` |
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
-| Send a brief to the least-loaded allowed host | `acpmux dispatch ~/notes/brief.md --host auto` |
+| Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
 | Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.
@@ -59,6 +60,7 @@ boundary); `--no-steer` queues it instead.
 | Stop it only if it is idle and unchanged since you read its `lastSeq` (exit 6 if not) | `acpmux session stop review-27310 --if-idle --expect-revision 418` |
 | Restart its agent on the installed version | `acpmux session restart coord` |
 | Rename it | `acpmux session rename review review-27310` |
+| Stop a session you started from showing its turns in your chat | `acpmux session detach scratch` |
 | Change its model or effort | `acpmux session set coord effort=low` |
 | Fork it to try another approach | `acpmux session fork coord -n coord-alt` |
 | Print a pending agent question | `acpmux session answer coord` |

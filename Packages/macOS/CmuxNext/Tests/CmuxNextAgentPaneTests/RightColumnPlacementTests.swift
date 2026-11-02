@@ -106,6 +106,27 @@ struct RightColumnPlacementTests {
         #expect(Rule.column(beside: "chat", frames: ["chat": frames["chat"]!, "away": CGRect(x: 800, y: 0, width: 300, height: 800)]).isEmpty)
     }
 
+    /// Leo 2026-10-31, of a link that split under the browser pane already on the right: "imo in this
+    /// case, just open it on the existing. you only need the rightmost botom auto split when there's a
+    /// terminal that gets opened when there's already a browser, and vice versa".
+    @Test func aBrowserOrTerminalGoesToThePaneThatAlreadyHoldsItsKind() {
+        let browser = Rule.Column(sourceWidth: 1400, panes: ["web"], widths: ["web": 700], kinds: ["web": [.browser]])
+        #expect(Rule.decide(browser, opening: .browser) == .tab("web"), "a link with a browser on the right: a tab there")
+        #expect(Rule.decide(browser, opening: .terminal) == .splitBelow("web"), "a terminal with a browser on the right: the split")
+        let terminal = Rule.Column(sourceWidth: 1400, panes: ["shell"], widths: ["shell": 700], kinds: ["shell": [.terminal]])
+        #expect(Rule.decide(terminal, opening: .terminal) == .tab("shell"))
+        #expect(Rule.decide(terminal, opening: .browser) == .splitBelow("shell"))
+        // Both kinds already split: each goes to its own pane, not only the lower one.
+        let both = Rule.Column(sourceWidth: 1400, panes: ["web", "shell"], kinds: ["web": [.browser], "shell": [.terminal]])
+        #expect(Rule.decide(both, opening: .browser) == .tab("web"))
+        #expect(Rule.decide(both, opening: .terminal) == .tab("shell"))
+        // A narrow column still takes the tab where its kind is; nothing on the right still splits right.
+        #expect(Rule.decide(.init(sourceWidth: 479, panes: ["web"], kinds: ["web": [.browser]]), opening: .browser) == .tab("web"))
+        #expect(Rule.decide(.init(sourceWidth: 1400), opening: .browser) == .splitRight)
+        // No kind (a chat, a subagent, a file page): the rule as before.
+        #expect(Rule.decide(browser) == .splitBelow("web"))
+    }
+
     @MainActor @Test func closingTheLowerPaneCollapsesTheSplitAndTheNextOpenSplitsAgain() {
         let window = RightColumnWindow()
         window.occupy("diff")

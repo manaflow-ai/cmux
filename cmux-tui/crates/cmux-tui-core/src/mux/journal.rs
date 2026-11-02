@@ -3,7 +3,14 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn publish_resource_event(&self) {
+        // It publishes pending directories, which take the workspace registry: every caller holds
+        // no registry, connection or state lock here, whether or not a directory waits (#32408).
+        crate::lock_rank::HeldRank::check(
+            crate::lock_rank::LockRank::WorkspaceRegistry,
+            "workspace.registry",
+        );
         self.publish_journal_event();
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such

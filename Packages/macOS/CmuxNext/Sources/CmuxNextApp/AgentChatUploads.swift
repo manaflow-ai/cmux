@@ -50,6 +50,17 @@ struct AgentChatUploads {
         // An upload stays in its own tab, by its store id (a new tab's provisional id is rekeyed). One begun with no session ("new")
         // goes on once the chat starts (the prompt was sent while it streamed, #28647); another new chat's page never feeds it.
         let mine = { (made: String, by: String) in services.agentTabs.resolve(by) == tab && (made == session || made == "new") }
+        return stager(root: root, session: session, tab: tab, mine: mine)
+    }
+
+    /// Test and native callers that already have a local upload root use the
+    /// same staging state machine without an AppServices tab resolver.
+    static func stager(root: URL, session: String) -> AgentPaneUploadStager {
+        stager(root: root, session: session, tab: "", mine: { made, _ in made == session || made == "new" })
+    }
+
+    private static func stager(root: URL, session: String, tab: String,
+                               mine: @escaping (String, String) -> Bool) -> AgentPaneUploadStager {
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }

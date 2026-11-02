@@ -35,6 +35,7 @@ import Testing
     static func options(open: Set<SidebarDoneFoldID> = [], active: String? = nil) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.foldsDone = true
+        o.archiveSection = false // these cover the per-list rows the Archive section replaced by default
         o.openDoneFolds = open
         o.activeWorkspaceID = active.map(WorkspaceID.init)
         return o

@@ -39,10 +39,10 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // Other apps open only from a click in the main frame, never from
-            // a script or a redirect.
-            if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, ask: enqueuePrompt)
+            // The shared opener admits cmux's sign-in return without a
+            // gesture, with app-opening consent. Other links need a click.
+            if navigationAction.targetFrame?.isMainFrame ?? true {
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
             return
         }
