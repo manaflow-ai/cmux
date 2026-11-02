@@ -60,10 +60,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "prompt-to-step",
     between: "a prompt bubble's bottom edge and the centre of the one-line row under it",
-    value: 51,
+    value: 43,
     tolerance: 1,
-    source: "40 + 11; claude.ai 40 exact, Claude Code desktop 39 to 40, chatgpt.com 40",
-    pending: "transcript spacing: room around runs and prompts",
+    source:
+      '11 + grid turn gap 32: the prompt stays centred (Leo, 2026-11-01: "this is too close to tool calls, center it"; settled-spacing.json turn-gap). claude.ai and chatgpt.com draw 40, holding the bubble\'s own action row',
   },
   {
     id: "step-to-prose",
@@ -71,7 +71,7 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 38.375,
     tolerance: 1,
     source: "11 + 16 + 11.375; chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
-    pending: "transcript spacing: room around runs and prompts",
+    pending: "transcript spacing: room around runs (16 to prose)",
   },
   {
     id: "prose-to-step",
@@ -79,7 +79,7 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 38.375,
     tolerance: 1,
     source: "as step-to-prose (claude.ai 10 and 10, chatgpt.com 16 and 16: symmetric)",
-    pending: "transcript spacing: room around runs and prompts",
+    pending: "transcript spacing: room around runs (16 to prose)",
   },
   {
     id: "step-pitch",
@@ -101,7 +101,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row",
-    pending: "grid-system: the live line 22 under a run (25 on base after #31497)",
   },
   {
     id: "live-to-step",
@@ -109,7 +108,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
-    pending: "grid-system: the waiting group 22 under the live line (49 on base after #31497)",
   },
 ];
 
@@ -134,5 +132,5 @@ export const BUBBLE = {
   paddingInline: 16,
   /** claude.ai and Claude Code desktop 12 (ChatGPT's 22 superellipse is a pill; Leo: no capsule pills). */
   radius: 12,
-  pending: "transcript spacing: room around runs and prompts" as string | undefined,
+  pending: undefined as string | undefined,
 } as const;
