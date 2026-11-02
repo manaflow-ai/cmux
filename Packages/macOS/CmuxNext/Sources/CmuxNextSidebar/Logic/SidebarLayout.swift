@@ -164,6 +164,22 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var afterBlock: CGFloat?
         var shownEmptyMachine = false
 
+        func visible(_ ws: SidebarWorkspace) -> Bool {
+            !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
+        }
+
+        // `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the
+        // row's disclosure and those of a vertical-tabs workspace, whose own list shows them (one list).
+        func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id) && !o.inWorkspaceTabs.contains(ws.id)
+        }
+
+        func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+            guard o.showWorkspaceTabs else { return nil }
+            if ws.tabs.isEmpty || o.inWorkspaceTabs.contains(ws.id) { return .empty }
+            return o.collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
+        }
+
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y

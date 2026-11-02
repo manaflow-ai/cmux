@@ -75,6 +75,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
         var zoomed = false // the pane fills its screen (Toggle Pane Zoom): the selected tab shows the zoom indicator
+        var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
+
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
         var keepsFirstTab = false
@@ -241,6 +243,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          zoomed: ownWorkspace?.screens.contains { $0.zoomedPane == pane.handle } ?? false,
+                         verticalTabs: .shown(in: ownWorkspace?.id, unless: hidesTabBar || ownWorkspace?.app != nil || homeChief || pinned),
+
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
                          // LinkOpener for links), so its strip has no +.
@@ -319,6 +323,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
         if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
+        view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
+
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
@@ -489,9 +495,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// This pane is its workspace's focused pane.
-    var isFocusedInWorkspace: Bool {
-        workspace?.focus.state.pane == paneKey
-    }
+    var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
