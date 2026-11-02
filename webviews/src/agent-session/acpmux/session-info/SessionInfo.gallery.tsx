@@ -767,9 +767,54 @@ export default componentEntry<Props>({
       play: assertNarrowWorkflowLayout,
     },
     usage: {
-      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
+      note: "Chosen: Usage's own metric rows reserve the shared leading slot, so their labels start on the same text column as Context and peer-session rows without repeating a generic icon. The section keeps this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
       props: {
         ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-flush": {
+      note: "Alternative: the own metric labels start at the row inset, as the old Usage treatment did; peer-session rows still use the shared icon/text columns, making the mismatch visible.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "flush",
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-slot": {
+      note: "Chosen arm: an empty leading slot puts own metric labels on the shared Session Info text column while keeping the rows quiet and preserving every metric.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "slot",
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-icon": {
+      note: "Alternative: each own metric gets the Usage activity mark in the shared leading slot; it aligns cleanly but repeats one generic glyph on every row, so the quieter empty slot ships.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "icon",
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -44,8 +45,10 @@ enum WorkspaceGroupClose {
 
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group). `undone` runs when its Undo does.
+    /// Undo stops or waits for each of `cleanups` (`closeCleanups`), reopening each deleted group's record before the workspaces.
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
-                          in window: NSWindow, _ services: AppServices, undone: (@MainActor () -> Void)? = nil) {
+                          in window: NSWindow, _ services: AppServices, cleanups: [GroupCloseCleanup] = [],
+                          undone: (@MainActor () -> Void)? = nil) {
         // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
         if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
            !undoToasts.allowsNewToast(id) { return }
@@ -54,7 +57,16 @@ enum WorkspaceGroupClose {
             undone?()
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
-            Task { @MainActor in for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
+            Task { @MainActor in
+                // A deleted group's record is restored (awaited) first: it regroups the closed workspaces' kept rows,
+                // which their reopens keep; restored after them it would find their rows under new keys.
+                for cleanup in cleanups {
+                    if let record = await cleanup.undo(limit: arrivalLimit), let entry = DaemonClosedHistory.entry(record, in: services) {
+                        _ = try? await entry.daemon.connection?.state.reopenClosed(record)
+                    }
+                }
+                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
+            }
         }
     }
 
@@ -62,32 +74,20 @@ enum WorkspaceGroupClose {
     /// daemon's closed items to reach the store.
     static let arrivalLimit: Duration = .seconds(5)
 
-    /// The closed items of this close: the new workspace items (newest first)
-    /// whose members carry the closing workspaces' names, each name taken
-    /// once (one bulk close is one item of several members, `BulkClosePlan`;
-    /// an older daemon stores one item per workspace), the names no item took
-    /// yet, and the group's own record.
-    nonisolated static func matching(names: [String], group id: String?, fresh: [ClosedItem])
-        -> (workspaces: [String], missing: [String], group: String?) {
-        var wanted = names
-        var workspaces: [String] = []
-        for item in fresh where item.kind == .workspace && item.group == nil {
-            let carried = item.memberNames.isEmpty ? [item.name] : item.memberNames
-            var took = false
-            for name in carried {
-                guard let index = wanted.firstIndex(of: name ?? "") else { continue }
-                wanted.remove(at: index)
-                took = true
-            }
-            if took { workspaces.append(item.id) }
+    /// One cleanup per personal group the close of `ids` may empty (`GroupCloseCleanup`), shared with its Undo.
+    static func closeCleanups(_ ids: [String], _ services: AppServices) -> [GroupCloseCleanup] {
+        let life = PersonalGroupLife(machines: services.machines)
+        return life.groupsClosing(ids).sorted { $0.rawValue < $1.rawValue }.map { group in
+            life.closeCleanup(group, history: { [weak services] in
+                services.map { DaemonClosedHistory.entries([.workspace], in: $0).map { ($0.item.id, $0.item.group?.id) } } ?? []
+            }, failed: { [weak services] _ in services?.windows.active?.sidebar.resync() })
         }
-        return (workspaces, wanted, id.flatMap { id in fresh.first { $0.group?.id == id }?.id })
     }
 
     private static func matches(names: [String], group id: String?, after seen: Set<String>,
-                                _ services: AppServices) -> (workspaces: [String], missing: [String], group: String?) {
+                                _ services: AppServices) -> ClosedItemMatch {
         let fresh = DaemonClosedHistory.entries([.workspace], in: services).map(\.item).filter { !seen.contains($0.id) }
-        return matching(names: names, group: id, fresh: fresh)
+        return ClosedItemMatch(names: names, group: id, fresh: fresh)
     }
 
     /// Reopens what this close recorded once every member's item is in the
