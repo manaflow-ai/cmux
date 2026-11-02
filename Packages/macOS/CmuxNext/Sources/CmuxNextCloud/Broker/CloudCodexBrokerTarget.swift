@@ -87,7 +87,7 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
                             isLive: (@Sendable () async throws -> Bool)? = nil) {
         let api = api.pinningTeam(scope.teamID)
         // Guest files are controlled by the VM and cannot authorize token delivery.
-        let callerOwnsVM = callerOwnsVM ?? { try await api.attachEndpoint(machineID).vmKind == "owner" }
+        let callerOwnsVM = callerOwnsVM ?? { try await api.attachEndpoint(machineID).callerOwnsVM }
         self.init(machineID: machineID, capability: {
             guard try await callerOwnsVM() else {
                 return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false)
