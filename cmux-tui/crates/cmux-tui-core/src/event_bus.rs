@@ -483,6 +483,16 @@ impl MuxEventReceiver {
         self.mailbox.push(MuxEvent::TreeChanged);
     }
 
+    /// A waker that calls ``wake`` while this receiver lives (it holds no strong reference).
+    pub(crate) fn waker(&self) -> impl Fn() + Send + Sync + 'static {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                mailbox.push(MuxEvent::TreeChanged);
+            }
+        }
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().recover_poison().overflowed
     }

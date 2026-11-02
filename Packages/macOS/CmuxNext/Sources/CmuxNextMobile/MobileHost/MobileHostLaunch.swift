@@ -165,6 +165,12 @@ public struct MobileHostLaunch: Sendable, Equatable {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])
     }
 
+    /// The person's per-chat Remote Control choice. Persistence and enforcement stay in
+    /// `cmux-mobile-host`; this line is only an intent sent to the running host.
+    public static func sessionExposureLine(sessionID: String, allowed: Bool) -> Data {
+        anyLine(["type": "session_exposure", "session_id": sessionID, "allowed": allowed])
+    }
+
     /// The answer to `need_browser` `request`: the browser host listens on
     /// `127.0.0.1:port` and admits the hello that carries `secret` (never logged).
     public static func browserLine(request: UInt64, port: UInt16, secret: String) -> Data {

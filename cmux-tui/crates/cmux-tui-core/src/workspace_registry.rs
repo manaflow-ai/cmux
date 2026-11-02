@@ -153,6 +153,7 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
+pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -3079,63 +3080,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let next_numeric_id = u64::try_from(max_numeric_id)
-            .context("stored workspace id is negative")?
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
-                    w.name_source, w.name_revision
-             FROM workspaces w
-             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
-             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
-             ORDER BY w.position ASC",
-        )?;
-        let workspaces = statement
-            .query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
-            })?
-            .map(|row| {
-                let (id, key, name, group_key, public_id, (source, revision)): (
-                    i64,
-                    String,
-                    String,
-                    String,
-                    String,
-                    (String, i64),
-                ) = row?;
-                let (name_source, name_revision) =
-                    workspace_name_store::stored_name_provenance(&source, revision)?;
-                Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
-                    id: u64::try_from(id).context("stored workspace id is negative")?,
-                    public_id: WorkspacePublicId::parse(public_id)?,
-                    key,
-                    name,
-                    name_source,
-                    name_revision,
-                    group_key,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(RegistrySnapshot {
-            registry_id: self.registry_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            resource_revision,
-            session_id: self.session_id.clone(),
-            next_numeric_id,
-            workspaces,
-        })
+        registry_snapshot_in(
+            &self.connection.get(),
+            &self.registry_id,
+            &self.generation,
+            &self.session_id,
+        )
     }
 
     /// Read the resource cursor without materializing the workspace graph.
@@ -5086,6 +5036,72 @@ pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<O
 pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
+}
+
+/// [`WorkspaceRegistry::snapshot`] on `connection`: the registry's own
+/// connection under its lock, or its read-only connection for a read that
+/// must not wait for a writer (`resource_api::read_committed_registry`).
+pub(crate) fn registry_snapshot_in(
+    connection: &Connection,
+    registry_id: &str,
+    generation: &str,
+    session_id: &SessionPublicId,
+) -> anyhow::Result<RegistrySnapshot> {
+    let revision = current_revision(connection)?;
+    let resource_revision = current_resource_revision(connection)?;
+    let max_numeric_id =
+        connection.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let next_numeric_id = u64::try_from(max_numeric_id)
+        .context("stored workspace id is negative")?
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+    let mut statement = connection.prepare(
+        "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                w.name_source, w.name_revision
+         FROM workspaces w
+         JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+         WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+         ORDER BY w.position ASC",
+    )?;
+    let workspaces = statement
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+            Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
+        })?
+        .map(|row| {
+            let (id, key, name, group_key, public_id, (source, revision)): (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                (String, i64),
+            ) = row?;
+            let (name_source, name_revision) =
+                workspace_name_store::stored_name_provenance(&source, revision)?;
+            Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
+                id: u64::try_from(id).context("stored workspace id is negative")?,
+                public_id: WorkspacePublicId::parse(public_id)?,
+                key,
+                name,
+                name_source,
+                name_revision,
+                group_key,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RegistrySnapshot {
+        registry_id: registry_id.to_string(),
+        generation: generation.to_string(),
+        revision,
+        resource_revision,
+        session_id: session_id.clone(),
+        next_numeric_id,
+        workspaces,
+    })
 }
 
 fn current_revision(connection: &Connection) -> anyhow::Result<u64> {

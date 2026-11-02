@@ -80,6 +80,8 @@ final class CloudService {
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
+    /// The app server link's route as launched (`cloud.machines`' `link_route`): `legacy`, `link`, or the Native-first one's.
+    @ObservationIgnored let linkRoute: @MainActor () -> String
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -112,6 +114,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
@@ -240,16 +243,21 @@ final class CloudService {
         let launcher: (any CloudLinkLaunching)?
         if configuration.linkSource != .appServer {
             launcher = nil
+            linkRoute = { "legacy" }
         } else if CloudNativeFirstLauncher.choice() == .link {
             launcher = cmuxLink
+            linkRoute = { "link" }
         } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
                                                              build: linkBuild, deviceName: Self.deviceName) {
             let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-            launcher = CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
+            let first = CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
                 logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
             }
+            launcher = first
+            linkRoute = { first.route }
         } else {
             launcher = cmuxLink
+            linkRoute = { "link (native asked; no Native route holder for this app)" }
         }
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
@@ -283,7 +291,7 @@ final class CloudService {
     /// harness login goes only to such a machine (``CloudCredentialTransfer``).
     func callerOwnsVM(_ machineID: String) async throws -> Bool {
         guard configuration.linkSource == .appServer else {
-            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).callerOwnsVM
         }
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil

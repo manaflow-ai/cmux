@@ -30,6 +30,7 @@ extension AppControl {
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
+                                       "link_route": .string(services.cloud.linkRoute()),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
@@ -118,6 +119,7 @@ extension AppControl {
             "api_status": .string(session.machine.status.rawValue),
             "stage": .string(session.stage.name),
             "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
+            "link_ended_detail": session.linkEndedDetail.map(JSONValue.string) ?? .null,
             // Why a paused machine is paused (`idle` or `user`), and its idle auto-pause (0: Off).
             "pause_reason": session.machine.pauseReason.map { .string($0.rawValue) } ?? .null,
             "idle_pause_minutes": session.machine.idlePauseMinutes.map { .number(Double($0)) } ?? .null,
