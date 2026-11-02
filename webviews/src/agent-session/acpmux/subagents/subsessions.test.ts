@@ -237,4 +237,6 @@ test("a subagent named only by its raw session/tool call id shows as Subagent, n
   expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
   expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
   expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
+  const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
+  expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
 });
