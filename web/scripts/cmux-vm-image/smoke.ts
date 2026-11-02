@@ -85,18 +85,19 @@ export function secretScanCommand(skip: readonly string[] = []): string {
   return `{ ${[...lines, files, keys].join("; ")}; } | grep -vE ${sq(SCAN_EXCLUDES.map((p) => ` ${p.replace(/[.]/g, "\\.")}`).join("|"))} || true`;
 }
 
-/** One login-shell run per command name as the work user; prints `name exit path :: output`. */
 /**
  * Sets `p` to the path lookup for `command` (type -P: not an alias or function the login shell
  * defines). A user-local alias that resolves to the very file the current profile's entry resolves
  * to reports as that entry: the canonical acpmux user unit needs ~/.local/bin/acpmux, and Ubuntu's
- * ~/.profile puts ~/.local/bin first, yet the alias runs the store's binary.
+ * ~/.profile puts ~/.local/bin first, yet the alias runs the store's binary. An alias to any other
+ * file (say a separately downloaded acpmux) still fails the check, as it should.
  */
 export function storeCommandPathSnippet(command: string, currentBin = CURRENT_BIN): string {
   const entry = `${currentBin}/${command}`;
   return `p=$(type -P ${command}); if [ -n "$p" ] && [ "$p" != ${sq(entry)} ] && [ -e ${sq(entry)} ] && real=$(readlink -f "$p") && [ -n "$real" ] && [ "$real" = "$(readlink -f ${sq(entry)})" ]; then p=${sq(entry)}; fi`;
 }
 
+/** One login-shell run per command name as the work user; prints `name exit path :: output`. */
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
   for (const p of bakedPrograms(lock)) {
