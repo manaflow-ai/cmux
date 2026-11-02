@@ -70,12 +70,18 @@ def movie_times(frames_json):
 
 
 def judge(frames, times, keys, refresh_hz=120.0, thresh=24, max_band_px=96):
-    """Per frame, how far right the typed text reaches: the rightmost column that differs from the still frame shown
-    at the first key (any background: a terminal, a glass composer, a page's field), inside the band of the frame
-    where the first key shows. The line is fitted from two points, that first frame (R1) and the end (RN): glyph
-    advance A = (RN - R1) / (N - 1), offset = R1 - A; key i shows in the first frame whose reach passed
-    offset + (i + 1/2) A. A cursor or caret of any width moves with the text, so it only shifts the offset (review
-    must-fix 1 at af4a0cb661d: a reach measured from the old cursor cell read late glyphs as on time)."""
+    """Per frame, how far right the typed text reaches (the rightmost column that differs from the still frame shown
+    at the first key, inside the text line's band), and when each key's glyph first shows.
+
+    The line is fitted from two robust numbers, never from a single early frame (a caret or cursor that blinks near
+    the first key would shift it: review must-fix 1 at af4a0cb661d and at 208cfb19c5d):
+      RN  the reach once every glyph shows: the most over the last 0.25 s of the keys' span;
+      A   the glyph advance: the median of the steps between the reach's successive plateaus (two glyphs that come
+          in one frame make one double step, which the median ignores).
+    With a caret or cursor of width w after the text, the reach after k glyphs is k A + w, so glyph i shows when
+    reach >= RN - (N - 1 - i) A - A / 2, whatever w is. The band: the rows of the end frame's change that hold at
+    least a quarter of its busiest row's changed pixels (the text line, not a button or a title elsewhere), from its
+    leftmost changed column."""
     n = np()
     period = 1.0 / refresh_hz
     if len(keys) < 2:
@@ -85,37 +91,49 @@ def judge(frames, times, keys, refresh_hz=120.0, thresh=24, max_band_px=96):
     t_end = keys[-1]["t_post"] + 0.5
     end = max([i for i, t in enumerate(times) if t <= t_end] or [len(times) - 1])
     ref = frames[before].astype(n.int16)
-
-    def changed(j):
-        return n.abs(frames[j].astype(n.int16) - ref) > thresh
-    # The band: the rows and the leftmost column that changed in the first frame after key 0 that changed at all
-    # (one glyph and the caret), not the whole run (a button, a title or a spinner elsewhere would widen it).
-    first = next((j for j in range(before + 1, end + 1) if times[j] > t0 and changed(j).any()), None)
-    if first is None:
-        return {"error": "no pixel changed after the first key (wrong rect, or no key showed)"}
-    m = changed(first)
-    rows, cols = n.nonzero(m.any(axis=1))[0], n.nonzero(m.any(axis=0))[0]
-    r0, r1, c0 = int(rows[0]), int(rows[-1]) + 1, int(cols[0])
-    band = {"rows": [r0, r1], "left": c0, "first_frame": first}
+    m = n.abs(frames[end].astype(n.int16) - ref) > thresh
+    per_row = m.sum(axis=1)
+    if not per_row.any():
+        return {"error": "no pixel changed between the first key and the end (wrong rect, or no key showed)"}
+    rows = n.nonzero(per_row >= max(1, per_row.max() // 4))[0]
+    r0, r1 = int(rows[0]), int(rows[-1]) + 1
+    cols = n.nonzero(m[r0:r1].any(axis=0))[0]
+    c0 = int(cols[0])
+    band = {"rows": [r0, r1], "left": c0}
     if r1 - r0 > max_band_px:
-        return {"error": f"band unclear: the first change after key 0 spans {r1 - r0} rows (> {max_band_px})", "band": band}
+        return {"error": f"band unclear: the text line's change spans {r1 - r0} rows (> {max_band_px})", "band": band}
 
     def reach(j):
         diff = n.abs(frames[j, r0:r1, c0:].astype(n.int16) - ref[r0:r1, c0:]) > thresh
         hit = n.nonzero(diff.any(axis=0))[0]
         return int(hit[-1]) + 1 if hit.size else 0
     ext = [reach(j) if before <= j <= end else 0 for j in range(len(frames))]
-    r_first, r_end = ext[first], max(ext[first:end + 1])
-    advance = (r_end - r_first) / (len(keys) - 1)
+    tail = [ext[j] for j in range(before, end + 1) if times[j] >= t_end - 0.25] or [ext[end]]
+    r_end = max(tail)
+    # Plateaus: values the reach holds for at least 2 frames, in time order; their positive steps.
+    plateaus, run_v, run_n = [], None, 0
+    for j in range(before, end + 1):
+        if ext[j] == run_v:
+            run_n += 1
+        else:
+            if run_v is not None and run_n >= 2:
+                plateaus.append(run_v)
+            run_v, run_n = ext[j], 1
+    if run_v is not None and run_n >= 2:
+        plateaus.append(run_v)
+    steps = [b - a for a, b in zip(plateaus, plateaus[1:]) if b > a]
+    if not steps:
+        return {"error": "the text band shows no growth", "band": band}
+    advance = float(n.median(steps))
     if advance <= 0:
-        return {"error": "the text band shows no growth after the first key", "band": band}
-    offset = r_first - advance
-    band.update(advance_px=round(advance, 2), offset_px=round(offset, 2))
+        return {"error": "the text band shows no growth", "band": band}
+    band.update(advance_px=round(advance, 2), reach_end_px=r_end, plateaus=len(plateaus))
     defects = []
     phase = float(n.median([t % period for t in times])) if times else 0.0
     rows_out, seen = [], before
+    count = len(keys)
     for k in keys:
-        need = offset + (k["i"] + 0.5) * advance
+        need = r_end - (count - 1 - k["i"]) * advance - advance / 2
         idx = next((j for j in range(max(seen, before + 1), end + 1) if times[j] > k["t_post"] and ext[j] >= need), None)
         if idx is None:
             rows_out.append(dict(k, frame=None, refreshes=None))
@@ -145,14 +163,17 @@ def judge(frames, times, keys, refresh_hz=120.0, thresh=24, max_band_px=96):
     return {"keys": rows, "summary": summary, "defects": defects, "band": band}
 
 
-def _synthetic(n_keys, late_refreshes, cursor, every_refresh=True, late_key=None, vanish=None, noise_right=False):
-    """Synthetic frames of a terminal-like line: glyph i (12 px) appears LATE_REFRESHES refreshes after its key (key
-    LATE_KEY: after the next key), a block cursor (12 px) after the text when CURSOR, frames every refresh."""
+def _synthetic(n_keys, late_refreshes, cursor, late_key=None, vanish=None, noise_right=False, caret_blink=None,
+               gap=0.1):
+    """Synthetic frames of a typed line: glyph i (12 px) appears LATE_REFRESHES refreshes after its key (key
+    LATE_KEY: after the next key), frames every refresh. CURSOR: "block" (12 px after the text) or "caret" (2 px);
+    CARET_BLINK: the cursor is off at the first key and comes on CARET_BLINK s after it (before glyph 0)."""
     n = np()
     period = 1 / 120.0
-    times = [i * period for i in range(int((n_keys * 0.1 + 0.6) / period))]
-    keys = [{"i": i, "ch": "n", "t_post": 0.05 + i * 0.1 + 0.0011} for i in range(n_keys)]
-    show = {i: k["t_post"] + (late_refreshes - 0.5) * period for i, k in enumerate(keys)}
+    times = [i * period for i in range(int((n_keys * gap + 0.7) / period))]
+    keys = [{"i": i, "ch": "n", "t_post": 0.05 + i * gap + 0.0011} for i in range(n_keys)]
+    # Glyph i shows at the LATE_REFRESHES-th refresh after its key (1 = the next refresh), on the frames' grid.
+    show = {i: (math.floor(k["t_post"] / period + 1e-9) + late_refreshes) * period - 1e-6 for i, k in enumerate(keys)}
     if late_key is not None:
         show[late_key] = keys[late_key + 1]["t_post"] + 0.002
     frames = []
@@ -162,31 +183,39 @@ def _synthetic(n_keys, late_refreshes, cursor, every_refresh=True, late_key=None
             count -= 1
         f = n.zeros((20, 400), dtype=n.uint8)
         f[4:16, 10: 10 + 12 * count] = 200
-        if cursor:
-            f[2:18, 10 + 12 * count: 22 + 12 * count] = 120
+        on = True
+        if caret_blink is not None and count == 0:
+            on = t < keys[0]["t_post"] - 0.3 or t >= keys[0]["t_post"] + caret_blink
+        if cursor and on:
+            width = 12 if cursor == "block" else 2
+            f[2:18, 10 + 12 * count: 10 + 12 * count + width] = 120
         if noise_right and j % 30 == 0:
-            f[0:2, 390:400] = 255  # a spinner far right, outside the first change's band rows
+            f[0:2, 390:400] = 255  # a spinner far right, in other rows
         frames.append(f)
     return n.stack(frames), times, keys
 
 
 def self_test():
+    def refr(out):
+        return [r["refreshes"] for r in out["keys"]]
     # 1. a clean line, a glyph late past the next key, a glyph that vanishes for one frame
-    frames, times, keys = _synthetic(10, 1, cursor=False, late_key=6, vanish=150)
+    frames, times, keys = _synthetic(10, 1, cursor=None, late_key=6, vanish=150)
     out = judge(frames, times, keys)
-    refr = {r["i"]: r["refreshes"] for r in out["keys"]}
-    assert refr[0] == 1 and refr[6] > 1 and refr[7] == 1, refr
+    got = refr(out)
+    assert got[0] == 1 and got[6] > 1 and got[7] == 1, got
     assert any(d["kind"] == "shrink" for d in out["defects"]), out["defects"]
-    # 2. a block cursor, frames every refresh, every glyph 3 refreshes late: every key must read 3 (review must-fix 1)
-    frames, times, keys = _synthetic(20, 3, cursor=True)
-    out = judge(frames, times, keys)
-    got = [r["refreshes"] for r in out["keys"]]
-    assert all(g == 3 for g in got), got
-    # 3. the same on time, with a spinner elsewhere in the crop: every key reads 1
-    frames, times, keys = _synthetic(20, 1, cursor=True, noise_right=True)
-    out = judge(frames, times, keys)
-    got = [r["refreshes"] for r in out["keys"]]
-    assert all(g == 1 for g in got), (got, out.get("band"))
+    # 2. a block cursor, every glyph 3 refreshes late: every key reads 3 (review must-fix 1 at af4a0cb661d)
+    out = judge(*_synthetic(20, 3, cursor="block"))
+    assert all(g == 3 for g in refr(out)), refr(out)
+    # 3. on time, a block cursor and a spinner elsewhere: every key reads 1
+    out = judge(*_synthetic(20, 1, cursor="block", noise_right=True))
+    assert all(g == 1 for g in refr(out)), (refr(out), out.get("band"))
+    # 4. a caret off at the first key that blinks on before glyph 0, glyphs 3 late (review must-fix 1 at 208cfb19c5d)
+    out = judge(*_synthetic(20, 3, cursor="caret", caret_blink=0.005))
+    assert all(g == 3 for g in refr(out)), refr(out)
+    # 5. the same with a block cursor and keys 0.27 s apart (a pause not near a blink period)
+    out = judge(*_synthetic(12, 3, cursor="block", caret_blink=0.004, gap=0.27))
+    assert all(g == 3 for g in refr(out)), refr(out)
     print("self-test OK", json.dumps(out["summary"]))
 
 
