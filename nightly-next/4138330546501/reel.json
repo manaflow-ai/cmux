@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "build": "4138330546501",
+  "notes": "notes/4138330546501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31717,
+      "title": "base red: cmux-tui/Cargo.lock follows fs4's move between crates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31716,
+      "title": "Agent pane: a message from another machine names that machine on its line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31710,
+      "title": "base red: the reply footer's table rows are on value since #31690",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30726,
+      "title": "feat(acpmux): byte-bound background-process history with opt-in pages (SW-11)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31661,
+      "title": "cmux-next sidebar: each app owns its sidebar document store (no process-wide SidebarDocStore.current)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31671,
+      "title": "journeys tui-kit: the 120 fps gradient spins to each frame by default (pace probe on a mini)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31647,
+      "title": "base red: the native popup's slider keeps to its rows' padded box (menu metrics, #27142)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31543,
+      "title": "fix(mux-host): fail a malformed session list or a stalled event page instead of a short result (carry #30695, #30705)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31702,
+      "title": "test(chat): a folded run estimates one 22px line (#29965)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31648,
+      "title": "fix(next): show automatic retry and resume status in agent chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30749,
+      "title": "perf(agent-pane): index loaded chat IDs once during 3,000-session paging (W2-16)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30696,
+      "title": "fix(agent-chat): fold late subagent completion with its original quiet turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31690,
+      "title": "Transcript: reply footer at ChatGPT size, 8 under the reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31686,
+      "title": "base red: transcript spacing table rows that #31497 brought to value",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30675,
+      "title": "fix(browser): refuse missing agent caller instead of driving focused tab (SW-08)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31680,
+      "title": "cmux NEXT Home: the narrow list keeps its Unread filter and shows search as an icon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31666,
+      "title": "cloud set-network-access: a slow server answers pending before the result deadline (#28855)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31641,
+      "title": "fix(cloud-image): accept replaced acpmux executable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31662,
+      "title": "Cloud: promote devbox image 202611020226-de504495e9-b47fec6886ce",
+      "author": "manaflow-glaeda-route[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31683,
+      "title": "fix(chat): a waiting steer's action row takes no layout height, as a sent prompt's (#27580 regression)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31497,
+      "title": "fix(chat): one-line activity rows sit 22 apart again (#27580 regression)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31615,
+      "title": "Agent chat: a sent message opens to its words, not to Raw alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31614,
+      "title": "test(chat): transcript spacing table, measured against ChatGPT and Claude",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31528,
+      "title": "fix(next): a switch into an empty space waits there for its first workspace (#31502)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30746,
+      "title": "fix(ios): route Cloud attention to an authenticated paired Mac (#30639)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30790,
+      "title": "fix(guest): pace queued prompts across reconnect and retry room rate refusals (SW-12)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31584,
+      "title": "cmux NEXT composer: a screen recording is a square tile, never a long strip with its name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31591,
+      "title": "fix(next panes): panes, dividers and sliding screens stay on the device-pixel grid during camera motion",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31639,
+      "title": "base red: shrink the design-token baseline for updateSurfaces.css (fc4ad465bae)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31645,
+      "title": "debug.app.terminate reason=logout: quit as a logout does, for the reopen films (DEBUG/bench)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31640,
+      "title": "base red: a reply's hover time stays shown while its menu is open (#31609)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31477,
+      "title": "base red: transcript gap and column-edge tests read the layout grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31638,
+      "title": "journeys tui-kit: pace modes and a pace probe for the gradient's late frames",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31293,
+      "title": "feat(composer): virtualize 5,000 slash-command rows in the real pane (W2-09)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30784,
+      "title": "fix(chief): make session inventory callable and page 300 agents safely (W2-08)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31633,
+      "title": "base red: revert #26741 (arch app_lines +110 on the tip)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31627,
+      "title": "base red: the layout grid the transcript imports is a web bundle input (#27580)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31628,
+      "title": "base red: ci-web's feat-cmux-next warn branch runs check:menu-gutters (#28611)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31462,
+      "title": "feat(cmux-tui): update installed plugins automatically",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31642,
+      "title": "ci(nightly): the sign picker and the visual gate router take the all-nightly reservation first",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
