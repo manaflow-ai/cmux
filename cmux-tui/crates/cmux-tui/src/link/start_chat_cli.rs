@@ -364,13 +364,16 @@ pub(super) fn plan_with(
                 environment: request.environment.clone(),
                 platform: None,
             };
-            let answer = if credential.trim().is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
-            } else {
-                ensure(&ask, credential.trim())
-            };
+            // No credential means the platform was never asked, so the App's legacy create can still help.
+            // A real authorization refusal from the platform must stop this send.
+            let answer = (!credential.trim().is_empty()).then(|| ensure(&ask, credential.trim()));
             match answer {
-                Ok(body) => {
+                None => json!({
+                    "ok": true,
+                    "machine": null,
+                    "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
+                }),
+                Some(Ok(body)) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     // Pinned before the App opens anything there, as a machine the App made.
@@ -391,13 +394,13 @@ pub(super) fn plan_with(
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
-                Err(error) if made_no_machine(&error) => json!({
+                Some(Err(error)) if made_no_machine(&error) => json!({
                     "ok": true,
                     "machine": null,
                     "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
                 }),
                 // It may have made one: a retry with the same key reaches it, never a second paid machine.
-                Err(error) => return ensure_answer(Err(error)),
+                Some(Err(error)) => return ensure_answer(Err(error)),
             }
         }
         Ok((Destination::New, _)) => json!({
@@ -426,13 +429,14 @@ fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
     repo.is_some() && personal && request.credential_on_stdin
 }
 
-/// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
-/// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+/// The App's legacy create is only a compatibility fallback for an absent workspace-machine endpoint,
+/// an unconfigured warm base or a provider without a compatible offer. Authentication, resource and budget
+/// refusals must reach the person: a second machine creation would bypass the platform's admission decision.
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
-        E::Status { code: "cloud_environment.not_found", .. } => false,
-        E::Status { status: 401 | 403 | 404, .. } => true,
+        E::Status { status: 401 | 403, .. } => false,
+        E::Status { status: 404, code: "" | "not_found" | "route.not_found" } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
             ..
