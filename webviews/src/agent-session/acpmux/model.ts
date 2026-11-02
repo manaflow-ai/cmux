@@ -1119,15 +1119,26 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
-/// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
-/// the plain status gap above and below it.
+/// A short interim note folded into a run (conversation.css `.cv-tool-note`): its text on 20px
+/// lines at the column's width, with the plain status gap above and below it. A note that wraps
+/// draws a line per wrap, so it is estimated from its text as a reply is (cmux#31148).
 const NOTE_LINE = 20;
 /// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
 /// otherwise flush (conversation.css `.cv-tool-note`).
 const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
-function activityStepHeight(item: AcpmuxActivity): number {
+/// The prepared texts of those notes, for their estimates; cleared past 256, as a row's are.
+const notePrepared = new Map<string, PreparedText | null>();
+function noteHeight(text: string | undefined, width: number): number {
+  if (notePrepared.size > 256) notePrepared.clear();
+  // `.cv-tool-note` wraps with the default `white-space: normal`, so a newline or a run of spaces in
+  // the note draws as one space: measure the text that way, not as the replies' pre-wrap.
+  const flat = text?.replace(/\s+/g, " ").trim();
+  const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
+  return Math.max(NOTE_LINE, lines) + 2 * noteGap();
+}
+function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
-  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * noteGap() : 26;
+  if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return toolRowHeight();
@@ -1176,24 +1187,26 @@ function activityStepHeight(item: AcpmuxActivity): number {
 /// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
-function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
   return stretches.reduce(
     (height, stretch) =>
       height +
-      (stretch.fold ? toolRowHeight() : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
+      (stretch.fold
+        ? toolRowHeight()
+        : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width), 0)),
     0,
   );
 }
 
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
-function foldedGroupHeight(group: ToolGroup): number {
+function foldedGroupHeight(group: ToolGroup, width: number): number {
   if (group.type === "group" || group.type === "send") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
-  return items.reduce((sum, item) => sum + activityStepHeight(item), 0);
+  return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
@@ -1568,11 +1581,13 @@ function fallbackRowHeight(
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && row.items?.length) {
       const groups = toolGroups(row.items);
-      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups));
+      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
       if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
-    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : toolRowHeight();
+    const steps = items.length
+      ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
+      : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -1691,8 +1706,10 @@ function textHeight(
   width: number,
   prepared: Map<string, PreparedText | null>,
   used?: Set<string>,
+  /// The rows' line height when it is not the prose's (a folded note's 20px lines).
+  lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont, lineHeight } = metrics();
+  const { measureFont } = metrics();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
