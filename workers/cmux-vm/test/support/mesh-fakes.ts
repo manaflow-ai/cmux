@@ -37,6 +37,7 @@ export interface FakeRule {
 export interface MeshFakeOptions {
   readonly experiment?: boolean;
   readonly tenants?: ReadonlyArray<string>;
+  readonly services?: ReadonlyArray<string>;
   readonly budgets?: Partial<MeshBudgets>;
 }
 
@@ -281,6 +282,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       meshConfigLayer({
         experiment: options.experiment ?? true,
         tenantIds: options.tenants ?? ["team_alpha", "team_bravo"],
+        ...(options.services === undefined ? {} : { serviceIds: options.services }),
         ...(options.budgets === undefined ? {} : { budgets: options.budgets }),
       }),
     ));
