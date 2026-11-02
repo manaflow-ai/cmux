@@ -270,7 +270,7 @@ final class SessionInfoListView: NSView {
                         id: "title", kind: .title, symbol: "chevron.left", title: backLabel ?? title,
                         detail: nil, action: action)
                     if let old = existingLines[line.id ?? ""] {
-                        old.update(line: line, ink: ink)
+                        if !old.matches(line: line, ink: ink) { old.update(line: line, ink: ink) }
                         label = old
                     } else {
                         label = SessionInfoLineView(line: line, ink: ink)
@@ -290,7 +290,7 @@ final class SessionInfoListView: NSView {
                 addSubview(line)
             case .line(let value):
                 if let identity = value.id, let old = existingLines[identity] {
-                    old.update(line: value, ink: ink)
+                    if !old.matches(line: value, ink: ink) { old.update(line: value, ink: ink) }
                     addSubview(old)
                 } else {
                     addSubview(SessionInfoLineView(line: value, ink: ink))
@@ -487,6 +487,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    /// Whether a page refresh changes this row or its theme; handler closures are stable for the
+    /// mounted panel and do not participate in equality.
+    func matches(line: SessionInfoLine, ink: SessionInfoInk) -> Bool {
+        self.line == line && self.ink.colors == ink.colors
+    }
 
     /// Refreshes a keyed native row without leaving any child from the prior page model attached.
     func update(line: SessionInfoLine, ink: SessionInfoInk) {
