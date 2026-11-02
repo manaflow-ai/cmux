@@ -2,7 +2,6 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextWakeups
 
-// Each window's own Home (cmux#27880, `WindowHomes`): one-line forwards to the App's owners.
 extension AppServices: WindowHomeHost {
     var windowHomeStoreHome: WorkspaceModel? { home.homeWorkspace }
     var windowHomeConnection: DaemonConnection? { daemon.connection }
@@ -15,7 +14,7 @@ extension AppServices: WindowHomeHost {
     var windowHomeWindows: [String: [String]] { windows.membersByWindow }
     func windowHomeClose(_ workspace: String) { windows.discard([workspace]) }
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel? { workspace(id: id) }
-    func windowHomeRoom(_ window: String) -> ProfileID? { windows.states[window].flatMap { daemon.store.profile($0.profileID)?.id } }
+    func windowHomeRoom(_ window: String) -> ProfileID? { windows.states[window]?.profileID }
     func windowHomeShow(_ workspace: String, in window: String) { windows.show(workspaceID: workspace, inWindow: window) }
     func windowHomeClaim(_ workspace: String, window: String) { windows.claimNew(workspaceID: workspace, window: window) }
     func windowHomeDropClaim(_ workspace: String) { windows.pendingClaims[workspace] = nil }

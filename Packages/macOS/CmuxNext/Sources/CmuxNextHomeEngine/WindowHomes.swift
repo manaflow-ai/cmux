@@ -1,42 +1,7 @@
 public import CmuxNextDaemon
-public import CmuxNextWakeups
+import CmuxNextWakeups
 import Foundation
 import os
-
-/// What ``WindowHomes`` needs of the app's windows and daemon: one-line forwards (`AppServices`).
-@MainActor
-public protocol WindowHomeHost: AnyObject {
-    /// The store's home workspace, once the store reported it.
-    var windowHomeStoreHome: WorkspaceModel? { get }
-    /// The local daemon's connection and store.
-    var windowHomeConnection: DaemonConnection? { get }
-    var windowHomeStore: DaemonStore { get }
-    /// The app's main-thread work scheduler (``HomeDock/ensure`` waits for the tree on it).
-    var windowHomeWork: MainWorkScheduler { get }
-    /// Returns once the local store applied every event before `connection`'s last reply.
-    func windowHomeApplied(_ connection: DaemonConnection) async
-    /// The workspaces window `window` lists, and the open window that lists `workspace`.
-    func windowHomeMembers(_ window: String) -> [String]
-    func windowHomeOpenOwner(of workspace: String) -> String?
-    /// Whether window `window` is registered and open, and each registered window's workspaces.
-    func windowHomeIsOpen(_ window: String) -> Bool
-    var windowHomeWindows: [String: [String]] { get }
-    /// Closes `workspace` on its daemon (a window Home its window no longer has a place for).
-    func windowHomeClose(_ workspace: String)
-    func windowHomeWorkspace(_ id: String) -> WorkspaceModel?
-    /// The space window `window` shows, when the local store has it (rooms, data-model.md 3).
-    func windowHomeRoom(_ window: String) -> ProfileID?
-    /// Shows `workspace` in window `window`, taking it there; never in another window.
-    func windowHomeShow(_ workspace: String, in window: String)
-    /// Claims the workspace about to be made for `window`, or drops that claim.
-    func windowHomeClaim(_ workspace: String, window: String)
-    func windowHomeDropClaim(_ workspace: String)
-    /// Runs `create` with `workspace` held out of its window until its first tab shows.
-    func windowHomeHold(_ workspace: String, _ create: () async throws -> Bool?) async throws
-    /// The app's move of a tab into a new left chat dock (``HomeDock/Dock``).
-    func windowHomeDock(_ tab: TabModel, _ anchor: PaneModel, _ respawn: SplitRespawn?, _ pinned: Bool,
-                        _ done: @escaping @MainActor (Bool) -> Void)
-}
 
 /// Each window's own Home (cmux#27880). The store has one home workspace, and a workspace lives
 /// in one window: Home clicked in a second window brought the first window forward with its Home,
@@ -86,6 +51,7 @@ public final class WindowHomes {
         }
         if let pending = making[window] { return await pending.value }
         // task-owner: one window Home creation per window (joined by later clicks), bounded by the daemon replies
+        // main-hop-allow: userBlocking rest of the person's Home show (p06 rule 2): `make` sends the daemon's create, pin and page requests and its main-actor steps are the window claim and hold around their replies; post has no userBlocking class
         let task = Task { @MainActor [weak self] () -> WorkspaceModel? in
             defer { self?.making[window] = nil }
             return await self?.make(in: window)
@@ -110,7 +76,7 @@ public final class WindowHomes {
                 // Born in its window's space, as every new workspace is (WorkspaceSpawner), so that space lists it
                 // (spaces-overhaul-DESIGN.md rule 5). Unpinned it showed only in the default space, and a window on
                 // another (New Window opens one, rule 3) took it in but never showed it (MW-1b).
-                if let room = host.windowHomeRoom(window), let session = store.registryID {
+                if let room = host.windowHomeRoom(window), store.profile(room) != nil, let session = store.registryID {
                     try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
                         try await connection.pinWorkspace(session: session, key: key, to: room)
                     }
@@ -146,6 +112,7 @@ public final class WindowHomes {
         guard let host, let resource = home.resourceID else { return }
         let id = home.id, earlier = docks[id], logger = logger
         // task-owner: one dock run per window Home after the one before it (each bounded by its daemon replies)
+        // main-hop-allow: HomeDock.ensure reads the main-actor tree between its daemon requests (as the store's Home's dock run on each connect does); this task only orders one run per window Home after the one before
         let run = Task { @MainActor in
             await earlier?.value
             let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, work: host.windowHomeWork, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })

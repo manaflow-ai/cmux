@@ -41,6 +41,7 @@ extension AppActions {
             return true
         }
         let state = active.state
+        // main-hop-allow: userBlocking rest of the person's action (p06 rule 2): it awaits the window's Home creation (daemon replies) and runs `shown` with it; post has no userBlocking class
         services.registry.track(Task { @MainActor in
             guard let made = await services.windowHomes.show(in: state.id) else { return ActionWorkFailure(RefusalStrings.homeNotReady) }
             shown?(made)
