@@ -92,6 +92,11 @@ pub struct RbCallbacks {
     /// count, the caret (x y w h, or NULL).
     pub on_text_input:
         Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, *const c_int, c_int, *const c_int)>,
+    /// browser, the fork's dialog token: Chromium dropped that dialog (its
+    /// frame went away, or the tab closed).
+    pub on_dialog_dropped: Option<unsafe extern "C" fn(*mut c_void, c_int, i64)>,
+    /// browser, match count, active match (1-based), final update.
+    pub on_find_result: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int)>,
 }
 
 unsafe extern "C" {
@@ -186,6 +191,14 @@ unsafe extern "C" {
     pub fn rb_shim_go_forward(browser: c_int) -> c_int;
     pub fn rb_shim_reload(browser: c_int, ignore_cache: c_int) -> c_int;
     pub fn rb_shim_stop_load(browser: c_int) -> c_int;
+    pub fn rb_shim_find(
+        browser: c_int,
+        text: *const c_char,
+        forward: c_int,
+        match_case: c_int,
+        find_next: c_int,
+    ) -> c_int;
+    pub fn rb_shim_stop_finding(browser: c_int, keep_selection: c_int) -> c_int;
 }
 
 fn cstr(s: &str) -> CString {
@@ -373,6 +386,32 @@ impl Presentation for ShimPresentation {
             }
         };
         done == 1
+    }
+
+    fn find(
+        &mut self,
+        browser: i32,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        next: bool,
+    ) -> bool {
+        let query = cstr(query);
+        // SAFETY: `query` outlives the call; UI thread.
+        unsafe {
+            rb_shim_find(
+                browser,
+                query.as_ptr(),
+                c_int::from(forward),
+                c_int::from(match_case),
+                c_int::from(next),
+            ) == 1
+        }
+    }
+
+    fn stop_finding(&mut self, browser: i32, keep_selection: bool) -> bool {
+        // SAFETY: plain values; UI thread.
+        unsafe { rb_shim_stop_finding(browser, c_int::from(keep_selection)) == 1 }
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {
