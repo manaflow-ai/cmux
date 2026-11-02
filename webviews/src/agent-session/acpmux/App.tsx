@@ -4959,7 +4959,13 @@ export function VirtualTranscript({
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
     const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
-    if (!reduce && glideFrom !== node.scrollTop) node.scrollTop = glideFrom;
+    if (!reduce && glideFrom !== node.scrollTop) {
+      node.scrollTop = glideFrom;
+      // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
+      // frame painted the skip with the rows of the old place, out of view: one blank frame
+      // (transcript-cached-rows-browser "jump").
+      flushSync(() => setScrollAt(node.scrollTop));
+    }
     const duration = reduce
       ? 0
       : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
