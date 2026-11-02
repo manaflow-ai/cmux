@@ -19,27 +19,34 @@ impl Mux {
         self: &Arc<Self>,
         surface: SurfaceId,
     ) -> KittyImageSurfaceExpectation {
-        {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
-            if budget.expected.insert(surface) {
-                budget.expected_in_wave = budget.expected_in_wave.saturating_sub(1);
-            }
-            Self::rebalance_kitty_image_budget_owners(&mut budget);
-        }
-        // Terminals that already run shrink now, before the respawns reserve.
-        self.start_kitty_image_budget_worker();
-        KittyImageSurfaceExpectation { mux: Arc::downgrade(self), surface }
+        self.expect_kitty_image_respawn(None, surface)
     }
 
     /// [`Self::expect_kitty_image_surface`] for a respawn that replaces
-    /// `old_runtime` (stub: the old runtime keeps its share).
+    /// `old_runtime`. The dead runtime gives its share up in the same budget
+    /// step: kept, the terminal counted twice (its old entry and its
+    /// expectation), and the hysteresis kept the larger bucket after it.
+    /// In one step, the worker never grows the other terminals in between
+    /// only to shrink them again before the respawn may reserve.
     pub(crate) fn expect_kitty_image_respawn(
         self: &Arc<Self>,
         old_runtime: Option<&Arc<Surface>>,
         slot: SurfaceId,
     ) -> KittyImageSurfaceExpectation {
-        drop(old_runtime);
-        self.expect_kitty_image_surface(slot)
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            if let Some(old) = old_runtime {
+                Self::remove_kitty_image_entry(&mut budget, old);
+            }
+            if budget.expected.insert(slot) {
+                budget.expected_in_wave = budget.expected_in_wave.saturating_sub(1);
+            }
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        // Terminals that already run shrink now, before the respawns reserve.
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
+        KittyImageSurfaceExpectation { mux: Arc::downgrade(self), surface: slot }
     }
 
     /// Size the Kitty image budget for `count` terminals a respawn wave will
