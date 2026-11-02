@@ -56,6 +56,27 @@ struct SidebarLiveAgentIndexRefreshTests {
         #expect(changed(nil) == Self.all)
     }
 
+    /// A full index reload names no workspace. In normal mode only the Claude account row reads
+    /// the index, so only rows whose account row would change are rebuilt, not every row.
+    @Test
+    func aFullReloadInNormalModeRebuildsOnlyRowsWhoseAccountRowChanged() {
+        func refreshed(_ userInfo: [AnyHashable: Any]?, compacts: Bool) -> [UUID] {
+            SidebarAgentProfileLabel.workspaceIdsToRefresh(
+                afterIndexChange: userInfo,
+                allWorkspaceIds: Self.all,
+                compactsAgentStatus: compacts,
+                showsMetadata: true,
+                accountRowIsStale: { $0 == Self.b }
+            )
+        }
+
+        #expect(refreshed(nil, compacts: false) == [Self.b])
+        // The compact tooltip reads more of the index than the account: every row rebuilds.
+        #expect(refreshed(nil, compacts: true) == Self.all)
+        // A notification that names workspaces stays scoped to them.
+        #expect(refreshed(["workspaceId": Self.c], compacts: false) == [Self.c])
+    }
+
     @Test
     func defaultSidebarSettingsRefreshTheAccountRow() {
         let ids = SidebarAgentProfileLabel.workspaceIdsToRefresh(

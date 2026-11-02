@@ -114,6 +114,26 @@ struct SidebarClaudeAccountRowTests {
         #expect(entries.contains { $0.key == "build" })
     }
 
+    /// What a full index reload compares to skip rebuilding a row: the account row the cached
+    /// snapshot shows against the one the panes give now.
+    @Test
+    func aCachedRowIsStaleOnlyWhenItsAccountRowDiffers() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let shownBeforeSwitch = factory(for: workspace).makeSnapshot().metadataEntries
+        panel.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(
+            overrides: ["CLAUDE_CONFIG_DIR": "/Users/cmux-test/.claude-work"],
+            removedKeys: []
+        )
+        let shownAfterSwitch = factory(for: workspace).makeSnapshot().metadataEntries
+
+        #expect(SidebarWorkspaceSnapshotFactory.claudeAccountRowIsStale(workspace: workspace, shownEntries: shownBeforeSwitch))
+        #expect(!SidebarWorkspaceSnapshotFactory.claudeAccountRowIsStale(workspace: workspace, shownEntries: shownAfterSwitch))
+        // No cached row yet: build it.
+        #expect(SidebarWorkspaceSnapshotFactory.claudeAccountRowIsStale(workspace: workspace, shownEntries: nil))
+    }
+
     /// Each label once, at the position of the first pane that has it.
     @Test
     func labelsKeepFirstSeenPanelOrderAcrossRepeats() {
