@@ -73,7 +73,7 @@
     },
     {
       "do": "smoke_type",
-      "text": "seq 1 300 | sed 's/^/U${nonce}-/'",
+      "text": "seq 1 300 | sed 's/.*/U${nonce}-&-L/'",
       "enter": true
     },
     {
@@ -85,7 +85,7 @@
         {
           "smoke_daemon_lines": {
             "lines": [
-              "U${nonce}-300"
+              "U${nonce}-300-L"
             ]
           }
         }
@@ -93,7 +93,7 @@
     },
     {
       "do": "smoke_adopt_line",
-      "line": "U${nonce}-300",
+      "line": "U${nonce}-300-L",
       "as": "left"
     },
     {
@@ -172,8 +172,7 @@
         {
           "smoke_daemon_lines": {
             "lines": [
-              "U${nonce}-300",
-              "U${nonce}-1",
+              "U${nonce}-300-L",
               "right-${nonce}"
             ]
           }
@@ -201,6 +200,28 @@
       "do": "video_stop",
       "name": "update-after-reopen",
       "tail": 0.6
+    },
+    {
+      "do": "use",
+      "name": "left",
+      "title": "the left terminal again (re-found after the relaunch)"
+    },
+    {
+      "do": "expect",
+      "title": "after Restart to Update: the left terminal's scrollback has every line 1..300 once, in order (the daemon's history: line 1 is far above the screen)",
+      "timeout": 20,
+      "all": [
+        {
+          "daemon_history": {
+            "rows": "oldest",
+            "count": 2000,
+            "pattern": "^U${nonce}-(\\d+)-L$",
+            "contiguous": true,
+            "last": 300,
+            "contains": "U${nonce}-1-L"
+          }
+        }
+      ]
     }
   ]
 }
