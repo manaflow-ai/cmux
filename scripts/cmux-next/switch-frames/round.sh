@@ -23,10 +23,12 @@ CMUX_AGENT_ID=$owner CAPTURE_HOST_OWNER=$owner CAPTURE_HOST_POOL=perf-lead CAPTU
 CAPTURE_HOST_HOSTS="$host" CAPTURE_HOST_EXCLUDE="cmux16" \
   timeout 1500 python3 scripts/journeys/run.py --build "$build" --journey "$journey" --whole-host --exclusive \
   --hosts "$host" --out "$out" >> "$log" 2>&1
-echo "run.py exit $? at $(date -u +%H:%M:%SZ)" >> "$log"
-python3 -c 'import json,sys,time; json.dump({"spec":sys.argv[1],"owner":sys.argv[2],"t":time.time()},open(sys.argv[3],"w"))' \
-  "$spec" "$owner" "$R/$spec.done"
+rc=$?
+echo "run.py exit $rc at $(date -u +%H:%M:%SZ)" >> "$log"
 d=$out/$journey
+status=pass; [ -f "$d/switch.mov" ] || status="not run"
+python3 -c 'import json,sys,time; g=json.load(open(sys.argv[4])); json.dump({"spec":sys.argv[1],"owner":sys.argv[2],"at":time.time(),"go":g.get("go"),"status":sys.argv[3]},open(sys.argv[5],"w"))' \
+  "$spec" "$owner" "$status" "$go" "$R/$spec.done"
 if [ -f "$d/switch.mov" ]; then
   /work/tmp/switch-frames/venv/bin/python "$here/judge_switch.py" --video "$d/switch.mov" --frames "$d/switch.mov.frames.json" \
     --events "$d/switch.events.json" --out "$d/judge.json" >> "$log" 2>&1
