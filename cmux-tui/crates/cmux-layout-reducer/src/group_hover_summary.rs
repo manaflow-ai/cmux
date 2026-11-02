@@ -470,6 +470,48 @@ mod tests {
         );
     }
 
+    /// Swift's `String` equality is canonical equivalence: a precomposed and a decomposed
+    /// "é" are one branch (and one port), listed as the member first had it.
+    #[test]
+    fn group_summary_canonically_equal_values_count_once() {
+        let ms = vec![
+            Member {
+                title: "a".into(),
+                branch: Some("caf\u{e9}".into()),
+                ports: Some(":\u{e9}".into()),
+                ..Member::default()
+            },
+            Member {
+                title: "b".into(),
+                branch: Some("cafe\u{301}".into()),
+                ports: Some(":e\u{301}".into()),
+                ..Member::default()
+            },
+        ];
+        let card = summarize(&request(ms, &[Section::Git, Section::Ports], 6));
+        assert_eq!(
+            card.blocks[0].lines,
+            vec![Line::Branches { listed: "caf\u{e9}".into(), more: 0 }]
+        );
+        assert_eq!(card.blocks[1].lines, vec![Line::Ports { listed: ":\u{e9}".into(), more: 0 }]);
+    }
+
+    /// Swift splits a port list on the `Character` ",": a comma followed by a combining mark is
+    /// one grapheme cluster, not a comma, so the list is not split there.
+    #[test]
+    fn group_summary_a_comma_with_a_combining_mark_does_not_split_ports() {
+        let ms = vec![Member {
+            title: "a".into(),
+            ports: Some(":1,\u{301}:2, :3".into()),
+            ..Member::default()
+        }];
+        let card = summarize(&request(ms, &[Section::Ports], 6));
+        assert_eq!(
+            card.blocks[0].lines,
+            vec![Line::Ports { listed: ":1,\u{301}:2, :3".into(), more: 0 }]
+        );
+    }
+
     #[test]
     fn group_summary_reads_and_writes_its_json() {
         let json = serde_json::json!({
