@@ -242,14 +242,13 @@ fn closing_a_terminal_with_no_view_runs_no_full_projection() {
             .as_u64()
             .unwrap_or(0)
     };
-    let (projections, reads) =
-        (full(&mux), crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test());
+    let (projections, reads) = (full(&mux), WorkspaceRegistry::full_topology_reads_for_test());
 
     mux.close_terminal(TERMINAL, INCARNATION).unwrap();
 
     assert_eq!(full(&mux), projections, "the close ran a full projection");
     assert_eq!(
-        crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test(),
+        WorkspaceRegistry::full_topology_reads_for_test(),
         reads,
         "the close read the whole topology"
     );
