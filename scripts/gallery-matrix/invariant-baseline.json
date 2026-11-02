@@ -535,6 +535,7 @@
     "agent-pane.composer-look#claude-chat": [],
     "agent-pane.composer-look#claude-chat-dots": [],
     "agent-pane.composer-look#codex-chat": [],
+    "agent-pane.composer-look#codex-chat-alt-in-box-row": [],
     "agent-pane.composer-look#codex-chat-alt-send-after-mic": [],
     "agent-pane.composer-look#codex-chat-dots": [],
     "agent-pane.composer-look#codex-new-chat": [],
