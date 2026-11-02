@@ -391,6 +391,7 @@ private final class SessionInfoWaveView: NSView {
     private var wave: AgentPaneSessionInfoModel.Wave
     private let color: CGColor
     private var motionSubscription: MotionSubscription?
+    private var occlusionObserver: NSObjectProtocol?
 
     init(wave: AgentPaneSessionInfoModel.Wave, color: NSColor) {
         self.wave = wave
@@ -422,7 +423,29 @@ private final class SessionInfoWaveView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let occlusionObserver {
+            NotificationCenter.default.removeObserver(occlusionObserver)
+            self.occlusionObserver = nil
+        }
+        if let window {
+            occlusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateAnimation()
+            }
+        }
         updateAnimation()
+    }
+
+    nonisolated deinit {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            if let occlusionObserver {
+                NotificationCenter.default.removeObserver(occlusionObserver)
+            }
+        }
     }
 
     func update(wave: AgentPaneSessionInfoModel.Wave, color: NSColor) {
