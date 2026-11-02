@@ -442,8 +442,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`; one shown ahead of the surface is taken over); other content (a page,
-        // an agent) is ready once shown.
+        // quit (`TerminalLaunchFrames`, which takes over one shown ahead); other content (a page, an agent) is ready once shown.
         if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost) } else { launchFrames.withdrawAhead(in: view.contentHost) }
         if let content, !content.isTerminal {
             LaunchReveal.shared.markReady(.pane)
@@ -471,12 +470,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         windowController?.revalidatePagePresentation() // a page that had the screen moved away
     }
 
-    /// The terminals' frames from the last quit, kept beside the app's state.
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
-
-    /// The scheduler keeps this pane for a later frame (one new surface per frame): a visible terminal shows its
-    /// frame from the last quit now, with no surface (REOPEN-F1: at a reopen only the first terminal had its last
-    /// content in the window's first frame). Its surface takes the frame over when it comes (`showSelected`).
+    /// A visible terminal waiting for its surface (one per frame) shows its last frame now (REOPEN-F1); `showSelected` hands it over.
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (each visible pane that waits for its surface)
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
         launchFrames.showAhead(key, in: view.contentHost)

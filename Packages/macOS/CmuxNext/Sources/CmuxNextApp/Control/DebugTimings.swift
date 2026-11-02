@@ -131,7 +131,6 @@ enum DebugTimings {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
         for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
-        // Every terminal of the launch's first window frame apart; the launch number is the last of them.
         let terminals = TerminalLaunchFrames.launchReport { millisecondsSinceProcessStart(at: $0) }.flatMap { try? JSONValue.parse($0) }
         return [
             "launch_terminals": terminals?["panes"] ?? .object([:]), "launch_terminals_frame_shown_max_ms": terminals?["max_ms"] ?? .null,
