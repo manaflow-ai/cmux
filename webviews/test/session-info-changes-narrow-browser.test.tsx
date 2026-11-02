@@ -160,6 +160,9 @@ await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async (
                   '.acpmux-session-info-pr__failing, .acpmux-session-info-pr__checks:not([data-checks="failing"])',
                 ),
                 ref: part(".acpmux-session-info-pr__ref"),
+                // An untitled row shows its `repo #N` once, as the title, and not again on the line.
+                untitled: row.querySelector(".acpmux-session-info-pr__title.acpmux-session-info-pr__ref") !== null,
+                refCount: row.querySelectorAll(".acpmux-session-info-pr__ref").length,
                 base: part(".acpmux-session-info-pr__base"),
                 counts: [part(".acpmux-diff-add"), part(".acpmux-diff-del")],
               };
@@ -187,7 +190,10 @@ await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async (
               expect(row.base!.inside).toBe(true);
             }
             // An ordinary `repo #N` stays whole beside the checks annotation (#28774's review).
-            if (name === "ordinary") {
+            expect(row.refCount).toBe(1);
+            if (name === "ordinary" && row.untitled) {
+              expect(row.ref).toBeNull();
+            } else if (name === "ordinary") {
               expect(row.ref).not.toBeNull();
               expect(row.ref!.whole).toBe(true);
               expect(row.ref!.inside).toBe(true);
