@@ -16,8 +16,8 @@ import CmuxNextWakeups
 /// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, resolved
-/// once per launch, is on and its window can be seen). Stop condition: the window's node in
+/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, with the Debug
+/// toggle as its live local override, is on and its window can be seen). Stop condition: the window's node in
 /// the visibility tree going hidden or occluded (the window minimized or fully occluded, cmux
 /// hidden, the displays asleep), or the window closing, unsubscribes it, and the service stops
 /// the monitor and its one 15 s timer when no window is subscribed. Cleanup: leaving the window
