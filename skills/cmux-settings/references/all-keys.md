@@ -118,6 +118,7 @@ Notification behavior from Settings > Notifications.
 | `notifications.agentPermissionPrompt` | boolean | `true` | Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent. |
 | `notifications.agentTurnComplete` | `"whenIdle"` or `"always"` or `"never"` | `"whenIdle"` | When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it. |
 | `notifications.agentIdleReminder` | boolean | `true` | Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert. |
+| `notifications.agentIdleTimers` | object | `{}` | One-shot cache-TTL reminders keyed by agent family. Each entry is an array of `{afterSeconds, id}` objects; timers start in ACP `idle` and cancel on work, input, background work, or session end. |
 | `notifications.soundOverrides` | object | `{}` | Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound. |
 
 ## sidebar

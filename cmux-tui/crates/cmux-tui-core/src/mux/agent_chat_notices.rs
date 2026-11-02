@@ -64,6 +64,177 @@ const MAX_NAME_CHARS: usize = 80;
 /// Longest notification body, in characters.
 const MAX_BODY_CHARS: usize = 200;
 
+/// One configured reminder for an agent family. Timers are opt-in: an absent
+/// or malformed `notifications.agentIdleTimers` object produces no reminders.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CacheTtlSpec {
+    id: String,
+    after: Duration,
+}
+
+#[derive(Clone, Debug)]
+struct CacheTtlTarget {
+    session: String,
+    name: String,
+    kind: String,
+    idle_since: u64,
+    works_below: bool,
+    muted: bool,
+    timers: Vec<CacheTtlSpec>,
+}
+
+impl CacheTtlTarget {
+    fn from_chat(chat: &Chat, timers: HashMap<String, Vec<CacheTtlSpec>>) -> Self {
+        Self {
+            session: chat.session.clone(),
+            name: chat.name.clone(),
+            kind: chat.kind.clone(),
+            idle_since: chat.idle_since.unwrap_or_default(),
+            works_below: chat.works_below,
+            muted: chat.muted,
+            timers: timers.remove(&chat.kind).unwrap_or_default(),
+        }
+    }
+
+    fn eligible(&self) -> bool {
+        !self.works_below && !self.muted && !self.timers.is_empty()
+    }
+}
+
+enum CacheTtlCommand {
+    Observe(CacheTtlTarget),
+    Remove(String),
+}
+
+#[derive(Clone, Debug)]
+struct ScheduledCacheTtl {
+    target: CacheTtlTarget,
+    spec: CacheTtlSpec,
+    due: Instant,
+}
+
+/// A small cancellable queue. `now` is passed in by the caller instead of
+/// being captured, which keeps timer behavior deterministic in unit tests.
+#[derive(Default)]
+struct CacheTtlQueue {
+    entries: HashMap<(String, String), ScheduledCacheTtl>,
+    epochs: HashMap<String, (u64, Vec<CacheTtlSpec>)>,
+}
+
+impl CacheTtlQueue {
+    fn observe(&mut self, target: CacheTtlTarget, now: Instant) {
+        let session = target.session.clone();
+        let signature = (target.idle_since, target.timers.clone());
+        if self.epochs.get(&session) == Some(&signature) {
+            return;
+        }
+        self.remove(&session);
+        self.epochs.insert(session.clone(), signature);
+        if !target.eligible() {
+            return;
+        }
+        for spec in &target.timers {
+            self.entries.insert(
+                (session.clone(), spec.id.clone()),
+                ScheduledCacheTtl {
+                    target: target.clone(),
+                    spec: spec.clone(),
+                    due: now + spec.after,
+                },
+            );
+        }
+    }
+
+    fn remove(&mut self, session: &str) {
+        self.epochs.remove(session);
+        self.entries.retain(|(key, _), _| key != session);
+    }
+
+    fn next_due(&self) -> Option<Instant> {
+        self.entries.values().map(|entry| entry.due).min()
+    }
+
+    fn take_due(&mut self, now: Instant) -> Vec<ScheduledCacheTtl> {
+        let due = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.due <= now)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        due.into_iter().filter_map(|key| self.entries.remove(&key)).collect()
+    }
+}
+
+fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand>) {
+    let mut queue = CacheTtlQueue::default();
+    loop {
+        let timeout = queue.next_due().map(|due| due.saturating_duration_since(Instant::now()));
+        let command = match timeout {
+            Some(timeout) => receiver.recv_timeout(timeout),
+            None => receiver.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        };
+        match command {
+            Ok(CacheTtlCommand::Observe(target)) => queue.observe(target, Instant::now()),
+            Ok(CacheTtlCommand::Remove(session)) => queue.remove(&session),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let Some(live) = mux.upgrade() else { return };
+                for entry in queue.take_due(Instant::now()) {
+                    let notice = Notice {
+                        key: format!("cache-ttl-{}-{}", entry.spec.id, entry.target.idle_since),
+                        title: format!("{} cache ready", entry.target.name),
+                        subtitle: Some(format!(
+                            "cache-ttl:{} · agent:{}",
+                            entry.spec.id, entry.target.kind
+                        )),
+                        body: format!(
+                            "{} has been idle for a cache TTL; send a short prompt to keep its prompt cache warm.",
+                            entry.target.kind
+                        ),
+                        level: NotificationLevel::Info,
+                        restated: false,
+                    };
+                    live.post_agent_chat_notice(&entry.target.session, &notice);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
+fn parse_cache_ttl_timers(root: &Value) -> HashMap<String, Vec<CacheTtlSpec>> {
+    let Some(families) = root.pointer("/notifications/agentIdleTimers").and_then(Value::as_object)
+    else {
+        return HashMap::new();
+    };
+    let mut parsed = HashMap::new();
+    for (kind, values) in families {
+        let Some(values) = values.as_array() else { continue };
+        let mut specs = Vec::new();
+        for value in values {
+            let Some(object) = value.as_object() else { continue };
+            let Some(id) = object.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            let Some(seconds) = object
+                .get("afterSeconds")
+                .and_then(Value::as_u64)
+                .filter(|seconds| (1..=7 * 24 * 60 * 60).contains(seconds))
+            else {
+                continue;
+            };
+            if specs.iter().any(|spec: &CacheTtlSpec| spec.id == id) {
+                continue;
+            }
+            specs.push(CacheTtlSpec { id: id.to_owned(), after: Duration::from_secs(seconds) });
+        }
+        if !specs.is_empty() {
+            parsed.insert(kind.to_ascii_lowercase(), specs);
+        }
+    }
+    parsed
+}
+
 impl Mux {
     /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
     /// chats that posts their notifications for as long as the daemon runs,
@@ -73,6 +244,7 @@ impl Mux {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
+        self.start_cache_ttl_scheduler();
         let mux = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("mux-agent-chat-notices".into())
@@ -127,7 +299,7 @@ impl Mux {
                 &Actor::Daemon,
                 &key,
                 notice.title.clone(),
-                None,
+                notice.subtitle.clone(),
                 notice.body.clone(),
                 notice.level,
                 Some(surface),
@@ -137,6 +309,46 @@ impl Mux {
                 self.report_internal_diagnostic("agent chat notification not posted");
             }
         }
+    }
+
+    fn start_cache_ttl_scheduler(self: &Arc<Self>) {
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut wakes = self.agent_chat_notices.lock();
+            if wakes.stopped {
+                return;
+            }
+            wakes.timers = Some(sender);
+        }
+        let mux = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("mux-agent-cache-ttl".into())
+            .spawn(move || cache_ttl_scheduler(&mux, receiver));
+        if spawned.is_err() {
+            self.agent_chat_notices.lock().timers = None;
+            self.report_internal_diagnostic("agent cache TTL scheduler not started");
+        }
+    }
+
+    fn update_cache_ttl_timer(self: &Arc<Self>, chat: &Chat) {
+        let command = if chat.idle_since.is_some() {
+            CacheTtlCommand::Observe(CacheTtlTarget::from_chat(chat, self.cache_ttl_timers()))
+        } else {
+            CacheTtlCommand::Remove(chat.session.clone())
+        };
+        if let Some(sender) = &self.agent_chat_notices.lock().timers {
+            let _ = sender.send(command);
+        }
+    }
+
+    fn remove_cache_ttl_timer(&self, session: &str) {
+        if let Some(sender) = &self.agent_chat_notices.lock().timers {
+            let _ = sender.send(CacheTtlCommand::Remove(session.to_owned()));
+        }
+    }
+
+    fn cache_ttl_timers(self: &Arc<Self>) -> HashMap<String, Vec<CacheTtlSpec>> {
+        self.with_settings(|state| parse_cache_ttl_timers(&state.effective().root))
     }
 
     fn read_agent_chat_notices(&self, session: &str) {
@@ -162,6 +374,7 @@ pub(super) struct AgentChatNoticesWake(Mutex<NoticesWakes>);
 pub(super) struct NoticesWakes {
     hint: Option<mpsc::Sender<()>>,
     connection: Option<UnixStream>,
+    timers: Option<mpsc::Sender<CacheTtlCommand>>,
     stopped: bool,
 }
 
@@ -169,6 +382,7 @@ impl NoticesWakes {
     fn stop(&mut self) {
         self.stopped = true;
         self.hint = None;
+        self.timers = None;
         if let Some(connection) = self.connection.take() {
             // Shuts the socket, not this one descriptor: the thread's own
             // read returns at once.
@@ -533,7 +747,7 @@ fn read_watch(
 }
 
 /// A new ask of a chat the watch follows: it comes right after the change that recorded it.
-fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
+fn asked(mux: &Arc<Mux>, ask: &Value, chats: &mut HashMap<String, Chat>) {
     // A peer's session is not this machine's chat.
     if !ask["peer"].is_null() {
         return;
@@ -548,7 +762,7 @@ fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
     }
 }
 
-fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
+fn changed(mux: &Arc<Mux>, params: &Value, chats: &mut HashMap<String, Chat>) {
     // A peer's session is not this machine's chat.
     if !params["peer"].is_null() {
         return;
@@ -559,6 +773,7 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
     }
     if params["kind"] == "purged" {
         chats.remove(session);
+        mux.remove_cache_ttl_timer(session);
         return;
     }
     let Some(next) = Chat::of(&params["session"]) else { return };
@@ -574,7 +789,7 @@ fn closes_chat(params: &Value) -> bool {
 }
 
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
-fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
+fn apply(mux: &Arc<Mux>, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
     next.keep_asks(before);
     let waited = before.is_some_and(|chat| chat.indicator == "input");
@@ -588,6 +803,7 @@ fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<S
     for notice in notices.iter().filter(|_| !next.muted) {
         mux.post_agent_chat_notice(&next.session, notice);
     }
+    mux.update_cache_ttl_timer(&next);
     chats.insert(next.session.clone(), next);
 }
 
@@ -596,7 +812,9 @@ fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<S
 struct Chat {
     session: String,
     name: String,
+    kind: String,
     indicator: String,
+    idle_since: Option<u64>,
     unread: bool,
     /// A pane shows the chat now.
     shown: bool,
@@ -619,6 +837,7 @@ struct Notice {
     /// Unique per chat; the notification's idempotency key.
     key: String,
     title: String,
+    subtitle: Option<String>,
     body: String,
     level: NotificationLevel,
     /// Seen first since a daemon start: it may restate one posted before.
@@ -636,6 +855,12 @@ impl Chat {
         let name =
             text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
         let name = short(name, MAX_NAME_CHARS);
+        let kind =
+            text("family").or_else(|| text("harness")).unwrap_or("agent").to_ascii_lowercase();
+        let idle_since = summary["lane"]
+            .as_object()
+            .filter(|lane| lane.get("state").and_then(Value::as_str) == Some("idle"))
+            .and_then(|lane| lane.get("since").and_then(Value::as_u64));
         let last_turn = summary["lastTurn"].as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
@@ -645,7 +870,9 @@ impl Chat {
         Some(Self {
             session,
             name,
+            kind,
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
+            idle_since,
             unread: summary["unread"].as_bool() == Some(true),
             shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
@@ -684,6 +911,7 @@ impl Chat {
         Some(Notice {
             key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
             title: format!("{} needs input", self.name),
+            subtitle: None,
             body: short(&self.last_message, MAX_BODY_CHARS),
             level: NotificationLevel::Warning,
             restated: false,
@@ -718,6 +946,7 @@ impl Chat {
                 "completed" => notices.push(Notice {
                     key: format!("done-{turn}"),
                     title: format!("{name} finished"),
+                    subtitle: None,
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Info,
                     restated: false,
@@ -725,6 +954,7 @@ impl Chat {
                 "failed" => notices.push(Notice {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
+                    subtitle: None,
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Error,
                     restated: false,
@@ -738,6 +968,7 @@ impl Chat {
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
                 title: format!("{name} needs input"),
+                subtitle: None,
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Warning,
                 restated: before.is_none(),
@@ -747,6 +978,7 @@ impl Chat {
             notices.push(Notice {
                 key: format!("lost-{}", self.last_seq),
                 title: format!("{name} stopped responding"),
+                subtitle: None,
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Error,
                 restated: false,
@@ -1142,5 +1374,52 @@ mod tests {
         let answered = after(&waiting, "working", 12);
         let mut again = after(&answered, "input", 14);
         assert_eq!(key(again.asked(&ask("p3", None, 14))), None);
+    }
+
+    #[test]
+    fn cache_ttl_settings_parse_per_family_and_ignore_bad_entries() {
+        let settings = json!({
+            "notifications": {"agentIdleTimers": {
+                "Claude": [
+                    {"afterSeconds": 3420, "id": "cache-ttl"},
+                    {"afterSeconds": 0, "id": "bad"},
+                    {"afterSeconds": 10, "id": "cache-ttl"}
+                ],
+                "codex": [{"afterSeconds": 1680, "id": "cache-ttl"}],
+                "broken": "not-an-array"
+            }}
+        });
+        let parsed = parse_cache_ttl_timers(&settings);
+        assert_eq!(parsed["claude"][0].after, Duration::from_secs(3420));
+        assert_eq!(parsed["claude"].len(), 1);
+        assert_eq!(parsed["codex"][0].id, "cache-ttl");
+        assert!(!parsed.contains_key("broken"));
+    }
+
+    #[test]
+    fn cache_ttl_queue_cancels_on_state_change_and_fires_once() {
+        let now = Instant::now();
+        let spec = CacheTtlSpec { id: "cache-ttl".into(), after: Duration::from_secs(60) };
+        let mut queue = CacheTtlQueue::default();
+        let target = CacheTtlTarget {
+            session: "chat-1".into(),
+            name: "Claude".into(),
+            kind: "claude".into(),
+            idle_since: 100,
+            works_below: false,
+            muted: false,
+            timers: vec![spec.clone()],
+        };
+        queue.observe(target.clone(), now);
+        assert!(queue.take_due(now + Duration::from_secs(59)).is_empty());
+        assert_eq!(queue.take_due(now + Duration::from_secs(60)).len(), 1);
+        assert!(queue.take_due(now + Duration::from_secs(61)).is_empty());
+
+        queue.observe(target.clone(), now);
+        let mut working = target;
+        working.idle_since = 200;
+        working.works_below = true;
+        queue.observe(working, now + Duration::from_secs(1));
+        assert!(queue.take_due(now + Duration::from_secs(120)).is_empty());
     }
 }
