@@ -425,8 +425,13 @@ test("an earlier background owner update invalidates every later reused turn", (
 // line must still draw the later turn that holds the late done line again, and a streamed row in
 // the last turn must keep it hidden while the line stays closed.
 test("a late subagent done line follows its line's toggles across reused turn views", () => {
-  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow =>
-    ({ id, at, kind, version: 1, ...fields });
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
   const owner = "backgroundTurn-bg-reuse";
   const rows: AcpmuxRow[] = [
     row("prompt-1", 1, "user", { text: "Watch CI" }),
@@ -437,10 +442,18 @@ test("a late subagent done line follows its line's toggles across reused turn vi
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-reuse",
-      subagents: [{
-        id: "child-reuse", parent: null, name: "CI observer", kind: "general-purpose",
-        state: "completed", startedAt: 5, endedAt: 11, background: true,
-      }],
+      subagents: [
+        {
+          id: "child-reuse",
+          parent: null,
+          name: "CI observer",
+          kind: "general-purpose",
+          state: "completed",
+          startedAt: 5,
+          endedAt: 11,
+          background: true,
+        },
+      ],
     }),
     row("prompt-2", 7, "user", { text: "Show me the status" }),
     row("answer-2", 8, "assistant", { text: "Still working." }),
@@ -482,8 +495,13 @@ test("a late subagent done line follows its line's toggles across reused turn vi
 // A reused turn's rows were filtered by the folds of the view they came from. When a changed row
 // after them changes which background turns fold, the reused turns draw again.
 test("a fold change after the reused turns draws the turns before it again", () => {
-  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow =>
-    ({ id, at, kind, version: 1, ...fields });
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
   const line = (quiet: boolean) =>
     row("backgroundTurn-bg-late", 12, BACKGROUND_TURN, {
       background: { id: "bg-late", trigger: "scheduled", running: false, quiet },
