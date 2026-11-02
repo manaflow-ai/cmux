@@ -197,6 +197,11 @@ public final class CreationInputBuffer {
     /// Nil when the hold has none, or its reply has not come (``hasPendingCreation`` holds the keys then).
     public var awaitedWorkspace: String? { workspaceTickets.max().flatMap { madeWorkspaces[$0] } }
 
+    /// The workspace the hold's keys wait to see shown: ``awaitedWorkspace`` unless the person left it (``personMovedOn()``).
+    /// A left workspace that replied and never shows keeps no other key waiting for the hold's limit (review of #32148): the
+    /// keys typed for it before the person left go with it when the hold ends (run there if it shows by then, else dropped).
+    public var shownWorkspaceToWaitFor: String? { workspaceTickets.subtracting(movedOnFrom).max().flatMap { madeWorkspaces[$0] } }
+
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
 

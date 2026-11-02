@@ -376,7 +376,7 @@ final class CreationInputCoordinator {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
             // A new workspace's keys wait for the window to show it and for its terminal to have the keyboard.
-            if let workspace = buffer.awaitedWorkspace, workspace != shown || Self.keyboardTerminal(controller, window) == nil { return }
+            if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || Self.keyboardTerminal(controller, window) == nil { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
             // Its focused terminal's surface is still to come (the presentation shows it on a later frame).
             if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return }
