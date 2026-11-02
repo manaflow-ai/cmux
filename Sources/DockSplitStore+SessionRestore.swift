@@ -165,7 +165,7 @@ extension DockSplitStore {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]? = nil
     ) -> UUID? {
-        guard acceptsRestoredDisplay(snapshot) else { return nil }
+        guard acceptsRestoredDisplay(snapshot), snapshot.type != .chief || ChiefSettings.isEnabled else { return nil }
         if (!deferBrowserPanel || snapshot.type != .browser),
            let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),

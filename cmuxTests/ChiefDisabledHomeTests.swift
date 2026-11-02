@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxHomeCore
 import CmuxSettings
 import Foundation
@@ -165,6 +166,57 @@ struct ChiefDisabledHomeTests {
         ChiefHomeNavigation.removeHome(in: manager)
         #expect(dock.panels[chiefTab] == nil)
         #expect(manager.tabs.contains { $0.id == workspace.id })
+    }
+
+    @Test func unpinningTheHomeGroupOverTheControlSeamIsProtectedWhileChiefIsOn() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let groupID = try #require(home.groupId)
+        let previous = TerminalController.shared.tabManager
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previous) }
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: nil
+        )
+
+        let result = TerminalController.shared.controlSetWorkspaceGroupPinned(
+            routing: routing,
+            groupID: groupID,
+            isPinned: false
+        )
+
+        guard case .protected = result else {
+            Issue.record("expected .protected, got \(result)")
+            return
+        }
+        #expect(manager.workspaceGroups.first { $0.id == groupID }?.isPinned == true)
+    }
+
+    @Test func removeHomeClosesAChiefOnlyWorkspaceWithAChiefDockTab() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let workspace = try #require(manager.addWorkspaceIfActive(select: false))
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(workspace.newChiefSurface(inPane: pane, focus: false))
+        for panel in workspace.panels.values where !(panel is ChiefPanel) {
+            _ = workspace.closePanel(panel.id, force: true)
+        }
+        let dock = try #require(workspace.dockSplit)
+        dock.ensureLoaded()
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        _ = try #require(dock.newSurface(kind: .chief, inPane: dockPane, focus: false))
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(!manager.tabs.contains { $0.id == workspace.id })
     }
 
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
