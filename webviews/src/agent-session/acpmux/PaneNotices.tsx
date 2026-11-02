@@ -1,11 +1,11 @@
-import { type PaneNotice, usePaneNotices } from "./paneNotices";
+import { type PaneNotice, usePaneNotices } from "./paneNoticeStore";
 import { Notice } from "./NoticeSlot";
 
-/// One app notice as a card above the composer (paneNotices.ts): the title, the detail under it,
-/// and the app's button, off while its action runs.
+/// One app notice as a card above the composer (paneNoticeStore.ts): the title, the detail under it,
+/// and the app's button, off while its action runs. It takes the harness notice's neutral card.
 export function PaneNoticeCard({ notice, onAction }: { notice: PaneNotice; onAction(id: string): void }) {
   return (
-    <div className="acpmux-host-error acpmux-pane-notice" role="status" data-notice={notice.id}>
+    <output className="acpmux-host-error acpmux-harness-notice" data-pane-notice={notice.id}>
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{notice.title}</p>
         {notice.detail && <p className="acpmux-host-error-hint">{notice.detail}</p>}
@@ -17,7 +17,7 @@ export function PaneNoticeCard({ notice, onAction }: { notice: PaneNotice; onAct
           </div>
         )}
       </div>
-    </div>
+    </output>
   );
 }
 
