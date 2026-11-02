@@ -31,7 +31,11 @@ VENV_PY = "/work/tmp/video-extra/venv/bin/python"
 
 
 def journey_row(run, case):
-    for line in (run / "results.jsonl").read_text().splitlines():
+    try:
+        text = (run / "results.jsonl").read_text()
+    except OSError:
+        return None  # run.py wrote no result: not run
+    for line in text.splitlines():
         try:
             row = json.loads(line)
         except ValueError:

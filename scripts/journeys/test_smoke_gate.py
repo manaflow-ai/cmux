@@ -28,14 +28,18 @@ R3 = [st["title"] for st in json.load(open(os.environ["SMOKE_JOURNEY"]))["steps"
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
 journey = args[args.index("--journey") + 1]
-if journey != "smoke-dogfood":  # a golden video case (VIDEO EXTRA item 9): SMOKE_GOLDEN_PLAN {case: pass|fail|smoke-env}
+if journey != "smoke-dogfood":  # a golden video case (VIDEO EXTRA item 9): SMOKE_GOLDEN_PLAN {case: pass|fail|smoke-env|crash|other-build}
     status = json.loads(os.environ.get("SMOKE_GOLDEN_PLAN", "{}")).get(journey, "pass")
+    open(os.path.join(os.path.dirname(out), "golden-calls.txt"), "a").write(journey + "\n")
+    if status == "crash":  # run.py died before it wrote results (an unknown journey, a traceback)
+        print("Traceback: boom", file=sys.stderr)
+        sys.exit(2)
     os.makedirs(os.path.join(out, journey), exist_ok=True)
     env_rec = {"do": "env_windows", "result": {"smoke_env": status == "smoke-env", "windows": []}}
     json.dump({"steps": [env_rec, env_rec]}, open(os.path.join(out, journey, "result.json"), "w"))
     row = {"id": journey, "status": "fail" if status == "fail" else "pass", "host": "cmux99",
            "reason": "step 9 (expect): Cmd-1 showed window 1's Home in window 2" if status == "fail" else "",
-           "build_job": os.environ.get("SMOKE_BUILD", "job123"),
+           "build_job": "otherjob" if status == "other-build" else os.environ.get("SMOKE_BUILD", "job123"),
            "harness": {"commit": "abc123", "dirty": [], "detached": True,
                        "pinned": os.environ.get("SMOKE_GOLDEN_PINNED", "yes") == "yes"}}
     open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
@@ -844,6 +848,47 @@ class GoldenRun(unittest.TestCase):
             self.assertEqual(argv[argv.index("--hosts") + 1], "cmux98")
             self.assertIn("--whole-host", argv)
             self.assertNotIn("status", json.load(open(os.path.join(rounds_dir, "g.done"))))  # the GO was used
+
+    def test_a_crash_another_build_or_a_twice_listed_case_is_not_run_and_gives_its_go_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\nupdate-restart-nf\nmwv-x-nf\n")
+            rounds_dir = os.path.join(tmp, "rounds")
+            os.makedirs(rounds_dir)
+            stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
+            json.dump({"host": "cmux98", "go": stamp(time.time() - 5), "until": stamp(time.time() + 300)},
+                      open(os.path.join(rounds_dir, "g.go"), "w"))
+            ci = os.path.join(tmp, "fake-ci")
+            open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+            os.chmod(ci, 0o755)
+            plan = {"update-restart-nf": "crash", "mwv-x-nf": "other-build"}
+            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux98", "--go-spec", "g", "--goldens", "only",
+                                                           "--go-wait-hours", "0.0003"),
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
+                                            "SMOKE_GOLDEN_PLAN": json.dumps(plan)})
+            run = summary["video_goldens"]["run"]
+            self.assertEqual([r["case"] for r in run], ["update-restart-nf", "mwv-x-nf"])  # listed twice: run once
+            self.assertEqual(run[0]["status"], "not run")
+            self.assertIn("wrote no result", run[0]["reason"])
+            self.assertEqual(json.load(open(os.path.join(rounds_dir, "g.done")))["status"], "not run")
+            self.assertEqual(run[1]["status"], "not run")  # the one GO was used; the second case got none
+            self.assertEqual(code, 75)  # nothing FAILED: no case blocks as a fail
+            self.assertEqual(self.ledger(tmp), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("mwv-x-nf\n")
+            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
+                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps({"mwv-x-nf": "other-build"})})
+            self.assertEqual(summary["video_goldens"]["run"][0]["status"], "not run")
+            self.assertIn("for build 'otherjob'", summary["video_goldens"]["run"][0]["reason"])
+            self.assertEqual(self.ledger(tmp), [])
+            self.assertFalse(os.path.exists(os.path.join(tmp, "golden-ledger", "otherjob.jsonl")))
+
+    def test_without_a_whole_host_or_go_spec_no_case_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
+            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--goldens", "only"))
+            self.assertEqual(code, 75)
+            self.assertIn("no whole host", summary["video_goldens"]["run"][0]["reason"])
+            self.assertFalse(os.path.exists(os.path.join(tmp, "out", "golden-calls.txt")))
 
 
 class OpenP0(unittest.TestCase):

@@ -508,10 +508,15 @@ def golden_cases(opts, out, listing, env_base):
     exclusive WHOLE-host lease (the routing and multi-window cases type and click with real HID keys through CuaDriver:
     the window server must give them the frontmost window), no memory hog (the goldens were judged idle). Then
     video_golden.py judges the run and writes the row (none for SMOKE ENV: a host dialog was open, or no record of
-    the host). Returns one record per case: case, status (pass, fail, not run), reason, host, out."""
-    records = []
+    the host). Returns one record per case: case, status (pass, fail, not run), reason, host, out.
+    Only the judge's own verdict row is a pass or a fail: a run.py or judge crash, a result of another build, or a
+    gate tree that changed after the start is "not run" and writes no row (review FIX at 9268dad7960)."""
+    records, seen = [], set()
     for fields in listing[1]:
         case = fields[0]
+        if case in seen:  # a case listed twice runs once (a second run in the same folder is never a result)
+            continue
+        seen.add(case)
         golden = next((f for f in fields[1:] if f.startswith("/")), None)  # the golden's folder, when the line names one
         case_out = out / f"golden-{case}"
         go = None
@@ -523,7 +528,13 @@ def golden_cases(opts, out, listing, env_base):
                 print(f"golden {case}: not run ({why})", flush=True)
                 continue
             opts.go_used.add(go["go"])
-        host = (go["host"] if go else None) or opts.whole_host or idle_first(opts.hosts).split()[0]
+        host = (go["host"] if go else None) or opts.whole_host
+        if not host:
+            records.append({"case": case, "status": "not run", "host": None, "out": str(case_out),
+                            "reason": "no whole host: a golden case needs --whole-host HOST or --go-spec NAME "
+                                      "(real HID keys need CuaDriver's console grant on the leased mini)"})
+            print(f"golden {case}: not run (no --whole-host or --go-spec)", flush=True)
+            continue
         env = {**env_base, "CAPTURE_HOST_HOSTS": host, "CAPTURE_HOST_SLOT_HOSTS": host}
         if go:
             env.update(window_env(go["until"]))
@@ -533,24 +544,38 @@ def golden_cases(opts, out, listing, env_base):
         case_out.mkdir(parents=True, exist_ok=True)
         (case_out / "run.log").write_text(done.stdout + done.stderr)
         leases = sorted(set(re.findall(r"\bleased (\S+)", done.stdout + done.stderr)))
-        judged = subprocess.run([sys.executable, opts.golden_judge, "--case", case, "--run", str(case_out),
-                                 "--ledger", str(GOLDEN_LEDGER), *(["--golden", golden] if golden else [])],
-                                capture_output=True, text=True)
-        (case_out / "golden-judge.log").write_text(judged.stdout + judged.stderr)
-        said = (judged.stdout.strip().splitlines() or [judged.stderr.strip()[-300:]])[-1]
-        status = {0: "pass", 1: "fail"}.get(judged.returncode, "not run")
-        reason = ""
-        if status == "fail":
-            try:
-                reason = json.loads(said).get("reason") or ""
-            except (ValueError, AttributeError):
-                reason = said
-        elif status == "not run":
-            reason = said if judged.returncode == 75 else f"video_golden.py exit {judged.returncode}: {said}"
         try:
             row = json.loads((case_out / "results.jsonl").read_text().splitlines()[0])
         except (OSError, ValueError, IndexError):
             row = {}
+        status, reason = "not run", ""
+        # A tree that changed after the start is not the kit run.py packed (a dirty tree at the start is already in
+        # the harness record, which makes the row's kit_dirty true).
+        gate_moved = (git("status", "--porcelain", "--", *GATE_PATHS).stdout != opts.gate_status
+                      or git("rev-parse", "HEAD").stdout.strip() != opts.gate_sha)
+        if not row:
+            reason = f"run.py (exit {done.returncode}) wrote no result: {(done.stdout + done.stderr).strip()[-300:]}"
+        elif row.get("build_job") != opts.build:
+            reason = f"results.jsonl is for build {row.get('build_job')!r}, not {opts.build}"
+        elif gate_moved:
+            reason = "the gate's tree changed after the gate started (files or HEAD): no ledger row"
+        else:
+            judged = subprocess.run([sys.executable, opts.golden_judge, "--case", case, "--run", str(case_out),
+                                     "--ledger", str(GOLDEN_LEDGER), *(["--golden", golden] if golden else [])],
+                                    capture_output=True, text=True)
+            (case_out / "golden-judge.log").write_text(judged.stdout + judged.stderr)
+            said = (judged.stdout.strip().splitlines() or [judged.stderr.strip()[-300:]])[-1]
+            try:
+                verdict = json.loads(said)
+            except ValueError:
+                verdict = None
+            if isinstance(verdict, dict) and verdict.get("case") == case and verdict.get("status") in ("pass", "fail") \
+                    and judged.returncode == {"pass": 0, "fail": 1}[verdict["status"]]:
+                status, reason = verdict["status"], str(verdict.get("reason") or "")
+            elif judged.returncode == 75:
+                reason = said
+            else:
+                reason = f"video_golden.py error (exit {judged.returncode}): {judged.stderr.strip()[-300:] or said}"
         records.append({"case": case, "status": status, "reason": reason, "host": row.get("host") or host,
                         "out": str(case_out), "leases": leases, "run_exit": done.returncode})
         if go:
@@ -641,6 +666,7 @@ def main(argv=None):
     gate_run = (opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB and not opts.diagnostic
                 and len(real_rounds) >= GATE_REAL_KEY_ROUNDS)
     gate_sha = git("rev-parse", "HEAD").stdout.strip()
+    opts.gate_sha, opts.gate_status = gate_sha, git("status", "--porcelain", "--", *GATE_PATHS).stdout
     dirty = bool(git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip())
 
     rounds = []
