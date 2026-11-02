@@ -3,7 +3,7 @@ import { resolveHarnessPlacement } from "./harnessPlacement";
 
 test("fresh installs keep top symbols; old Debug choices remain until explicitly changed", () => {
   expect(resolveHarnessPlacement(undefined, undefined)).toBe("symbols");
-  for (const choice of ["symbols", "left", "top", "compact"]) {
+  for (const choice of ["symbols", "left", "top", "compact"] as const) {
     expect(resolveHarnessPlacement(null, choice)).toBe(choice);
     expect(resolveHarnessPlacement(choice, "compact")).toBe(choice);
   }

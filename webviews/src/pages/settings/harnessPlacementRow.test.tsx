@@ -4,7 +4,7 @@ import { HARNESS_PLACEMENT_KEY as key } from "../../ui/harnessPlacement";
 
 const restore = installDom();
 afterAll(restore);
-const { renderPage, settle, row, changeValue } = await import("./testing");
+const { renderPage, settle, rowElement, changeValue } = await import("./testing");
 
 test("ordinary Settings shows all four placements and an explicit top-symbols choice survives reload", async () => {
   const page = await renderPage({
@@ -13,7 +13,7 @@ test("ordinary Settings shows all four placements and an explicit top-symbols ch
   });
   try {
     await settle();
-    const select = () => row(page.container, key).querySelector<HTMLSelectElement>("select")!;
+    const select = () => rowElement(page.container, key).querySelector<HTMLSelectElement>("select")!;
     expect(select().value).toBe("left");
     expect([...select().options].map((option) => option.value)).toEqual(["symbols", "left", "top", "compact"]);
     await changeValue(select(), "symbols");
