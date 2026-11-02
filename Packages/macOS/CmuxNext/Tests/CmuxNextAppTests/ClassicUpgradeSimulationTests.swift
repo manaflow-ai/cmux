@@ -126,7 +126,11 @@ struct ClassicUpgradeSimulationTests {
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
+        // Open (#28425): on a loaded runner the first window's rows came out in exactly reversed order
+        // (run 41442453215), as if each `.bottom` slot placement was dropped and the daemon's after-current
+        // default stood. Lost, extra, grouped and pinned workspaces are still checked.
+        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"),
+                       orderKnownIssue: "multiWindow order flakes on a loaded runner, https://github.com/manaflow-ai/cmux/issues/28425")
         await sim.shutdown()
     }
 
@@ -155,7 +159,7 @@ struct ClassicUpgradeSimulationTests {
         #expect(resume.decision == .resume && resume.opened.count == 3, "\(resume)")
         await sim.settle()
         // Open: the remade workspaces come back at the end of their container, not at their classic place.
-        try sim.verify(profile, classicBefore: before, orderIsKnownIssue: true)
+        try sim.verify(profile, classicBefore: before, orderKnownIssue: "a resumed run makes its workspaces last in the sidebar")
         await sim.shutdown()
     }
 

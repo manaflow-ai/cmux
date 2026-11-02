@@ -356,9 +356,9 @@ final class ClassicUpgradeSimulator {
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
     ///   - excusing: classic keys whose workspace is allowed not to have opened (a declared known limit).
-    ///   - orderIsKnownIssue: classic's order is a declared known issue (a resumed run makes its workspaces last).
+    ///   - orderKnownIssue: why classic's order is a declared, intermittent known issue for this run (nil: it is checked).
     func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
-                excusing: Set<String> = [], orderIsKnownIssue: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) throws {
+                excusing: Set<String> = [], orderKnownIssue: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) throws {
         let label = profile.name
         // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
         let file = source ?? mac.session()
@@ -420,8 +420,8 @@ final class ClassicUpgradeSimulator {
                     #expect(shown == classic, "\(label): order differs: \(shown.compactMap { made[$0]?.name.prefix(20) }) for \(classic.compactMap { made[$0]?.name.prefix(20) })",
                             sourceLocation: sourceLocation)
                 }
-                if orderIsKnownIssue {
-                    withKnownIssue("a resumed run makes its workspaces last in the sidebar", isIntermittent: true, sourceLocation: sourceLocation, check)
+                if let orderKnownIssue {
+                    withKnownIssue(orderKnownIssue, isIntermittent: true, sourceLocation: sourceLocation, check)
                 } else {
                     check()
                 }

@@ -81,10 +81,15 @@ import Testing
     /// Every layer between the transcript frame and my rows has the transcript's width,
     /// and every row of mine was laid out for it and ends inside it. Inside the zoomed
     /// MessagesLabHomeView that width is in its own points: the frame over the chat's zoom.
+    /// AppKit keeps that as a scale, so the bounds it reads back can differ from
+    /// `width / zoom` in the last bit (773.3333333333333 vs 773.3333333333334 at 1.5):
+    /// the bounds must match the formula to well under a pixel, and every layer below
+    /// must match the bounds exactly, so no row is laid out wider than the clip.
     static func check(_ rig: Rig, width: CGFloat, _ step: String) {
         let lab = rig.view.transcript
-        let inner = width / lab.zoom
+        let inner = lab.bounds.width
         #expect(lab.frame.width == width, "\(step): MessagesLabHomeView \(lab.frame.width) pt in a \(width) pt transcript")
+        #expect(abs(inner - width / lab.zoom) < 0.001, "\(step): bounds \(inner) pt for \(width) pt at zoom \(lab.zoom)")
         #expect(lab.controller.host.frame.width == inner, "\(step): host \(lab.controller.host.frame.width) pt in \(inner) pt")
         guard let demo = lab.controller.demo else {
             Issue.record("\(step): no transcript")

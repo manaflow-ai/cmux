@@ -27,7 +27,7 @@
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
 // CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
 // (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
-// (sessionInfoState.ts). Debug Settings `agent.inspector` (on by default)
+// (sessionInfoState.ts). Debug Settings `agent.sessionInfo` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -206,7 +206,7 @@ export function chatContentOverflow(shell: HTMLElement, paneWidth: number, colum
   return Math.max(0, Math.floor(reach - end + 0.5));
 }
 
-/// Whether Session Info shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
+/// Whether Session Info shows: on (Debug Settings `agent.sessionInfo`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
 export const sessionInfoShown = ({
@@ -317,7 +317,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
 const REVEAL_LIT_MS = 1200;
 
 /// The header's toggle and Session Info for the chat's pane. `on` is Debug Settings
-/// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
+/// `agent.sessionInfo`: off, there is neither, and the App shows its summary card instead.
 export function useSessionInfo({
   snapshot,
   machineName,
