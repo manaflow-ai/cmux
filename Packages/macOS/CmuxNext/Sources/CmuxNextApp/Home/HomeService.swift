@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
@@ -37,6 +38,8 @@ final class HomeService {
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
+    /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
+    @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.
@@ -111,6 +114,8 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
+    @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
@@ -238,6 +243,7 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeFeedRows()
         // The active team behind the list's teammate rows and New Message's To:, read again once
         // the launch restore signs in, on another account, on another active team, and when the
         // account's teams change.

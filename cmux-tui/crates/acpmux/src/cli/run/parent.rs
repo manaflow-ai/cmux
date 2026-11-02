@@ -14,8 +14,9 @@ use std::sync::Arc;
 /// Flags a sub-session start takes no part of, and why.
 fn refused_flags(args: &NewArgs) -> Option<String> {
     let flags = [
-        (args.host.is_some(), "--host", "a family lives on one daemon"),
+        (args.host.is_some(), "--machine", "a family lives on one daemon"),
         (args.preset.is_some(), "--preset", "the child takes -m and -e"),
+        (args.harness_from.is_some(), "--harness-from", "the child takes -m and -e"),
         (args.policy.is_some(), "--policy", "the child runs its parent's policy"),
         (args.mode.is_some(), "--mode", "the child starts in the mode its parent's allows"),
         (args.ephemeral, "--ephemeral", "the child stays under its parent's chat"),
@@ -211,7 +212,10 @@ mod tests {
     #[test]
     fn flags_a_child_start_takes_no_part_of_are_refused() {
         let why = refused_flags(&new_args(&["--parent", "lead", "--host", "box", "go"]));
-        assert_eq!(why.as_deref(), Some("--parent takes no --host: a family lives on one daemon"));
+        assert_eq!(
+            why.as_deref(),
+            Some("--parent takes no --machine: a family lives on one daemon")
+        );
         assert!(refused_flags(&new_args(&["--parent", "lead", "--policy", "ask"])).is_some());
         assert!(refused_flags(&new_args(&["--parent", "lead", "--ephemeral"])).is_some());
     }

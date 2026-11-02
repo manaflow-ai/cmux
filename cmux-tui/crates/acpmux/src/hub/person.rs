@@ -50,8 +50,10 @@
 //!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
 //!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
 //!   nothing. A question's answers, and their annotations, count only under
-//!   [`decision_answers_proof`]. A proof never
-//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   [`decision_answers_proof`]. A decision proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own.
+//!   One chat's policy raise has a proof of its own over a challenge this daemon issued
+//!   ([`policy_grant`]). A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
 //! - A group's one-time allow from a connection that is not the person (peer-route approvals,
 //!   `mac_approvers.rs`) counts only with `_meta.acpmux.approverDecisions`: for EVERY pending
@@ -386,6 +388,8 @@ pub struct PersonGate {
     instance: std::sync::OnceLock<String>,
     /// Decision nonces that counted once, with when.
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
+    /// The open challenges of a policy raise from another machine's app (`policy_grant.rs`).
+    policy_challenges: StdMutex<std::collections::VecDeque<policy_grant::Challenge>>,
     /// The person's phones that may allow with a signature (`approvers.rs`).
     pub approvers: super::approvers::ApproverSet,
     /// The Macs whose app may allow here over the peer link (`mac_approvers.rs`).
@@ -782,7 +786,9 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 }
 
 mod decision_answers;
+pub mod policy_grant;
 pub use decision_answers::decision_answers_proof;
+pub use policy_grant::policy_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();

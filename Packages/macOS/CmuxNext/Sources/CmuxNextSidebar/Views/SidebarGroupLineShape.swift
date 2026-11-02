@@ -3,6 +3,21 @@ import CoreGraphics
 /// The Chrome group rail, in the sidebar's flipped y-down coordinates.
 /// Both ends round only on the right; the left edge stays one straight line.
 enum SidebarGroupLineShape {
+    /// A connected rail's clipped shoulder; its containing layer rounds the visible terminal cap.
+    /// Keeping the body taller than the view lets that cap follow the bounds spring while shrinking.
+    static func connected(width: CGFloat, height: CGFloat) -> CGPath {
+        let width = max(0, width), height = max(0, height)
+        let notch = min(width / 2, height)
+        let path = CGMutablePath()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: width - notch, y: 0))
+        path.addLine(to: CGPoint(x: width, y: notch))
+        path.addLine(to: CGPoint(x: width, y: height))
+        path.addLine(to: CGPoint(x: 0, y: height))
+        path.closeSubpath()
+        return path
+    }
+
     /// A flat rail with a quarter-circle radius equal to its full width at both right corners.
     static func line(width: CGFloat, height: CGFloat) -> CGPath {
         let width = max(0, width)

@@ -29,7 +29,7 @@ public struct Palette {
     public static var pageBackground: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.pageBackground) }
     /// The one background of every window and surface that sits on it
     /// (``ThemeTokens/surfaceBackground``): the window
-    /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
+    /// (`NSWindow.install(kind:content:scope:activeLook:)`), sidebar, panes and strip,
     /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
     public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
     /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)

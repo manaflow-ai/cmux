@@ -19,28 +19,44 @@ enum AgentPanePersonInput {
         "/System/Library/CoreServices/AssistiveControl.app/",
     ]
 
-    static func isPerson(_ event: NSEvent) -> Bool {
+    /// `sources`: the posting processes' paths (the pane's ``AgentPaneView/eventSources``). No system call: a process not
+    /// read yet is not the person's (the safe default: a gesture is never granted on a guess) until
+    /// ``EventSourceProcesses`` has read it off the main thread.
+    static func isPerson(_ event: NSEvent, sources: EventSourceProcesses) -> Bool { // perf-hot: 2us key-dispatch (every key- and mouse-down in an agent pane)
         guard let source = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) else { return false }
         if source == 0 { return true }
         #if DEBUG
-        if source == Int64(getpid()) { return true }
+        if source == Int64(EventSourceProcesses.ownPID) { return true }
         #endif
-        guard let path = executablePath(pid_t(truncatingIfNeeded: source)) else { return false }
+        guard source > 0, let pid = pid_t(exactly: source), let path = sources.path(of: pid) else { return false }
         return personServices.contains { path.hasPrefix($0) }
     }
 
     /// Whether the event AppKit is dispatching now (a menu choice, a shortcut, a drop) is the
     /// person's; none (a call from outside an event) is not.
-    @MainActor static var currentIsPerson: Bool { NSApp.currentEvent.map(isPerson) ?? false }
+    @MainActor static func currentIsPerson(sources: EventSourceProcesses) -> Bool {
+        NSApp.currentEvent.map { isPerson($0, sources: sources) } ?? false
+    }
 
     /// Records the gesture of a native choice (a menu item, a shortcut, a drop) only when the event
     /// in dispatch is the person's: a posted click or key, or a scripted run, grants nothing.
     /// `answer`: the native permission shortcut, which may answer a prompt as a click does.
-    @MainActor static func record(_ gestures: AgentPaneUserGestures, if byPerson: Bool = true, answer: Bool = false) {
-        if byPerson, currentIsPerson { gestures.record(click: answer) }
+    @MainActor static func record(_ gestures: AgentPaneUserGestures, sources: EventSourceProcesses, if byPerson: Bool = true,
+                                  answer: Bool = false, event: NSEvent? = NSApp.currentEvent) {
+        if byPerson, let event, isPerson(event, sources: sources) { gestures.record(click: answer) }
     }
 
-    static func executablePath(_ pid: pid_t) -> String? {
+    /// The pid of the process that posted `event`, when it is another process (not the HID system's
+    /// 0, not this process): the pid ``EventSourceProcesses`` reads. No system call.
+    static func postingPID(_ event: NSEvent) -> pid_t? {
+        guard let source = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID), source > 0,
+              source != Int64(EventSourceProcesses.ownPID) else { return nil }
+        return pid_t(exactly: source)
+    }
+
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown. A system call: only
+    /// ``EventSourceProcesses``'s read calls it, on the table's own queue, never on the key path.
+    nonisolated static func executablePath(_ pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         return String(cString: buffer)
@@ -62,16 +78,19 @@ enum AgentPanePersonInput {
 public struct PersonInputCheck: Sendable {
     static let windowServer = "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer"
 
-    public nonisolated init() {}
+    private let sources: EventSourceProcesses
+
+    /// A check that reads the posting processes' paths from `sources` (`AppServices.personInput.sources`).
+    public nonisolated init(sources: EventSourceProcesses) { self.sources = sources }
 
     /// Whether `event` is the person's own input from the HID system.
-    @MainActor public func isPerson(_ event: NSEvent) -> Bool {
+    @MainActor public func isPerson(_ event: NSEvent) -> Bool { // perf-hot: 2us key-dispatch (every key and mouse event of the app, PersonInputLedger)
         guard let cgEvent = event.cgEvent,
               cgEvent.getIntegerValueField(.eventSourceStateID) == Int64(CGEventSourceStateID.hidSystemState.rawValue) else { return false }
         let source = cgEvent.getIntegerValueField(.eventSourceUnixProcessID)
         if source == 0 { return true }
-        guard source > 0, source != Int64(getpid()) else { return false }
-        return AgentPanePersonInput.executablePath(pid_t(truncatingIfNeeded: source)) == Self.windowServer
+        guard source > 0, source != Int64(EventSourceProcesses.ownPID), let pid = pid_t(exactly: source) else { return false }
+        return sources.path(of: pid) == Self.windowServer
     }
 }
 
@@ -84,23 +103,40 @@ public struct PersonInputCheck: Sendable {
     /// What a page counts as its gesture (``PageWKWebView``'s key and mouse events), and more.
     public static let types: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
                                                       .otherMouseDown, .otherMouseUp, .keyDown, .keyUp]
+    /// Events that are no gesture but still name their poster: each queues the read of a process the
+    /// table does not hold yet (``EventSourceProcesses/prime(_:)``), so a remote session's mouse moves
+    /// fill the table before its first click.
+    public static let primingTypes: NSEvent.EventTypeMask = [.mouseMoved, .scrollWheel, .rightMouseDragged, .otherMouseDragged,
+                                                             .flagsChanged]
     /// The latest input: its `timestamp` (system uptime) and whether it was the person's.
     public private(set) var last: (uptime: TimeInterval, person: Bool)?
     private let check: @MainActor (NSEvent) -> Bool
+    /// The app's one table of the processes that post input, which the priming events fill. The composition
+    /// root builds it with the ledger (`AppServices.personInput`) and hands it to every other person check
+    /// (``PersonInputCheck``, each agent pane through ``AgentPaneShared``).
+    public let sources: EventSourceProcesses
     private var monitor: Any?
 
-    public init(check: @escaping @MainActor (NSEvent) -> Bool = { PersonInputCheck().isPerson($0) }) {
+    /// `sources`: the table the priming events fill (tests that pass none get their own).
+    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses()) {
         self.check = check
+        self.sources = sources
+    }
+
+    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`).
+    public convenience init(sources: EventSourceProcesses) {
+        let check = PersonInputCheck(sources: sources)
+        self.init(check: { check.isPerson($0) }, sources: sources)
     }
 
     public func start() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types.union(Self.primingTypes)) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, nothing is recorded, so no
             // grant is backed (fail closed).
             guard Thread.isMainThread else { return event }
             // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; it records before the page sees the event)
-            MainActor.assumeIsolated { self?.record(event) }
+            MainActor.assumeIsolated { self?.observe(event) }
             return event
         }
     }
@@ -108,6 +144,15 @@ public struct PersonInputCheck: Sendable {
     public func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+
+    /// One event the monitor saw: a gesture type is recorded; any other queues its poster's read.
+    public func observe(_ event: NSEvent) { // perf-hot: 2us key-dispatch (every key and mouse event of the app, mouse moves included)
+        if Self.types.contains(NSEvent.EventTypeMask(type: event.type)) {
+            record(event)
+        } else if let pid = AgentPanePersonInput.postingPID(event) {
+            sources.prime(pid)
+        }
     }
 
     public func record(_ event: NSEvent) {

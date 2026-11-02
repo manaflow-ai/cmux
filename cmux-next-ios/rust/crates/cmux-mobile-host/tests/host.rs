@@ -247,6 +247,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();
@@ -373,6 +374,55 @@ impl RdReader {
     }
 }
 
+/// `localhost`: a phone's native browser tab reaches a web server on this Mac's
+/// loopback, one channel per connection, keep-alive requests and all; a port
+/// with nothing listening and a bad port are refused with a reason.
+async fn localhost_forward(link: &cmux_mobile_link::Link) {
+    // A dev server on the Mac's loopback: answers each request on a kept-alive connection.
+    let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = server.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (stream, _) = server.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.is_empty() {
+                let body = "served on the Mac's loopback";
+                let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                write.write_all(reply.as_bytes()).await.unwrap();
+            }
+        }
+    });
+    // The port as the iPhone sends it (text), two requests on one connection.
+    let mut channel = link.open("localhost", serde_json::json!({"port": port.to_string()})).await.unwrap();
+    for _ in 0..2 {
+        channel.send(Bytes::from_static(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).await.unwrap();
+        let mut reply = Vec::new();
+        while !reply.ends_with(b"loopback") {
+            match channel.recv().await {
+                Some(ChannelEvent::Data(bytes)) => reply.extend_from_slice(&bytes),
+                other => panic!("the forwarded connection ended early: {other:?}"),
+            }
+        }
+        assert!(reply.starts_with(b"HTTP/1.1 200 OK"), "{}", String::from_utf8_lossy(&reply));
+    }
+    channel.close("done", "").await;
+
+    // Nothing listening: refused with a sentence the phone can show.
+    let unused = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let closed = unused.local_addr().unwrap().port();
+    drop(unused);
+    let mut channel = link.open("localhost", serde_json::json!({"port": closed})).await.unwrap();
+    assert_eq!(
+        close_reason(&mut channel).await,
+        ("unavailable".to_owned(), format!("Nothing is listening on port {closed} on this Mac."))
+    );
+    // The phone names a port only, never a host.
+    let mut channel =
+        link.open("localhost", serde_json::json!({"host": "10.0.0.2", "port": "0"})).await.unwrap();
+    assert_eq!(close_reason(&mut channel).await.0, "bad_request");
+}
+
 async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     exercise_services_with(fixture, kind, &options()).await;
 }
@@ -397,8 +447,20 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     // may offer browser tabs and stream phone tabs.
     assert_eq!(
         value["capabilities"],
-        serde_json::json!(["removal-v1", "file-preview-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
+        serde_json::json!([
+            "removal-v1",
+            "file-preview-v1",
+            "localhost-forward-v1",
+            "cloud-directory-v1",
+            "cloud-acpmux-v1",
+            "browser-stream-v1",
+            "browser-video-track-v1",
+            "surface-stream-v1",
+            "cloud-desktop-v1"
+        ])
     );
+
+    localhost_forward(link).await;
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -490,10 +552,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(drain(&mut secret_preview).await, (Vec::new(), "forbidden".into()));
     let empty_path = fixture.root.join("empty-preview.bin");
     std::fs::write(&empty_path, []).unwrap();
-    let mut empty_preview = link
-        .open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()}))
-        .await
-        .unwrap();
+    let mut empty_preview =
+        link.open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()})).await.unwrap();
     assert_eq!(json_frame(empty_preview.recv().await), serde_json::json!({"size": 0}));
     assert_eq!(drain(&mut empty_preview).await, (Vec::new(), "eof".into()));
 
@@ -509,8 +569,9 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     }
 
     // acpmux: a message the link splits (over 256 KiB) arrives whole.
+    // Use a global request: a prompt without a session is rejected by exposure policy.
     let big = format!(
-        r#"{{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{{"data":"{}"}}}}"#,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"initialize","params":{{"data":"{}"}}}}"#,
         "a".repeat(600_000)
     );
     acp.send(Bytes::from(big.clone())).await.unwrap();
@@ -523,6 +584,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     }
     let echoed: serde_json::Value = serde_json::from_slice(&echoed).unwrap();
     assert_eq!(echoed["echo"]["params"]["data"].as_str().map(str::len), Some(600_000));
+    let expected: serde_json::Value = serde_json::from_str(&big).unwrap();
+    assert!(echoed["echo"] == expected, "fragmented ACP payload changed");
 
     // daemon: a phone's agent tab gets this Mac's host.
     daemon
@@ -1072,7 +1135,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
     let link = &connected.link;
 
     // Before auth: every service is refused.
-    for service in ["daemon", "acpmux", "file", "file-preview", "echo"] {
+    for service in ["daemon", "acpmux", "file", "file-preview", "echo", "localhost"] {
         let mut channel = link.open(service, serde_json::json!({})).await.unwrap();
         assert_eq!(drain(&mut channel).await.1, "unpaired", "{service}");
     }

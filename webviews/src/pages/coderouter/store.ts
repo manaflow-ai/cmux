@@ -128,13 +128,15 @@ export class CodeRouterStore {
   /** Connect adds a credential: the host op behind the host's native sheet, not a plain action. */
   async connect(provider: string, name: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     try {
       await this.client.call(CodeRouterOps.connect, { provider, name });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       if (!(isPageError(error) && error.code === "cmux.page.cancelled")) this.set(failure(error));
       return;
     }
-    await this.reload();
+    if (lifetime === this.lifetime) await this.reload();
   }
 
   reauthenticate(provider: string): Promise<void> {
@@ -148,13 +150,15 @@ export class CodeRouterStore {
   /** Runs a host action as the user (its own sheets and prompts apply), then re-reads. */
   private async run(action: string, args: Record<string, unknown>): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     try {
       await this.client.call(CodeRouterOps.actionRun, { action, args });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       if (!(isPageError(error) && error.code === "cmux.page.cancelled")) this.set(failure(error));
       return;
     }
-    await this.reload();
+    if (lifetime === this.lifetime) await this.reload();
   }
 
   private set(patch: Partial<CodeRouterSnapshot>): void {

@@ -94,7 +94,7 @@ pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
 pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
 /// `maxRunning`'s default and ceiling until the catalog has its row.
-const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 16, max: 1000 };
+const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 1000, max: 1000 };
 pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
@@ -410,7 +410,8 @@ impl Hub {
     /// its slot. Read over every open child, live ones too: one that hibernates between this
     /// read and the reservation still counts. A prompt that comes after this read wakes its child
     /// as one after the reservation would: past the limit, as a reopen does. Prompts a failed
-    /// turn holds (`pause_queue`) wake nothing until released, so they do not count.
+    /// turn holds (`pause_queue`) or that wait for the owner (`queue_approve.rs`) wake nothing
+    /// until released or approved, so they do not count.
     pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
         let open = self.subsessions.open_children(parent);
         let children: Vec<Arc<Session>> = {
@@ -418,7 +419,7 @@ impl Hub {
             open.iter().filter_map(|id| sessions.get(id).cloned()).collect()
         };
         let waking = |c: &Session| {
-            let held = c.queue().iter().filter(|q| q.held).count() as u64;
+            let held = c.queue().iter().filter(|q| q.aside()).count() as u64;
             c.queued() > held || c.turn_lock.try_lock().is_err()
         };
         children.iter().filter(|c| waking(c)).map(|c| c.id.clone()).collect()
@@ -774,7 +775,8 @@ impl Hub {
         // session whose last turn was one: a family prompt never runs, or
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
-        let stop = self.interrupt_once_queued(to, interrupt);
+        // A family message waits behind a review box's review, never stops it (`inbox.rs`).
+        let stop = self.interrupt_once_queued(to, interrupt && !super::inbox::review_box(to));
         let on_accepted: Option<Box<dyn FnOnce(Value) + Send>> = Some(Box::new(move |v| {
             stop(&v);
             if let Some(accepted) = accepted {
@@ -815,10 +817,10 @@ impl Hub {
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
-        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
+        // Masked before its cut (`TurnInfo::masked_preview`), for `turn` and `doing`; the turn's
+        // activity and plan step are masked in every summary (`activity.rs`).
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
             summary.set_path(&["turn", "prompt"], json!(t.masked_preview));
-            t.doing.mask_into(&mut summary["turn"]);
         }
         if summary["waitingPrompt"].is_string() {
             summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));

@@ -36,3 +36,14 @@ import Testing
         #expect(clock.now - start < .seconds(20))
     }
 }
+
+/// A child that exits without reading its stdin closes the pipe's read end, so the write fails with
+/// EPIPE. `FileHandle.write(_:)` raises that as an Objective-C exception (and SIGPIPE ends a process
+/// that does not ignore it): a simulator that is not booted made `simctl pbcopy` do exactly this.
+@Suite struct PhoneProcessBrokenStdinTests {
+    @Test func aChildThatNeverReadsItsStdinEndsTheRunInsteadOfTheApp() async throws {
+        // Larger than a pipe buffer, so the write is still going when `true` has already exited.
+        let result = try await PhoneProcessRunner().run(["true"], stdin: Data(count: 4 << 20), deadline: .seconds(20))
+        #expect(result.status == 0)
+    }
+}

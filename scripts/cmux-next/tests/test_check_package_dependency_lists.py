@@ -133,6 +133,20 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.problems('"CmuxNextCompat", "CmuxNextDaemon"',
                                        "import Foundation\nimport CmuxNextCompat\n@testable import CmuxNextDaemon\n"), [])
 
+    def test_an_import_in_a_string_or_comment_is_no_import(self):
+        # A generator test's golden source says `import CmuxNextCompat` inside a string literal.
+        source = ('@testable import CmuxNextDaemon\n'
+                  '// import CmuxNextCompat\n'
+                  'let golden = """\n'
+                  '    public import CmuxNextCompat\n'
+                  '    """\n')
+        self.assertEqual(self.problems('"CmuxNextDaemon"', source), [])
+
+    def test_a_target_named_with_target_name_is_declared(self):
+        # `.target(name: "X")` tells a target from a product of the same name.
+        self.assertEqual(self.problems('.target(name: "CmuxNextCompat"), "CmuxNextDaemon"',
+                                       "import CmuxNextCompat\n@testable import CmuxNextDaemon\n"), [])
+
     def test_a_baseline_line_that_is_fixed_must_go(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

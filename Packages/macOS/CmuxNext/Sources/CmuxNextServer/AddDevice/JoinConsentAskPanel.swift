@@ -14,8 +14,11 @@ public final class JoinConsentAskPanel: NSPanel {
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
     /// The event the app is handling now (tests set it).
     var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent }
-    /// The person's own mouse-down this sheet is dispatching now (a button tracks the click inside it).
-    private var personDown: NSEvent?
+    /// The person's own mouse-down that began the click going on now, with the Allow button enabled when it
+    /// came, held until the click ends: AppKit may hand a button the mouse-up in its tracking loop, inside
+    /// the mouse-down's dispatch, or (the displayed, non-activating sheet) dispatch the mouse-up as an event
+    /// of its own (HQ#5121). A click begun while Allow was disabled holds none.
+    private var personDown: (event: NSEvent, allow: NSControl)?
     /// The last mouse-up that answered Allow: each click answers once.
     private var spentUp: (number: Int, time: TimeInterval)?
 
@@ -40,28 +43,50 @@ public final class JoinConsentAskPanel: NSPanel {
         contentView = glass
     }
 
-    /// The sheet's own events: the person's mouse-down is kept for the length of its dispatch (a button
-    /// tracks the click and sends its action inside it); any other event dispatched here clears it.
+    /// The sheet's own events. The person's mouse-down is kept until its click ends: with the mouse-up's
+    /// dispatch, or with the mouse-down's when a button took the mouse-up in its tracking loop there. A
+    /// drag or pressure change while the button is held keeps it; any other event clears it. Where the
+    /// click ends, the sheet reads it (``endClick(_:)``).
     override public func sendEvent(_ event: NSEvent) {
         dispatch(event) { super.sendEvent(event) }
     }
 
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
-        let outer = personDown
-        personDown = event.type == .leftMouseDown && isPersonEvent(event) ? event : nil
-        defer { personDown = outer }
-        body()
+        switch event.type {
+        case .leftMouseDown:
+            personDown = nil
+            if let allow = content.allow, allow.isEnabled, isPersonEvent(event) { personDown = (event: event, allow: allow) }
+            body()
+            if let up = eventInHand(), up.type == .leftMouseUp { endClick(up) }
+        case .leftMouseDragged, .pressure:
+            body()
+        case .leftMouseUp:
+            body()
+            endClick(event)
+        default:
+            personDown = nil
+            body()
+        }
     }
 
-    /// SECURITY: a click on `button` that is the person's own, taken once. The sheet is dispatching the
-    /// person's mouse-down on the button, and the event current now is the person's mouse-up on the same
-    /// button (the end of that click's tracking), not one taken before. An Accessibility press, a
-    /// programmatic click, a click another process (or DEBUG automation) posts, a press while the button
-    /// is still held, and a press on anything else find none.
-    func takePersonClick(on button: NSView) -> Bool {
-        guard let down = personDown, let up = eventInHand(), up.type == .leftMouseUp, isPersonEvent(up),
-              up.windowNumber == windowNumber, down.windowNumber == windowNumber,
-              up.timestamp >= down.timestamp else { return false }
+    /// SECURITY: Allow answers here, from the person's click itself, never from the button's action: no
+    /// Accessibility press, programmatic click or key reaches a grant, inside a dispatch or out of one.
+    private func endClick(_ up: NSEvent) {
+        defer { personDown = nil }
+        guard let allow = content.allow, allow.isEnabled, takePersonClick(on: allow, up: up) else { return }
+        // task-owner: one answer per click; the sheet hides at once and the write ends on its own
+        Task { [weak model] in await model?.answer(allow: true) }
+    }
+
+    /// SECURITY: whether `up` ends a click on `button` that is the person's own, taken once: the sheet
+    /// holds the person's mouse-down on the button, taken while that same button was shown and enabled, and
+    /// `up` is the person's mouse-up on it, not one taken before. A click another process (or DEBUG
+    /// automation) posts, a click begun while Allow was disabled or on a button since rebuilt, a click begun
+    /// or ended on anything else, and a click already taken find none.
+    func takePersonClick(on button: NSView, up: NSEvent) -> Bool {
+        guard let held = personDown, held.allow === button, up.type == .leftMouseUp, isPersonEvent(up) else { return false }
+        let down = held.event
+        guard up.windowNumber == windowNumber, down.windowNumber == windowNumber, up.timestamp >= down.timestamp else { return false }
         let inside = { (event: NSEvent) in button.bounds.contains(button.convert(event.locationInWindow, from: nil)) }
         guard inside(down), inside(up) else { return false }
         if let spent = spentUp, spent.number == up.eventNumber, spent.time == up.timestamp { return false }
@@ -88,6 +113,8 @@ public final class JoinConsentAskView: NSView {
     static let width: CGFloat = 380
     /// Weak: the model's `present` owns the panel that owns this view.
     weak var model: JoinConsentModel?
+    /// The Allow button now shown (``JoinConsentAskPanel/endClick(_:)`` reads the person's click on it).
+    private(set) weak var allow: NSControl?
     private let stack = NSStackView()
 
     public init(model: JoinConsentModel) {
@@ -131,14 +158,16 @@ public final class JoinConsentAskView: NSView {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(spacer)
         row.addArrangedSubview(button(JoinConsentStrings.deny, role: .cancel, allow: false, id: "cmux.joinConsentAsk.deny"))
-        row.addArrangedSubview(button(JoinConsentStrings.allow, role: .default, allow: true, id: "cmux.joinConsentAsk.allow"))
+        let allow = button(JoinConsentStrings.allow, role: .default, allow: true, id: "cmux.joinConsentAsk.allow")
+        self.allow = allow
+        row.addArrangedSubview(allow)
         row.translatesAutoresizingMaskIntoConstraints = false
         row.widthAnchor.constraint(equalToConstant: width).isActive = true
         stack.addArrangedSubview(row)
         layoutSubtreeIfNeeded()
     }
 
-    private func button(_ title: String, role: CmuxDialogButton.Role, allow: Bool, id: String) -> NSView {
+    private func button(_ title: String, role: CmuxDialogButton.Role, allow: Bool, id: String) -> NSControl {
         let spec = CmuxDialogButton(id: allow ? "allow" : "deny", title: title, role: role)
         let view = CmuxDialogButtonView(standalone: spec, target: self, action: allow ? #selector(allowPressed(_:)) : #selector(denyPressed))
         view.setAccessibilityIdentifier(id)
@@ -147,12 +176,11 @@ public final class JoinConsentAskView: NSView {
         return view
     }
 
+    /// SECURITY: a press of Allow through its action (an Accessibility press, a programmatic click, a key)
+    /// answers nothing: only the person's own click on Allow allows, read by the panel from the click itself
+    /// (``JoinConsentAskPanel/endClick(_:)``).
+    @objc func allowPressed(_ sender: NSView) {}
     // task-owner: one answer per press; the sheet hides at once and the write ends on its own
-    @objc func allowPressed(_ sender: NSView) {
-        // SECURITY: only the person's own click on Allow itself allows (``JoinConsentAskPanel/takePersonClick(on:)``).
-        guard let model, (window as? JoinConsentAskPanel)?.takePersonClick(on: sender) == true else { return }
-        Task { [weak model] in await model?.answer(allow: true) }
-    }
     @objc private func denyPressed() { Task { [weak model] in await model?.answer(allow: false) } }
 
     private func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat) -> NSTextField {

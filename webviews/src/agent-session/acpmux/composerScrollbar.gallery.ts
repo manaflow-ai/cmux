@@ -13,7 +13,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 
-const BOX = ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)";
+const BOX = ".acpmux-composer-box[data-composer-grid]";
 const FIELD = `${BOX} > .acpmux-composer-field-menu > .acpmux-md-field`;
 const SCALE = "var(--cmux-interface-scale, 1)";
 const ALT: Record<string, string> = {

@@ -107,6 +107,53 @@ test("picking Nightly on a Dev build Nightly has not reached offers Go Back into
   page.unmount();
 });
 
+test("every build but the installed and pulled ones has Switch, which asks the host for that build", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const dev = card(page.container)!.querySelector<HTMLElement>('[data-channel="dev"]')!;
+  const switches = [...dev.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")];
+  // Newer (3422, 3420) and older (3418, kept) alike; never 3421 (pulled) or 3419 (You Are Here).
+  expect(switches.map((button) => button.dataset.channelSwitchBuild)).toEqual(["3422", "3420", "3418"]);
+  expect(switches.every((button) => button.textContent === "Switch")).toBe(true);
+  await run(() => switches[2]!.click());
+  await settle();
+  expect(page.provider.switchedTo).toBe("3418");
+  page.unmount();
+});
+
+test("a host's refusal of a Switch shows on that build's row", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.switchRefusal = "That build is no longer offered for download.";
+    },
+  });
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>('[data-channel="dev"] [data-channel-build="3422"]')!;
+  await run(() => row.querySelector<HTMLButtonElement>("[data-channel-switch-build]")!.click());
+  await settle();
+  expect(row.querySelector(".row-error")?.textContent).toBe("That build is no longer offered for download.");
+  page.unmount();
+});
+
+test("an older host sends no switch flags: no build offers Switch", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = {
+        ...mockChannels,
+        tracks: mockChannels.tracks.map((track) => ({
+          ...track,
+          builds: track.builds.map(({ switch: _, ...build }) => build),
+        })),
+      };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-switch-build]")).toBeNull();
+  page.unmount();
+});
+
 test("a host with no updater shows no Channels card", async () => {
   const page = await renderPage({
     path: "/settings/updates",

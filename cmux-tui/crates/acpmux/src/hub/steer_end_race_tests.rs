@@ -9,7 +9,12 @@ async fn unsent_steer_after_completion(steer_only: bool) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake]}},
+        // At normal CPU class (`cpu_class.rs`), as in the hermetic integration tests: at
+        // background class a loaded fleet Mac did not end the stand-in's steer turn in 20 s.
+        "harnesses": {"fake": {
+            "argv": ["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake],
+            "env": {"ACPMUX_SESSION_CPU_CLASS": "normal"},
+        }},
         "defaultHarness": "fake",
     }))
     .unwrap();

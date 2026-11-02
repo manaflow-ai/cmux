@@ -104,7 +104,10 @@ public final class HomeInboxSource {
 
     private static func read(_ connection: DaemonConnection, owners: [String]) async -> Read {
         guard await connection.identity?.supports(DaemonCapability.homeInbox.rawValue) == true else { return .unsupported }
-        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners)) else { return .failed }
+        // The Cloud rows are every page of the inbox, read by the daemon within its budget plus one
+        // page's read (under the Cloud's 30 s request timeout); the local rows answer at once.
+        let timeout: Duration? = owners.contains("cloud") ? CloudConversationClient.networkTimeout : nil
+        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners), timeout: timeout) else { return .failed }
         return .reply(reply)
     }
 
