@@ -23,6 +23,8 @@ Verdict:
     is run again in its slot (at most --rounds replacements per run; see the note at PRESSURE_SAMPLES), so the verdict
     stands on --rounds rounds under pressure; the summary names the replaced rounds.
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
+  - A PASS writes no .pass while an open P0 journey (open-p0-journeys.txt) or a golden video case
+    (video-goldens.txt, VIDEO EXTRA item 9) has no PASS, or has a FAIL, on the exact build job.
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
   - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
     creation hold, not at once; every other step is checked and each check's pass count is reported. Never a .pass
@@ -403,6 +405,50 @@ def open_p0_blockers(job, waived=None):
     return blockers
 
 
+# Video goldens (VIDEO EXTRA item 9, lead 2026-11-02 00:29Z): each finding of the video program, once fixed, keeps
+# its case's clean video as a golden. A later build's run of the same case is judged against it by
+# video_golden.py (the case's own judge plus the end layout), which appends one row per run to the ledger. A .pass
+# also needs each listed golden case to have passed, and never failed, on the exact build job: the same rule as the
+# open P0 journeys. A fleet check of the dogfood smoke gate, not a CI job or step (Lawrence 2026-10-23).
+VIDEO_GOLDENS = Path(os.environ.get("SMOKE_GATE_VIDEO_GOLDENS", "/Users/lawrence/fun/wt/handoff/video-goldens.txt"))
+GOLDEN_LEDGER = Path(os.environ.get("SMOKE_GATE_GOLDEN_LEDGER", "/Users/lawrence/fun/wt/handoff/video-golden-results"))
+
+
+def golden_blockers(job):
+    """[(list line, why)] of the golden video cases that block a .pass for JOB: no PASS on JOB in the golden ledger,
+    or any FAIL. A missing list blocks nothing (no golden yet); an unreadable one blocks."""
+    if not VIDEO_GOLDENS.exists():
+        return []
+    try:
+        listed = [l.split() for l in VIDEO_GOLDENS.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    except OSError as error:
+        return [(str(VIDEO_GOLDENS), f"the golden list cannot be read ({error}): no .pass")]
+    rows = []
+    try:
+        for text in (GOLDEN_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job:
+                rows.append(row)
+    except OSError:
+        pass
+    blockers = []
+    for fields in listed:
+        mine = [r for r in rows if r.get("case") == fields[0]]
+        fails = [r for r in mine if r.get("status") == "fail"]
+        # Only a judged run of a clean kit counts (as for the open P0 journeys).
+        passes = [r for r in mine if r.get("status") == "pass" and r.get("kit_dirty") is False]
+        line = " ".join(fields)
+        if fails:
+            blockers.append((line, f"FAILED on {job}: {len(fails)} fail(s), e.g. {fails[0].get('out')}: "
+                                   f"{str(fails[0].get('reason') or '')[:160]}"))
+        elif not passes:
+            blockers.append((line, f"has no golden PASS on {job} ({len(mine)} result(s))"))
+    return blockers
+
+
 def build_state(job, deadline, poll=30.0):
     """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
     while True:
@@ -633,8 +679,18 @@ def main(argv=None):
             (out / "open-p0.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
             return 75
+        goldens = golden_blockers(opts.build)
+        if goldens:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but a golden video case blocks "
+                              f"the .pass ({VIDEO_GOLDENS}; ledger {GOLDEN_LEDGER}):"]
+                             + [f"  {line}: {why}" for line, why in goldens])
+            (out / "video-goldens.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+            return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        summary["video_goldens_checked"] = [l.split()[0] for l in VIDEO_GOLDENS.read_text().splitlines()
+                                            if l.strip() and not l.lstrip().startswith("#")] if VIDEO_GOLDENS.exists() else []
         summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
