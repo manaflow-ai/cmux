@@ -450,6 +450,16 @@
   width: 18px;
   height: 18px;
 }
+/* New Tab's trailing controls share the chat composer's action rhythm. The default button group
+   leaves its legacy 8px gap in place; use the same 4px token as Claude's composer so mic and Send
+   keep one icon column in Home and New Tab. The gallery keeps the tighter and legacy arms visible
+   for comparison. */
+.nt-pickers .acpmux-composer-actions {
+  gap: var(--acpmux-composer-action-gap, 4px);
+}
+.nt-composer[data-trailing-gap="tight"] { --acpmux-composer-action-gap: 2px; }
+.nt-composer[data-trailing-gap="shared"] { --acpmux-composer-action-gap: 4px; }
+.nt-composer[data-trailing-gap="roomy"] { --acpmux-composer-action-gap: 8px; }
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
    the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
    name shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow,

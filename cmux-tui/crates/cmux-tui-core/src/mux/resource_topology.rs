@@ -111,6 +111,7 @@ mod topology_test_hooks;
 #[cfg(test)]
 pub(super) use creation_burst_seams::CreationBurstSeams;
 pub(super) use creation_group::CreationGroups;
+pub(crate) use creation_group::with_group_join_notice;
 use creation_group::{StagedCreation, StagedCreationOutcome, creation_shares_group_commit};
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};

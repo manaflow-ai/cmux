@@ -26,6 +26,8 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private var badTarget: String?
     private var targetStatus = 200
     private(set) var requests: [Data] = []
+    /// Each GET of the Native target route, query included.
+    private(set) var targetPaths: [String] = []
     private(set) var enrollments = 0
     private(set) var deletions = 0
     private(set) var deletedDevices: [String] = []
@@ -97,17 +99,6 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
             return (200, try data(["ok": true, "value": ["host": target, "token": "dial-once-\(cloudMints)",
                 "expires_at": 1792430000000 as Int64, "epoch": 1, "services": services]]))
         }
-        if op == "host.network.target" {
-            guard path == "/v1/read", body["idempotency_key"] == nil, body["origin"] == nil,
-                  params["mesh"] == nil || params["mesh"] as? String == scope.mesh else { throw Failure.invalid }
-            let action = beforeTarget; beforeTarget = nil
-            await action?()
-            if targetStatus != 200 { return (targetStatus, try data(["code": "owner.unreachable"])) }
-            var value = ["team": scope.team, "tenant": scope.tenant, "project": Self.project,
-                         "origin": origin.absoluteString, "mesh": scope.mesh, "ipv4_cidr": "10.128.0.0/20"]
-            if let badTarget { value[badTarget] = badTarget == "origin" ? "http://attacker.test" : badTarget == "ipv4_cidr" ? "0.0.0.0/0" : "wrong-identity" }
-            return (200, try data(["op": op, "value": value]))
-        }
         if op == "host.enroll" {
             var value: [String: Any] = ["id": host, "owner_user": Self.user, "enrolled_by": install]
             if let network = networks[scope.team] { value["network"] = network; value["wg_public_key"] = network["wg"] }
@@ -124,6 +115,25 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
         networks[scope.team] = network
         if loseBind { loseBind = false; throw Failure.lostReply }
         return (200, try data(["ok": true, "value": ["host": badAck ? "host_wrong" : host, "network": network]]))
+    }
+
+    /// The platform's Native target route (cmux-platform NativeNetwork.ts): `GET /v1/host/network/target[?mesh=]`,
+    /// the plain target as its body. A `/v1/read` of the op is refused, as TeamDO refuses it.
+    func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+        guard parts[0] == "/v1/host/network/target" else { throw Failure.invalid }
+        let token = try claims(bearer ?? "")
+        guard let scope = scopes.first(where: { $0.team == token["team"] }), token["sub"] == Self.user else { throw Failure.invalid }
+        let query = parts.count == 2 ? parts[1] : ""
+        guard query.isEmpty || query == "mesh=\(scope.mesh)" else { throw Failure.invalid }
+        targetPaths.append(path)
+        let action = beforeTarget; beforeTarget = nil
+        await action?()
+        if targetStatus != 200 { return (targetStatus, try data(["code": "owner.unreachable"])) }
+        var value = ["team": scope.team, "tenant": scope.tenant, "project": Self.project,
+                     "origin": origin.absoluteString, "mesh": scope.mesh, "ipv4_cidr": "10.128.0.0/20"]
+        if let badTarget { value[badTarget] = badTarget == "origin" ? "http://attacker.test" : badTarget == "ipv4_cidr" ? "0.0.0.0/0" : "wrong-identity" }
+        return (200, try data(value))
     }
 
     func send(method: String, path: String, body: Data?, bearer: String?, tenant: String?) async throws -> (status: Int, body: Data) {
