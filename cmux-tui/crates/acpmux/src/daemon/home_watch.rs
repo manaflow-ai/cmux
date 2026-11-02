@@ -454,11 +454,12 @@ mod tests {
         let owned =
             Owned::now(&[&home, &lock]).unwrap().with(Owned::now(&[socket.as_path()]).unwrap());
         assert!(!owned.only_leaf_lost(&socket), "nothing was lost");
-        std::fs::remove_file(&socket).unwrap();
-        assert!(owned.only_leaf_lost(&socket), "the socket alone was removed");
+        // Replaced: made while the first one exists, so its inode cannot be the first one's reused.
         std::fs::write(dir.path().join("other"), "").unwrap();
         std::fs::rename(dir.path().join("other"), &socket).unwrap();
         assert!(owned.only_leaf_lost(&socket), "the socket alone was replaced");
+        std::fs::remove_file(&socket).unwrap();
+        assert!(owned.only_leaf_lost(&socket), "the socket alone was removed");
         std::fs::rename(&home, dir.path().join("moved")).unwrap();
         std::fs::create_dir(&home).unwrap();
         assert!(!owned.only_leaf_lost(&socket), "its folder is another one");
