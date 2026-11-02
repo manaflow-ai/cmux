@@ -12,7 +12,8 @@ public import AppKit
 /// - the setting is off (the default);
 /// - the event is momentum (a coast from a gesture that started elsewhere);
 /// - the layout scrolls the event itself (a strip or row scroll keeps its
-///   own focus rule, `ColumnViewOffset.focusAfterScroll`);
+///   own focus rule: focus after scroll in the column scroll reducer,
+///   cmux-layout-reducer `scroll::focus_after_scroll`);
 /// - a key was typed less than ``scrollFocusTypingGrace`` ago, so the pointer
 ///   never pulls focus out of the field a person is typing in;
 /// - the window is not the key window;

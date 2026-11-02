@@ -2,50 +2,62 @@ public import CoreGraphics
 public import CmuxNextDesign
 public import Foundation
 
-/// Scroll state of one columns screen: the spring the view presents, the
-/// strip it was computed for, the focus it follows, and a live trackpad
-/// gesture. Changed only by `reduce(_:)` (ColumnScrollReducer.swift); the
-/// view steps the spring each display frame. plans/cmux-next/column-scroll.md.
-public nonisolated struct ColumnScrollState: Hashable, Sendable {
+/// Scroll state of one scrolling strip (a columns screen, a column's rows or a
+/// scroll area): the spring the view presents, and the column scroll reducer
+/// that moves it. The reducer and its state (the strip, the focus it follows,
+/// a live trackpad gesture, the restore point) are Rust's: cmux-layout-reducer
+/// `scroll` through the app FFI's `cmux_scroll_*`, one handle per value, copied
+/// on write. The view steps the spring each display frame; ``reduce(_:)`` sends
+/// one event with it. plans/cmux-next/column-scroll.md.
+public nonisolated struct ColumnScrollState {
     /// `value` is presented, `target` is where it settles. Offsets are the
     /// content-space x of the viewport's leading edge.
     public var spring = SpringValue(0)
-    public var strip: ColumnStrip?
-    public var focusedPane: PaneID?
-    public var focusedColumn: ColumnID?
+    /// `layout.centerFocusedColumn`; read at each event.
     public var mode: CenterFocusedColumn = .never
-    public var gesture: Gesture?
-    /// Restore point: a column opened right of the
-    /// focused one and focused; closing it returns to this offset.
-    public var restore: RestorePoint?
-    /// Last focused pane per column, for focus moved by a scroll.
-    public var remembered: [ColumnID: PaneID] = [:]
-    /// A sync skipped its reveal (live resize drag); the next one reveals.
-    public var revealDeferred = false
+    private var handle: ColumnScrollHandle
 
+    /// A live trackpad gesture.
     public struct Gesture: Hashable, Sendable {
         /// Unbanded offset accumulated from the deltas.
         public var raw: CGFloat
-        public var samples: [Sample] = []
     }
 
-    public struct Sample: Hashable, Sendable {
-        public var time: TimeInterval
-        public var delta: CGFloat
+    /// The state of a columns screen.
+    public init() {
+        self.init(kind: .columns)
     }
 
-    public struct RestorePoint: Hashable, Sendable {
-        /// The column focused before the new one opened.
-        public var column: ColumnID
-        /// The column that opened right of it.
-        public var opened: ColumnID
-        /// Target offset then, relative to `column`'s leading edge.
-        public var relativeOffset: CGFloat
+    init(kind: ColumnScrollHandle.Kind) {
+        handle = ColumnScrollHandle(kind: kind)
     }
 
-    public init() {}
+    /// A trackpad gesture is in progress.
+    public var isGestureActive: Bool { handle.isGestureActive }
 
-    public var isGestureActive: Bool { gesture != nil }
+    /// As a new state: no strip ever synced, no gesture, the spring at rest at 0 and
+    /// centering `never`.
+    public var isPristine: Bool {
+        let status = handle.status
+        return status.has_strip == 0 && status.gesture_active == 0 && spring == SpringValue(0) && mode == .never
+    }
+
+    /// The live trackpad gesture, nil without one.
+    public var gesture: Gesture? {
+        let status = handle.status
+        return status.gesture_active != 0 ? Gesture(raw: CGFloat(status.gesture_raw)) : nil
+    }
+
+    /// The pane the reducer follows: the last synced focus, or the one a
+    /// scroll moved focus to.
+    public var focusedPane: PaneID? { handle.focusedPane }
+
+    /// Applies one event; the spring and the reducer state change together.
+    @discardableResult
+    public mutating func reduce(_ event: ColumnScrollEvent) -> ColumnScrollEffects {
+        if !isKnownUniquelyReferenced(&handle) { handle = handle.copy() }
+        return handle.reduce(event, spring: &spring, mode: mode)
+    }
 }
 
 /// One input to the column scroll reducer.

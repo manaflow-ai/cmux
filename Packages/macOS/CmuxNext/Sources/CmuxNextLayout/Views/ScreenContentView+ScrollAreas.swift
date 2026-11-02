@@ -42,10 +42,12 @@ extension ScreenContentView {
         var needsFrames = false
         for id in areaScrolls.keys where baseGeometry.scrollAreas[id] == nil { areaScrolls[id] = nil }
         for (id, area) in baseGeometry.scrollAreas {
-            var scroll = areaScrolls[id] ?? ScrollAreaScroll()
-            let effects = scroll.state.reduce(.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals))
-            areaScrolls[id] = scroll
-            if effects.needsFrames { needsFrames = true }
+            // Reduced in place in the dictionary: a copy out and back would clone the scroll's
+            // Rust handle (copy on write) on every sync.
+            if areaScrolls[id] == nil { areaScrolls[id] = ScrollAreaScroll() }
+            guard let strip = areaScrolls[id]?.strip(area) else { continue }
+            let effects = areaScrolls[id]?.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
+            if effects?.needsFrames == true { needsFrames = true }
         }
         refreshRowShift()
         return needsFrames
@@ -91,18 +93,18 @@ extension ScreenContentView {
 
     @discardableResult
     func endAreaScroll(_ id: SplitID, timestamp: TimeInterval) -> Bool {
-        guard var scroll = areaScrolls[id] else { return false }
-        let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
-        areaScrolls[id] = scroll
+        guard let effects = areaScrolls[id]?.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)) else {
+            return false
+        }
         return applyArea(effects)
     }
 
     /// One mouse wheel notch (Shift-wheel) on an area.
     @discardableResult
     func discreteAreaScroll(_ id: SplitID, direction: Int) -> Bool {
-        guard var scroll = areaScrolls[id] else { return false }
-        let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
-        areaScrolls[id] = scroll
+        guard let effects = areaScrolls[id]?.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion)) else {
+            return false
+        }
         return applyArea(effects)
     }
 

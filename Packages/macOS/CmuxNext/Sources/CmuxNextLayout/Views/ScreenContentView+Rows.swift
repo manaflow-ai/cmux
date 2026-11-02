@@ -41,11 +41,12 @@ extension ScreenContentView {
         }
         for (id, stack) in scrolling {
             guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
-            var scroll = rowScrolls[id] ?? RowScroll()
-            let strip = scroll.strip(rows: stack, column: column, panes: baseGeometry.panes)
-            let effects = scroll.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
-            rowScrolls[id] = scroll
-            if effects.needsFrames { needsFrames = true }
+            // Reduced in place in the dictionary: a copy out and back would clone the scroll's
+            // Rust handle (copy on write) on every sync.
+            if rowScrolls[id] == nil { rowScrolls[id] = RowScroll() }
+            guard let strip = rowScrolls[id]?.strip(rows: stack, column: column, panes: baseGeometry.panes) else { continue }
+            let effects = rowScrolls[id]?.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
+            if effects?.needsFrames == true { needsFrames = true }
         }
         refreshRowShift()
         return needsFrames
@@ -122,9 +123,9 @@ extension ScreenContentView {
 
     @discardableResult
     func endRowScroll(_ column: ColumnID, timestamp: TimeInterval) -> Bool {
-        guard var scroll = rowScrolls[column] else { return false }
-        let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
-        rowScrolls[column] = scroll
+        guard let effects = rowScrolls[column]?.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)) else {
+            return false
+        }
         return applyRow(effects)
     }
 
@@ -132,9 +133,9 @@ extension ScreenContentView {
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
         scrollRidesFrames = false
-        guard var scroll = rowScrolls[column] else { return false }
-        let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
-        rowScrolls[column] = scroll
+        guard let effects = rowScrolls[column]?.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion)) else {
+            return false
+        }
         return applyRow(effects)
     }
 
