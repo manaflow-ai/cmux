@@ -1,4 +1,4 @@
-// Shared file/folder picker: primary presses select and activate; context-menu gestures stay native.
+// Shared file/folder picker: primary presses select and activate; context-menu gestures move nothing.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -72,7 +72,7 @@ afterEach(() => {
   saved.clear();
 });
 
-test("right, middle and macOS Control-click leave folder selection and native mouse actions alone", () => {
+test("right, middle and macOS Control-click neither move nor open a folder row, and keep focus in the field", () => {
   const moved: number[] = [];
   const activated: string[] = [];
   const second = mount(moved, activated);
@@ -81,7 +81,8 @@ test("right, middle and macOS Control-click leave folder selection and native mo
     act(() => {
       second.dispatchEvent(press);
     });
-    expect(press.defaultPrevented).toBe(false);
+    // Prevented so the search field keeps focus; the contextmenu event still fires.
+    expect(press.defaultPrevented).toBe(true);
     const double = new MouseEvent("dblclick", { bubbles: true, cancelable: true, ...options });
     act(() => {
       second.dispatchEvent(double);
