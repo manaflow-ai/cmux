@@ -102,6 +102,30 @@ struct WorkspaceClaudeAccountSwitchTests {
         #expect(await wait.value == .replaced)
     }
 
+    /// A manual switch types its resume only into an untouched shell line too: input that
+    /// reached the restarted shell before its prompt sits on that line, and the resume command
+    /// would be appended to it and run with the user's words as arguments.
+    @Test
+    func aManualResumeIsNotTypedOnceInputReachedTheRestartedShell() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.respawnTerminalSurface(panelId: panelId, command: nil))
+        panel.recordExplicitInput()
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        // Called as the manual switch calls it.
+        let delivery = await workspace.deliverClaudeAccountSwitchResumeInput(
+            "claude --resume a22293b7-bcef-4707-8439-2f538c8517a4\r",
+            to: panel,
+            panelId: panelId
+        )
+
+        #expect(delivery == .notTyped)
+#if DEBUG
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+#endif
+    }
+
     /// Polls a real condition; the deadline bounds only the failure path.
     private func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
