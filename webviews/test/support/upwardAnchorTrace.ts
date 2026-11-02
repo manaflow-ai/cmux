@@ -85,7 +85,10 @@ export async function traceUpwardAnchors({
       return row.classList.contains("acpmux-row--below")
         ? transcriptMark.footerSlot
         : transcriptMark.indicator;
-    if (kind === "acpmux-turnSummary") return transcriptMark.footer;
+    if (kind === "acpmux-turnSummary")
+      return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
+        ? transcriptMark.footerRow
+        : transcriptMark.footer;
     return kind === undefined ? null : transcriptMark.other;
   }
 
@@ -237,9 +240,13 @@ export async function traceUpwardAnchors({
         const unexpectedRowBoxGaps = rowBoxGaps.filter(
           (each) => Math.abs(each.gap - each.expected) > 1 / 64,
         );
+        const mountedIndexes = new Set([...current.mounted.values()].map((row) => row.index));
         const missingRow = current.visible.some((row, index, rows) => {
           const previous = rows[index - 1];
-          return previous !== undefined && row.index > previous.index + 1;
+          if (previous === undefined || row.index <= previous.index + 1) return false;
+          for (let missing = previous.index + 1; missing < row.index; missing += 1)
+            if (!mountedIndexes.has(missing)) return true;
+          return false;
         });
         const drift = anchor
           ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied
