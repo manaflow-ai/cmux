@@ -75,3 +75,20 @@ export class ArtifactLiveSource {
     this.disposed = true;
   }
 }
+
+/// The live source's versions plus any finished versions a transcript scan found that it lacks: a
+/// rewrite a later reply finished after opening goes after them, one a newly paged older reply
+/// holds goes before them. Bounded like the live list.
+export function mergeArtifactVersions(
+  live: readonly Artifact[],
+  scanned: readonly Artifact[] | undefined,
+): readonly Artifact[] {
+  if (!scanned?.length) return live;
+  const codes = new Set(live.map((version) => version.code));
+  const fresh = (version: Artifact) => !codes.has(version.code);
+  const first = scanned.findIndex((version) => codes.has(version.code));
+  const before = first < 0 ? [] : scanned.slice(0, first).filter(fresh);
+  const after = (first < 0 ? scanned : scanned.slice(first)).filter(fresh);
+  if (!before.length && !after.length) return live;
+  return [...before, ...live, ...after].slice(-VERSION_LIMIT);
+}

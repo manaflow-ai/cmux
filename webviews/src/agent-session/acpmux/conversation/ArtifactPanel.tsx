@@ -299,7 +299,10 @@ function ArtifactFrame({
 }) {
   const t = useT();
   const requiresRun = render || jsx || artifactNeedsRun(html);
-  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  // Consent is for one document: a live revision with new script waits for Run again, even though
+  // this frame stays mounted across the fence's revisions.
+  const [allowedHtml, setAllowedHtml] = useState(() => (ranRenders.has(html) ? html : undefined));
+  const allowed = allowedHtml === html || ranRenders.has(html);
   // The passive frame left its document (the gallery's frame counts its loads): show the source.
   const [left, setLeft] = useState(false);
   // Markup with no script, made inert; nil when the rewrite left it needing Run after all
@@ -316,7 +319,7 @@ function ArtifactFrame({
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setAllowed(true);
+            setAllowedHtml(html);
           }}
         >
           {t("render.run")}

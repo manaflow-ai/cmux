@@ -407,7 +407,7 @@ test("an open plain fence carries its identity through the final code card", asy
   ]);
 });
 
-test("Run follows one live artifact but passive markup cannot gain script consent", async () => {
+test("each live revision with script asks for Run again and passive markup cannot gain script consent", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
   const previousLocation = scope.location;
@@ -430,8 +430,14 @@ test("Run follows one live artifact but passive markup cannot gain script consen
     expect(button("Run")).toBeDefined();
     act(() => button("Run")!.click());
     const firstFrame = host.querySelector("iframe");
+    expect(firstFrame).not.toBeNull();
+    // The frame stays mounted across the fence's revisions; consent given to one revision's script
+    // does not run the next revision's.
     draw(two);
-    expect(button("Run")).toBeUndefined();
+    expect(button("Run")).toBeDefined();
+    expect(host.querySelector("iframe")).toBeNull();
+    act(() => button("Run")!.click());
+    expect(host.querySelector("iframe")).not.toBeNull();
     expect(host.querySelector("iframe")).not.toBe(firstFrame);
     act(() => root!.unmount());
     root = createRoot(host);
