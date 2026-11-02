@@ -49,7 +49,8 @@ Only the header is read: `extension BadgeView` of a view declared elsewhere coun
 JSON (--json): {"method": "swift-logic-lines", "method_version", "sha", "rows": {"swift_logic_lines": n,
 "mirror_lines": n}, "packages": {module: {row: n}} (rows that are not 0), "unlisted": {"lines": the swift_logic_lines
 lines of unlisted declarations, "declarations": unlisted declarations, "view_shaped": unlisted view-shaped ones,
-"packages": {module: lines}}, "table_rows": valid rows, "table_rows_missing": valid rows that no declaration at SHA
+"in_table_modules" and "other_modules": those lines in the modules the table has rows for (an unclassified declaration
+there) and in the others (closure packages that only the default rule counts yet), "packages": {module: lines}}, "table_rows": valid rows, "table_rows_missing": valid rows that no declaration at SHA
 matches, "table_rows_invalid": n}.
 
 Each file's declarations are kept by (blob id, path) in arch_counts' facts cache under this script's fingerprint, so
@@ -294,6 +295,7 @@ class Count:
     table_rows: int
     missing: list[tuple[tuple[str, str, str, int], Entry]]
     invalid: int
+    table_modules: frozenset = frozenset()  # the modules the table has a row for
 
     def json(self) -> dict:
         packages: dict[str, dict[str, int]] = collections.defaultdict(dict)
@@ -309,6 +311,8 @@ class Count:
             "packages": dict(sorted(packages.items())),
             "unlisted": {"lines": sum(self.unlisted.values()), "declarations": self.unlisted_declarations,
                          "view_shaped": self.view_shaped,
+                         "in_table_modules": sum(n for m, n in self.unlisted.items() if m in self.table_modules),
+                         "other_modules": sum(n for m, n in self.unlisted.items() if m not in self.table_modules),
                          "packages": {m: n for m, n in sorted(self.unlisted.items()) if n}},
             "table_rows": self.table_rows,
             "table_rows_missing": len(self.missing),
@@ -351,7 +355,8 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
             sites[LOGIC].append((path, u.line, f"{label}: {u.span} of {u.span} lines (unlisted)"))
             sites["unlisted"].append((path, u.line, f"{label}: {u.span} of {u.span} lines (unlisted)"))
     missing = [(key, entry) for key, entry in sorted(table.items()) if key not in used]
-    return Count(sha, rows, unlisted, declarations, views, sites, len(table), missing, invalid)
+    return Count(sha, rows, unlisted, declarations, views, sites, len(table), missing, invalid,
+                 frozenset(key[0] for key in table))
 
 
 def count(repo: Path, rev: str = "HEAD", cache: bool = True, table_text: str | None = None) -> Count:

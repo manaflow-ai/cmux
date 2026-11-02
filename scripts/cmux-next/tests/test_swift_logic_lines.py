@@ -101,8 +101,8 @@ class LogicLinesTests(Repo):
         self.assertEqual(data["sha"], sha)
         self.assertEqual(data["rows"], {"swift_logic_lines": 19, "mirror_lines": 0})
         self.assertEqual(data["packages"], {"CmuxNextDomain": {"swift_logic_lines": 19}})
-        self.assertEqual(data["unlisted"], {"lines": 19, "declarations": 7, "view_shaped": 0,
-                                            "packages": {"CmuxNextDomain": 19}})
+        self.assertEqual(data["unlisted"], {"lines": 19, "declarations": 7, "view_shaped": 0, "in_table_modules": 0,
+                                            "other_modules": 19, "packages": {"CmuxNextDomain": 19}})
         self.assertEqual((data["table_rows"], data["table_rows_missing"], data["table_rows_invalid"]), (0, 0, 0))
 
     def test_a_listed_declaration_counts_its_logic_and_mirror_shares_rounded_half_up(self):
@@ -209,8 +209,12 @@ class LogicLinesTests(Repo):
         self.write("Packages/Shared/Kit/Sources/Kit/Hub.swift", "struct Hub {\n}\n")
         self.write("Packages/Shared/Kit/Tests/KitTests/HubTests.swift", "struct HubTests {\n}\n")
         self.write("Packages/Shared/Other/Sources/Other/Other.swift", "struct Other {\n}\n")  # not linked
+        self.table(("CmuxNextCore", "struct", "Core", 0, "LOGIC", 100, 0, "p", "a module the table classifies"))
+        self.write(f"{SRC}/CmuxNextCore/Core.swift", "struct Core {\n}\nstruct Unclassified {\n    let n = 1\n}\n")
         self.commit()
-        self.assertEqual(self.packages(), {"Kit": {"swift_logic_lines": 2}})
+        data = self.count()
+        self.assertEqual(data["packages"], {"Kit": {"swift_logic_lines": 2}, "CmuxNextCore": {"swift_logic_lines": 2 + 3}})
+        self.assertEqual((data["unlisted"]["in_table_modules"], data["unlisted"]["other_modules"]), (3, 2))
 
     def test_invalid_and_duplicate_table_rows_never_lower_the_count(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
