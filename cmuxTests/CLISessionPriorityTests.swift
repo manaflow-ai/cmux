@@ -210,6 +210,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.process.stdout.contains("session priority:"), result.process.stdout)
     }
 
+    /// `status` is read-only and sends the window itself, so the global `--window` must not
+    /// focus it first.
+    func testSessionPriorityStatusWithGlobalWindowDoesNotFocusIt() throws {
+        let windowId = UUID().uuidString
+        for arguments in [
+            ["--window", windowId, "session-priority"],
+            ["--window", windowId, "session-priority", "status", "--json"],
+        ] {
+            let result = try runSessionPriorityCLI(
+                name: "session-priority-window",
+                arguments: arguments,
+                respond: { method, id in
+                    method == "session_priority.status"
+                        ? self.v2Response(id: id, ok: true, result: [
+                            "window_id": windowId, "enabled": true, "urgent_count": 1, "workspaces": [],
+                        ])
+                        : nil
+                }
+            )
+            XCTAssertEqual(result.process.status, 0, "\(arguments): \(result.process.stderr)")
+            let requests = result.commands.compactMap(jsonObject)
+            XCTAssertFalse(requests.contains { $0["method"] as? String == "window.focus" }, "\(result.commands)")
+            let status = try XCTUnwrap(requests.first { $0["method"] as? String == "session_priority.status" })
+            XCTAssertEqual((status["params"] as? [String: Any])?["window_id"] as? String, windowId)
+        }
+    }
+
     func testSessionPriorityStatusPrintsOffHeaderAndHandlesNullTargetAndNoPanes() throws {
         let workspaceId = UUID().uuidString
         let result = try runSessionPriorityCLI(
