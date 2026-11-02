@@ -229,9 +229,10 @@ fn a_flood_during_a_write_backoff_does_not_wake_the_writer_per_chunk() {
     {
         let mut state = log.state.lock().unwrap();
         state.store_failed();
-        // Just under the cap: the chunk below crosses the wake threshold
-        // without the cap's drop, so the backoff rule itself is checked.
-        state.pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES - 1024];
+        // Just under the wake threshold (half the cap): the chunk below
+        // crosses it without the cap's drop, so the backoff rule itself is
+        // checked.
+        state.pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES / 2 - 8];
     }
     store.writer.state.0.lock().unwrap().due = None;
     store.append(&id, &generation, b"one more chunk", None);

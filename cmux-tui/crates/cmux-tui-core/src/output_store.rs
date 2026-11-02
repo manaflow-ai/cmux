@@ -724,8 +724,15 @@ impl OutputStore {
             // the threshold, not on every chunk after it; never while a
             // snapshot-mode write backoff holds them (the writer's own
             // retry time wakes it).
-            if before < FULL_PENDING_WAKE_BYTES
-                && state.pending.len() >= FULL_PENDING_WAKE_BYTES
+            // Snapshot mode wakes at half its cap, so a flood a healthy disk
+            // can take is written before `append` would drop it.
+            let wake = if self.full.enabled() {
+                FULL_PENDING_WAKE_BYTES
+            } else {
+                TAIL_MAX_UNWRITTEN_BYTES / 2
+            };
+            if before < wake
+                && state.pending.len() >= wake
                 && (self.full.enabled() || state.retry_wait().is_none())
             {
                 state.dirty = true;

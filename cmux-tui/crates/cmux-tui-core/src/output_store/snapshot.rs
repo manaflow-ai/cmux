@@ -540,7 +540,9 @@ fn snapshot_written(
     state.snapshot_end = Some(stream_end);
     state.snapshot_generation = Some(generation.clone());
     state.snapshot_size = Some(size);
-    state.force_snapshot = false;
+    // Bytes after the snapshot's end that `append` dropped while it was
+    // written are in neither file: the next pass writes another snapshot.
+    state.force_snapshot = tail && state.pending_start > stream_end;
     if !tail {
         drop(state);
         // The snapshot covers a tail file left from snapshot mode. Off the
@@ -556,7 +558,9 @@ fn snapshot_written(
     state.pending_start += covered as u64;
     state.tail_end = Some(stream_end);
     state.tail_bytes = 0;
-    state.tail_digest = Some(digest);
+    // The digest names the stored content only when nothing was dropped
+    // after the snapshot's end.
+    state.tail_digest = (state.pending_start == stream_end).then_some(digest);
     state.tail_unsynced = false;
     drop(state);
     // The snapshot covers the tail file. Off the log's lock (the reader
