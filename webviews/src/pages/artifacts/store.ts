@@ -1,12 +1,21 @@
-// The Artifacts page's state owner: the synced tree and the chosen file. React reads it through
-// `useSyncExternalStore`; a reply for a file the person already left is dropped.
+// The Artifacts page's state owner: the synced tree, the chosen file, its history and the chosen
+// revision's change. React reads it through `useSyncExternalStore`; a reply for a file or revision
+// the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { ArtifactsOps, type ArtifactFile, type ArtifactsTree } from "./types";
+import {
+  ArtifactsOps,
+  type ArtifactCommit,
+  type ArtifactFile,
+  type ArtifactHistory,
+  type ArtifactsTree,
+} from "./types";
 
 /** Folders read for one tree: the platform lists one level per read. */
 export const MAX_FOLDERS = 200;
 /** Folder reads in flight at once. */
 const FOLDER_READS = 4;
+/** Revisions shown for a file. */
+export const HISTORY_LIMIT = 50;
 
 /** What went wrong, by the app's error code; the page words it. */
 export interface ArtifactsFailure {
@@ -27,9 +36,15 @@ export interface ArtifactsSnapshot {
   file?: ArtifactFile;
   fileLoading: boolean;
   fileFailure?: ArtifactsFailure;
+  history: ArtifactCommit[];
+  selectedCommit?: string;
+  /** The chosen revision's change could not be read; the file itself may still show. */
+  commitFailure?: ArtifactsFailure;
+  /** The chosen revision against its parent; `before` is absent for the file's first revision. */
+  diff?: { sha: string; before?: string; after: string };
 }
 
-const INITIAL: ArtifactsSnapshot = { status: "idle", paths: [], truncated: false, fileLoading: false };
+const INITIAL: ArtifactsSnapshot = { status: "idle", paths: [], truncated: false, fileLoading: false, history: [] };
 
 export class ArtifactsStore {
   private snapshot: ArtifactsSnapshot = INITIAL;
@@ -77,8 +92,8 @@ export class ArtifactsStore {
   }
 
   /**
-   * Opens `path` at the tree's head. `reload` reads the chosen file again and keeps what is shown
-   * until the new read arrives.
+   * Opens `path`: its content at the tree's head and its history, with the newest revision's change.
+   * `reload` reads the chosen file again and keeps what is shown until the new reads arrive.
    */
   async select(path: string, reload = false): Promise<void> {
     const client = this.client;
@@ -87,14 +102,68 @@ export class ArtifactsStore {
     const request = ++this.fileRequest;
     // Read at the tree's commit, so the preview matches the tree even if a save lands meanwhile.
     const head = this.snapshot.headSha;
-    if (!reload) this.set({ selected: path, file: undefined, fileLoading: true, fileFailure: undefined });
+    if (!reload)
+      this.set({
+        selected: path,
+        file: undefined,
+        fileLoading: true,
+        fileFailure: undefined,
+        history: [],
+        selectedCommit: undefined,
+        commitFailure: undefined,
+        diff: undefined,
+      });
     try {
-      const file = await client.call<ArtifactFile>(ArtifactsOps.file, head ? { path, ref: head } : { path });
+      const [file, history] = await Promise.all([
+        client.call<ArtifactFile>(ArtifactsOps.file, head ? { path, ref: head } : { path }),
+        client.call<ArtifactHistory>(
+          ArtifactsOps.history,
+          head ? { path, ref: head, limit: HISTORY_LIMIT } : { path, limit: HISTORY_LIMIT },
+        ),
+      ]);
       if (request !== this.fileRequest) return;
-      this.set({ file, fileLoading: false, fileFailure: undefined });
-      this.fileHead = head;
+      this.set({ file, history: history.commits, fileLoading: false, fileFailure: undefined });
+      const newest = history.commits[0];
+      // Read at this head only once its newest change shows too; otherwise a refresh tries again.
+      if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileLoading: false, fileFailure: failureOf(error) });
+    }
+  }
+
+  /** Shows `commit`'s change to the chosen file; the chosen revision again only to retry a failed read. */
+  async selectCommit(commit: ArtifactCommit): Promise<void> {
+    if (!this.client || !this.snapshot.selected) return;
+    if (commit.sha === this.snapshot.selectedCommit && this.snapshot.diff?.sha === commit.sha) return;
+    await this.showCommit(commit, ++this.fileRequest);
+  }
+
+  /** Whether `commit`'s change now shows (false: it failed, or the person moved on). */
+  private async showCommit(commit: ArtifactCommit, request: number, head?: ArtifactFile): Promise<boolean> {
+    const client = this.client;
+    const path = this.snapshot.selected;
+    if (!client || !path) return false;
+    // Reading the same revision again (a refresh) keeps its change on screen meanwhile.
+    const same = this.snapshot.diff?.sha === commit.sha;
+    this.set({ selectedCommit: commit.sha, commitFailure: undefined, ...(same ? {} : { diff: undefined }) });
+    const text = async (ref: string) => textOf(await client.call<ArtifactFile>(ArtifactsOps.file, { path, ref }));
+    try {
+      const parent = commit.parents[0];
+      const [after, before] = await Promise.all([
+        head && head.commit === commit.sha ? textOf(head) : text(commit.sha),
+        // A parent where the file did not exist yet answers not found: the file was added.
+        parent
+          ? text(parent).catch((error: unknown) =>
+              failureOf(error).code === "cmux.artifacts.not_found" ? undefined : Promise.reject(error),
+            )
+          : undefined,
+      ]);
+      if (request !== this.fileRequest) return false;
+      this.set({ diff: { sha: commit.sha, before, after: after ?? "" } });
+      return true;
+    } catch (error) {
+      if (request === this.fileRequest) this.set({ commitFailure: failureOf(error) });
+      return false;
     }
   }
 

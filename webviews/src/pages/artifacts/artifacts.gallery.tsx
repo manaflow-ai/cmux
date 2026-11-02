@@ -48,7 +48,7 @@ export default componentEntry<Props>({
       props: { open: "artifacts/release-dashboard/index.html" },
     },
     memory: {
-      note: "A synced memory note as text.",
+      note: "A synced memory note with two revisions: the newest one's change against its parent.",
       props: { open: "memory/claude/artifacts-pane.md" },
     },
     empty: { note: "Nothing saved yet.", props: { kind: "empty" } },
