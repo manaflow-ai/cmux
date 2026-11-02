@@ -1,9 +1,8 @@
 // l10n-allow-file: synthetic prompt fixtures, not shipped UI.
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as marked from "marked";
-import { currentChatMetrics, setChatDisplay } from "./chatDisplay";
+import { setChatDisplay } from "./chatDisplay";
 import { layoutConversation, type AcpmuxRow } from "./model";
-import { BUBBLE } from "./transcriptSpacing";
 
 const text = "Describe this synthetic onboarding fixture";
 const long = "A long ordinary prompt about a session and its next sensible step. ".repeat(8).trim();
@@ -97,10 +96,13 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
 // The rule's parser-backed height, without the 36 of row chrome #27580 moved to the stack's gap:
 // its 2px rule inside the bubble's block padding, which a one-line bubble's 44 sets (#31719).
 test("hyphen thematic breaks keep their original parser-backed height", () => {
-  for (const font of [14, 20]) {
+  // 2 + (44 - 22.75) at font 14, 2 + (44 - 32.5) at font 20.
+  for (const [font, expected] of [
+    [14, 23.25],
+    [20, 13.5],
+  ] as const) {
     setChatDisplay({ "agentPane.display.font.size": font });
-    const padding = Math.max(8, BUBBLE.oneLine - currentChatMetrics().lineHeight);
-    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(padding + 2);
+    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(expected);
   }
 });
 
