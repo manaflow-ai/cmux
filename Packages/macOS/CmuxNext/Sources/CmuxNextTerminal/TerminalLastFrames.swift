@@ -65,7 +65,8 @@ public struct TerminalLastFrames {
     public static let frameCostBytes: UInt64 = 24 << 20
 
     /// The warm set evicts `session` (`key`), still in its window: keeps its frame, unless the
-    /// eviction is a pressure drop (`atOnce`). Whatever the screen holds: the frame is what the pane
+    /// eviction is a pressure drop (`atOnce`). `capacity` is the warm set's; the store keeps more
+    /// (``capacity(warm:)``). Whatever the screen holds: the frame is what the pane
     /// shows when a switch shows it again (SWITCH FRAMES SF-2: a one-line screen kept no frame, so the
     /// switch frame showed an empty pane). Whether it is worth a hover picture is the frame's own
     /// ``TerminalLastFrame/showsOutput``.
@@ -74,7 +75,7 @@ public struct TerminalLastFrames {
         guard !atOnce, capacity > 0 else { return note("evicted_at_once") }
         guard let frame = TerminalLastFrame(of: session, showsOutput: session.showsOutput) else { return note("evicted_no_frame") }
         note("kept")
-        for _ in insert(frame, for: key, capacity: capacity) { note("dropped") }
+        for _ in insert(frame, for: key, capacity: Self.capacity(warm: capacity)) { note("dropped") }
     }
 
     /// `key`'s new session draws now: it shows the frame that waits for it, if any.
