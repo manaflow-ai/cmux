@@ -1056,3 +1056,5 @@ An empty group now keeps only its header at rest. The header's existing + appear
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
 0075119003a, 19aed8cb69b, 876f8cdf5fc, 0137a6a9787, fda89c002c8, d8104ae97a6, 5218136c15f, db179b9bc0f.
+
+Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-Look: no visual change; their remaining sidebar hunks were removed in the recut fix.
