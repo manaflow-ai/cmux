@@ -174,8 +174,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b56c249006d8442bd9011921356a5578ec1c0a3d/CCmuxAppFFI.xcframework.zip",
-    checksum: "9e2608d54e80eabc0178759bdec6ec570f5019158a0ed7eca79f7224dfe150a4"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2b457e203eac4a8d1c5a5478f223241e4a08c1a2/CCmuxAppFFI.xcframework.zip",
+    checksum: "9115c825073718125519e5ae1e8c13c33cf74ed248cf67dadab0941ce511abb1"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -214,7 +214,8 @@ let packageProducts: [Product] = [
 let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudCredentials",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat"],
+            // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -399,10 +400,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPalette", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
+                .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
             swiftSettings: uiSwiftSettings

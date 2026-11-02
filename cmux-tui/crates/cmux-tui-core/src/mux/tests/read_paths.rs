@@ -198,7 +198,7 @@ fn scoped_pane_and_tab_lists_read_only_their_workspace() {
     for _ in 0..2 {
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        mux.split(pane, crate::SplitDir::Right, Some((80, 24))).unwrap();
+        mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap();
         mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
     }
     let snapshot = resource(&mux, "session.snapshot", json!({}));
@@ -234,19 +234,19 @@ fn scoped_pane_and_tab_lists_read_only_their_workspace() {
         )
     };
     let cases = [
-        ("pane.list", json!({"workspace": workspace}), Value::Array(panes.clone())),
+        ("pane.list", json!({"workspace": workspace}), Value::Array(panes)),
         ("tab.list", json!({"pane": pane}), tabs_of(&|id| id == pane)),
         ("tab.list", json!({"workspace": workspace}), tabs_of(&|id| pane_ids.contains(id))),
     ];
     assert!(pane_ids.len() >= 2, "the workspace has two panes: {snapshot}");
     for (operation, scope, expected) in cases {
         assert!(expected.as_array().is_some_and(|rows| !rows.is_empty()), "{operation} {scope}");
-        let reads = crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test();
+        let reads = WorkspaceRegistry::full_topology_reads_for_test();
         let mut listed = Value::Null;
         let touched = touched(&mux, || listed = resource(&mux, operation, scope.clone()));
         assert_eq!(listed, expected, "{operation} {scope} equals the snapshot's rows");
         assert_eq!(
-            crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test(),
+            WorkspaceRegistry::full_topology_reads_for_test(),
             reads,
             "{operation} {scope} read the whole topology"
         );
@@ -256,5 +256,84 @@ fn scoped_pane_and_tab_lists_read_only_their_workspace() {
             .collect::<Vec<_>>();
         assert!(extra.is_empty(), "{operation} {scope} read {extra:?}");
         assert!(touched.written.is_empty(), "{operation} {scope} wrote {:?}", touched.written);
+    }
+}
+
+/// CLI-1 (STATUS 6460): `terminal.list --pane` (a third of the L1 storm's
+/// lists) built the whole session snapshot under the registry and state
+/// locks, the largest lock holder under L6, and kept one pane's terminals.
+/// A terminal list scoped to a workspace, screen or pane reads that
+/// workspace's tabs and their terminals' rows only, with the same values in
+/// the same order.
+#[test]
+fn a_scoped_terminal_list_reads_only_its_workspace() {
+    let mux = test_mux();
+    for _ in 0..2 {
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap();
+        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    }
+    let snapshot = resource(&mux, "session.snapshot", json!({}));
+    let rows = |collection: &str| snapshot[collection].as_array().unwrap().clone();
+    let pane = rows("panes")[0]["id"].as_str().unwrap().to_string();
+    let screen = rows("panes")[0]["screen_id"].as_str().unwrap().to_string();
+    let workspace = rows("screens")
+        .into_iter()
+        .find(|value| value["id"] == screen.as_str())
+        .unwrap()["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let screens = rows("screens")
+        .into_iter()
+        .filter(|value| value["workspace_id"] == workspace.as_str())
+        .map(|value| value["id"].as_str().unwrap().to_string())
+        .collect::<BTreeSet<_>>();
+    let panes = rows("panes")
+        .into_iter()
+        .filter(|value| screens.contains(value["screen_id"].as_str().unwrap()))
+        .map(|value| value["id"].as_str().unwrap().to_string())
+        .collect::<BTreeSet<_>>();
+    let tabs_in = |keep: &dyn Fn(&str) -> bool| {
+        rows("tabs")
+            .into_iter()
+            .filter(|value| keep(value["pane_id"].as_str().unwrap()))
+            .map(|value| value["id"].as_str().unwrap().to_string())
+            .collect::<BTreeSet<_>>()
+    };
+    let terminals_of = |tabs: BTreeSet<String>| {
+        Value::Array(
+            rows("terminals")
+                .into_iter()
+                .filter(|terminal| {
+                    terminal["tab_ids"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .chain(terminal.get("tab_id"))
+                        .filter_map(Value::as_str)
+                        .any(|tab| tabs.contains(tab))
+                })
+                .collect(),
+        )
+    };
+    let cases = [
+        (json!({"pane": pane}), terminals_of(tabs_in(&|id| id == pane))),
+        (json!({"screen": screen}), terminals_of(tabs_in(&|id| panes.contains(id)))),
+        (json!({"workspace": workspace}), terminals_of(tabs_in(&|id| panes.contains(id)))),
+    ];
+    assert!(panes.len() >= 2, "the workspace has two panes: {snapshot}");
+    for (scope, expected) in cases {
+        let count = expected.as_array().map_or(0, Vec::len);
+        assert!(count >= 1, "terminal.list {scope} has terminals to list");
+        let reads = WorkspaceRegistry::full_topology_reads_for_test();
+        let listed = resource(&mux, "terminal.list", scope.clone());
+        assert_eq!(listed, expected, "terminal.list {scope} equals the snapshot's terminals");
+        assert_eq!(
+            WorkspaceRegistry::full_topology_reads_for_test(),
+            reads,
+            "terminal.list {scope} read the whole topology"
+        );
     }
 }

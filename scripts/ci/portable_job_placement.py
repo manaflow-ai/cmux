@@ -320,6 +320,11 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             now = dt.datetime.now(dt.timezone.utc)
             runners, snapshot = read(env, now, use_state=False)
             placed = decide(env, runners, snapshot, now)
+            # A re-read that can no longer see capacity (a refused or rate-limited
+            # API, a stale snapshot) ends the wait, as an unread first read does:
+            # waiting out the rest of the three minutes cannot place anything.
+            if runners is None or pool.snapshot_problem(snapshot, now):
+                break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
     except Deadline:

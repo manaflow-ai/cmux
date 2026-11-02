@@ -713,3 +713,28 @@ async fn a_held_prompt_approved_from_the_web_is_dropped_when_the_policy_stops_as
     assert!(!events.contains("echo: guest-words"), "the harness got the prompt: {events}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// The Mac's mobile chat relay (cmux-tui `mobile_chat.rs`) reaches acpmux over the
+/// local unix socket and stamps every phone prompt `via: cloud-mobile`. That
+/// prompt keeps the Cloud mobile floor: in a mode that does not ask it is refused,
+/// though the same connection's own (unmarked) prompt still runs.
+#[tokio::test]
+async fn a_local_cloud_mobile_prompt_in_a_mode_that_does_not_ask_is_refused() {
+    let d = dir("cloud-mobile");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let s = local.new_session(&d).await;
+    let r = local
+        .call("session/set_mode", json!({"sessionId": s, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let phone = json!({
+        "sessionId": s,
+        "prompt": [{"type": "text", "text": "from the phone"}],
+        "_meta": {"acpmux": {"promptId": "phone-1", "via": "cloud-mobile"}},
+    });
+    let r = local.call("session/prompt", phone).await;
+    assert!(r.get("error").is_some(), "a phone prompt ran in bypassPermissions: {r}");
+    assert!(local.prompt(&s, "mine").await.get("error").is_none());
+    let _ = std::fs::remove_dir_all(&d);
+}

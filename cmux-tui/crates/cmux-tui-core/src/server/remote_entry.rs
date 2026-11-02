@@ -256,7 +256,12 @@ fn serve_remote_connection(
         Some(cmux_link::stamp::StampCheck::NativeLinkToken { vm_kind, .. }) => Some(vm_kind),
         _ => None,
     };
-    let admission = RemoteAdmission { peer, gate, native_vm_kind };
+    let admission = RemoteAdmission {
+        peer,
+        gate,
+        native_vm_kind,
+        cloud_token: matches!(check, Some(cmux_link::stamp::StampCheck::LinkToken { .. })),
+    };
     serve_line_connection(
         mux,
         stream,
@@ -307,11 +312,12 @@ struct RemoteAdmission {
     peer: RemotePeer,
     native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     gate: Arc<dyn RemoteGate>,
+    cloud_token: bool,
 }
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
-        if mux.bind_remote_peer(client, &self.peer).is_err() {
+        if mux.bind_remote_peer_checked(client, &self.peer, self.cloud_token).is_err() {
             return false;
         }
         // No peer-controlled frame has run yet. This field is never set by

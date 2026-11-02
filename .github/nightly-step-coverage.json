@@ -125,6 +125,9 @@
         "Give this job its own bun": {"plumbing": true},
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
+      "check-nightly-webviews": {
+        "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"}
+      },
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this Linux runner lacks it": {"plumbing": true},
@@ -215,7 +218,11 @@
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
+        "Read the final DMG's image for the parallel launch smoke": {"nightly_only": "hashes the final notarized DMG's image (dmg_image_digest.py, tested by tests/test_nightly_parallel_launch_smoke.py) so publish-nightly matches it to the image launch-smoke-nightly smoked; only a release run has one"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
+      "launch-smoke-nightly": {
+        "Check the DMG is the one signer-dmg signs": {"nightly_only": "checks the release-pool unsigned DMG's digest and records its image (dmg_image_digest.py, tested by tests/test_nightly_parallel_launch_smoke.py); only a release run has one"},
+        "Launch smoke from a fresh home": {"nightly_only": "launches the release-pool DMG's app from a fresh home in the console session while signer-dmg signs it; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"}},
       "signer-build": {"Set up Rust": {"plumbing": true},
         "Build the signer": {"nightly_only": "builds the pinned release signer; the build script's pins are tested by tests/test_release_signer_scripts.py"}},
       "signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Prepare the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
@@ -392,6 +399,7 @@
       "publish-nightly-identity-legacy": {
         "Take the old feed's publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
         "Release the old feed's publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
+        "Hold a build with a known-bad commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit"},
         "Read the old feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
