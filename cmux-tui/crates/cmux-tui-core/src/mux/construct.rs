@@ -277,6 +277,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
+            state_commit_after_apply: Mutex::new(None),
+            #[cfg(test)]
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
@@ -330,7 +332,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::new(()),
+            agent_roster_fold: Mutex::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),

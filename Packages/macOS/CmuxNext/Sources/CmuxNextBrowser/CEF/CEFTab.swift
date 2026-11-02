@@ -571,6 +571,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentFiles.withdraw()
         titleTimer.cancel()
         settleTimer.cancel()
+        devToolsController.openTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {
