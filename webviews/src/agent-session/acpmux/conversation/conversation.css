@@ -58,7 +58,12 @@
   --cv-message-gap: 0px;
   --cv-turn-gap: 0px;
   --cv-continuation-gap: 0px;
-  --cv-tool-row-height: var(--grid-row);
+  /* One-line activity rows (tool runs, calls, notices, inbox and message lines) sit 22 apart top to
+     top, flush, as Codex lists them (design/chat-transcript.md "One-line row pitch", #29965; Leo,
+     2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
+     28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
+     there's sometimes too much spacing between tool calls"). */
+  --cv-tool-row-height: 22px;
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
@@ -79,7 +84,7 @@
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
-  --cv-disclosure-line-height: var(--grid-row);
+  --cv-disclosure-line-height: var(--cv-tool-row-height);
   /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,
      2026-10-30: "see how claude code has those centered tool calls / id like more alignment too"):
      the block gap on both sides already centres it, so the status gaps add nothing (model.ts
@@ -90,7 +95,7 @@
   /* #30865's reply room and #30400's note gap on the grid: the stack's block gap is the room under a
      reply and around a note, so neither adds its own. */
   --cv-reply-room: 0px;
-  --cv-note-gap: 0px;
+  --cv-note-gap: var(--grid-gap-block);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -1999,7 +2004,8 @@ pre.cv-math-source {
 .cv-tools {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
+  gap: 0;
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -2661,7 +2667,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool-group {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  gap: 0;
   margin: 0;
   padding-left: var(--grid-icon-box);
   box-shadow: inset 1px 0 var(--cv-rule);
@@ -3167,7 +3173,7 @@ button.cv-video-frames__frame:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
-  height: var(--grid-row);
+  height: var(--cv-tool-row-height);
   box-sizing: border-box;
   padding-block: 0;
   padding-inline: 0;
@@ -5380,9 +5386,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-tool-run {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
+  gap: 0;
 }
-.cv-tool-note { margin: 0; }
 .cv-tool-label {
   display: inline-flex;
   max-width: 100%;

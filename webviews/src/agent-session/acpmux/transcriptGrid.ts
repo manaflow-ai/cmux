@@ -29,6 +29,10 @@ export const MARK_MESSAGE = 2;
 export const MARK_INDICATOR = 3;
 /// A settled turn's footer: no height of its own, its action row laid in the gap under the reply.
 export const MARK_FOOTER = 4;
+/// A step row: a tool run or a one-line activity row (model.ts `isLineRow`). Consecutive step rows
+/// sit flush, one 22px line apart top to top (design/chat-transcript.md "One-line row pitch", #29965);
+/// the block gap is around a run of them only.
+export const MARK_STEP = 5;
 
 type MarkedRow = { kind: string; incoming?: unknown; received?: unknown; text?: string };
 export function rowMark(row: MarkedRow): number {
@@ -46,6 +50,7 @@ export function transcriptGap(previous: number, next: number): number {
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if (next === MARK_INDICATOR && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
+  if (previous === MARK_STEP && next === MARK_STEP) return 0;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

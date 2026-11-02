@@ -1,6 +1,7 @@
 import {
   footerAfter,
   gridLength,
+  MARK_STEP,
   rowMark,
   gridScale,
   restBand,
@@ -1094,7 +1095,9 @@ function replyHeight(reply: string): number {
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
-const TOOL_ROW_PT = gridLength("row");
+/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`.
+const TOOL_ROW_PT = 22;
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -1108,12 +1111,12 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
 /// the plain status gap above and below it.
 const NOTE_LINE = 20;
-/// The room around a note (#30400's --cv-note-gap): 0 on the grid, where the run's block gap between
-/// its lines is the room (conversation.css `.cv-tool-note { margin: 0 }`, foldedRunSteps).
-const NOTE_GAP = 0;
+/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
+/// otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
-  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
+  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * noteGap() : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return toolRowHeight();
@@ -1163,14 +1166,13 @@ function activityStepHeight(item: AcpmuxActivity): number {
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
 function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
-  // `.cv-tools` and `.cv-tool-run` stack their children with the block gap (conversation.css).
+  // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
-  const children = stretches.reduce((count, stretch) => count + (stretch.fold ? 1 : stretch.groups.length), 0);
   return stretches.reduce(
     (height, stretch) =>
       height +
       (stretch.fold ? toolRowHeight() : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
-    Math.max(0, children - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
+    0,
   );
 }
 
@@ -1178,12 +1180,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup): number {
   if (group.type === "group" || group.type === "send") return toolRowHeight();
-  // `.cv-tool-group` stacks its calls with the block gap too.
+  // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
-  return items.reduce(
-    (sum, item) => sum + activityStepHeight(item),
-    Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
-  );
+  return items.reduce((sum, item) => sum + activityStepHeight(item), 0);
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
@@ -1567,8 +1566,7 @@ function fallbackRowHeight(
     }
     const items = row.items ?? [];
     const steps = items.length
-      ? items.reduce((height, item) => height + activityStepHeight(item), 0) +
-        Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale
+      ? items.reduce((height, item) => height + activityStepHeight(item), 0)
       : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
@@ -2108,7 +2106,8 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    marks[index] = rowMark(row);
+    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
+    marks[index] = row.kind === "activity" || isLineRow(row) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
