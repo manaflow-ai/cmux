@@ -93,11 +93,12 @@ final class PendingWorkspaceRows {
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
     /// Also while its slot is not sent (`unsentSlots`: the placement's own rows pass runs before its move) or the document
     /// does not place it yet (the document lists it last until its next projection): its own row drew at the end first.
-    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+    /// `doc`: the app's own sidebar document.
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry, doc: SidebarDocument) -> [SidebarRowSection] {
         Self.removing(ids(in: window) { id in
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
-            guard unsentSlots.contains(id) || SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
+            guard unsentSlots.contains(id) || doc.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
         }, from: listed)
