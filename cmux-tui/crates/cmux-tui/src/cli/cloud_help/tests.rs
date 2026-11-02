@@ -177,7 +177,8 @@ fn quick_start_commands_parse() {
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .collect::<Vec<_>>();
-        assert_eq!(commands.len(), 6, "{commands:?}");
+        // Five `cmux cloud` lines; the quick start's create is `cmux machine new`.
+        assert_eq!(commands.len(), 5, "{commands:?}");
         for command in commands {
             let words = shell_words(command)
                 .into_iter()
@@ -204,7 +205,7 @@ fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
         assert!(text.contains("cmux machine new"), "{text}");
         let help = verb_help("new-machine", japanese).unwrap();
         assert!(help.contains("cmux machine new"), "{help}");
-        assert!(help.contains("cmux cloud new-machine --size"), "{help}");
+        assert!(help.contains("cmux cloud new-machine [--size"), "{help}");
     }
     for (old, _) in HIDDEN {
         assert!(find(old).is_some(), "{old} is hidden but not a verb");
