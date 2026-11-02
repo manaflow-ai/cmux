@@ -33,11 +33,11 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
         else:
             steps.append(dict(OPEN_KEY, mark=f"open-r{r}", title="open DevTools: real Cmd-Opt-I"))
         steps += [{"do": "bv_devtools", "page": page, "open": True, "timeout": 5},
-                  {"do": "wait", "seconds": 1.8 if r == 0 else 1.2}, {"do": "bv_state", "page": page, "as": "open"},
+                  {"do": "wait", "seconds": 1.2 if r == 0 else 0.6}, {"do": "bv_state", "page": page, "as": "open"},
                   {"do": "wait", "seconds": 0.3},
                   dict(OPEN_KEY, mark=f"close-r{r}", title="close DevTools: real Cmd-Opt-I"),
                   {"do": "bv_devtools", "page": page, "open": False, "timeout": 5},
-                  {"do": "wait", "seconds": 1.0}, {"do": "bv_state", "page": page, "as": "after"},
+                  {"do": "wait", "seconds": 0.4}, {"do": "bv_state", "page": page, "as": "after"},
                   {"do": "video_stop", "name": name, "tail": 0.2}, {"do": "wait", "seconds": 0.5}]
     return {"id": jid, "priority": "P1",
             "title": f"Video: DevTools docked {dock} open and close (real Cmd-Opt-I), {page} page, {theme}, recorded every frame",

@@ -16,7 +16,7 @@ Steps (`do`):
   bv_state       {page, as}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
                                             scheme, plus debug.cef's DevTools frames; kept in the recording's notes
   bv_action      {action, as?, args?}        action.run with origin user; its send time kept under `as`
-  bv_devtools    {page, open?: true, timeout?: 5}  waits for the DevTools state; a StepError when it does not come
+  bv_devtools    {page, open?: true, timeout?: 5, quiet?: 0.6}  waits for the DevTools state; a StepError when it does not come
   bv_agent       {action, as?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
                                             kept in the recording's notes under `as`
 """
@@ -160,7 +160,9 @@ def step_bv_devtools(j, step):
         rows = (j.app.rpc("debug.cef") or {}).get("devtools") or []
         row = next((r for r in rows if isinstance(r, dict) and (not tab or r.get("tab") == tab)), None)
         return row if row is not None and bool(row.get("open")) == want else None
-    row = _wait(match, float(step.get("timeout", 5)), 0.05)
+    # No socket call in the first `quiet` s after the key: the frames under test are not shared with a main-actor report.
+    time.sleep(float(step.get("quiet", 0.6)))
+    row = _wait(match, float(step.get("timeout", 5)), 0.1)
     if row is None:
         raise D.StepError("bv_devtools: DevTools of tab %s did not become %s: %s" % (
             tab, "open" if want else "closed", json.dumps((j.app.rpc("debug.cef") or {}).get("devtools"))[:400]))

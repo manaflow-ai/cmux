@@ -75,7 +75,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.8
+   "seconds": 1.2
   },
   {
    "do": "bv_state",
@@ -104,7 +104,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
@@ -161,7 +161,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 0.6
   },
   {
    "do": "bv_state",
@@ -190,7 +190,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
@@ -247,7 +247,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 0.6
   },
   {
    "do": "bv_state",
@@ -276,7 +276,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
@@ -333,7 +333,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 0.6
   },
   {
    "do": "bv_state",
@@ -362,7 +362,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
@@ -419,7 +419,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 0.6
   },
   {
    "do": "bv_state",
@@ -448,7 +448,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
@@ -505,7 +505,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.2
+   "seconds": 0.6
   },
   {
    "do": "bv_state",
@@ -534,7 +534,7 @@
   },
   {
    "do": "wait",
-   "seconds": 1.0
+   "seconds": 0.4
   },
   {
    "do": "bv_state",
