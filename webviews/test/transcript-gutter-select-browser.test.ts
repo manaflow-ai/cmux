@@ -88,30 +88,15 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const column = node.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: column.left, right: column.right };
     }, id);
-  /// Press the empty gap under row `above`. On the layout grid (#27580, leo-workspace design/grid.md
-  /// 5.5) that gap is the stack's: rows carry no trailing padding (their `.acpmux-row__gap` target is
-  /// 0 tall), and the virtual stack places the next row one block gap below, over the bare thread. So
-  /// the press point is the middle of the band between this row's box and the next row's, in the
-  /// column, and it must hit an empty transcript box there (the thread, or a row's own gap target
-  /// where a row still keeps padding), never a row's content or a control.
+  /// Press the explicit empty row padding. The midpoint between prose boxes can hit the
+  /// reply's action footer, which must retain native control ownership.
   const gapAfter = (page: Page, above: string) =>
     page.evaluate((id) => {
-      const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!;
-      const rect = row.getBoundingClientRect();
-      const next = [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
-        .map((each) => each.getBoundingClientRect())
-        .filter((each) => each.height > 0 && each.top >= rect.bottom - 0.5)
-        .sort((a, b) => a.top - b.top)[0];
-      const own = row.querySelector<HTMLElement>(':scope > [data-transcript-gap="row"]')!.getBoundingClientRect();
-      const top = own.height > 0 ? own.top : rect.bottom;
-      const bottom = next ? next.top : top;
-      const point = { x: (rect.left + rect.right) / 2, y: (top + bottom) / 2 };
-      const hit = document.elementFromPoint(point.x, point.y);
-      const empty =
-        hit !== null &&
-        (hit.classList.contains("acpmux-thread") || hit.getAttribute("data-transcript-gap") === "row");
-      if (bottom - top <= 0 || !empty)
-        throw new Error(`No exposed row gap after ${id} (${bottom - top}px, hit ${hit?.className ?? "nothing"})`);
+      const gap = document.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-transcript-gap="row"]`)!;
+      const rect = gap.getBoundingClientRect();
+      const point = { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 };
+      if (rect.height <= 0 || document.elementFromPoint(point.x, point.y) !== gap)
+        throw new Error(`No exposed row gap after ${id}`);
       return point;
     }, above);
   /// Waits for the transcript to draw rows (`prefix`'s, when given): React commits the shown rows after
