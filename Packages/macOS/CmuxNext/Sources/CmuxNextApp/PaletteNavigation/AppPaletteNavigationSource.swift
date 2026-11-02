@@ -39,7 +39,8 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
                 return services.registry.refuse(RefusalStrings.noWorkspaceGroup(entry.id))
             }
         case .pane:
-            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user))
+            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user)
+                .onMachine(entry.machineID ?? MachineRegistry.localID)) // forks keep pane ids (cmux#30755)
         case .tab:
             guard services.revealTab(entry.id) else { return services.registry.refuse(TabSearchAppStrings.tabGone) }
         }

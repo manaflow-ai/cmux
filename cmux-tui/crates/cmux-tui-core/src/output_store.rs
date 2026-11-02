@@ -880,6 +880,23 @@ impl OutputStore {
         }
     }
 
+    /// The terminal was resized: snapshot mode asks the writer for a pass,
+    /// whose capture sees the new size and (once it has held for the settle
+    /// time) writes the snapshot at it, or schedules the retry. Without this,
+    /// a program that prints nothing after a resize left the stored screen
+    /// at the old size until its next output. Memory only: no disk work here.
+    pub(crate) fn resized(&self, terminal_id: &TerminalPublicId) {
+        if !self.tail_enabled() {
+            return;
+        }
+        let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        else {
+            return;
+        };
+        self.mark_log_dirty(&log);
+    }
+
     /// The person cleared this terminal's history: drop the stored output
     /// (memory tail, segment files) and write the snapshot at once.
     pub(crate) fn history_cleared(&self, terminal_id: &TerminalPublicId) {

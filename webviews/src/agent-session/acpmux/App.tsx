@@ -13796,13 +13796,8 @@ function AcpmuxPane() {
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId && (
-                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
-                        )}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !diffFiles && !inspectorOpen,

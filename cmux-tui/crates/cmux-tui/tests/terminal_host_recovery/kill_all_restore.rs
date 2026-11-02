@@ -127,8 +127,9 @@ fn kill_all_restores_the_exact_screen_and_scrollback_then_the_session_line() {
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "exact", &home);
     // 400 numbered lines in a 40-row terminal: the screen and 360 rows of
     // scrollback, as in the film.
-    send_line(&harness.socket, surface, "seq -f 'f3-line-%g' 1 400");
-    send_line(&harness.socket, surface, "printf 'f3-%s\\n' done");
+    // One command line: a second line typed ahead is echoed and run at a
+    // shell-dependent place (dash prints its prompt before the output).
+    send_line(&harness.socket, surface, "seq -f 'f3-line-%g' 1 400; printf 'f3-%s\\n' done");
     wait_for_screen(&harness.socket, surface, "f3-done\n");
     // A few seconds, far less than the 30 s snapshot interval: the screen
     // is settled, as it was when the film killed everything.
@@ -226,7 +227,7 @@ fn kill_all_while_output_streams_restores_every_line_but_the_last_moment() {
 
 /// The directory line the probe with `label` printed.
 fn read_cwd(socket: &Path, surface: u64, label: &str) -> String {
-    let prefix = format!("{label}=/");
+    let prefix = format!("{label}=");
     let screen = wait_for_screen(socket, surface, &prefix);
     screen
         .lines()
@@ -238,9 +239,16 @@ fn read_cwd(socket: &Path, surface: u64, label: &str) -> String {
 
 /// A probe that prints `$PWD` after `label=`; the label is split in the
 /// typed command, so only the shell's output matches it.
-fn cwd_probe(label: &str) -> String {
+/// The shell compares its `$PWD` with `expected` itself and prints `same`,
+/// else its `$PWD`: a long path would wrap across screen rows, a short
+/// answer never does.
+fn cwd_probe(label: &str, expected: &Path) -> String {
     let (head, rest) = label.split_at(2);
-    format!("printf '{head}''{rest}=%s\\n' \"$PWD\"")
+    format!(
+        "if [ \"$PWD\" = '{}' ]; then printf '{head}''{rest}=%s\\n' same; \
+         else printf '{head}''{rest}=%s\\n' \"$PWD\"; fi",
+        expected.display()
+    )
 }
 
 /// The respawned shell keeps the directory as the path string it was given:
@@ -251,10 +259,10 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let mut harness = production_harness("kill-all-cwd");
     let (real, link) = symlinked_directory(&harness);
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "cwd", &link);
-    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-before"));
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-before", &link));
     assert_eq!(
         read_cwd(&harness.socket, surface, "f3-cwd-before"),
-        format!("f3-cwd-before={}", link.display()),
+        "f3-cwd-before=same",
         "the shell started in {} reports its real path {}",
         link.display(),
         real.display()
@@ -264,10 +272,10 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let surface = respawned_surface(&harness, &terminal_id, &incarnation);
     wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
     // Its own label: the restored screen holds the first probe's line.
-    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-after"));
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-after", &link));
     assert_eq!(
         read_cwd(&harness.socket, surface, "f3-cwd-after"),
-        format!("f3-cwd-after={}", link.display()),
+        "f3-cwd-after=same",
         "the respawned shell reports the real path {} instead of {}",
         real.display(),
         link.display()
@@ -416,7 +424,10 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
     let harness = production_harness("resize-storm");
     let home = harness.dir.clone();
     let (_terminal_id, _incarnation, surface) = start_shell_in(&harness, "storm", &home);
-    send_line(&harness.socket, surface, "printf 'storm-ready\\n'");
+    // A program that prints nothing on a resize (a shell such as bash
+    // redraws its prompt on SIGWINCH, dash does not): the resize alone must
+    // bring the snapshot at the new size.
+    send_line(&harness.socket, surface, "printf 'storm-ready\\n'; exec cat");
     wait_for_screen(&harness.socket, surface, "storm-ready\n");
     std::thread::sleep(Duration::from_secs(1));
     let snapshot = || {
