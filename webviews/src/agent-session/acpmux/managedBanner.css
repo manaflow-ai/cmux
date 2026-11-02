@@ -8,6 +8,6 @@
 .acpmux-managed-name{color:var(--agent-text);font-weight:600}
 button.acpmux-managed-name{border:0;padding:0;background:none;font:inherit;font-weight:600}
 button.acpmux-managed-name:hover{text-decoration:underline}
-.acpmux-managed-take-over{flex:none;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:6px;padding:1px 8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
+.acpmux-managed-take-over{flex:none;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:6px;padding:0 var(--ds-space-2);min-height:20px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
 .acpmux-managed-take-over:hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--agent-input-bg))}
 .acpmux-managed-banner button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
