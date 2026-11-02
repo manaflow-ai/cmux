@@ -90,6 +90,7 @@ const actions = {
   listJobsForWorkflowRun: async (params) => ({ data: { jobs: listJobs(params) } }),
 };
 const github = {
+  hook: { wrap: () => {} }, // Quota retry behavior is covered by admission tests.
   rest: {
     actions,
     checks: {

@@ -123,11 +123,13 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # This gate only resolves the fixed revision and publication decision.
-    # Keep its default on the hosted runner so a busy paid Linux pool cannot
-    # delay every nightly before the macOS work is admitted; retain the normal
-    # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Main metadata bootstrap, and NEXT's first push attempt: use the shared
+    # owned nightly pool even when routing metadata is absent or still names a
+    # paid runner. A retry is not proof of a fleet no-start, so it does not
+    # authorize paid overflow.
+    # There is no preceding picker; bounded overflow needs controller admission.
+    # The nightly slot refuses RC/dogfood refs; keep their existing route.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -500,7 +502,8 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # One header-directed quota-reset wait (at most 65m), then the guard/move.
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -526,6 +529,27 @@ jobs:
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
+      # Reads in the promotion decision use the quota-isolated route App when
+      # available. The release App below still owns the protected branch move;
+      # this token has read-only permissions and cannot publish anything.
+      - name: Mint the quota-isolated read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-checks: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Decide the promotion
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -535,9 +559,11 @@ jobs:
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
+          github-token: ${{ steps.read-token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
+            github.hook.wrap('request', guard.quotaResetRetry({ core }));
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
             // the "dry-run:" prefix on the SHA, and the 30-minute tick's

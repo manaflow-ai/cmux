@@ -40,6 +40,8 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
+    'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
+     {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
@@ -47,7 +49,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'ci-cloud-overflow-probe.yml': ('holds the App key that writes the runner variables, so a variable must never move it (it would write its own runner)',
      {'watch'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
-     {'sign', 'runner', 'publish', 'rcodesign', 'tip-dmg', 'tip'}),
+     {'sign', 'publish', 'tip-dmg'}),
     'cmux-tui-build-package.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'attest-npm-packages'}),
     'cmux-tui-testbox-warmup.yml': ("Blacksmith Testbox broker bound to its environment's approver App",
@@ -85,11 +87,11 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
-     {'decide', 'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'resolve-nightly-cmux-tui-client', 'pick-classic-sign-runner', 'pick-classic-prepare-runner', 'publish-nightly', 'republish-nightly-deltas', 'report-nightly-failure', 'close-nightly-failure-issue'}),
+     {'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'resolve-nightly-cmux-tui-client', 'pick-classic-sign-runner', 'pick-classic-prepare-runner', 'publish-nightly', 'republish-nightly-deltas', 'report-nightly-failure', 'close-nightly-failure-issue'}),
     'pr-media-privacy.yml': ('not yet on a pool; moves in its own PR',
      {'scan'}),
     'rcodesign-parity-proof.yml': ('signing parity proof: an ephemeral label the signing rule checks literally',
-     {'prep', 'rcodesign', 'sign-codesign', 'sign-rcodesign', 'compare', 'notarize-app', 'dmg', 'notarize-dmg', 'gatekeeper', 'gatekeeper-reference', 'sparkle'}),
+     {'prep', 'sign-codesign', 'sign-rcodesign', 'notarize-app', 'dmg', 'notarize-dmg', 'gatekeeper', 'gatekeeper-reference', 'sparkle'}),
     'relay-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'publish'}),
     'release.yml': ('release signing: an ephemeral label the signing rule checks literally',
@@ -110,8 +112,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'real-import'}),
     'test-feed-reply-providers.yml': ('not yet on a pool; moves in its own PR',
      {'full-text', 'verify'}),
-    'test-ios.yml': ('not yet on a pool; moves in its own PR',
-     {'ios-simulator-cache-seed'}),
     'tui-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'publish'}),
 }
@@ -216,8 +216,9 @@ class RuleTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_fast_checks_reads_the_linux_pool(self) -> None:
         runs_on = {(path, name): value for path, name, value in jobs()}[("fast-checks.yml", "checks")]
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
-        self.assertNotRegex(runs_on.split("inputs.runner ||")[-1], r"'blacksmith-")
+        self.assertIn("needs.admit.outputs.runner", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
 
     def test_no_job_names_only_literal_labels(self) -> None:
         pinned = {(path, job) for path, (_, names) in PINNED.items() for job in names}

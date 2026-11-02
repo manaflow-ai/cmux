@@ -27,7 +27,7 @@ jobs:
     # environment cmux-next.yml mints the same App's token under
     # (test_supplychain_security.py).
     environment: ci-routing-agent
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -62,28 +62,46 @@ jobs:
             // (`github`): cmux-next.yml routes re-runs on
             // triggering_actor == 'github-actions[bot]', and a run another token
             // dispatches would start workflow_run listeners of cmux-next.
-            const api = process.env.APP_TOKEN ? getOctokit(process.env.APP_TOKEN) : github;
+            let api = process.env.APP_TOKEN ? getOctokit(process.env.APP_TOKEN) : github;
+            // The App's budget runs out too: every routing job mints the same
+            // App, and on 2026-11-01 its 5000/h was spent, so this dispatcher
+            // failed on its first read for hours with GITHUB_TOKEN unused and
+            // the tip feed stayed at 03:04Z. A rate-limited App call moves the
+            // rest of the tick to GITHUB_TOKEN; any other error still fails.
+            const call = async (request) => {
+              try {
+                return await request(api);
+              } catch (error) {
+                const limited = [403, 429].includes(error.status) &&
+                  (String(error.response?.headers?.['x-ratelimit-remaining']) === '0' ||
+                   /rate limit/i.test(error.message || ''));
+                if (api === github || !limited) throw error;
+                core.warning(`The App token is rate limited (${error.message}); GITHUB_TOKEN takes the rest of this tick`);
+                api = github;
+                return await request(api);
+              }
+            };
             const source = 'feat-cmux-next';
             const workflow = 'cmux-next.yml';
-            const { data: ref } = await api.rest.git.getRef({
+            const { data: ref } = await call((client) => client.rest.git.getRef({
               owner,
               repo,
               ref: `heads/${source}`,
-            });
+            }));
             const sha = ref.object.sha;
             // No snapshot ref: creating one at a feat-cmux-next commit needs
             // the workflows permission, which GITHUB_TOKEN cannot have (HTTP
             // 403). The run goes on feat-cmux-next with the SHA it must build;
             // cmux-next.yml fails it without building when a merge moved the
             // tip before it started, and the next tick asks for the new tip.
-            const { data } = await api.rest.actions.listWorkflowRuns({
+            const { data } = await call((client) => client.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: workflow,
               event: 'workflow_dispatch',
               branch: source,
               per_page: 100,
-            });
+            }));
             // Publish: GitHub starts no workflow_run for a run that GITHUB_TOKEN
             // dispatched, so cmux-next-dev-daily.yml never fires for these runs
             // by itself. Hand it the newest finished dev run that built the
@@ -106,13 +124,13 @@ jobs:
             // Inspect the complete page. A burst of source runs without an
             // app must not hide an older successful app from the handoff.
             for (const run of finishedRuns) {
-              const { data: jobs } = await api.rest.actions.listJobsForWorkflowRun({
+              const { data: jobs } = await call((client) => client.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,
                 run_id: run.id,
                 filter: 'latest',
                 per_page: 100,
-              });
+              }));
               if (jobs.jobs.some((job) => appProducers.has(job.name) && job.conclusion === 'success')) {
                 finishedDev = run;
                 break;
@@ -120,26 +138,26 @@ jobs:
             }
             if (finishedDev) {
               const publishTitle = `cmux NEXT DEV daily · publish ${finishedDev.id}`;
-              const { data: published } = await api.rest.actions.listWorkflowRuns({
+              const { data: published } = await call((client) => client.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'cmux-next-dev-daily.yml',
                 event: 'workflow_dispatch',
                 per_page: 100,
-              });
+              }));
               const handled = (run) => (run.name === publishTitle || run.display_title === publishTitle) &&
                 (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
                  (run.status === 'completed' && run.conclusion === 'success'));
               if (published.workflow_runs.some(handled)) {
                 core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) already went to the publisher`);
               } else {
-                await api.rest.actions.createWorkflowDispatch({
+                await call((client) => client.rest.actions.createWorkflowDispatch({
                   owner,
                   repo,
                   workflow_id: 'cmux-next-dev-daily.yml',
                   ref: context.payload.repository?.default_branch || 'main',
                   inputs: { source_run_id: String(finishedDev.id) },
-                });
+                }));
                 core.notice(`Requested publication of source run ${finishedDev.id} (${finishedDev.head_sha})`);
               }
             }

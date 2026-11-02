@@ -144,6 +144,78 @@ class NewestReviewSaysWait(unittest.TestCase):
         hold = comment("Hold: do not merge until #1 lands", at="2026-10-21T04:00:00Z")
         self.assertIn("SHIP", receipt.decide(pr([hold, comment(SHIP)]), HEAD)[0])
 
+    def test_an_automatic_ship_does_not_clear_a_human_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        who, why = receipt.decide(pr([hold, automatic]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("Hold", why)
+
+    def test_a_later_human_review_releases_the_hold_over_an_automatic_ship(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        human = comment(SHIP, at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, human]), HEAD)[0])
+
+    def test_a_human_approval_quoting_an_automatic_body_still_releases_the_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        body = (
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->"
+        )
+        automatic = comment(body, at="2026-10-21T06:00:00Z")
+        human = review("APPROVED", body=body, at="2026-10-21T07:00:00Z")
+        self.assertIn("approved", receipt.decide(pr([hold, automatic], [human]), HEAD)[0])
+
+    def test_a_human_comment_quoting_an_automatic_body_still_releases_the_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        body = (
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->"
+        )
+        automatic = comment(body, at="2026-10-21T06:00:00Z")
+        human = comment(body, at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, human]), HEAD)[0])
+
+    def test_a_retained_automatic_marker_on_a_hold_stays_a_hold(self):
+        retained = comment(
+            f"Hold: dogfood first.\n<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        who, why = receipt.decide(pr([retained]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("Hold", why)
+
+    def test_a_hold_lift_line_releases_the_automatic_ship(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        lift = comment("Hold lifted.", at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, lift]), HEAD)[0])
+
+    def test_a_hold_lift_line_releases_a_prior_human_ship(self):
+        prior = comment(SHIP, at="2026-10-21T04:00:00Z")
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        lift = comment("Hold lifted.", at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([prior, hold, lift]), HEAD)[0])
+
 
 class BareWaitLine(unittest.TestCase):
     """Re-review of cmux#23067 at 9d98aee: a first line that is only a verdict ("BLOCK at <sha>", "**BLOCK at

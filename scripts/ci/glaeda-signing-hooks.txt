@@ -1,0 +1,25 @@
+# glaeda runner hooks (sha256 of scripts/glaeda-cmux-runner-hook in teamleaderleo/glaeda) whose whole-mini claim
+# an owned-Mac signing job accepts: each one waits out an earlier job's leftover processes. A job admitted by any
+# other hook fails its first step (CLAIM_GATE) and the run's Blacksmith twin signs. Every sha is one glaeda-disk
+# pins in CMUX_NEXT_DRAIN_HOOK_SHA256 (tests/test_ci_signing_owned_mac.py). This file is the one list: the claim
+# gates read it at the run's own commit and no workflow names a hook itself. HQ's glaeda-signing-hooks-sync
+# workflow opens the PR that adds a hook glaeda pins; the guard test fails while glaeda's newest hook is missing,
+# and minis on that hook sign on Blacksmith until its line lands. Line format: <sha256> <note>.
+2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4 glaeda cb2186b0 (#1738), the leftover-process check
+41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef glaeda #1739, the claim names its hook (GLAEDA_HOOK_SHA256)
+c545d58594c87be15a1d881790a4d6ee6a3f13d0068ce55141038a8cb779fc5c glaeda #1740, the simulator-step hook (minis run it since 2026-10-29)
+f3e62a201f4c12b13424463044a973780d0347cd9387b8c9cd5d4b316ed4b1eb glaeda #1743, a nightly signing job on the nightly slot drains a busy mini (SIGNING_DRAIN_WAIT_S)
+945eed37edb1666b505d9ab2520892650b58a3447386d4ccc51ee49d8fee3667 glaeda #1745, session runners listen through CPU saturation (drain hook pin regenerated)
+8b5820df6b0f6d49d13a7e3c09e113900630294f7ee7e53a94e5c5837b073d58 glaeda 3e6e184f: runner-hook: SESSION_FIRST, a waiting session job goes first on its mini for 20 minutes (#1746)
+38c7ea11d63f3be3d6b35232da42c1ecc74e8e9dc38d4b038fdfad33caef3f52 glaeda 77b660b7: runner-hook: main's nightly-next canary and launch smoke are nightly jobs (#1747)
+a3fc59d7f48dd0655c0fca0eac2e95a08bcdea03a604631ab6c41766cb17b8b8 glaeda 5ac20388: runner-hook: the leftover sweep and test-app telemetry see a bin.<version> Worker (#1752)
+0de22d74aca0dcf81dbf2d07852104a00625745bf5a55658df3b6ad807d01bfb glaeda 9ce92039: runner-hook: an idle listen claim lapses with its listener's first poll and yields to the other labels (#1751)
+4a7dff390b415503617dd7395df9d074701e59b273410f5e994b84de30a87eb1 glaeda 1f9758ef: runner: gateway runners for thin cmux-ci clients listen through CPU saturation and a full mini (#1755)
+0e773943b3d18dbeef58b5d22269aba654fc9737761393981b019a12fd92a575 glaeda efae6e73: runner-hook: the CPU gate decides on a 60 s average, not one iostat second (#1756)
+e94edf9ced072267bb1544d2f77d266a28476fb1e127a80b3fbe995f61cc9e0a glaeda 444f239a: runner-hook: declare per mini whether the CPU marks hold its listeners (config/runner-gate.json) (#1757)
+3b7fc168de010536643ec01c34592c5487ff9a89776b434fa32b6db39aaf63f5 glaeda 63ace48b: runner-hook: a signing job its claim gate would refuse is refused before it drains the mini (#1761)
+5d5ce6e83393f6412d09d76bcb211fb454afd639f274258a619810fef0644cd1 glaeda e3582de4: runner-hook: a lock holder keeps its locks while its owner's start token is unreadable (#1763)
+f612f5a83b9c4519e8bfa911b94c192c0fcb614b8bbc160e441f8cd3dbf8dac7 glaeda 485d1dcc: runner-hook: copy cmux's warm-start receipt into the job record (warm_start) (#1764)
+49b5d9f59f582bed21bdc3014d35b187ab2ccc19f01d4eb53ba57dd5449fa3ef glaeda 1cd373c3: runner-hook: a nightly signing drain outlasts the running jobs, and a handed job never fails for a fleet waiter (#1768)
+df0e90b42c73838e01855a51636b7ed5c47fd918faf76ab815b5ce78aec54e57 glaeda 548d71ae: runner hook: a borrower whose repack finds its store damaged is reset and borrows again once (#1770)
+091eec20d4c4e6873354564b1bd25c96785c210ef8b6dbc16514279f99e1a493 glaeda #1775, nightly control jobs on an owned Mac take the light class

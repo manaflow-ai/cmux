@@ -54,6 +54,12 @@
 
   "default_fleet": "hosted",
 
+  "hosted_light_jobs": {
+    "fast-checks.yml:admit": {
+      "runner": "ubuntu-24.04",
+      "why": "Read-only live runner admission; no source snapshot or arbitrary test command"
+    }
+  },
   "pools": {
     "$comment": [
       "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",
@@ -65,9 +71,9 @@
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
-      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\")",
+      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), smallest first. Blacksmith now caps us on vCPUs at once, so a 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 the live member was 32 vCPU: 106,443 jobs and 193,021 billed minutes (about $12.4k of $19.3k) ran there, most of them checks under a minute (pr-perf-section-check 2,940 runs at 0.1 min). A stalled 4 vCPU moves the pool to 16 vCPU; 8 vCPU is not a member because the bounded selectors (vars.LINUX_RUNNER in 4/16/32, else 4) would send its readers back to 4 (Leo, 2026-11-01: \"we clearly are not able to use them. so we should have resized a long-ass time ago.\"). A job that needs more cores names its size, not this pool",
       "members": [
-        "blacksmith-32vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
       ]
     },

@@ -279,6 +279,15 @@ class EveryLabelDead(unittest.TestCase):
         out = self.outputs(both_dead(NOW))
         self.assertEqual(out["alternate"], out["cloud"])
 
+    def test_dead_is_true_only_when_every_label_shows_dead(self) -> None:
+        # cmux-next-dev-daily.yml's tip-deltas skips on it rather than queue on a label that starts nothing.
+        self.assertEqual(self.outputs(both_dead(NOW - dt.timedelta(minutes=50)))["dead"], "true")
+        self.assertEqual(self.outputs(both_dead(NOW))["dead"], "true")
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW)}}
+        self.assertEqual(self.outputs(None, RUNNER_POOLS=__import__("json").dumps(pools))["dead"], "false")
+        pools["_dead"][picker.SMALL] = stamp(NOW)
+        self.assertEqual(self.outputs(None, RUNNER_POOLS=__import__("json").dumps(pools))["dead"], "true")
+
     def test_runner_pools_marks_count_as_dead(self) -> None:
         pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW - dt.timedelta(minutes=5))}}
         # No snapshot at all: the mark alone keeps the re-run off 12 vCPU and the 12 vCPU-first pick off it.
@@ -340,9 +349,11 @@ class Main(unittest.TestCase):
 
     def test_outputs(self) -> None:
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
-                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1"})
+                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1",
+                          "dead": "false"})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
-                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.SMALL, "attempt": "1"})
+                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.SMALL, "attempt": "1",
+                          "dead": "false"})
 
     def test_a_failing_read_never_fails_the_job(self) -> None:
         def boom(token, repo):
@@ -436,6 +447,16 @@ class Workflow(unittest.TestCase):
         # Signing and verify keep the Blacksmith-only pick.
         for name in ("build-sign-notarize-nightly", "verify-signed-nightly"):
             self.assertNotIn("pick-classic-prepare-runner", self.job(name))
+
+    def test_dev_daily_reads_every_dead_label(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "cmux-next-dev-daily.yml").read_text(encoding="utf-8")
+        runner = text[text.index("\n  runner:\n"):text.index("\n  verify:\n")]
+        self.assertIn("cloud_dead: ${{ steps.cloud.outputs.dead }}", runner)
+        pool = runner[runner.index("id: pool"):]
+        self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", pool)
+        deltas = text[text.index("\n  tip-deltas:\n"):]
+        condition = re.search(r"^    if: (.+)$", deltas, re.MULTILINE).group(1)
+        self.assertIn("needs.runner.outputs.cloud_dead != 'true'", condition)
 
     def test_the_picker_runs_on_linux_and_never_fails(self) -> None:
         for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):

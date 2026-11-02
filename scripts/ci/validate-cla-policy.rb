@@ -17,6 +17,34 @@ require "yaml"
 
 class PolicyError < StandardError; end
 
+# API failures are operational failures, not rejected candidate policy. Only
+# trusted classifications and numeric headers reach diagnostics, never a
+# response body, command stderr, or credentials.
+class APIReadError < PolicyError
+  def initialize(kind, status, reset, detail = nil)
+    super("GitHub API #{kind.tr('_', ' ')} (HTTP #{status || 'unknown'}; " \
+          "rate-limit reset #{reset || 'unavailable'})#{detail ? "; #{detail}" : ''}")
+  end
+end
+
+# One shared retry budget leaves three minutes of the ten-minute job for
+# checkout, token minting, git reads and static policy checks.
+API_RETRY_BUDGET_SECONDS = 420
+API_MAX_ATTEMPTS = 4
+PR_METADATA_QUERY = <<~GRAPHQL.freeze
+  query($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      databaseId nameWithOwner
+      pullRequest(number: $number) {
+        number state baseRefName baseRefOid headRefName headRefOid mergeable
+        potentialMergeCommit { oid }
+        author { ... on User { databaseId } ... on Bot { databaseId } }
+        headRepository { databaseId nameWithOwner }
+      }
+    }
+  }
+GRAPHQL
+
 SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
@@ -165,7 +193,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "2334f2193cb03ea591f38f193607a36c7d0e12bfbdc9a23753953eb28fb904a5"
+EXPECTED_GUARD_SCRIPT_DIGEST = "db77181140de6880ea038cb0a76db100e391fad7f0d09a22f9054bf62a43249f"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -580,19 +608,135 @@ def api_failure_status(stdout, stderr)
   nil
 end
 
-def api_json(repository, endpoint, allow_missing: false)
-  stdout, stderr, status = Open3.capture3(
-    "gh", "api", "--header", "Accept: application/vnd.github+json", endpoint
-  )
-  unless status.success?
-    response_status = api_failure_status(stdout, stderr)
-    return nil if allow_missing && response_status == 404
+def api_monotonic_time
+  Process.clock_gettime(Process::CLOCK_MONOTONIC)
+end
 
-    fail!("GitHub API request failed for #{endpoint}: #{stderr.strip}")
+def api_wall_time
+  Time.now.to_f
+end
+
+def api_sleep(seconds)
+  sleep(seconds)
+end
+
+def api_capture(args)
+  Open3.capture3("gh", "api", "--include", "--header", "Accept: application/vnd.github+json", *args)
+end
+
+def api_numeric_header(headers, name)
+  value = headers[name].to_s
+  value.to_i if value.match?(/\A\d{1,12}\z/)
+end
+
+def api_request_json(args, graphql: false, allow_missing: false, attempt: 0)
+  @cla_api_deadline ||= api_monotonic_time + API_RETRY_BUDGET_SECONDS
+  if api_monotonic_time >= @cla_api_deadline
+    raise APIReadError.new("retry_budget_exhausted", nil, nil)
   end
-  JSON.parse(stdout)
-rescue JSON::ParserError
-  fail!("GitHub API returned malformed JSON for #{endpoint}")
+  stdout, stderr, process_status = api_capture(args)
+  headers = {}
+  body = stdout
+  response_status = stdout[/\AHTTP\/\S+\s+(\d{3})\b/, 1]&.to_i
+  response_status ||= process_status.success? ? 200 : api_failure_status("", stderr)
+  if stdout.start_with?("HTTP/")
+    raw_headers, body = stdout.split(/\r?\n\r?\n/, 2)
+    raw_headers.lines.drop(1).each do |line|
+      key, value = line.split(":", 2)
+      headers[key.downcase] = value.strip if value
+    end
+  end
+  reset = api_numeric_header(headers, "x-ratelimit-reset")
+  return nil if allow_missing && response_status == 404
+
+  malformed = false
+  begin
+    payload = JSON.parse(body.to_s)
+  rescue JSON::ParserError
+    malformed = true
+  end
+  errors = graphql && payload.is_a?(Hash) ? payload["errors"] : nil
+  graphql_failed = errors && errors != []
+  if process_status.success? && response_status.between?(200, 299) && !graphql_failed
+    raise APIReadError.new("malformed_response", response_status, reset) if malformed
+
+    return payload
+  end
+
+  graphql_rate_limit = errors.is_a?(Array) && !errors.empty? && errors.all? do |error|
+    error.is_a?(Hash) && (error["type"] == "RATE_LIMITED" ||
+      (error["extensions"].is_a?(Hash) && error["extensions"]["code"] == "RATE_LIMITED"))
+  end
+  message = payload.is_a?(Hash) ? payload["message"].to_s : ""
+  rate_limit = response_status == 429 || graphql_rate_limit ||
+    (api_numeric_header(headers, "x-ratelimit-remaining") == 0 && reset) ||
+    (response_status == 403 && (api_numeric_header(headers, "x-ratelimit-remaining") == 0 ||
+      message.match?(/rate limit|secondary rate|abuse detection/i)))
+  server_error = response_status && response_status.between?(500, 599)
+  kind = if rate_limit
+           "rate_limit"
+         elsif server_error
+           "server_error"
+         elsif response_status == 403
+           "forbidden"
+         elsif graphql_failed
+           "graphql_error"
+         else
+           "request_failed"
+         end
+  error = APIReadError.new(kind, response_status, reset)
+  raise error unless rate_limit || server_error
+  if attempt + 1 >= API_MAX_ATTEMPTS
+    raise APIReadError.new(kind, response_status, reset, "retry attempts exhausted")
+  end
+
+  delay = server_error ? 2**attempt : 60
+  retry_after = api_numeric_header(headers, "retry-after")
+  if (rate_limit && reset) || retry_after
+    delay = [1, retry_after || 0, rate_limit && reset ? reset + 1 - api_wall_time : 0].max
+    delay = [delay, 2**attempt].max if server_error
+  end
+  if delay >= @cla_api_deadline - api_monotonic_time
+    raise APIReadError.new(kind, response_status, reset, "retry would exceed the job's API budget")
+  end
+  warn "::warning::#{error.message}; retry in #{delay.ceil}s (attempt #{attempt + 2}/#{API_MAX_ATTEMPTS})"
+  api_sleep(delay)
+  api_request_json(args, graphql: graphql, allow_missing: allow_missing, attempt: attempt + 1)
+end
+
+def api_pull_request(repository, number)
+  owner, name = repository.split("/", 2)
+  response = api_request_json(
+    ["graphql", "-f", "query=#{PR_METADATA_QUERY}", "-f", "owner=#{owner}",
+     "-f", "name=#{name}", "-F", "number=#{number}"], graphql: true
+  )
+  data = response.is_a?(Hash) && response["data"]
+  repo = data.is_a?(Hash) && data["repository"]
+  pr = repo.is_a?(Hash) && repo["pullRequest"]
+  raise APIReadError.new("malformed_response", 200, nil) unless pr.is_a?(Hash)
+
+  head_repo = pr["headRepository"]
+  {
+    "number" => pr["number"], "state" => pr["state"].to_s.downcase,
+    "user" => pr["author"].is_a?(Hash) ? { "id" => pr["author"]["databaseId"] } : nil,
+    "base" => { "ref" => pr["baseRefName"], "sha" => pr["baseRefOid"],
+                "repo" => { "id" => repo["databaseId"], "full_name" => repo["nameWithOwner"] } },
+    "head" => { "ref" => pr["headRefName"], "sha" => pr["headRefOid"],
+                "repo" => head_repo.is_a?(Hash) ?
+                  { "id" => head_repo["databaseId"], "full_name" => head_repo["nameWithOwner"] } : nil },
+    "mergeable" => { "MERGEABLE" => true, "CONFLICTING" => false }[pr["mergeable"]],
+    "merge_commit_sha" => pr["potentialMergeCommit"].is_a?(Hash) ? pr["potentialMergeCommit"]["oid"] : nil
+  }
+end
+
+def api_json(repository, endpoint, allow_missing: false)
+  # The ordinary guard's sole API read goes to GraphQL's separate budget.
+  # Preserve the REST-shaped identity data consumed by every trust check.
+  if (match = endpoint.match(/\Arepos\/#{Regexp.escape(repository)}\/pulls\/(\d+)\z/))
+    return api_pull_request(repository, match[1])
+  end
+
+  api_request_json([endpoint], allow_missing: allow_missing)
 end
 
 def review_sort_key(review)
@@ -3655,6 +3799,9 @@ begin
     File.binwrite(File.join(candidate_dir, File.basename(head_script_path)), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
+rescue APIReadError => error
+  warn "::error::#{error.message}"
+  exit 1
 rescue PolicyError
   # Candidate-controlled API, YAML, and shell diagnostics must not be copied
   # into a public check annotation. Keep the check deterministic and generic;

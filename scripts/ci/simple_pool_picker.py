@@ -486,7 +486,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
     age = snapshot_age(snapshot)
-    gone = dead_macos_26(snapshot)
+    # Each label on its own evidence (blacksmith_dead() or a fresh RUNNER_POOLS `_dead` mark), never
+    # dead_macos_26()'s "both dead says nothing": with both dead a cleared queue read as free slots, so
+    # the DEV publisher's --wait-owned pick took blacksmith-6vcpu-macos-26 over the owned fleet and its
+    # verify and tip-dmg-build queued there with nothing starting (run 41250674182, 2026-10-31 23:00Z).
+    gone = ({label for label in BLACKSMITH[:2] if blacksmith_dead(snapshot, label)}
+            | marked_dead(runner_pools(env.get("RUNNER_POOLS"))))
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
                       "stalled": stalled(count(label, "queued"), count(label, "running"),
@@ -581,6 +586,42 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
         return False
     started = moment(starts.get(label))
     return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
+
+
+# RUNNER_POOLS (vars.RUNNER_POOLS, runner_pools.py's one routing variable): its `_dead` marks name the labels the
+# janitor saw dead, each with when; a mark counts for DEAD_MARK_TTL (runner_pools.DEAD_TTL, the writer's).
+DEAD_MARKS_KEY = "_dead"
+DEAD_MARK_TTL_MINUTES = 30
+
+
+def runner_pools(raw: str | None) -> Mapping[str, Any]:
+    """The RUNNER_POOLS value, or {} when it is unset or not a JSON object."""
+    try:
+        value = json.loads(raw or "")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def marked_dead(pools: Mapping[str, Any] | None, now: Any = None) -> set[str]:
+    """The labels RUNNER_POOLS' `_dead` marks saw dead within DEAD_MARK_TTL_MINUTES of `now` (a datetime; the wall
+    clock when None). A mark more than 5 minutes in the future, or malformed, proves nothing."""
+    import datetime as dt
+
+    marks = (pools or {}).get(DEAD_MARKS_KEY)
+    if not isinstance(marks, Mapping):
+        return set()
+    now = now if isinstance(now, dt.datetime) and now.tzinfo is not None else dt.datetime.now(dt.timezone.utc)
+    out = set()
+    for label, since in marks.items():
+        try:
+            seen = dt.datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if (seen.tzinfo is not None
+                and dt.timedelta(minutes=-5) <= now - seen < dt.timedelta(minutes=DEAD_MARK_TTL_MINUTES)):
+            out.add(str(label))
+    return out
 
 
 def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:

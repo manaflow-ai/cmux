@@ -75,6 +75,63 @@ def code_lines(path: Path):
 
 
 class NightlyPooledRoutingTests(unittest.TestCase):
+    def test_decide_bootstrap_stays_on_owned_pool_even_without_routing_metadata(self) -> None:
+        # Evaluate the real selector, including missing/stale paid overrides.
+        from test_ci_fork_runner_routing import parse_expression, evaluate_runner_condition
+        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        body = text.split("\n  decide:\n", 1)[1].split("\n  promote-nightly-next:\n", 1)[0]
+        expression = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
+        node = parse_expression(expression.removeprefix("${{").removesuffix("}}"))
+
+        def select(node, context):
+            if node[0] in ("and", "or"):
+                result = None
+                for child in node[1]:
+                    result = select(child, context)
+                    if bool(result) == (node[0] == "or"):
+                        return result
+                return result
+            return evaluate_runner_condition(node, context)
+
+        for attempt in ("1", "2"):
+            for configured in ("", "blacksmith-2vcpu-ubuntu-2404", "ubuntu-24.04",
+                               "glaeda-runner-one-mini", "glaeda-nightly-light-xcode-26.6"):
+                with self.subTest(attempt=attempt, configured=configured):
+                    label = select(node, {"github.repository_owner": "manaflow-ai",
+                                          "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/main",
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                    self.assertTrue(label.startswith("glaeda-nightly-"), label)
+                    self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
+                                     else "glaeda-nightly-std-xcode-26.6")
+        # Main uses the shared nightly slot; its admission hook does not
+        # accept RC or branch dogfood refs. Preserve their existing route.
+        for ref in ("refs/heads/rc/1.0", "refs/heads/lane/dogfood"):
+            for event in ("push", "workflow_dispatch"):
+                with self.subTest(ref=ref, event=event):
+                    self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
+                                                  "github.ref": ref, "github.event_name": event,
+                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}),
+                                     "blacksmith-2vcpu-ubuntu-2404")
+        # NEXT's push bootstrap uses the owned nightly control runner only on
+        # its first attempt; retries keep the paid fallback route.
+        for attempt in ("1", "2"):
+            for configured in ("", "blacksmith-2vcpu-ubuntu-2404", "glaeda-nightly-light-xcode-26.6"):
+                with self.subTest(next_attempt=attempt, configured=configured):
+                    label = select(node, {"github.repository_owner": "manaflow-ai",
+                                          "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/nightly-next",
+                                          "github.event_name": "push",
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                    if attempt == "1":
+                        self.assertTrue(label.startswith("glaeda-nightly-"), label)
+                        self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
+                                         else "glaeda-nightly-std-xcode-26.6")
+                    else:
+                        self.assertEqual(label, "blacksmith-2vcpu-ubuntu-2404")
+        self.assertNotIn("secrets.", body)
+        self.assertNotRegex(body, r"(?m)^    environment:")
+
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):

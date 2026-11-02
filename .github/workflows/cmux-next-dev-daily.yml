@@ -88,6 +88,34 @@ jobs:
           permission-actions: read
           permission-contents: read
 
+      - name: Checkout the gh token wrapper from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      # The App's own budget runs out too: runs 41245804266 and 41245954158
+      # (2026-10-31 21:55Z and 21:59Z) failed in "Resolve the source run" with
+      # "API rate limit exceeded for installation" on the minted token, and
+      # nothing fell back. scripts/ci/gh_app_token.sh sends each github.token
+      # call as the App first, retries a refused one with github.token, and
+      # backs off when both are refused, so one spent budget no longer fails
+      # the handoff. The steps below pass github.token for the wrapper to swap.
+      - name: Send this job's gh calls as the read App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # The 30-minute job timeout leaves room for 10 minutes of backoff.
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
@@ -98,7 +126,7 @@ jobs:
       # 20:23Z on 2026-10-30 failed here (run 41122647270).
       - name: Resolve the source run
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -126,7 +154,7 @@ jobs:
       - name: Require a successful app-producing job
         id: source-gate
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -151,7 +179,7 @@ jobs:
         id: source-artifact
         if: steps.source-gate.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -201,7 +229,7 @@ jobs:
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -298,7 +326,7 @@ jobs:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -310,12 +338,17 @@ jobs:
       label: ${{ steps.pool.outputs.label }}
       # The owned label for tip-dmg-build too (two machines free), or empty.
       dmg_label: ${{ steps.pool.outputs.dmg_label }}
+      # The owned label verify and tip-dmg-build take on a re-run while every Blacksmith macOS 26 label shows dead
+      # (cloud_dead), or empty: a re-run never queues on a label that starts nothing (run 41261942674).
+      owned: ${{ steps.pool.outputs.owned }}
       # The Blacksmith macOS 26 label whose queue moves (6 vCPU first, then 12; never empty when
       # read), for the Mac jobs that do not take an owned Mac, and the other one for a re-run, so a
       # re-run never queues again on the label that stalled (classic_nightly_build_runner.py).
       cloud: ${{ steps.cloud.outputs.cloud }}
       alternate: ${{ steps.cloud.outputs.alternate }}
       attempt: ${{ steps.cloud.outputs.attempt }}
+      # 'true' when every Blacksmith macOS 26 label shows dead: `cloud` then starts nothing.
+      cloud_dead: ${{ steps.cloud.outputs.dead }}
     steps:
       # Only main's own dispatch of this workflow (the sign job's condition)
       # is offered an owned Mac, and only on its first attempt.
@@ -386,10 +419,17 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # Its `_dead` marks: a marked label has no free slot (simple_pool_picker.state_from()), so with
+          # every Blacksmith macOS 26 label dead verify and tip-dmg-build wait on the owned fleet
+          # (--wait-owned) instead of queuing on a label that starts nothing (run 41250674182).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           # The only Blacksmith label verify and tip-dmg-build fall back to (their
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
           BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.cloud.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
+          # 'true' when every Blacksmith macOS 26 label shows dead (the cloud step): verify and tip-dmg-build
+          # then wait on the owned fleet whatever the pick says (run 41261942674 queued on a dead label).
+          CLOUD_DEAD: ${{ steps.cloud.outputs.dead }}
         run: |
           set -uo pipefail
           pick() {
@@ -412,7 +452,16 @@ jobs:
           # 40445038889's tip-dmg-build queued 25 min on Blacksmith for 3 min
           # of work. Otherwise Blacksmith has room: verify alone may take an
           # owned Mac, and tip-dmg-build takes Blacksmith macOS.
+          # The owned pool the configuration names (no API read), for a dead Blacksmith macOS 26.
+          owned="$(pick 1 --owned-fallback)" || owned=""
+          case "$owned" in glaeda-*) ;; *) owned="" ;; esac
           label="$(pick 2 --wait-owned)" || label=""
+          if [ "${CLOUD_DEAD:-}" = "true" ] && [ -n "$owned" ]; then
+            case "$label" in
+              glaeda-*) ;;
+              *) echo "Every Blacksmith macOS 26 label shows dead (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
+            esac
+          fi
           case "$label" in
             glaeda-*) dmg_label="$label" ;;
             *)
@@ -429,6 +478,7 @@ jobs:
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "dmg_label=$dmg_label" >> "$GITHUB_OUTPUT"
+          echo "owned=$owned" >> "$GITHUB_OUTPUT"
           [ -z "$label" ] || echo "Runner: $label for verify${dmg_label:+ and tip-dmg-build} (a re-run takes Blacksmith macOS 26)"
 
       # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
@@ -478,7 +528,7 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -488,7 +538,7 @@ jobs:
       APP_NAME: cmux NEXT DEV
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
       # An owned Mac carries only the lane's Xcode pin, which its label names.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.label != '' && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.run_attempt == 1 && needs.runner.outputs.label != '' || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned != '') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -884,7 +934,7 @@ jobs:
     # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -905,7 +955,7 @@ jobs:
       # Builds the feed keeps; tip-deltas gives the newest deltas from the others.
       TIP_KEEP: "3"
       # An owned Mac carries only the lane's Xcode pin, which its label names.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned != '') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1017,7 +1067,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1235,7 +1285,7 @@ jobs:
     # so an older build can never overwrite a newer one.
     environment: release
     # Linux: only R2 writes are left here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1415,7 +1465,10 @@ jobs:
     # DMG, signed, with no deltas for this build.
     continue-on-error: true
     needs: [sign, tip-dmg, tip, runner]
-    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' }}
+    # It holds the Sparkle key, which its script writes to a temporary file, so it stays on Blacksmith (a
+    # fresh VM) and never takes a reused owned Mac. With every Blacksmith macOS 26 label dead it skips:
+    # the feed already has the full DMG, and run 41249342756's tip-deltas queued on a dead label for hours.
+    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' && needs.runner.outputs.cloud_dead != 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): the feed write is a compare-and-swap that adds deltas only
     # to this build's item while it is still the newest.

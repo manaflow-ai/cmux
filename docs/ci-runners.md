@@ -1056,8 +1056,8 @@ on a dead pool needs force-cancel and then rerun.
 Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
-minutes its `probe` jobs ask for each Blacksmith Linux size compiles run on
-(`PROBE_LABELS`: `blacksmith-32vcpu-ubuntu-2404` and
+minutes its `probe` jobs ask for each member of the linux pool
+(`PROBE_LABELS`: `blacksmith-4vcpu-ubuntu-2404` and
 `blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
 its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each

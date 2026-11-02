@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pathlib import Path
 
 RELEASE = "cmux-next Release compile (Xcode 26)"
@@ -50,19 +51,6 @@ def _rate_limit_module():
     return module
 
 
-def json_documents(text: str) -> list:
-    """Every JSON document in TEXT, in order (gh --paginate prints pages back to back)."""
-    decoder = json.JSONDecoder()
-    documents, index = [], 0
-    while True:
-        while index < len(text) and text[index].isspace():
-            index += 1
-        if index >= len(text):
-            return documents
-        document, index = decoder.raw_decode(text, index)
-        documents.append(document)
-
-
 class GitHub:
     def run(self, args: list[str]) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -92,9 +80,29 @@ class GitHub:
     def json(self, route: str, *, paginate: bool = False):
         if not paginate:
             return json.loads(self.run(["api", route]))
-        # No --slurp: gh before 2.48 (Ubuntu 24.04 ships 2.45) rejects it. --paginate alone
-        # prints one JSON document per page (array pages may arrive joined into one array).
-        return json_documents(self.run(["api", route, "--paginate"]))
+        # The gh-quota broker refuses --paginate, so page explicitly. Keep each
+        # response bounded and stop only after GitHub returns an empty page.
+        split = urlsplit(route)
+        query = [(key, value) for key, value in parse_qsl(split.query, keep_blank_values=True)
+                 if key not in {"page", "per_page"}]
+        pages = []
+        page = 1
+        while True:
+            page_route = urlunsplit((split.scheme, split.netloc, split.path,
+                                     urlencode(query + [("per_page", "100"), ("page", str(page))]),
+                                     split.fragment))
+            document = json.loads(self.run(["api", page_route]))
+            if isinstance(document, list):
+                empty = not document
+            elif isinstance(document, dict):
+                lists = [value for value in document.values() if isinstance(value, list)]
+                empty = bool(lists) and all(not value for value in lists)
+            else:
+                empty = True
+            if empty:
+                return pages
+            pages.append(document)
+            page += 1
 
     def log(self, repo: str, job: dict) -> str:
         try:

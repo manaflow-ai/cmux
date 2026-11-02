@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_compile_red.py
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rolling.py
             scripts/ci/nightly_next_stuck_run.py
@@ -148,7 +149,7 @@ jobs:
           "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
 
-      # A nightly-next or promotion run with a job no runner took for 20 minutes (a label
+      # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
       # that stopped serving, run 40771197361) is cancelled here when an existing path builds
       # it again: the step below re-runs the tip's push run, the tip builds over an older
       # commit's, and the promotion request asks again. Gated and running runs are never
@@ -157,16 +158,22 @@ jobs:
       - name: Cancel a nightly-next run stuck without a runner
         if: inputs.sha == ''
         continue-on-error: true
-        timeout-minutes: 5
+        # The rescue can read once, settle for FORCE_AFTER + 1 bounded waits,
+        # and read again before a force-cancel. Leave room for those API reads.
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
-        run: python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
+        run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on
       # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
+        # An explicit SHA asks for a newer tip without waiting on recovery of the
+        # current nightly tip (whose API reads may wait out an hour of rate limits).
+        # Automatic ticks retain recovery in their shared, serialized group.
+        if: inputs.sha == ''
         # The promotion below must run even when this check cannot.
         continue-on-error: true
         env:

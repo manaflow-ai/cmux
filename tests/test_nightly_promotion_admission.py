@@ -1377,6 +1377,62 @@ console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redir
     assert out["redirect"] == "manual", out
 
 
+def test_quota_reset_retry_waits_once_without_polling_or_retrying_writes() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const run = async ({status = 403, remaining = '0', reset = '1100', method = 'GET', alwaysFails = false} = {}) => {
+  const waits = [], warnings = [];
+  let calls = 0;
+  const error = Object.assign(new Error('API rate limit exceeded for installation'), {
+    status, response: {headers: {'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': reset}},
+  });
+  const retry = guard.quotaResetRetry({now: () => 1000000, sleep: async ms => waits.push(ms),
+    core: {warning: message => warnings.push(message)}});
+  const request = async options => {
+    calls++;
+    if (calls === 1 || alwaysFails) throw error;
+    return {data: options.url};
+  };
+  let result, failed = false;
+  try { result = await retry(request, {method, url: '/repos/manaflow-ai/cmux/git/ref/heads/feat-cmux-next'}); }
+  catch (caught) { if (caught !== error) throw caught; failed = true; }
+  // The same decision may make many reads: none gets another quota wait.
+  try { if (calls === 2) await retry(async () => {throw error}, {method: 'GET'}); }
+  catch (caught) { if (caught !== error) throw caught; }
+  return {calls, waits, warnings, result, failed};
+};
+const recovered = await run();
+const refused = [];
+for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, reset: 'bad'},
+  {reset: ''}, {reset: 'NaN'}, {reset: 'Infinity'}, {reset: '5000'}, {method: 'POST'}, {method: 'PATCH'}]) {
+  refused.push(await run(options));
+}
+  console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFails: true}),
+  clockSkew: await run({reset: '999'}), capped: await run({reset: '1300'})}));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["recovered"]["calls"] == 2 and not out["recovered"]["failed"], out
+    assert out["recovered"]["waits"] == [101000], out
+    assert len(out["recovered"]["warnings"]) == 1, out
+    assert all(case["calls"] == 1 and case["failed"] and not case["waits"] for case in out["refused"]), out
+    assert out["exhausted"]["calls"] == 2 and out["exhausted"]["failed"], out
+    assert out["exhausted"]["waits"] == [101000], out
+    assert out["clockSkew"]["waits"] == [1000], out
+    # A reset beyond the three-minute bound returns to the caller without
+    # sleeping until the hourly reset; the workflow's read-token fallback
+    # keeps the decision on a separate bucket when it is available.
+    assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
+
+
+def test_promotion_decision_uses_the_quota_isolated_read_token_when_available() -> None:
+    assert "Mint the quota-isolated read token" in WORKFLOW
+    assert "github-token: ${{ steps.read-token.outputs.token || github.token }}" in WORKFLOW
+    assert "permission-actions: read" in WORKFLOW
+    assert "permission-contents: read" in WORKFLOW
+
+
 def main() -> None:
     tests = [value for name, value in globals().items() if name.startswith("test_")]
     for test in tests:
