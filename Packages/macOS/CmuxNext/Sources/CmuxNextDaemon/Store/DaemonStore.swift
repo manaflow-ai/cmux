@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextWakeups
 import Foundation
 public import Observation
@@ -58,8 +59,11 @@ public final class DaemonStore: StateResourceQueries {
     /// What the sidebar shows of a tab's unread notification
     /// (`notificationText(for:)`): each live notification's text by id, and
     /// the ledger's newest unread text by surface, seeded at connect.
-    var notificationTexts: [NotificationID: String] = [:]
-    var ledgerNotificationTexts: [SurfaceID: String] = [:]
+    /// Each observed one key at a time (`ObservedMap`): a sidebar row reads its own tab's text, so a notification
+    /// posted to another workspace maps no other row again (TYPING UNDER LOAD F6: every row with an unread tab
+    /// re-mapped on every `notify`).
+    @ObservationIgnored let notificationTexts = ObservedMap<NotificationID, String>()
+    @ObservationIgnored let ledgerNotificationTexts = ObservedMap<SurfaceID, String>()
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
     /// True while the tree is the daemon's launch snapshot (drawn before
@@ -177,6 +181,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
+    /// buffered and asks for no frame, as a daemon whose events arrive late; ``releaseHeldEvents()``
+    /// applies them. A test holds one report this way to order it after an app step deterministically.
+    @ObservationIgnored public var eventHold: (@MainActor ([DaemonEventEnvelope]) -> Bool)?
     @ObservationIgnored var isResyncing = false
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()

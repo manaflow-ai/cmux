@@ -568,6 +568,55 @@ fn an_edit_in_the_second_the_worktree_was_made_is_applied_a_second_later() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// A worktree whose index has no write bit (mode 0444; git reads it, and the
+/// apply only copies it) still applies: the copy gets the index's time
+/// without being opened for writing.
+#[test]
+fn a_worktree_whose_index_is_read_only_still_applies() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-readonly-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    // Root writes through any mode, so there the test proves nothing.
+    let probe = root.join("probe");
+    fs::write(&probe, "").unwrap();
+    if fs::metadata(&probe).unwrap().uid() == 0 {
+        eprintln!("skipped: running as root, a 0444 file is writable");
+        let _ = fs::remove_dir_all(root);
+        return;
+    }
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply-readonly",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
+    assert_success(&git_cli(&server, &repo, &args));
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    fs::write(worktree.join("a.txt"), "two, longer\n").unwrap();
+    let git_dir = PathBuf::from(git(&worktree, &["rev-parse", "--absolute-git-dir"]));
+    let index = git_dir.join("index");
+    fs::set_permissions(&index, fs::Permissions::from_mode(0o444)).unwrap();
+
+    let applied = git_cli(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two, longer\n");
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     let root = std::env::temp_dir().join(format!(

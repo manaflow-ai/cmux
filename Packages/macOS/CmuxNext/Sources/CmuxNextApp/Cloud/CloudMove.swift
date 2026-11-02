@@ -11,7 +11,7 @@ import Foundation
 /// "Move to Cloud", the tab and chat right-click menus and `cmux cloud move`.
 /// For a chat tab of this Mac it reuses a Cloud machine (the named one, else a
 /// connected one, else any, else a new one), copies the chat's folder there
-/// (`cmux link sync push`), moves the chat (`cmux link agent move`), and shows
+/// (`cmux link seed push`), moves the chat (`cmux link agent move`), and shows
 /// it on that machine: a Cloud workspace whose terminal runs in the synced
 /// folder and whose chat tab is bound to the moved session through the
 /// machine's store, so the tab attaches through that machine and carries its
@@ -226,7 +226,7 @@ struct CloudMove {
         for root in services.cloud.move.workRoots {
             let remote = folder.remote(under: root)
             do {
-                last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
+                last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
                 // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
                 throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
@@ -335,7 +335,8 @@ struct CloudMove {
         case CloudMoveStrings.outdatedCode where answer.side != "source":
             Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
+        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
+        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
         }
     }
 

@@ -48,7 +48,8 @@ const { createRoot } = await import("react-dom/client");
 const { GuestPage, endedBy } = await import("../src/agent-session/guest/GuestPage");
 const { attemptId } = await import("../src/agent-session/guest/redeem");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { askingRecords, fakeRoom, joinFrames } = await import("../src/agent-session/guest/fixtures/liveChat");
+const { askingRecords, fakeRoom, joinFrames, memoryStorage } =
+  await import("../src/agent-session/guest/fixtures/liveChat");
 type Props = Parameters<typeof GuestPage>[0];
 type RedeemRequest = Parameters<Props["redeem"]>[1];
 
@@ -76,6 +77,7 @@ async function mount(props: Partial<Props>) {
         redeem={() => new Promise(() => undefined)}
         attempt={() => "a".repeat(32)}
         socketUrl="wss://room.test/guest"
+        storage={memoryStorage()}
         {...props}
       />,
     ),
@@ -178,7 +180,10 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   );
   const labels = [...page.host.querySelectorAll("button")].map((button) => button.textContent ?? "");
   expect(labels.some((label) => /^(Allow|Reject)$/.test(label))).toBe(false);
-  expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
+  // The only field is the guest's own composer, never the owner's.
+  expect(
+    page.host.querySelector(".guest-live__transcript textarea, .guest-live__transcript [contenteditable='true']"),
+  ).toBeNull();
   await page.unmount();
 });
 
@@ -194,6 +199,7 @@ test("the room ends the share: the ended page replaces the chat", async () => {
 test("only a share that is over ends the page; offline and network failures may be retried", () => {
   expect(endedBy("share.expired")).toBe("expired");
   expect(endedBy("share.revoked")).toBe("revoked");
+  expect(endedBy("share.closed")).toBe("closed");
   expect(endedBy("share.kicked")).toBe("kicked");
   expect(endedBy("share.used")).toBe("used");
   expect(endedBy("share.left")).toBe("used");

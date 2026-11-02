@@ -20,6 +20,9 @@ type Props = {
   anchorTop?: boolean;
   anchorMiddle?: boolean;
   routeLayout?: QuickMenu["routeLayout"];
+  widthLook?: QuickMenu["widthLook"];
+  /** Leo's rail: Claude Code with claude-sr2 and a work login, Codex with its app server and an SR route. */
+  routes?: boolean;
 };
 
 const models = (family: string, names: string[]) =>
@@ -65,6 +68,31 @@ const families: QuickFamily[] = [
   { id: "claude-sr", name: "Claude Code (sr)", mark: "claude", models: [], more: [], launch: true },
 ];
 
+/// The rail Leo saw as nine tabs (2026-11-01: "we have too many harnesses because you didn't put
+/// those things into accounts or whatever"): each Claude and OpenAI route is its own harness entry.
+const routeFamilies: QuickFamily[] = [
+  families[0]!,
+  {
+    id: "claude-sr2",
+    name: "claude-sr2",
+    mark: "claude",
+    models: models("claude-sr2", ["Opus 5.5", "Sonnet 5.5"]),
+    more: [],
+  },
+  families[1]!,
+  {
+    id: "codex-app-server",
+    name: "Codex (app server)",
+    mark: "codex",
+    models: models("codex-app-server", ["GPT-6.1-Sol"]),
+    more: [],
+  },
+  { id: "codex-sr2", name: "codex-sr2", mark: "codex", models: [], more: [], launch: true },
+  { id: "cursor", name: "Cursor", mark: "cursor", models: models("cursor", ["Composer 2"]), more: [] },
+  { id: "claude-work", name: "Claude Code (work)", mark: "claude", models: [], more: [], launch: true },
+  families[2]!,
+];
+
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
   effort: {
     levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
@@ -106,6 +134,8 @@ export default componentEntry<Props>({
           stress,
           inlineEffort = false,
           routeLayout,
+          widthLook,
+          routes,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
@@ -126,7 +156,9 @@ export default componentEntry<Props>({
                   more: [],
                 })),
               ]
-            : families;
+            : routes
+              ? routeFamilies
+              : families;
           const list = tab ? [...available].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : available;
           return (
             <OnNewTab.Provider value={!chat}>
@@ -154,6 +186,7 @@ export default componentEntry<Props>({
                     inlineEffort,
                     ...(placement ? { harnessPlacement: placement } : {}),
                     routeLayout,
+                    ...(widthLook ? { widthLook } : {}),
                     search: {
                       find: (query) =>
                         list
@@ -248,6 +281,21 @@ export default componentEntry<Props>({
     // As a chat's composer opens it: each row's effort dropdown on (ModelPicker passes inlineEffort).
     "in-chat": { props: { chat: true, inlineEffort: true }, play: open },
     combined: { props: { chat: true }, play: open },
+    // The compact menu's widths (Leo 2026-11-01: "surely we can get more compact horizontally").
+    "width-fit": { props: { chat: true, inlineEffort: true, widthLook: "fit" }, play: open },
+    "width-stable": { props: { chat: true, inlineEffort: true, widthLook: "stable" }, play: open },
+    "width-snug": { props: { chat: true, inlineEffort: true, widthLook: "snug" }, play: open },
+    "width-wide": { props: { chat: true, inlineEffort: true, widthLook: "wide" }, play: open },
+    // One tab per harness; its routes are its Account choices.
+    "routes-one-tab": { props: { chat: true, inlineEffort: true, routes: true }, play: open },
+    "routes-account": {
+      props: { chat: true, inlineEffort: true, routes: true },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
+      },
+    },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
     "harness-symbols": { props: { placement: "symbols" }, play: open },
     "harness-symbols-many": { props: { placement: "symbols", many: true }, play: open },

@@ -21,6 +21,8 @@ public protocol WindowHomeHost: AnyObject {
     /// Closes `workspace` on its daemon (a window Home its window no longer has a place for).
     func windowHomeClose(_ workspace: String)
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel?
+    /// The space window `window` shows, when the local store has it (rooms, data-model.md 3).
+    func windowHomeRoom(_ window: String) -> ProfileID?
     /// Shows `workspace` in window `window`, taking it there; never in another window.
     func windowHomeShow(_ workspace: String, in window: String)
     /// Claims the workspace about to be made for `window`, or drops that claim.
@@ -102,6 +104,14 @@ public final class WindowHomes {
         do {
             defer { if !host.windowHomeIsOpen(window) { close(key.rawValue) } }
             try await host.windowHomeHold(key.rawValue) {
+                // Born in its window's space, as every new workspace is (WorkspaceSpawner), so that space lists it
+                // (spaces-overhaul-DESIGN.md rule 5). Unpinned it showed only in the default space, and a window on
+                // another (New Window opens one, rule 3) took it in but never showed it (MW-1b).
+                if let room = host.windowHomeRoom(window), let session = store.registryID {
+                    try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                        try await connection.pinWorkspace(session: session, key: key, to: room)
+                    }
+                }
                 try await connection.createWorkspace(name: HomeStrings.title, key: key)
                 await host.windowHomeApplied(connection)
                 guard let workspace = store.workspace(id: key.rawValue) else { return nil }

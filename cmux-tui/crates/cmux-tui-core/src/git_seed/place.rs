@@ -166,6 +166,74 @@ pub fn delete_upload(roots: &Roots, path: &str) {
         fs.call("git-seed", "fs.delete", serde_json::json!({ "paths": [path], "permanent": true }));
 }
 
+/// An export's bundle path: under a root, outside the seed's `folder` (a
+/// file left there would be part of the next WORK), and nothing there yet.
+pub fn output(roots: &Roots, path: &str, folder: &Path) -> Result<(), SeedRefusal> {
+    let placed = place(roots, path)?;
+    if placed.starts_with(folder) {
+        return Err(SeedRefusal::bad_request("the bundle must be outside the folder"));
+    }
+    if std::fs::symlink_metadata(&placed).is_ok() {
+        return Err(SeedRefusal::bad_request("something is already at the bundle path"));
+    }
+    Ok(())
+}
+
+/// A private folder for one job's scratch files, removed (with what is in
+/// it) on drop.
+pub struct Scratch(pub PathBuf);
+
+impl Scratch {
+    pub fn new(id: &str) -> Result<Self, SeedRefusal> {
+        private_dir(id).map(Self)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Copies the file at `from` (this daemon's own) to `path` under the roots
+/// through `fs-v1`'s atomic write: created new (never over a file), 0600,
+/// and the free space checked first. Returns its size.
+pub fn write_output(roots: &Roots, path: &str, from: &Path) -> Result<u64, SeedRefusal> {
+    use crate::fs_ops::{FsError, PendingWrite, WriteMode};
+    use std::io::Read as _;
+    let refused = |error: FsError| match error {
+        FsError::NoSpace => {
+            SeedRefusal { code: "seed.disk_full", message: "the disk is full".into() }
+        }
+        FsError::Exists => SeedRefusal::bad_request("something is already at the bundle path"),
+        FsError::PermissionDenied | FsError::NotFound => outside(),
+        other => SeedRefusal::bad_request(format!("cannot write the bundle: {}", other.message())),
+    };
+    let mut file = std::fs::File::open(from)
+        .map_err(|error| SeedRefusal::bad_request(format!("cannot read the bundle: {error}")))?;
+    let size = file
+        .metadata()
+        .map_err(|error| SeedRefusal::bad_request(format!("cannot read the bundle: {error}")))?
+        .len();
+    let mut pending =
+        PendingWrite::begin(roots, path, WriteMode::Create, Some(size)).map_err(refused)?;
+    pending.set_permissions(0o600).map_err(refused)?;
+    let mut chunk = vec![0u8; 1 << 20];
+    loop {
+        let read = match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(SeedRefusal::bad_request(format!("cannot read the bundle: {error}")));
+            }
+        };
+        pending.write(chunk.get(..read).unwrap_or_default()).map_err(refused)?;
+    }
+    pending.commit().map_err(refused)?;
+    Ok(size)
+}
+
 /// `path` with its deepest existing ancestor canonicalized, when the result
 /// lies strictly under a root.
 fn place(roots: &Roots, path: &str) -> Result<PathBuf, SeedRefusal> {

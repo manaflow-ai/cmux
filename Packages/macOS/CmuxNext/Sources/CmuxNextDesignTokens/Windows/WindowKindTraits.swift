@@ -2,8 +2,9 @@
 public nonisolated enum WindowCloseSemantics: Equatable, Sendable {
     /// Close the focused content first (a main window: its focused tab).
     case contentFirst
-    /// Close the window (`performClose`, so its delegate may decline, as
-    /// with the close button).
+    /// Close the window as its close button does, in the key's turn
+    /// (`NSWindow.closeFromCloseKey()`, so its delegate may decline), with
+    /// no button flash.
     case window
 }
 

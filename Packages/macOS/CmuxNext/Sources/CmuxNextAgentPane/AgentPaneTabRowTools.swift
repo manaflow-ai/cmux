@@ -9,6 +9,9 @@ nonisolated enum AgentPaneTabRowTools {
     nonisolated static let maximumDepth = 2
     nonisolated static let maximumText = 64
     nonisolated static let maximumTextBytes = 256
+    nonisolated static let maximumToolText = 32
+    nonisolated static let maximumToolTextBytes = 128
+    nonisolated static let maximumURLBytes = 2048
 
     nonisolated static func list(_ raw: Any?) -> [PaneTabRowTool]? {
         guard let raw = raw as? [Any], raw.count <= maximumTools else { return nil }
@@ -42,8 +45,15 @@ nonisolated enum AgentPaneTabRowTools {
         } else {
             contextMenu = []
         }
+        let visibleText: String?
+        if let rawText = object["text"], !(rawText is NSNull) {
+            guard let parsed = optionalToolText(rawText) else { return nil }
+            visibleText = parsed
+        } else {
+            visibleText = nil
+        }
         return PaneTabRowTool(id: id, symbol: symbol, label: label, enabled: enabled, toggled: toggled,
-                              badge: badge, menu: menuRows, contextMenu: contextMenu)
+                              badge: badge, menu: menuRows, text: visibleText, contextMenu: contextMenu)
     }
 
     private nonisolated static func menu(_ raw: Any?, depth: Int, totalMenuItems: inout Int) -> [PaneTabRowMenuItem]? {
@@ -85,8 +95,15 @@ nonisolated enum AgentPaneTabRowTools {
         } else {
             separatorBefore = false
         }
+        let url: String?
+        if let rawURL = object["url"], !(rawURL is NSNull) {
+            guard let parsed = optionalURL(rawURL) else { return nil }
+            url = parsed
+        } else {
+            url = nil
+        }
         return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role,
-                                  separatorBefore: separatorBefore, children: children)
+                                  separatorBefore: separatorBefore, children: children, url: url)
     }
 
     private nonisolated static func text(_ value: Any?) -> String? {
@@ -98,6 +115,22 @@ nonisolated enum AgentPaneTabRowTools {
     private nonisolated static func optionalText(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return nil }
         return text(value)
+    }
+
+    private nonisolated static func optionalToolText(_ value: Any?) -> String? {
+        guard let value, !(value is NSNull), let value = value as? String,
+              !value.isEmpty, !value.contains(where: \.isNewline),
+              value.utf8.count <= maximumToolTextBytes, value.count <= maximumToolText else { return nil }
+        return value
+    }
+
+    private nonisolated static func optionalURL(_ value: Any?) -> String? {
+        guard let value, !(value is NSNull), let value = value as? String,
+              value.utf8.count <= maximumURLBytes,
+              !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }),
+              let url = URL(string: value), let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"), url.host != nil else { return nil }
+        return value
     }
 
     private nonisolated static func optionalBool(_ value: Any?) -> Bool? {

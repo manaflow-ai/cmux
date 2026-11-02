@@ -59,6 +59,8 @@ pub enum Exit {
 
 /// The syscall boundary of the agent.
 pub trait Platform {
+    /// End remote authority before a potentially blocking clone/metadata read.
+    fn invalidate_remote_authority(&self) {}
     /// Blocks until at least one wake.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
     /// Collects exits after a [`Wake::ProcessExit`].
@@ -199,6 +201,7 @@ impl<P: Platform> Agent<P> {
                     clone_signal = true;
                 }
                 Wake::ClockSet => {
+                    self.platform.invalidate_remote_authority();
                     resumed = true;
                     observe = true;
                     clone_signal = true;
@@ -212,6 +215,7 @@ impl<P: Platform> Agent<P> {
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
                 Wake::DriverFile => {
+                    self.platform.invalidate_remote_authority();
                     observe = true;
                     clone_signal = true;
                 }

@@ -508,7 +508,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard !fadeIn.isEmpty, let id = dataSource.itemIdentifier(for: indexPath), fadeIn.remove(id) != nil,
+        let shownID = dataSource.itemIdentifier(for: indexPath)
+        // The oldest turn shown came into view (the reader scrolled up, or the first page is
+        // shorter than the screen): read the page before it. The list keeps the reader's rows
+        // in place as it lands (`reload`'s anchor).
+        if shownID == "session-start", store.hasEarlierHistory { store.loadEarlier() }
+        guard !fadeIn.isEmpty, let id = shownID, fadeIn.remove(id) != nil,
               !UIAccessibility.isReduceMotionEnabled else { return }
         cell.contentView.alpha = 0
         // motion: allow a 0.15 s fade of a newly arrived row; Reduce Motion skips it.

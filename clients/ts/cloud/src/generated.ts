@@ -244,6 +244,41 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
+export type CloudVmNetworkPolicyView = {
+  readonly schema_version: 2
+  readonly machine: MachineId
+  readonly host: HostId
+  readonly epoch: number
+  readonly receiver_generation: string | null
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly vm: string
+  readonly ipv4: string | null
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<CloudVmReceiverPeer>
+}
+
+export type CloudVmReceiverPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly services: ReadonlyArray<"daemon" | "ssh">
+}
+
 export type CodeRef = {
   readonly commit: CommitSha
   readonly path: string
@@ -946,6 +981,7 @@ export type ServerNetworkBinding = {
   readonly mesh: NativeMeshId
   readonly device: NativeDeviceId
   readonly confirmed_at: number
+  readonly install_grant?: GrantId
 }
 
 export type ServerNetworkProof = {
@@ -1862,6 +1898,27 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.network_policy": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: CloudVmNetworkPolicyView
+  }
+  /** Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring. */
+  readonly "cloud.vm.receiver.lifecycle": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly phase: "read" | "begin" | "ready" | "end"
+      readonly expected?: string
+      readonly attempt?: string
+    }
+    readonly result: {
+      readonly machine: MachineId
+      readonly generation: string
+      readonly phase: "idle" | "starting" | "ready" | "stopped"
     }
   }
   /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -3812,6 +3869,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.network_policy": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.receiver.lifecycle": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

@@ -25,7 +25,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -55,6 +55,7 @@ fn parse_run(args: &[String], self_argv: Vec<String>) -> Result<Config, String> 
                 let ms: u64 = value()?.parse().map_err(|e| format!("--rearm-delay-ms: {e}"))?;
                 cfg.rearm_delay = Duration::from_millis(ms);
             }
+            "--native-receiver" => cfg.native_receiver = true,
             "--no-announce" => cfg.announce = false,
             "--announce-interval-seconds" => {
                 let secs: u64 =
@@ -312,9 +313,36 @@ fn run_agent(mut cfg: Config) -> u8 {
     });
     // The Cloud agent role binds a cmux Cloud machine; it does nothing until
     // the driver writes bind.json (or bound.json exists from a past bind).
-    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone());
+    // Creating the channel opens descriptors only. LinuxPlatform must block
+    // supervisor signals before the Cloud worker starts any thread.
+    // SAFETY: geteuid has no preconditions.
+    let bootstrap = if unsafe { libc::geteuid() } == 0 {
+        let host = if cfg.native_receiver {
+            cmux_link::root_bootstrap::Host::new_native()
+        } else {
+            cmux_link::root_bootstrap::Host::new()
+        };
+        match host {
+            Ok(host) => Some(std::sync::Arc::new(host)),
+            Err(error) if !cfg.native_receiver => {
+                eprintln!("cmux host: optional root lifetime channel unavailable: {error}");
+                None
+            }
+            Err(error) => {
+                eprintln!("cmux host: root bootstrap failed: {error}");
+                return code(1);
+            }
+        }
+    } else if cfg.native_receiver {
+        eprintln!("cmux host: --native-receiver requires root");
+        return code(4);
+    } else {
+        None
+    };
+    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
+        .with_root_bootstrap(bootstrap.clone());
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
-        Ok(p) => p,
+        Ok(p) => p.with_root_bootstrap(bootstrap),
         Err(e) => {
             eprintln!("cmux host: setup failed: {e}");
             return code(1);

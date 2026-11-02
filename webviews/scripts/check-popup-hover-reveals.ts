@@ -49,6 +49,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
     "own-menu rule",
   ],
+  // A grant's Revoke is a plain button that revokes on click (EnvironmentSection.tsx); it opens no menu.
+  [
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-row--grant:is(:hover, :focus-within) > .acpmux-session-info-link",
+    "revoke affordance",
+  ],
   // A running subagent's Stop (SubagentGroup.tsx StopButton) stops it on the click; it opens no menu.
   [
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop",

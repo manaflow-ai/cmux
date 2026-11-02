@@ -111,6 +111,9 @@ public final class DaemonService {
         get { launchMarkSink.withLock { $0 } }
         set { launchMarkSink.withLock { $0 = newValue } }
     }
+    /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
+    /// `debug.daemon_requests` reads it off the main actor.
+    nonisolated let requestLatency = RequestLatencySlot()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -131,6 +134,13 @@ public final class DaemonService {
     /// Times the wait for a reopened workspace to reach the mirror
     /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
+    /// How long a workspace close waits for this daemon's answer before the store decides it: the safety net for a
+    /// daemon that keeps its socket open and never answers (`WorkspaceClose`). Tests shorten it.
+    @ObservationIgnored public var closeReplyBound: Duration = DaemonConnection.closeReplyBound
+    /// How long a create with a first terminal waits for this daemon's answer before its caller decides from the store
+    /// (``createWorkspaceAwaitingReply(on:ephemeral:focus:)``): the same safety net as a close's, for a daemon that keeps
+    /// its socket open and never answers, not a deadline for a busy one. Tests shorten it.
+    @ObservationIgnored public var createReplyBound: Duration = DaemonConnection.closeReplyBound
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored private(set) var lastStartupError: DaemonError?
@@ -195,11 +205,15 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        // The prestart's connection records into its probe; later connections record into the same one.
+        let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
+        requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
+            requestLatency: latency))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -261,7 +275,8 @@ public final class DaemonService {
                 }
                 await weakSelf?.noteStartupFailure(error)
             }
-            var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
+            // The first connect starts the local daemon too: it keeps trying past its budget (restore fuzz h2).
+            var connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
@@ -272,8 +287,8 @@ public final class DaemonService {
                 self?.armStartupDeadline()
                 connected = nil
                 if !Task.isCancelled {
-                    connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection,
-                                                                   onFailure: onFailure)
+                    connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock,
+                                                                   makeConnection: makeConnection, onFailure: onFailure)
                 }
             }
             guard let (connection, identity) = connected else { return }

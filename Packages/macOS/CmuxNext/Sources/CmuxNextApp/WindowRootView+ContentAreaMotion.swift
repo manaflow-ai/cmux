@@ -25,6 +25,9 @@ extension WindowRootView {
             // Flush layout at the landed width before content hears the motion ended: the
             // workspace sizes its layout in `layout()` (an empty autoresizing mask), so the subtree is
             // laid out now, or a terminal would settle at the held width and report a stale grid.
+            // Resolve the final card bounds while content is still held. Releasing first
+            // fits content to the previous frame, then immediately resizes it again.
+            layoutSubtreeIfNeeded()
             contentHost.contentHold = nil
             layoutSubtreeIfNeeded()
             notifyPaneMotionSettled()

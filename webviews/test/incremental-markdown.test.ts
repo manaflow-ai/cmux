@@ -79,6 +79,7 @@ const quoted = [
   "Intro.\n\n````md\n```js\nx\n\nstill inside the four-tick fence\n\n- not a list\n```\n````\n\nAfter.\n\n- real list",
   "Before.\n\n```x``` not a fence\n\n```\ncode\n\nmore code\n```\n\nAfter.",
   "Para.\n\n``````\n`````\ninner five\n\nstill code\n``````\n\nEnd.",
+  "Math.\n\n````md\n```js\n$$\nx\n\n\\[ not an equation \\]\n```\n````\n\nAfter $$y$$ done.",
 ];
 
 for (const [index, fixture] of quoted.entries()) {

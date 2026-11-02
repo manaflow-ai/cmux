@@ -67,9 +67,8 @@ extension WindowManager {
                 if registry.value.window(window) == nil { pendingPlacements[id] = nil }
                 continue
             }
-            pendingPlacements[id] = nil
-            // One store-backed rows pass per window; each following placement
-            // reads the model with the preceding optimistic moves applied.
+            // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot); each
+            // following placement reads the model with the preceding optimistic moves applied.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
@@ -85,14 +84,13 @@ extension WindowManager {
                                                        legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines),
                    NewWorkspacePlacements.lists(current, in: window, windows: self),
                    ContinuousClock.now < since + NewWorkspacePlacements.anchorWaitLimit {
-                    var waiting = pending
-                    waiting.anchorWaitSince = since
-                    pendingPlacements[id] = waiting
+                    pendingPlacements[id]?.anchorWaitSince = since
                     retryDeferredPlacements(after: since + NewWorkspacePlacements.anchorWaitLimit - .now)
                     continue
                 }
                 byDefault?.currentMachine = nil
             }
+            pendingPlacements[id] = nil // its move goes to the sidebar now: the next rows pass lists its own row
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
             let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)

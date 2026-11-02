@@ -39,10 +39,11 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
 /// context ring) and look radios under it. Those sit outside the box since Claude Code's split
 /// (#22285), and a press on one of their chips must leave the prompt focused, so the chip's menu
 /// hands the keyboard back to the prompt after a pick. A composer picker's menu drawn out of the box
-/// (`overBackdrop`, the + menu) sits in `.acpmux-picker-layer`: a press on its rows is the composer's
-/// too, or the blur closes the menu before the row takes the press.
+/// (`overBackdrop`, the + menu) sits in `.acpmux-picker-layer`, and the `/` and `@` lists in
+/// `.acpmux-composer-list-layer` (backdropLayer.tsx): a press on their rows is the composer's too, or
+/// the blur closes the menu before the row takes the press.
 const COMPOSER_CHROME =
-  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-picker-layer";
+  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-picker-layer, .acpmux-composer-list-layer";
 
 function blurActiveComposer(): void {
   const active = document.activeElement;
@@ -74,6 +75,13 @@ export function routesToComposer(event: KeyLike, target: Element | null): boolea
   if (target.closest(OWNS_KEYS)) return false;
   if (event.key === " " && target.closest(PRESSABLE)) return false;
   return true;
+}
+
+/// Whether a key is a plain Tab pressed with nothing in the page focused.
+export function tabsToComposer(event: KeyLike & { shiftKey: boolean }, doc: Document): boolean {
+  if (event.key !== "Tab" || event.defaultPrevented || event.isComposing) return false;
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+  return nothingFocused(doc);
 }
 
 /// What has the page's focus, for automation (chat_state): `composer` (the prompt), `none`, or
@@ -138,6 +146,13 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       }, ACTIVATION_SETTLE_MS);
     };
     const onKey = (event: KeyboardEvent) => {
+      // Tab with nothing focused (after a press on the transcript or the background) goes to the
+      // prompt, not through the location strip's folder and machine chips that sit above it in
+      // the page (Leo 2026-10-20). From the prompt, Shift-Tab still reaches those chips.
+      if (tabsToComposer(event, document)) {
+        if (latest.current()) event.preventDefault();
+        return;
+      }
       if (!routesToComposer(event, document.activeElement)) return;
       if (!latest.current()) return;
       event.preventDefault();

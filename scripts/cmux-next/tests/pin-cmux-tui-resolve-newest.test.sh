@@ -179,6 +179,27 @@ resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_p
 [[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
   || fail "nightly must resolve the published revision with the repaired Chief lockfile (exit $status):" "$out" "$err"
 
+# The nightly's step scripts (#30912, #31013) run from the resolved commit's checkout under the
+# tip's workflow: a published commit whose scripts/ci/nightly-steps differ from the tip's would run
+# an older copy of a step the tip's workflow names. The workflow's own policy refuses it.
+step=scripts/ci/nightly-steps/example-step.sh
+mkdir -p "$src/$(dirname "$step")"
+echo "echo old step" > "$src/$step"
+git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "old step script"
+publish "$(git -C "$src" rev-parse HEAD)" ""
+echo "echo new step" > "$src/$step"
+echo five-b > "$src/cmux-tui/a"
+git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "new step script and tui"
+new_step=$(git -C "$src" rev-parse HEAD)
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" != 0 ]] || fail "nightly must not resolve a published revision with an older nightly step script, got:" "$out"
+grep -q "scripts/ci/nightly-steps differs from the tip" <<<"$err" \
+  || fail "the stale step script refusal needs a clear message:" "$err"
+publish "$new_step" ""
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" == 0 ]] && grep -qx "source_commit=$new_step" <<<"$out" \
+  || fail "nightly must resolve the published revision with the tip's step scripts (exit $status):" "$out" "$err"
+
 # No Mac Release compile is required (#25786): nightly-next run 40427307041
 # failed here because fb384d011b85, the only commit in its window with a
 # published tree, had no green "cmux-next Release compile (Xcode 26)". With

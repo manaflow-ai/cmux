@@ -38,12 +38,7 @@ test("an absent parent and a self-parent stay visible at the root", () => {
 });
 
 test("a historical parent cycle leaves every worker visible exactly once", () => {
-  const agents = [
-    agent("a", "b", 2),
-    agent("b", "a", 0),
-    agent("c", "a", 1),
-    agent("d", null, 1),
-  ];
+  const agents = [agent("a", "b", 2), agent("b", "a", 0), agent("c", "a", 1), agent("d", null, 1)];
   const rows = orderedSubagents(agents, (a) => a.priority);
   expect(rows.map(({ agent: a }) => a.id)).toEqual(["d", "b", "a", "c"]);
   expect(rows.map((row) => row.depth)).toEqual([0, 0, 1, 2]);

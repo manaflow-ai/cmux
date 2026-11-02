@@ -5,15 +5,20 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
+#[cfg(target_os = "linux")]
+mod cloud_broker;
 mod cloud_fs;
 mod control;
+mod daemon_entry;
+pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-// Not wired into start-chat yet; its CLI entry is `cmux link seed plan`.
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
+mod seed_cli;
 mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
@@ -25,11 +30,19 @@ mod inbound;
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+#[cfg(target_os = "linux")]
+mod native_process;
+#[cfg_attr(not(test), allow(dead_code))]
+mod native_receiver;
+#[cfg(target_os = "linux")]
+mod native_supervision;
 mod paired_streams;
 mod process_exit;
+mod receiver_deadline;
 mod state;
 
 #[cfg(test)]
@@ -119,6 +132,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return sync_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("seed") {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+            return seed_cli::run(args.get(1..).unwrap_or_default());
+        }
         return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.
@@ -129,6 +145,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(args.get(2..).unwrap_or_default());
+        }
         return machine_update::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
@@ -162,6 +181,8 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
+        #[cfg(target_os = "linux")]
+        "__receive-vm" => native_process::run(&flags(rest, &["--session-socket"])?),
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
         }

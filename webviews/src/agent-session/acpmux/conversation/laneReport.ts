@@ -22,6 +22,7 @@ export type LaneNoticeThread = {
   readonly label?: string;
   readonly promptIds?: readonly string[];
   readonly fromSession?: string;
+  readonly fromHarness?: string;
   readonly count?: number;
 };
 
@@ -41,6 +42,8 @@ export type LaneNoticePayload = {
   readonly details?: unknown;
   /** True when acpmux has classified this payload as a lane report. */
   readonly report?: boolean;
+  /** A person's own words (`IncomingMessage.fromPerson`): never a notice. */
+  readonly fromPerson?: boolean;
   /** Structured inbox threads from acpmux's inbox_notice payload. */
   readonly noticeThreads?: readonly { readonly id: string; readonly sender: string }[];
 };
@@ -203,6 +206,9 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
 
 export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {
   if (!message || typeof message !== "object") return undefined;
+  // A person's own words are never a notice, whatever they look like: a notice shows only part of
+  // its text, and a guest's prompt runs whole (incomingMessage.ts `fromPerson`).
+  if (message.fromPerson) return undefined;
   const cached = parsed.get(message as object);
   if (cached !== undefined || parsed.has(message as object)) return cached;
   const text = message.text.trim();

@@ -14,12 +14,15 @@ use serde_json::{Value, json};
 use crate::prompt::CacheTtl;
 
 /// The settings this host knows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
     /// native engine). `OPTCHAT_CACHE_TTL` wins over it.
     pub cache_ttl: Option<CacheTtl>,
+    /// Optional coordinator session (`host/session`) for fleet, PR and lane work.
+    /// Unset by default; its identity is added to the prompt at host start.
+    pub contact: Option<String>,
     /// When a reply in the Chief's DM goes into the thread of the message it
     /// answers (`replies.thread`). Default `auto`.
     pub reply_threads: ReplyThreads,
@@ -39,9 +42,16 @@ pub struct ChiefSettings {
     /// refused for Chief to cut (`replies.maxWords`, chief_kernel::replies);
     /// 0 turns the gate off. Default 45.
     pub reply_max_words: usize,
+    /// Whether the host pauses cloud VMs on its own (`cloud.autoPause`):
+    /// a pool VM after `cloud.autoPauseIdleSeconds` with no live subagent, a
+    /// subagent's own VM when its run ends, and every idle one when the host
+    /// stops. Default false: no auto pause (Leo, 2026-10-30: "we're saying
+    /// no auto pausing of the freestyle vms for now"). Pausing by hand is
+    /// unchanged.
+    pub cloud_auto_pause: bool,
     /// Seconds a cloud VM waits with no live cloud subagent before the host
-    /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
-    /// B4). Default 60.
+    /// pauses it, when `cloud.autoPause` is on (`cloud.autoPauseIdleSeconds`,
+    /// cloud-subagents-DESIGN.md B4). Default 60.
     pub cloud_auto_pause_idle_secs: u64,
     /// Days a finished subagent's own VM stays paused (for a later tell)
     /// before the host deletes it (`cloud.deleteAfterPausedDays`,
@@ -87,11 +97,13 @@ impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
             cache_ttl: None,
+            contact: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
             show_subagent_workspaces: false,
             trace_full: false,
             reply_max_words: chief_kernel::replies::REPLY_MAX_WORDS,
+            cloud_auto_pause: false,
             cloud_auto_pause_idle_secs: 60,
             cloud_delete_after_paused_days: 7,
         }
@@ -100,6 +112,9 @@ impl Default for ChiefSettings {
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
+
+/// The optional coordinator session used for fleet, PR and lane work.
+pub const CONTACT: &str = "contact";
 
 /// The key of `ChiefSettings::reply_threads`.
 pub const REPLY_THREADS: &str = "replies.thread";
@@ -116,6 +131,9 @@ pub const REPLY_MAX_WORDS: &str = "replies.maxWords";
 /// The key of `ChiefSettings::trace_full`.
 pub const TRACE_FULL: &str = "trace.full";
 
+/// The key of `ChiefSettings::cloud_auto_pause`.
+pub const CLOUD_AUTO_PAUSE: &str = "cloud.autoPause";
+
 /// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
 pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
 
@@ -128,6 +146,9 @@ impl ChiefSettings {
             .unwrap_or(Value::Null);
         ChiefSettings {
             cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
+            contact: value[CONTACT]
+                .as_str()
+                .and_then(|v| parse_contact(v).ok().flatten()),
             reply_threads: value["replies"]["thread"]
                 .as_str()
                 .and_then(ReplyThreads::parse)
@@ -141,6 +162,7 @@ impl ChiefSettings {
                 .as_u64()
                 .map(|n| n as usize)
                 .unwrap_or(chief_kernel::replies::REPLY_MAX_WORDS),
+            cloud_auto_pause: value["cloud"]["autoPause"].as_bool().unwrap_or(false),
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
@@ -150,8 +172,11 @@ impl ChiefSettings {
         }
     }
 
-    pub fn to_json(self) -> Value {
+    pub fn to_json(&self) -> Value {
         let mut value = json!({});
+        if let Some(contact) = &self.contact {
+            value[CONTACT] = json!(contact);
+        }
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }
@@ -163,6 +188,7 @@ impl ChiefSettings {
             value["trace"] = json!({"full": true});
         }
         value["cloud"] = json!({
+            "autoPause": self.cloud_auto_pause,
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
         });
@@ -170,7 +196,7 @@ impl ChiefSettings {
     }
 
     /// Writes the settings (0600, through a temporary file and a rename).
-    pub fn save(self, path: &Path) -> std::io::Result<()> {
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         if let Some(dir) = path.parent() {
@@ -191,6 +217,27 @@ impl ChiefSettings {
 
 /// The key of `ChiefSettings::cloud_delete_after_paused_days`.
 pub const CLOUD_DELETE_AFTER_PAUSED_DAYS: &str = "cloud.deleteAfterPausedDays";
+
+/// A `contact` value is an acpmux session id in `host/session` form.
+/// An empty value clears it. Whitespace and additional separators are rejected
+/// so the prompt cannot be made to point at an ambiguous session.
+pub fn parse_contact(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let Some((host, session)) = value.split_once('/') else {
+        return Err(format!("{CONTACT}: expected host/session, not {value:?}"));
+    };
+    if host.is_empty()
+        || session.is_empty()
+        || session.contains('/')
+        || value.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(format!("{CONTACT}: expected host/session, not {value:?}"));
+    }
+    Ok(Some(value.to_owned()))
+}
 
 /// A `cloud.deleteAfterPausedDays` value: whole days, 0 to 365.
 pub fn parse_paused_days(value: &str) -> Result<u64, String> {

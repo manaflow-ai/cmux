@@ -382,6 +382,7 @@ async fn another_agents_steer_goes_in_when_no_prompt_waits() {
 #[tokio::test]
 async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     let (hub, mut c, id, running, turn, mine, gate, next) = turn_with_a_waiting_prompt().await;
+    assert!(hub.resolve(&id).unwrap().turn().unwrap().persons, "the running turn is the person's");
     let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
                        "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}});
     let steer = c.send(method::SESSION_PROMPT, steer).await;
@@ -839,7 +840,7 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
 
-/// Labs team messaging (`meshRelay.teamMessaging`) is off here, as on most daemons: a chat's agent
+/// Team messaging (`meshRelay.teamMessaging`) is off here (no team hub): a chat's agent
 /// still reads every word of its inbox. `inbox_read` reads it, and so do the team mailbox's inbox,
 /// read and ack, which an agent started before the inbox has instead of `inbox_read`, and which
 /// `acpmux inbox` calls (`hub/inbox_team_page.rs`). Three helpers saw only a notice's
@@ -904,7 +905,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     assert!(refused.is_err_and(|e| e.contains("inbox.not_found")));
     // A connection of no chat (the person's) is told team messaging is off, as before.
     let person = c.request(method::MUX_TEAM_INBOX, json!({})).await;
-    assert!(person.is_err_and(|e| e.contains("team messaging is disabled")));
+    assert!(person.is_err_and(|e| e.contains("team messaging is off")));
 }
 
 /// A chat whose agent was started with no cmux tools (`ACPMUX_AGENT_TOOLS=0`) cannot read an inbox:

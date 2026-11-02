@@ -188,7 +188,7 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
 }
 
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }

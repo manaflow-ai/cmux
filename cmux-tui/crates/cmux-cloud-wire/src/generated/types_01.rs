@@ -453,6 +453,50 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetworkPolicyView {
+    pub schema_version: IntLit<2>,
+    pub machine: MachineId,
+    pub host: HostId,
+    pub epoch: i64,
+    pub receiver_generation: Option<String>,
+    pub user: UserId,
+    pub install: InstallId,
+    pub team: TeamId,
+    pub origin: String,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub vm: String,
+    pub ipv4: Option<String>,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub checked_at: i64,
+    pub expires_at: i64,
+    pub acl_version: i64,
+    pub policy_digest: String,
+    pub peers: Vec<CloudVmReceiverPeer>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverPeer {
+    pub host: HostId,
+    pub user: UserId,
+    pub install: InstallId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub services: Vec<CloudVmReceiverPeerServicesItem>,
+}
+
+wire_enum! {
+    CloudVmReceiverPeerServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CodeRef {
     pub commit: CommitSha,
     pub path: String,
@@ -859,44 +903,4 @@ pub struct GroupPlacement {
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
-}
-
-wire_enum! {
-    GroupPlacementKind {
-        Local = "local",
-        Mini = "mini",
-        CloudVm = "cloud_vm",
-    }
-}
-
-pub type GroupWorkspaceId = String;
-
-/// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeAttachmentPoster {
-    pub hash: HomeSha256,
-    pub mime_type: HomeAttachmentPosterMimeType,
-    pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeAttachmentPosterMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
-}
-
-/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeAttachmentPreview {
-    pub hash: HomeSha256,
-    pub mime_type: HomeAttachmentPreviewMimeType,
-    pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeAttachmentPreviewMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
 }

@@ -51,7 +51,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cmux_next_cloud_pair_proof import read_proof, run_cloud_leg  # noqa: E402
+from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
@@ -437,6 +437,10 @@ def main():
             shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
             forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
+        if proof is not None:
+            # The public archive is an allowlist in Cloud mode. Raw screenshots,
+            # pairing/app logs and failure captures remain unavailable to upload.
+            allowlist_public_cloud_artifact(a.out)
     if not url and not expects_code and proof is None:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     return 0 if paired and uploaded and cloud_ok else 1

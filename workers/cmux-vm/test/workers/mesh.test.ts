@@ -38,7 +38,8 @@ const json = async (response: Response): Promise<Record<string, unknown>> => {
   return typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
 };
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
-const call = (path: string, key: string, method = "GET", body?: unknown) => h.request(path, bearer(key), { method, body });
+const call = (path: string, key: string, method = "GET", body?: unknown) => h.request(path,
+  { ...bearer(key), ...(path === "/v1/mesh-creations" ? { "idempotency-key": crypto.randomUUID() } : {}) }, { method, body });
 
 const createMesh = async (key: string) => {
   const response = await call("/v1/meshes", key, "POST", { displayName: "test mesh" });

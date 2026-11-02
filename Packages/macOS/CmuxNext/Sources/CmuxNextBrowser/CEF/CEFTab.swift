@@ -85,6 +85,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
+    /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
+    /// manual clock.
+    @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -108,6 +111,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
+    /// (`documentDidPaint`), so the second of the two events starts no second read.
+    @ObservationIgnored var pageBackdropReading: Int?
+    /// A load end or stop came while that read was in flight: one more read follows its answer.
+    @ObservationIgnored var pageBackdropReReadOwed = false
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
@@ -144,9 +152,42 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
+    /// The drag of files the pane relays to the page (``pageFilesDragged``) ended: true in a drop
+    /// on the page (AppKit's `performDragOperation`, its event in dispatch), false when it left the
+    /// page or was cancelled. Page script cannot make either; nil ignores it.
+    @ObservationIgnored public var pageDragEnded: (@MainActor (Bool) -> Void)?
     /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
+    /// The person pressed Cmd-V in the page, before Chromium pastes (``CEFRuntime/routeKey(_:browser:)``,
+    /// the key event in dispatch); nil ignores it.
+    @ObservationIgnored public var pagePasted: (@MainActor () -> Void)?
+    /// The person picked these files in the app's panel for the page's file chooser. Set, this
+    /// page's choosers come to the app (`cmux_shim_browser_set_file_dialogs`); nil leaves them to
+    /// Chromium's own panel and its accept filters, as on every other tab.
+    @ObservationIgnored public var pageFilesChosen: (@MainActor ([URL]) -> Void)? {
+        didSet {
+            if (pageFilesChosen == nil) != (oldValue == nil) { runtime.applyFileDialogRoute(self) }
+        }
+    }
+
+    /// Stops telling the page host about the page's messages, drags, input and pastes (it stopped
+    /// listening).
+    public func clearPageEventHooks() {
+        agentRelay.set(onMessage: nil, onEnd: nil)
+        pageFilesDragged = nil
+        pageDragEnded = nil
+        pageUserInput = nil
+        pagePasted = nil
+    }
+
+    /// Clears every page-host hook (the page host closed the page): its events, its dynamic paths,
+    /// and its file chooser goes back to Chromium.
+    public func clearPageHooks() {
+        clearPageEventHooks()
+        pageResources = nil
+        pageFilesChosen = nil
+    }
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
@@ -253,6 +294,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         reapplyColorScheme()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)
+        if pageFilesChosen != nil { runtime.applyFileDialogRoute(self) }
         applyDeviceEmulation()
         agentRelay.browserAttached()
         if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
@@ -530,6 +572,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()
+        settleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {
