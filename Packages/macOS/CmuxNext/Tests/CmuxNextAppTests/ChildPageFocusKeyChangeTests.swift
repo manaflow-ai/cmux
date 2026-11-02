@@ -100,6 +100,20 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.focusCalls.count == 1)
     }
 
+    /// Focus leaves the page inside its grant (the model moved on to a terminal): the page blurs and
+    /// the cmux window takes the keys back, grant or not.
+    @Test func reclaimInsideTheGrantAfterThePageBlurredTakesTheKeysBack() {
+        let world = World()
+        world.duringGrant = { [weak world] in
+            guard let world else { return }
+            world.focus.blurPage()
+            world.reclaim()
+        }
+        world.focus.focus(world.b)
+        #expect(world.keys.changes == ["pageB", "cmux"], "the keys stayed on the blurred page: \(world.keys.changes)")
+        #expect(world.focus.page == nil)
+    }
+
     @Test func reclaimMakesNoKeyChangeWhenTheCmuxWindowIsKey() {
         let world = World()
         world.keys.makeKey(world.cmux)
