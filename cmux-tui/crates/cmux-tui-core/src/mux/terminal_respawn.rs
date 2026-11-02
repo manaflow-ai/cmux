@@ -468,11 +468,13 @@ impl Mux {
             self.unregister_kitty_image_surface(old)?;
         }
         drop(old_runtime);
-        let (record, seed_source) = {
-            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let record = registry.terminal_relaunch_record(&plan.terminal_id)?;
-            (record, self.previous_screen(&registry, &plan))
-        };
+        let record = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_relaunch_record(&plan.terminal_id)?;
+        // Its own short registry holds: the rebuild runs with no lock.
+        let seed_source = self.previous_screen(&plan);
         let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
         let workspace_key = {
             let mut registry =

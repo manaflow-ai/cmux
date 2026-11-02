@@ -2559,8 +2559,6 @@ CmuxNextApp	class	UpdateSurfaceIslands	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	class	UpdateSurfaceProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift	from class UpdateSurfaceIslands:15: sidebar update surface islands (NSView)
 CmuxNextApp	extension	PageFactory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift	from class UpdateSurfaceIslands:15: sidebar update surface islands (NSView)
 CmuxNextApp	class	WebPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WebPageTab.swift	from class WebPageTab:9: web page tab shell
-CmuxNextApp	enum	WhatsNewDesign	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WhatsNewTunables.swift	tunable enum for What is New layout
-CmuxNextApp	enum	WhatsNewTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WhatsNewTunables.swift	from enum WhatsNewDesign:7: tunable enum for What is New layout
 CmuxNextApp	class	DaemonPairingApprovalService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPairingApprovalService.swift	from class DaemonPairingApprovalService:13: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	DaemonPairingStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPairingStrings.swift	localized string table
 CmuxNextApp	struct	DaemonPrompts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPrompts.swift	from struct DaemonPrompts:5: AppKit/SwiftUI view, host or thin daemon call site
@@ -9038,6 +9036,8 @@ CmuxNextPages	struct	WebDevOverride	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextPages	class	WebDevOverrideWatcher	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebDevOverrideWatcher.swift	WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
 CmuxNextPages	class	WebKitPageHostBridge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebKitPageHostBridge.swift	WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
 CmuxNextPages	class	WebKitPageHostReceiver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebKitPageHostBridge.swift	from class WebKitPageHostBridge:6: WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
+CmuxNextPages	enum	WhatsNewDesign	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WhatsNewTunables.swift	tunable enum for What is New layout
+CmuxNextPages	enum	WhatsNewTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WhatsNewTunables.swift	from enum WhatsNewDesign:7: tunable enum for What is New layout
 CmuxNextPagesTestSupport	class	FakeChromiumHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport/FakeChromiumHosting.swift	from class FakeChromiumHosting:6: test double
 CmuxNextPagesTestSupport	class	FakeChromiumPage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport/FakeChromiumPage.swift	from class FakeChromiumPage:19: test double
 CmuxNextPalette	func	scheduleAfterFrameCommit	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/AfterFrameCommit.swift	run loop observer to run work after frame commit
@@ -11420,6 +11420,7 @@ CmuxNextTerminal	class	TerminalCopyMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/So
 CmuxNextTerminal	extension	CopyModeModifiers	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift	from struct CopyModeSession:16: Copy-mode selection and motion state machine
 CmuxNextTerminal	struct	CopyModeSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift	Copy-mode selection and motion state machine
 CmuxNextTerminal	class	TerminalCopyModeBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyModeBadge.swift	Terminal view, frame, pasteboard, input and chrome code
+CmuxNextTerminal	class	TerminalDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalDictation.swift	Terminal dictation session wiring (#31862): mic claim, preview overlay on the pinned host, host-close hook, finals to the owner's paste; the committed/volatile split is DictationTranscript's
 CmuxNextTerminal	class	TerminalFinalGridTrace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFinalGridTrace.swift	from class TerminalFinalGridTrace:15: Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	class	TerminalFindBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFindBarView.swift	Find direction and target seams
 CmuxNextTerminal	extension	FindPillIcons	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFindBarView.swift	from class TerminalFindBarView:12: Find direction and target seams

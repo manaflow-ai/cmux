@@ -64,6 +64,10 @@ import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
+import { applyHeightChanges, type HeightChange, type IndexedLayoutGeometry } from "./conversationGeometry";
+
+export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
+export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -2272,6 +2276,18 @@ export function withOrigin(layout: ConversationLayout, origin: number): Conversa
   for (let index = 0; index < tops.length; index += 1) tops[index] = layout.tops[index]! + by;
   const { origin: _, ...rest } = layout;
   return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
+}
+
+/**
+ * Places measured rows through the persistent geometry path.  This additive
+ * API is used by the indexed consumer port; the array layout above remains for
+ * legacy callers until that port is complete.
+ */
+export function placeRowsIndexed(
+  estimate: IndexedLayoutGeometry,
+  changes: readonly HeightChange[],
+): IndexedLayoutGeometry {
+  return applyHeightChanges(estimate, changes);
 }
 
 function upperBound(values: Float64Array, target: number): number {

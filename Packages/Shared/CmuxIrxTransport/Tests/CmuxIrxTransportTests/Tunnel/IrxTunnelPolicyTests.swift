@@ -53,6 +53,18 @@ struct IrxTunnelPolicyTests {
         }
     }
 
+    @Test("a scoped IPv6 literal is not an address, so it is never judged or dialed as another one")
+    func scopedLiteralIsNotAnAddress() {
+        // Darwin's inet_pton takes a `%zone` suffix and writes the interface
+        // index into a link-local address's bytes (`fe80::1%lo0` becomes
+        // fe80:1::1); glibc refuses it. The strict parse refuses it everywhere.
+        for literal in ["fe80::1%lo0", "fe80::1%en0", "[fe80::1%lo0]", "fe80::1%1", "::1%lo0"] {
+            #expect(IrxTunnelIPAddress(literal) == nil, "\(literal)")
+            #expect(optedIn.evaluate(host: literal, port: 80) == .deny, "\(literal)")
+            #expect(loopbackOnly.evaluate(host: literal, port: 80) == .deny, "\(literal)")
+        }
+    }
+
     @Test("resolved addresses are re-checked, so DNS cannot point past the policy")
     func resolvedAddressesFiltered() {
         let resolved = [

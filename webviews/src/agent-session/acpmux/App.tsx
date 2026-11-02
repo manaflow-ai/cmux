@@ -162,6 +162,7 @@ import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
   followHarnessChanges,
+  harnessCatalogKey,
   useHarnessCatalog,
   useHarnessesListed,
   type HarnessCatalogSource,
@@ -5993,6 +5994,9 @@ function AcpmuxPane() {
     };
   }, [newChatPrewarm]);
   const queryClient = useQueryClient();
+  // Each Cmd-T adoption of this page (kept mounted or not, newtab/adoption.ts): the folder's trust and
+  // harnesses are read again with the tab's roots (a parked spare's reads had none, SHORTCUT FRAMES F2).
+  const [newTabAdoptions, setNewTabAdoptions] = useState(0);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
@@ -6010,6 +6014,14 @@ function AcpmuxPane() {
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
+  // A Cmd-T adoption reads the folder's harnesses again (the parked spare's read had no tab's roots); the
+  // catalog keeps drawing until the new answer lands.
+  const adoptedCatalog = useRef(newTabAdoptions);
+  useEffect(() => {
+    if (adoptedCatalog.current === newTabAdoptions || !catalogSource) return;
+    adoptedCatalog.current = newTabAdoptions;
+    void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(catalogSource.id, catalogCwd), exact: true });
+  }, [newTabAdoptions, catalogSource, catalogCwd, queryClient]);
   // For the host actions, which read it when they run (`chat.new`'s remembered model).
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
@@ -6424,7 +6436,12 @@ function AcpmuxPane() {
   const authQuery = snapshot.sessionId
     ? { sessionId: snapshot.sessionId }
     : healthHarness && healthLocal
-      ? { target: { harness: healthHarness } }
+      ? {
+          target: {
+            harness: healthHarness,
+            ...(snapshot.summary?.cwd?.startsWith("/") ? { cwd: snapshot.summary.cwd } : {}),
+          },
+        }
       : undefined;
   const {
     auth: sessionAuth,
@@ -6572,6 +6589,7 @@ function AcpmuxPane() {
       prompts: promptCount,
       authority: trustAuthority,
       visit: trustVisit,
+      reread: newTabAdoptions,
     },
     answersTrust,
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
@@ -6800,12 +6818,8 @@ function AcpmuxPane() {
     return withoutQuietThoughts(rows, snapshot.isWorking);
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
-  // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
-  const trustBlocked = trustAsk.holdsAsks;
-  const panelAsks = useMemo(
-    () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
-    [trustBlocked, snapshot.permissionGroups],
-  );
+  // (withoutAskedCalls).
+  const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
   // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
@@ -7001,7 +7015,7 @@ function AcpmuxPane() {
   const trustNow = useRef(trustAsk.trust);
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
-  const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
+  const trustBlock = trustAsk.blocked?.reason;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
@@ -7940,18 +7954,24 @@ function AcpmuxPane() {
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
-  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
+  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen
+  // unless the spare already draws that context (sameNewTabScreen).
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
   const adoptNewTab = useCallback((host: NewTabHost) => {
     newTabStartGeneration.current += 1;
+    setNewTabAdoptions((count) => count + 1);
     setNewTab(host);
     const cwd = host.cwd;
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
     setProjectDraft(named);
   }, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab);
+  // The screen the page shows now: an adopt that draws the same one keeps it mounted (SHORTCUT FRAMES F2).
+  const newTabNow = useRef(newTab);
+  newTabNow.current = newTab;
+  const currentNewTab = useCallback(() => newTabNow.current, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -12342,8 +12362,6 @@ function AcpmuxPane() {
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
-    holdsAsks: trustAsk.holdsAsks,
-    trustBlocks: Boolean(trustAsk.blocked),
     isWorking: snapshot.isWorking,
     individualPermission,
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
@@ -12503,22 +12521,23 @@ function AcpmuxPane() {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>{transcriptContent}</PresentationContext.Provider>
   );
-  // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
-  // trust), permission and secret cards stay out of the tree so the user never has two different
-  // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
-  // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
+  // (Leo 2026-10-21, P0: a pending trust prompt never blocks answering a question). The question
+  // holds new prompts; a permission, question or secret card asks for a turn already running,
+  // acpmux takes its answer whatever the folder's trust, and hiding it left that turn waiting on an
+  // answer nobody could give. A trusted receipt can sit above the next ask.
   const continueWithoutFolder = useCallback(() => callNative<void>("chat.new", folderContinuationRequest), []);
-  const trustPending = trustAsk.holdsAsks;
-  // A secret is the one ask held while the trust read is in flight: a value typed into it must
-  // never go before the folder is known to need no trust answer first.
-  const secret = trustAsk.blocked ? undefined : snapshot.secret;
+  const secret = snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
+    hasPermissionGroups ||
+    individualPermission ||
+    secret ||
+    toolCards.length > 0,
   );
   // Behind the agent.sessionStatus Debug toggle (`sessionStatus`, read above for the transcript): a
   // turn that ended on a question offers its yes above the composer (RecapCard.tsx).
@@ -12527,7 +12546,7 @@ function AcpmuxPane() {
     sessionId: snapshot.sessionId,
     on: sessionStatus && !snapshot.isWorking,
     // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
-    asking: hasBottomAsk || trustPending || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
+    asking: hasBottomAsk || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
     send: (text) => addressThread(text),
     focusComposer: () => composerHandle.current?.focus(),
   });
@@ -12618,7 +12637,7 @@ function AcpmuxPane() {
         />
       )}
 
-      {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
+      {hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}
           working={snapshot.isWorking}
@@ -12636,7 +12655,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {!trustPending && (individualPermission || secret || toolCards.length > 0) && (
+      {(individualPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -13777,13 +13796,8 @@ function AcpmuxPane() {
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId && (
-                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
-                        )}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !diffFiles && !inspectorOpen,

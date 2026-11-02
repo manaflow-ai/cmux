@@ -7,6 +7,7 @@ import type { SummaryPullRequest } from "../../summary/sessionSummary";
 import { CHANGES_SHOWN, changesOrder, glyphState, type SessionInfoPullRequestStatus } from "../ChangesSection";
 import type { PullRequestGlyphState } from "../PullRequestGlyph";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { nativeExternalUrl, safeExternalUrl } from "./links";
 
 const SYMBOLS: Record<PullRequestGlyphState, string> = {
   open: "arrow.triangle.pull",
@@ -41,6 +42,7 @@ const CHECK_LABELS: Record<string, StringKey> = {
   passing: "rail.checksPassing",
   pending: "rail.checksPending",
 };
+const CHANGE_KINDS = ["code", "tests", "generated", "docs"] as const;
 
 export type ChangesInput = {
   /// The pull requests Changes lists (SessionInfo's `visibleChanges`), in any order.
@@ -63,6 +65,7 @@ export function changesSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { pullRequests, statuses, onOpenBeside, onExpandedChange } = input;
+  const openUrl = nativeExternalUrl(onOpenBeside);
   if (pullRequests.length === 0) return undefined;
   const expanded = input.expanded === true;
   const ordered = changesOrder(pullRequests, statuses);
@@ -88,11 +91,11 @@ export function changesSection(
     } else if (checks && CHECK_LABELS[checks]) trailing = t(CHECK_LABELS[checks]!);
     const reference = `${pr.repo}#${pr.number}`;
     const menu = [
-      ...(onOpenBeside
+      ...(safeExternalUrl(pr.url)
         ? [
             {
               label: t("sessionInfo.changes.openBeside"),
-              action: actions.add(`changes.openMenu:${pr.url}`, () => onOpenBeside(pr.url)),
+              action: actions.add(`changes.openMenu:${pr.url}`, () => openUrl(pr.url)),
             },
           ]
         : []),
@@ -119,11 +122,11 @@ export function changesSection(
     ];
     const breakdown = live.breakdown;
     const hoverDetail = breakdown
-      ? Object.entries(breakdown)
-          .map(
-            ([kind, totals]) =>
-              `${t(`sessionInfo.changes.${kind}` as StringKey)} +${totals?.additions ?? 0} -${totals?.deletions ?? 0}`,
-          )
+      ? CHANGE_KINDS.filter((kind) => breakdown[kind])
+          .map((kind) => {
+            const totals = breakdown[kind]!;
+            return `${t(`sessionInfo.changes.${kind}` as StringKey)} +${totals.additions} -${totals.deletions}`;
+          })
           .join(" · ")
       : undefined;
     return {
@@ -140,9 +143,9 @@ export function changesSection(
         title: (live.title ?? pr.title) || `#${pr.number}`,
         ...(hoverDetail ? { detail: hoverDetail } : {}),
       },
-      ...(onOpenBeside
+      ...(safeExternalUrl(pr.url)
         ? {
-            action: actions.add(`changes.open:${pr.url}`, () => onOpenBeside(pr.url)),
+            action: actions.add(`changes.open:${pr.url}`, () => openUrl(pr.url)),
           }
         : {}),
       ...(menu.length ? { menu, menuLabel: t("sessionInfo.changes.more", { reference }) } : {}),
