@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4144971038501",
+  "notes": "notes/4144971038501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32244,
+      "title": "fix(cloud): keep first-send creates and panes stable across retries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32257,
+      "title": "cmux-api: PlatformMachines takes the agent acting for the person, and holds it to CloudDO's agent rules",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
