@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # go.sh SPEC BUILD JOURNEY LABEL [VDISPLAY]: one SWITCH FRAMES / UI VIDEO round through the HARNESS kit (video-go.py:
 # waits for the mini-scheduler GO, one whole-host lease, publishes the recording), then the switch judge and frame
-# strips on the VM. VDISPLAY: 120x1 (default), 120x2 or none.
+# strips on the VM. VDISPLAY: 120x1 (default), 120x2 or none. SPEC_FILE=path: video-go hands that spec to the
+# scheduler once the build is done (no GO before the build exists).
 set -u
 spec=${1:?spec} build=${2:?build} journey=${3:?journey} label=${4:?label} vd=${5:-120x1}
 here=$(cd "$(dirname "$0")" && pwd); root=$(cd "$here/../../.." && pwd)
@@ -11,7 +12,7 @@ cd "$root" || exit 2
 export CMUX_AGENT_ID=${CMUX_AGENT_ID:-switch-frames}
 echo "go.sh $spec $build $journey $label $vd out $out at $(date -u +%H:%M:%SZ)" >> "$log"
 python3 scripts/journeys/video-go.py --spec "$spec" --build "$build" --journey "$journey" --label "$label" \
-  --vdisplay "$vd" --out "$out" >> "$log" 2>&1
+  --vdisplay "$vd" --out "$out" ${SPEC_FILE:+--spec-file "$SPEC_FILE"} >> "$log" 2>&1
 echo "video-go exit $? at $(date -u +%H:%M:%SZ)" >> "$log"
 d=$out/$journey/video
 mov=$(ls "$d"/*.mov 2>/dev/null | head -1)
