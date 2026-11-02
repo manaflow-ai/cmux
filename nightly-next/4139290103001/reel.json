@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4139290103001",
+  "notes": "notes/4139290103001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31718,
+      "title": "cmux NEXT iOS: chat rows from the Mac (slash commands, earlier-prompt edit, Resume, video/PDF, Send Message to Chief, Stop All Agents, New Agent Chat shortcut)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31788,
+      "title": "Agent pane: a message sender's hover names its harness, model and effort",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20820,
+      "title": "fix: unblock production promotion for cherry-picked backend history",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31579,
+      "title": "base red: row-gap drags select again; Retry stage and recap test follow the grid's action row (#27580)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31796,
+      "title": "test(chat): distinguish image thumbnail from timeline prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31831,
+      "title": "ci(nightly): signer jobs take GitHub-hosted Ubuntu first again, Blacksmith 4 vCPU on a re-run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31697,
+      "title": "base red: plugin update lock opens without truncation (Linux clippy suspicious_open_options, #31462)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31778,
+      "title": "swift-logic-lines: count the Swift logic and mirror lines that must move to Rust",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31777,
+      "title": "Expose Cloud repository actions in Summary card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31756,
+      "title": "perf(next panes): a layout frame re-checks the window's traffic-light avoiders once, not once per moved pane",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31782,
+      "title": "test(gallery): Cloud create sheet when the snapshot list fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31813,
+      "title": "perf(next): a New Tab places refresh sends only the tabs and workspaces, not the whole bar (SHORTCUT LATENCY)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31824,
+      "title": "ci(cmux-tui): pick a mini only when the macOS targets may build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31735,
+      "title": "hid_inject: compiled CGEvent injector for timed video cases (event timestamps, achieved rate, 95 % floor)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31792,
+      "title": "fix(next): Open Link in New Space enters the space only for the workspace its link makes (#31740)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31830,
+      "title": "fix(ci): include retry settings in the cmux-tui tree key",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
