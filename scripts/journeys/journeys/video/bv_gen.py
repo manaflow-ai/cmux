@@ -23,7 +23,9 @@ def setup(theme, page=None):
                    "title": "set-up: the test page typed in the address bar"},
                   {"do": "bv_page_ready", "page": page}, {"do": "wait", "seconds": 1.5}]
     else:
-        steps += [{"do": "new_terminal", "via": "key", "name": "bv", "title": "set-up: a workspace"}, {"do": "neutral_prompt"}]
+        steps += [{"do": "rpc", "title": "set-up: a workspace of its own (not Home: its chat would take the agent chat)",
+                   "method": "action.run", "params": {"action": "newTab", "args": {"name": "bv-main", "focus": True}}},
+                  {"do": "wait", "seconds": 1.2}]
     return steps
 
 

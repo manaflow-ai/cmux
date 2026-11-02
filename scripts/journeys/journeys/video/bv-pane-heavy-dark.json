@@ -32,13 +32,20 @@
    "do": "bv_serve"
   },
   {
-   "do": "new_terminal",
-   "via": "key",
-   "name": "bv",
-   "title": "set-up: a workspace"
+   "do": "rpc",
+   "title": "set-up: a workspace of its own (not Home: its chat would take the agent chat)",
+   "method": "action.run",
+   "params": {
+    "action": "newTab",
+    "args": {
+     "name": "bv-main",
+     "focus": true
+    }
+   }
   },
   {
-   "do": "neutral_prompt"
+   "do": "wait",
+   "seconds": 1.2
   },
   {
    "do": "rpc",
