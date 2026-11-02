@@ -3785,7 +3785,8 @@ a.cv-sha:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript) or keyboard focus. */
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
+   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
@@ -3795,7 +3796,8 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable {
+.acpmux-turnSummary .cv-turn-actions--resumable,
+.acpmux-row--final-footer .cv-turn-actions {
   opacity: 1;
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
