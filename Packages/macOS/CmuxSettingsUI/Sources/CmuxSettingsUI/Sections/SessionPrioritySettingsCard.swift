@@ -52,7 +52,7 @@ struct SessionPrioritySettingsCard: View {
             ) {
                 Stepper(
                     value: Binding(get: { urgentCount.current }, set: { urgentCount.set($0) }),
-                    in: 0...20
+                    in: AutomationCatalogSection.sessionPriorityUrgentCountRange
                 ) {
                     Text(verbatim: "\(urgentCount.current)")
                         .monospacedDigit()

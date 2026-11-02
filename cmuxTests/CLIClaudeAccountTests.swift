@@ -65,6 +65,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((request["params"] as? [String: Any])?["force"] as? Bool, true)
     }
 
+    /// A transcript re-sync that failed gets its own explanation, not the generic "couldn't resume"
+    /// one, so the user knows the copy on the new account may be missing the last messages.
+    func testClaudeAccountSwitchExplainsAFailedTranscriptResync() throws {
+        let resumeCommand = "cd /tmp/project && CLAUDE_CONFIG_DIR=/tmp/.claude-work claude --resume s1"
+        func output(notResumedReason: String, name: String) throws -> String {
+            let surfaceId = UUID().uuidString
+            let result = try runClaudeAccountCLI(
+                name: name,
+                arguments: ["claude-account", "switch", "work", "--surface", surfaceId],
+                callerSurfaceId: nil,
+                respond: { method, id in
+                    method == "claude_account.switch"
+                        ? self.v2Response(id: id, ok: true, result: [
+                            "surface_id": surfaceId, "session_id": "s1", "from": "default", "to": "work",
+                            "transcript": "copied", "resumed": false, "resume_command": resumeCommand,
+                            "pane_closed": false, "not_resumed_reason": notResumedReason,
+                        ])
+                        : nil
+                }
+            )
+            XCTAssertEqual(result.process.status, 0, result.process.stderr)
+            XCTAssertTrue(result.process.stdout.contains(resumeCommand), result.process.stdout)
+            return result.process.stdout.replacingOccurrences(of: surfaceId, with: "<surface>")
+        }
+
+        let resyncFailed = try output(notResumedReason: "transcript_resync_failed", name: "claude-account-resync")
+        let noPrompt = try output(notResumedReason: "no_prompt", name: "claude-account-noprompt")
+
+        XCTAssertNotEqual(resyncFailed, noPrompt)
+    }
+
     /// The app's refusal already says how to force the switch; the CLI relays it once and adds
     /// no second hint.
     func testClaudeAccountSwitchWhileClaudeRespondsRelaysTheAppsForceHintOnce() throws {
@@ -151,7 +182,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     /// An account that hit its usage limit shows until when the automatic switch skips it; an
     /// entry whose reset has passed shows nothing.
-    func testClaudeAccountListShowsWhenAnExhaustedAccountResets() throws {
+    func testClaudeAccountListShowsWhenAnExhaustedAccountResets() async throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-account-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: home) }
@@ -174,16 +205,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["config_dir"] as? String }
         XCTAssertEqual(keys.count, 2, before.stdout)
 
-        // The app's store format: the work account resets in two hours, the default one already did.
-        let resetsAt = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 7_200).rounded(.down))
+        // The app's store format: the work account resets a day from now, the default one reset a
+        // day ago. The CLI reads the real clock, so both sit a day from one reference time, beyond
+        // any clock correction between this write and the CLI's read.
+        let reference = Date().timeIntervalSince1970
+        let resetsAt = Date(timeIntervalSince1970: (reference + 86_400).rounded(.down))
         let store = ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         )
-        try store.markExhausted(accountKey: keys[1], until: resetsAt)
+        try await store.markExhausted(accountKey: keys[1], until: resetsAt)
         let storeFile = ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeFile)) as? [String: Any])
         var entries = try XCTUnwrap(stored["exhaustedUntil"] as? [String: Any])
-        entries[keys[0]] = Date().timeIntervalSince1970 - 60
+        entries[keys[0]] = reference - 86_400
         stored["exhaustedUntil"] = entries
         try JSONSerialization.data(withJSONObject: stored).write(to: storeFile)
         let storedBytes = try Data(contentsOf: storeFile)

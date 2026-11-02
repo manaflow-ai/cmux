@@ -11,7 +11,7 @@ enum SessionPriorityPlan {
         var id: UUID
         var hasClaudePane: Bool
         var difficulty: ClaudeSessionDifficulty
-        var difficultySource: SessionPriorityWorkspaceState.DifficultySource
+        var difficultySource: SessionPriorityDifficultySource
         /// The user asked cmux to leave this workspace's effort alone.
         var isManual: Bool
     }
@@ -21,7 +21,7 @@ enum SessionPriorityPlan {
         var workspaceId: UUID
         var tier: SessionPriorityTier
         var difficulty: ClaudeSessionDifficulty
-        var difficultySource: SessionPriorityWorkspaceState.DifficultySource
+        var difficultySource: SessionPriorityDifficultySource
         /// `nil` for a manual workspace; it keeps its slot but gets nothing applied.
         var target: SessionPriorityTarget?
     }

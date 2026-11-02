@@ -90,6 +90,15 @@ final class SessionPriorityCoordinator {
         if lastSettings?.enabled == true { requestReconcile(settles: true) }
     }
 
+    /// A session restore (at launch or a manual reopen) finished. It can finish after the
+    /// start-up pass and drops every status row, and a restored Claude's session start asks for
+    /// no pass, so while on the restored windows get their rows and targets from one more
+    /// settled pass.
+    func sessionRestoreDidComplete() {
+        guard isEnabledDroppingStaleState() else { return }
+        requestReconcile(settles: true)
+    }
+
     // MARK: - Triggers
 
     /// Observes one live journal event. Cheap: each trigger only asks for the debounced pass.

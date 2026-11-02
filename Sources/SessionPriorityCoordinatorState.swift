@@ -449,6 +449,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             case .paneReplaced: return "resumeNotTyped.paneReplaced"
             case .notTyped: return "resumeNotTyped.notTyped"
             case .previousClaudeStillRunning: return "resumeNotTyped.previousClaudeStillRunning"
+            case .transcriptResyncFailed: return "resumeNotTyped.transcriptResyncFailed"
             }
         }
     }

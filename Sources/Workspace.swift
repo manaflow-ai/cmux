@@ -3509,6 +3509,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let todoState = WorkspaceTodoState()
     /// Session priority inputs: Claude difficulty and the manual flag (logic in `Workspace+SessionPriority.swift`).
     let sessionPriorityState = SessionPriorityWorkspaceState()
+    /// A revision sent, only from `Workspace+SessionPriority.swift`, after each committed change
+    /// to the session priority values the sidebar row freezes (the override and the manual
+    /// flag): the row's change event, like `sidebarTitleDidChangePublisher`.
+    let sessionPriorityDidChangeSubject = CurrentValueSubject<UInt64, Never>(0)
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]

@@ -98,6 +98,9 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sessionPriorityUrgentCount"
     )
 
+    /// The urgent counts Settings and cmux.json accept.
+    public static let sessionPriorityUrgentCountRange: ClosedRange<Int> = 0...20
+
     /// Canonical JSON of the priority matrix overrides; empty uses the shipped matrix.
     public let sessionPriorityMatrix = DefaultsKey<String>(
         id: "automation.sessionPriority.matrix",

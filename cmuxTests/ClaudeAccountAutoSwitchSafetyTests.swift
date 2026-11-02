@@ -99,6 +99,24 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 
     @Test
+    func anUnsentDraftInTheTextBoxHoldsTheSwitchBack() {
+        // cmux's text box keeps its draft on the pane's terminal panel, which the restart replaces
+        // without it, even while Claude's own input box is empty.
+        typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: true) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .unknown, textBoxHasDraft: true) == .draftPending)
+        guard case .holdBack(_, .draftPending) = fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(),
+            sourceScreen: .emptyPrompt,
+            sourceTextBoxHasDraft: true
+        ) else {
+            Issue.record("a text box draft must hold the switch back")
+            return
+        }
+    }
+
+    @Test
     @MainActor
     func aDraftWrappedPastOneRowHoldsTheSwitchBack() throws {
         // Any sentence wider than a narrow split pane wraps, leaving the cursor on a
@@ -124,11 +142,38 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     func thePaneIsInUseWhenItHoldsADraftOrGotInput() {
         typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
         // The same check runs again, synchronously, right before the pane restarts.
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .unknown) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft) == .draftPending)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt) == .userInput)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: false) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .unknown, textBoxHasDraft: false) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft, textBoxHasDraft: false) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt, textBoxHasDraft: false) == .userInput)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft, textBoxHasDraft: false) == .draftPending)
+    }
+
+    @Test(arguments: ClaudeUsageLimitScreen.all)
+    @MainActor
+    func claudesOwnUsageLimitScreenDoesNotHoldTheSwitchBack(limitScreen: ClaudeUsageLimitScreen) throws {
+        // After the limit Claude shows its auto-continue footer or its limit menu, both about the
+        // limit itself; the restart loses nothing there. Holding back on them would stop every
+        // automatic switch.
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "claude-account-auto-switch-test",
+            stateSeq: 0,
+            columns: 100,
+            rows: limitScreen.rows.count,
+            text: limitScreen.rows.joined(separator: "\n"),
+            cursor: limitScreen.cursorRow.map { .init(row: $0, column: 2) }
+        )
+        let screen = AgentAutoResumeCoordinator.screenState(in: frame)
+
+        // The same check runs again, synchronously, right before the pane restarts.
+        #expect(
+            ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen, textBoxHasDraft: false) == nil,
+            "screen read as \(screen)"
+        )
+        guard case .switchAccount = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
+            Issue.record("Claude's usage-limit screen, read as \(screen), must not hold the switch back")
+            return
+        }
     }
 
     @Test
@@ -197,6 +242,44 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 }
 
+/// A screen Claude Code shows once a turn stops at the usage limit, built from the strings in
+/// Claude Code 2.1.316: its auto-continue footer under the empty prompt, as the wait starts and
+/// while it runs, and its `/rate-limit-options` menu, which hides the prompt and the cursor.
+struct ClaudeUsageLimitScreen: Sendable, CustomTestStringConvertible {
+    let name: String
+    let rows: [String]
+    /// The row the cursor shows on, at column 2; `nil` while Claude hides it.
+    let cursorRow: Int?
+
+    var testDescription: String { name }
+
+    static let all: [ClaudeUsageLimitScreen] = {
+        let limitLine = "⎿  You've hit your limit · resets 5pm (Asia/Seoul)"
+        let rule = String(repeating: "─", count: 60)
+        return [
+            ClaudeUsageLimitScreen(
+                name: "auto-continue footer as the wait starts",
+                rows: [limitLine, "", rule, "❯ ", rule, "  Usage limit reached · continuing automatically at 5pm · esc to cancel"],
+                cursorRow: 3
+            ),
+            ClaudeUsageLimitScreen(
+                name: "auto-continue footer while it waits",
+                rows: [limitLine, "", rule, "❯ ", rule, "  Continuing automatically at 5pm · Esc to cancel"],
+                cursorRow: 3
+            ),
+            ClaudeUsageLimitScreen(
+                name: "limit menu",
+                rows: [
+                    limitLine, "", "What do you want to do?", "",
+                    "❯ 1. Stop and wait for limit to reset", "  2. Upgrade your plan", "",
+                    "Enter to confirm · Esc to cancel",
+                ],
+                cursorRow: nil
+            ),
+        ]
+    }()
+}
+
 /// What the coordinator remembers between reports.
 struct ClaudeAccountAutoSwitchLedgerTests {
     private let panelId = UUID()
@@ -212,13 +295,25 @@ struct ClaudeAccountAutoSwitchLedgerTests {
     }
 
     @Test
-    func inputCountsOnlyAfterTheGivenTime() {
+    func inputCountsFromTheGivenTimeOn() {
         var ledger = ClaudeAccountAutoSwitchLedger()
-        #expect(!ledger.receivedInput(panelId: panelId, after: 100))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 100))
         ledger.noteInput(panelId: panelId, atMs: 150)
-        #expect(ledger.receivedInput(panelId: panelId, after: 100))
-        #expect(!ledger.receivedInput(panelId: panelId, after: 150))
-        #expect(!ledger.receivedInput(panelId: UUID(), after: 0))
+        #expect(ledger.receivedInput(panelId: panelId, since: 100))
+        // Input stamped in the report's own millisecond may have come after it: it counts.
+        #expect(ledger.receivedInput(panelId: panelId, since: 150))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 151))
+        #expect(!ledger.receivedInput(panelId: UUID(), since: 0))
+    }
+
+    @Test
+    func aBackwardClockStepNeverHidesLaterInput() {
+        // Input at 1100, then the wall clock steps back and the next input reads 900. The input
+        // at 1100 still came after a report at 1000.
+        var ledger = ClaudeAccountAutoSwitchLedger()
+        ledger.noteInput(panelId: panelId, atMs: 1_100)
+        ledger.noteInput(panelId: panelId, atMs: 900)
+        #expect(ledger.receivedInput(panelId: panelId, since: 1_000))
     }
 
     @Test
@@ -260,11 +355,10 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
         paneTTY: Int64?? = .none,
         facts: ClaudeAccountAutoSwitchForegroundCheck.ProcessFacts?
     ) -> Bool {
-        ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+        ClaudeAccountAutoSwitchForegroundCheck(facts: { _ in facts }).claudeOwnsTerminal(
             registered: registered ?? [claude],
             startedAfter: switchStartedAt,
-            paneTTYDevice: paneTTY ?? self.paneTTY,
-            facts: { _ in facts }
+            paneTTYDevice: paneTTY ?? self.paneTTY
         )
     }
 
@@ -296,7 +390,7 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
     }
 }
 
-/// The automatic switch types its resume command only into an untouched shell line.
+/// A switch, manual or automatic, types its resume command only into an untouched shell line.
 @MainActor
 struct ClaudeAccountSwitchShellLineTests {
     @Test(arguments: [AgentAutoResumeCoordinator.ScreenState.emptyPrompt, .unknown])

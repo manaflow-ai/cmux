@@ -9,7 +9,7 @@ struct SessionPriorityApplyGate {
     struct Facts {
         /// Claude reports a turn in progress.
         var responseRunning: Bool
-        /// The pane is inside its quiet window (``SessionPriorityApplyGate/isInsideQuietWindow(nowMs:receivedInputAfter:lastTurnEndMs:)``).
+        /// The pane is inside its quiet window (``SessionPriorityApplyGate/isInsideQuietWindow(nowMs:receivedInputSince:lastTurnEndMs:)``).
         var receivedInputRecently: Bool
         /// What the pane's screen shows.
         var screen: ClaudeAccountAutoSwitchContinueGate.Screen
@@ -74,14 +74,18 @@ struct SessionPriorityApplyGate {
     /// its last input and its Claude's last turn end. A long turn's last input was the prompt that
     /// started it, so the turn end opens the window again.
     ///
-    /// - Parameter receivedInputAfter: Whether the pane got input later than the given time.
+    /// Input stamped in the window's first millisecond (exactly ``quietInputWindow`` ago) still
+    /// holds the pane, as the input ledger counts input at its `since` time; a turn end must be
+    /// later than that millisecond.
+    ///
+    /// - Parameter receivedInputSince: Whether the pane got input at or after the given time.
     static func isInsideQuietWindow(
         nowMs: Int64,
-        receivedInputAfter: (Int64) -> Bool,
+        receivedInputSince: (Int64) -> Bool,
         lastTurnEndMs: Int64?
     ) -> Bool {
         let windowStart = nowMs - quietInputWindowMs
-        return (lastTurnEndMs ?? .min) > windowStart || receivedInputAfter(windowStart)
+        return (lastTurnEndMs ?? .min) > windowStart || receivedInputSince(windowStart)
     }
 
     /// Checks, in order: account switch, a manual change (on screen or the workspace flag), a

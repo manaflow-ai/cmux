@@ -8,6 +8,27 @@ import Foundation
 extension CMUXCLI {
     static let sessionPriorityDifficulties: [String] = ["easy", "normal", "hard", "auto"]
 
+    /// Whether `commandArgs` name `difficulty` or `manual`, the subcommands that change a
+    /// workspace, read like ``runSessionPriority(commandArgs:client:jsonOutput:idFormat:windowOverride:)``
+    /// reads them: the first positional once `--workspace` and `--window` and their values are
+    /// set aside.
+    static func sessionPriorityChangesAWorkspace(commandArgs: [String]) -> Bool {
+        var index = 0
+        var pastTerminator = false
+        while index < commandArgs.count {
+            let argument = commandArgs[index]
+            if !pastTerminator, argument == "--" {
+                pastTerminator = true
+            } else if !pastTerminator, argument == "--workspace" || argument == "--window" {
+                index += 1
+            } else if pastTerminator || !argument.hasPrefix("--") {
+                return ["difficulty", "manual"].contains(argument.lowercased())
+            }
+            index += 1
+        }
+        return false
+    }
+
     static var sessionPriorityUsage: String {
         String(
             localized: "cli.sessionPriority.usage",

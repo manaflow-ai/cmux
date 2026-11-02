@@ -29,18 +29,3 @@ enum SessionPriorityApplyResult: Equatable, Sendable {
         case alreadyApplying
     }
 }
-
-#if DEBUG
-extension SessionPriorityApplyResult {
-    /// A short form for debug logs. It never includes the resume command.
-    var debugSummary: String {
-        switch self {
-        case .applied: return "applied"
-        case .held(let reason): return "held.\(reason.rawValue)"
-        case .refused(let refusal): return "refused.\(refusal.rawValue)"
-        case .respawnFailed: return "respawnFailed"
-        case .resumeNotTyped(let manual): return "resumeNotTyped.\(manual.reason)"
-        }
-    }
-}
-#endif

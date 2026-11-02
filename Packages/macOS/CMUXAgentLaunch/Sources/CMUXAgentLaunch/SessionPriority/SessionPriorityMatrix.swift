@@ -14,8 +14,9 @@ public enum SessionPriorityMatrixError: Error, Equatable {
 
 /// Maps a (tier, difficulty) pair to the effort and model a session should run with.
 public struct SessionPriorityMatrix: Equatable, Sendable {
-    /// Allowed model strings: a short alias or id with no shell-significant characters.
-    public static let modelPattern = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    /// Allowed model strings: a short alias or id with no shell-significant characters. It ends
+    /// at `\z`, since an ICU `$` also matches before a final line terminator.
+    public static let modelPattern = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\\z"
 
     /// The matrix cmux ships with: effort only, no model overrides.
     public static let shippedDefault = SessionPriorityMatrix(cells: [

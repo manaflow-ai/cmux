@@ -36,6 +36,16 @@ struct ClaudeAccountSwitchSocketPreflightTests {
         #expect(preflight.refusal == .finished(.refused(.sameAccount("work"))))
     }
 
+    /// The cached account trails a switch by a few seconds, so switching straight back would be
+    /// refused as `same_account` while the pane already runs on the other account. The cache only
+    /// orders `same_account` before `agent_running`; otherwise the shared switch decides from a
+    /// fresh read.
+    @Test
+    func theCachedAccountRefusesOnlyInPlaceOfAgentRunning() {
+        #expect(makePreflight(target: work, current: work, remote: false, running: false).refusal == nil)
+        #expect(makePreflight(target: work, current: work, remote: false, running: true, force: true).refusal == nil)
+    }
+
     @Test
     func aRunningResponseNeedsForce() {
         #expect(makePreflight(target: work, current: defaultAccount, remote: false, running: true).refusal

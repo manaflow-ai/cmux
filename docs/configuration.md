@@ -464,7 +464,7 @@ Behavior notes:
 - The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
 - Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.
 - cmux types `continue` only into the resumed Claude's own empty prompt, while that Claude is the terminal's foreground process. It types nothing when the new account has not trusted the folder yet (the notification asks you to confirm folder trust first), and it gives up when the terminal gets input (typing, pasting, or clicking into it), Claude starts working or asks something, the session ends, or a minute passes; a follow-up notification says why. If the terminal refuses the typed `continue`, no follow-up is posted.
-- cmux does not switch, and notifies you instead, when the terminal got input after the limit (clicks into it count too), when Claude's input box holds a message you typed (the restart would discard it), when the stopped turn left background work running, when the limit could not be recorded, or when the terminal already went through every other account without finishing a turn. The input and draft checks run again right before the terminal restarts.
+- cmux does not switch, and notifies you instead, when the terminal got input after the limit (clicks into it count too), when a message you typed but didn't send waits in Claude's input box or the terminal's text box (the restart would discard it), when the stopped turn left background work running, when the limit could not be recorded, or when the terminal already went through every other account without finishing a turn. The input and draft checks run again right before the terminal restarts.
 - A switch restarts the terminal's shell, so jobs running in that shell's background end.
 - When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
 - Remote, SSH, and cloud terminals are never switched.
@@ -497,7 +497,7 @@ Gives each Claude Code pane the reasoning effort its workspace's priority asks f
 ```
 
 - `enabled`: default `false`. Toggle it from **Settings > Automation > Prioritize Claude Sessions by Sidebar Order**.
-- `urgentCount`: default `3`. Per window, the top `urgentCount` workspaces that run Claude (pinned workspaces first) are **urgent**; every other Claude workspace is **slow**.
+- `urgentCount`: default `3`, from `0` to `20`. Per window, the top `urgentCount` workspaces that run Claude (pinned workspaces first) are **urgent**; every other Claude workspace is **slow**.
 - `matrix`: the effort (`low`, `medium`, `high`, `xhigh` or `max`) and optional `model` for each tier and difficulty. Empty (the default) uses the shipped matrix below. Cells you leave out keep the shipped defaults. A cell you write replaces that whole cell, so give both `effort` and `model` when you want both; a cell with only a `model` changes the model and leaves the effort alone. `{}` turns adjustment off for that cell.
 
 Shipped matrix (no model cells):
@@ -678,11 +678,11 @@ Register several Claude Code accounts, each a separate config directory (`CLAUDE
 Behavior notes:
 
 - The default `~/.claude` account is always available and never sets `CLAUDE_CONFIG_DIR`. It is listed first unless you declare `~/.claude` yourself, which gives it another name and the position you declared it at.
-- Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
+- Entries with an invalid name, a `configDir` that is neither absolute nor `~/`-relative, or a missing or wrong-type field are ignored; the other entries still apply. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
 - A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`. This applies to switching by hand only: [`automation.claudeAccountAutoSwitch`](#automationclaudeaccountautoswitch) uses the accounts in your user-level `cmux.json` alone.
 - Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
 - Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
 - Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.
-- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it. The terminal keeps that account afterwards, including after cmux relaunches.
+- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it once the shell shows its prompt. If anything was typed or pasted into the terminal (or it was clicked) before then, cmux types nothing onto that line and notifies you with the command instead. The terminal keeps that account afterwards, including after cmux relaunches.
 
 Default: `[]`

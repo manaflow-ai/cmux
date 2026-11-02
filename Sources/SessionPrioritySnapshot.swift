@@ -19,7 +19,7 @@ struct SessionPrioritySnapshot: Equatable, Sendable {
     /// `nil` while session priority is off or the workspace has no Claude pane.
     var tier: SessionPriorityTier?
     var difficulty: ClaudeSessionDifficulty
-    var difficultySource: SessionPriorityWorkspaceState.DifficultySource
+    var difficultySource: SessionPriorityDifficultySource
     var difficultyOverride: ClaudeSessionDifficulty?
     var difficultyAuto: ClaudeSessionDifficulty?
     var isManual: Bool

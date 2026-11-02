@@ -9,8 +9,9 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
     /// ``ClaudeAccountAutoSwitchContinueGate``).
     case announce(from: String, to: String, sessionId: String, typeContinue: Bool)
     /// The pane moved to `to` but cmux never typed the resume command. Announce the switch and
-    /// post the manual-resume notification the socket path posts; never type anything.
-    case announceWithoutResume(from: String, to: String)
+    /// post `notification`, the manual-resume notification the socket path posts; never type
+    /// anything.
+    case announceWithoutResume(from: String, to: String, notification: ClaudeAccountSwitchSocketOutcome.ResumeNotification?)
     /// Nothing switched. The pane keeps its usage-limit status and the target account is not
     /// marked exhausted.
     case keepUsageLimitStatus
@@ -18,22 +19,56 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
     /// the user, as a hold-back does.
     case paneInUse
 
+    /// A fixed name for debug logs. It names no account or session.
+    var logName: String {
+        switch self {
+        case .announce(_, _, _, let typeContinue):
+            return typeContinue ? "announce.continue" : "announce"
+        case .announceWithoutResume:
+            return "announceWithoutResume"
+        case .keepUsageLimitStatus:
+            return "keepUsageLimitStatus"
+        case .paneInUse:
+            return "paneInUse"
+        }
+    }
+
     /// The follow-up for `result`.
     ///
     /// - Parameters:
     ///   - result: What the switch returned.
     ///   - sendContinue: Whether the target account trusts the session's folder.
-    init(result: ClaudeAccountSwitchResult, sendContinue: Bool) {
+    ///   - paneClosed: Whether the pane closed while the switch ran. The close cancels the switch's
+    ///     run and cuts its waits short, so `result` can blame what the close caused: a pane that
+    ///     read as in use while it closed, or a resume withheld for a Claude still exiting or a
+    ///     prompt that never came. The closed pane then gets no hold-back notice, and a resume left
+    ///     to the user names the closed pane. A failed transcript copy keeps its own notice: the
+    ///     copy may miss the replaced Claude's last messages either way, and that notice names no
+    ///     button.
+    init(result: ClaudeAccountSwitchResult, sendContinue: Bool, paneClosed: Bool = false) {
         switch result {
         case .switched(let plan, _):
             self = .announce(from: plan.source.name, to: plan.target.name, sessionId: plan.sessionID, typeContinue: sendContinue)
-        case .switchedWithoutResume(let plan, _, _):
-            self = .announceWithoutResume(from: plan.source.name, to: plan.target.name)
+        case .switchedWithoutResume(let plan, let outcome, let manualResume):
+            let reported = paneClosed && manualResume.reason != .transcriptResyncFailed
+                ? ClaudeAccountSwitchManualResume(
+                    command: manualResume.command,
+                    typedInput: manualResume.typedInput,
+                    reason: .paneReplaced
+                )
+                : manualResume
+            self = .announceWithoutResume(
+                from: plan.source.name,
+                to: plan.target.name,
+                notification: ClaudeAccountSwitchSocketOutcome
+                    .finished(.switchedWithoutResume(plan, outcome, reported))
+                    .resumeNotification
+            )
         case .refused, .notClaude, .remoteUnsupported, .agentNotOwnedByPane, .alreadySwitching,
              .transcriptUnavailable, .respawnFailed:
             self = .keepUsageLimitStatus
         case .paneInUse:
-            self = .paneInUse
+            self = paneClosed ? .keepUsageLimitStatus : .paneInUse
         }
     }
 }

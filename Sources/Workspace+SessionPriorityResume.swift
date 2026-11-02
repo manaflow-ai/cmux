@@ -61,7 +61,7 @@ extension Workspace {
         cmuxDebugLog(
             "sessionPriority.apply panel=\(panelId.uuidString.prefix(5)) " +
                 "effort=\(target.effort?.rawValue ?? "-") model=\(target.model ?? "-") " +
-                "result=\(result.debugSummary)"
+                "result=\(SessionPriorityCoordinatorState.describe(result))"
         )
 #endif
         return result
@@ -142,13 +142,8 @@ extension Workspace {
                 reason: .previousClaudeStillRunning(processIDs: stillRunning.map(\.pid))
             ))
         }
-        let delivery = await deliverClaudeAccountSwitchResumeInput(
-            resumeInput,
-            to: panel,
-            panelId: panelId,
-            // Unattended: never type over input that reached the new shell first.
-            requiresUntouchedShellLine: true
-        )
+        // Never types over input that reached the new shell first.
+        let delivery = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
         guard delivery != .typed else { return .applied(sessionID: snapshot.sessionId) }
         return .resumeNotTyped(ClaudeAccountSwitchManualResume(
             command: resumeCommand,

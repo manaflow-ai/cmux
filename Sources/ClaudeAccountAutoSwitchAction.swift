@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 /// What cmux does about one Claude usage-limit report while `automation.claudeAccountAutoSwitch`
-/// is on. Decided by ``ClaudeAccountAutoSwitchRequest/action(pane:isEnabled:storedExhaustion:ledger:isUsable:isTrusted:now:timeZone:homeDirectory:)``.
+/// is on. Decided by ``ClaudeAccountAutoSwitchRequest/action(policy:usageLimitReset:pane:isEnabled:storedExhaustion:ledger:sourceScreen:sourceTextBoxHasDraft:isUsable:isTrusted:now:timeZone:)``.
 enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
     /// Nothing: the setting went off, the pane is gone, runs on another machine, is already
     /// switching, has no Claude session cmux knows, or the report predates its last switch.
@@ -34,7 +34,8 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
     enum HoldBack: Equatable, Sendable {
         /// The pane received input after the limit: someone is using it.
         case userInput
-        /// Claude's input box holds a typed message, which restarting the pane would discard.
+        /// A typed message waits unsent, in Claude's input box or the pane's text box, and
+        /// restarting the pane would discard it.
         case draftPending
         /// The stopped turn left background work running, which a restart would kill.
         case backgroundWork
@@ -44,18 +45,23 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         /// this account again.
         case notRecorded
 
-        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box
-        /// holds a typed message, or the pane received input after the limit. Checked when the
-        /// switch is decided and again, synchronously, right before the pane restarts.
+        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box or
+        /// the pane's text box holds a typed message, or the pane received input after the limit.
+        /// Checked when the switch is decided and again, synchronously, right before the pane
+        /// restarts.
         ///
         /// - Parameters:
-        ///   - receivedInputSinceReport: Whether the pane got input after the limit was reported.
+        ///   - receivedInputSinceReport: Whether the pane got input since the limit was reported,
+        ///     including in the report's own millisecond.
         ///   - screen: The pane's screen as the shared prompt classifier reads it.
+        ///   - textBoxHasDraft: Whether the pane's text box holds an unsent draft. Typing there
+        ///     never reaches the input ledger, and the restart replaces the panel that holds it.
         static func paneInUse(
             receivedInputSinceReport: Bool,
-            screen: AgentAutoResumeCoordinator.ScreenState
+            screen: AgentAutoResumeCoordinator.ScreenState,
+            textBoxHasDraft: Bool
         ) -> HoldBack? {
-            if screen == .draft { return .draftPending }
+            if screen == .draft || textBoxHasDraft { return .draftPending }
             return receivedInputSinceReport ? .userInput : nil
         }
     }
@@ -67,6 +73,20 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
             return nil
         case .markExhaustedOnly(let exhaustion), .holdBack(let exhaustion, _), .switchAccount(_, _, let exhaustion):
             return exhaustion
+        }
+    }
+
+    /// A fixed name for debug logs. It names no account, path or time.
+    var logName: String {
+        switch self {
+        case .ignore:
+            return "ignore"
+        case .markExhaustedOnly:
+            return "markExhaustedOnly"
+        case .holdBack(_, let reason):
+            return "holdBack.\(reason)"
+        case .switchAccount(_, let sendContinue, _):
+            return sendContinue ? "switchAccount.continue" : "switchAccount.confirmTrust"
         }
     }
 

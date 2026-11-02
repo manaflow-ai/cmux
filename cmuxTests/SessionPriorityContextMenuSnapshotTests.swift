@@ -14,44 +14,47 @@ import Testing
 struct SessionPriorityContextMenuSnapshotTests {
     private static let defaultsKey = "sessionPriorityEnabled"
 
-    private func withSetting(_ enabled: Bool?, _ body: () -> Void) {
+    private func withSetting(_ enabled: Bool?, _ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: Self.defaultsKey)
         if let enabled { defaults.set(enabled, forKey: Self.defaultsKey) } else { defaults.removeObject(forKey: Self.defaultsKey) }
         defer {
             if let previous { defaults.set(previous, forKey: Self.defaultsKey) } else { defaults.removeObject(forKey: Self.defaultsKey) }
         }
-        body()
+        try body()
     }
 
-    private func menuSnapshot(_ state: SessionPriorityMenuState) -> SidebarWorkspaceContextMenuSnapshot {
-        SidebarWorkspaceContextMenuSnapshot(
-            targetWorkspaceIds: [],
-            remoteTargetWorkspaceIds: [],
-            allRemoteTargetsConnecting: false,
-            allRemoteTargetsDisconnected: false,
-            pinState: nil,
-            groupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
-            canCreateEmptyGroup: true,
-            eligibleGroupTargetIds: [],
-            allEligibleTargetsGroupId: nil,
-            hasGroupedEligibleTarget: false,
-            todoStatusLanes: [],
-            sessionPriorityEnabled: state.enabled,
-            claudeDifficultyOverride: state.difficultyOverride,
-            sessionPriorityAdjustableManual: state.adjustableManual,
-            canMarkRead: false,
-            canMarkUnread: false,
-            hasLatestNotification: false,
-            allNotificationsMuted: false,
-            hasManualCustomColor: false,
-            notifications: []
+    /// The context menu snapshot the sidebar builds for a row whose input carries `state`.
+    private func menuSnapshot(_ state: SessionPriorityMenuState) throws -> SidebarWorkspaceContextMenuSnapshot {
+        let workspaceId = UUID()
+        let suiteName = "SessionPriorityContextMenuSnapshotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var input = SidebarWorkspaceContextMenuTargetAggregateTests.rowInput(
+            workspaceId: workspaceId,
+            groupId: nil,
+            unreadCount: 0,
+            isMultiSelected: false,
+            isRemote: false,
+            remoteState: .disconnected,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults)
         )
+        input.sessionPriorityMenu = state
+        let list = SidebarWorkspaceRowsSnapshot(
+            workspaceRowsById: [workspaceId: input],
+            groupRowsById: [:],
+            selectedContextTargetIds: [],
+            anchorWorkspaceIds: [],
+            workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            canCreateEmptyGroup: true,
+            notificationIndex: SidebarWorkspaceNotificationIndex(notifications: [])
+        )
+        return input.rowSnapshot(list: list).contextMenu
     }
 
     @Test
-    func snapshotCarriesSessionPriorityFields() {
-        withSetting(true) {
+    func snapshotCarriesSessionPriorityFields() throws {
+        try withSetting(true) {
             let workspace = Workspace()
             workspace.sessionPriorityState.difficultyOverride = .hard
             var state = SessionPriorityMenuState(workspace: workspace)
@@ -63,22 +66,26 @@ struct SessionPriorityContextMenuSnapshotTests {
             state = SessionPriorityMenuState(workspace: workspace)
             #expect(state.adjustableManual)
 
-            let snapshot = menuSnapshot(state)
+            let snapshot = try menuSnapshot(state)
             #expect(snapshot.sessionPriorityEnabled)
             #expect(snapshot.claudeDifficultyOverride == .hard)
             #expect(snapshot.sessionPriorityAdjustableManual)
-            #expect(snapshot != menuSnapshot(.disabled))
+            let disabled = try menuSnapshot(.disabled)
+            #expect(!disabled.sessionPriorityEnabled)
+            #expect(disabled.claudeDifficultyOverride == nil)
+            #expect(!disabled.sessionPriorityAdjustableManual)
         }
     }
 
     @Test
-    func menuSectionHiddenWhenDisabled() {
-        withSetting(false) {
+    func menuSectionHiddenWhenDisabled() throws {
+        try withSetting(false) {
             let workspace = Workspace()
             workspace.sessionPriorityState.difficultyOverride = .hard
             workspace.sessionPriorityState.isManual = true
             #expect(!SessionPriorityMenuState(workspace: workspace).enabled)
-            #expect(!menuSnapshot(SessionPriorityMenuState(workspace: workspace)).sessionPriorityEnabled)
+            let snapshot = try menuSnapshot(SessionPriorityMenuState(workspace: workspace))
+            #expect(!snapshot.sessionPriorityEnabled)
         }
     }
 
@@ -112,5 +119,23 @@ struct SessionPriorityContextMenuSnapshotTests {
     @Test
     func sidebarRowRefreshesWhenManualFlagChanges() {
         #expect(rowRefreshCount { $0.setSessionPriorityManual(true) } >= 1)
+    }
+
+    /// A restore (a reopened session) brings back the override and the manual flag the row
+    /// freezes into its menu, so the row rebuilds then too.
+    @Test
+    func sidebarRowRefreshesWhenARestoreBringsBackTheMenuValues() {
+        let saved = Workspace()
+        saved.sessionPriorityState.difficultyOverride = .hard
+        saved.sessionPriorityState.isManual = true
+        let snapshot = saved.sessionSnapshot(includeScrollback: false)
+
+        #expect(rowRefreshCount { $0.restoreSessionPriorityState(from: snapshot) } >= 1)
+    }
+
+    @Test
+    func sidebarRowStaysWhenNothingChanges() {
+        #expect(rowRefreshCount { $0.setClaudeDifficultyOverride(nil) } == 0)
+        #expect(rowRefreshCount { $0.setSessionPriorityManual(false) } == 0)
     }
 }

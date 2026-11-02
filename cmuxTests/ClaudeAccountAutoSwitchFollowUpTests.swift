@@ -37,8 +37,47 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
 
         #expect(ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue) == .announceWithoutResume(
             from: ClaudeAccountRegistry.defaultAccountName,
-            to: "work"
+            to: "work",
+            notification: ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification
         ))
+    }
+
+    /// The pane's close cancels the switch's run and cuts its waits short, so a Claude still
+    /// exiting or a prompt that never came is the close's doing: the notice says the pane closed.
+    @Test(arguments: [
+        ClaudeAccountSwitchManualResume.Reason.previousClaudeStillRunning(processIDs: [4242]),
+        .notTyped,
+        .paneReplaced,
+    ])
+    func aResumeLeftToTheUserAfterThePaneClosedSaysThePaneClosed(reason: ClaudeAccountSwitchManualResume.Reason) throws {
+        let plan = try makePlan()
+        let result = ClaudeAccountSwitchResult.switchedWithoutResume(plan, .copied, makeManualResume(reason))
+        let paneClosed = ClaudeAccountSwitchResult.switchedWithoutResume(plan, .copied, makeManualResume(.paneReplaced))
+
+        #expect(ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: true, paneClosed: true) == .announceWithoutResume(
+            from: ClaudeAccountRegistry.defaultAccountName,
+            to: "work",
+            notification: ClaudeAccountSwitchSocketOutcome.finished(paneClosed).resumeNotification
+        ))
+    }
+
+    @Test
+    func aFailedTranscriptCopyKeepsItsNoticeAfterThePaneClosed() throws {
+        // The copy may miss the replaced Claude's last messages either way; that notice says so
+        // and names no button a closed pane could not offer.
+        let result = ClaudeAccountSwitchResult.switchedWithoutResume(try makePlan(), .copied, makeManualResume(.transcriptResyncFailed))
+
+        #expect(ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: true, paneClosed: true) == .announceWithoutResume(
+            from: ClaudeAccountRegistry.defaultAccountName,
+            to: "work",
+            notification: ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification
+        ))
+    }
+
+    @Test
+    func aPaneClosedBeforeItsRestartGetsNoHoldBackNotice() {
+        // A pane closing as the switch checks it is gone, not in use: there is no one to tell.
+        #expect(ClaudeAccountAutoSwitchFollowUp(result: .paneInUse, sendContinue: true, paneClosed: true) == .keepUsageLimitStatus)
     }
 
     @Test
@@ -65,6 +104,23 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
     @Test
     func aPaneInUseRightBeforeTheRestartIsHeldBackNotIgnored() {
         #expect(ClaudeAccountAutoSwitchFollowUp(result: .paneInUse, sendContinue: true) == .paneInUse)
+    }
+
+    /// Debug logs get a fixed name: never the accounts or the session the follow-up carries.
+    @Test
+    func theLogNameNamesNoAccountOrSession() throws {
+        let followUp = ClaudeAccountAutoSwitchFollowUp(result: .switched(try makePlan(), .copied), sendContinue: true)
+
+        #expect(followUp.logName == "announce.continue")
+        #expect(ClaudeAccountAutoSwitchFollowUp.announceWithoutResume(from: "default", to: "work", notification: nil).logName == "announceWithoutResume")
+    }
+
+    private func makeManualResume(_ reason: ClaudeAccountSwitchManualResume.Reason) -> ClaudeAccountSwitchManualResume {
+        ClaudeAccountSwitchManualResume(
+            command: "cd /Users/cmux-test/project && claude --resume s1",
+            typedInput: "x\n",
+            reason: reason
+        )
     }
 
     private func makePlan() throws -> ClaudeAccountSwitchPlan {
@@ -262,7 +318,7 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
             ), "default")),
             (.draftPending, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.draftPending",
-                defaultValue: "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+                defaultValue: "%@ hit its usage limit while a message was typed but not sent. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
             ), "default")),
             (.notRecorded, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -204,11 +205,14 @@ struct SessionPriorityApplyGateTests {
     @Test
     func quietWindowRunsFromTheLaterOfInputAndTurnEnd() {
         let turnEnd: Int64 = 1_000_000
+        let panelId = UUID()
         func inside(nowMs: Int64, inputMs: Int64?, turnEndMs: Int64?) -> Bool {
-            // The input ledger's own test: input later than the given time.
-            SessionPriorityApplyGate.isInsideQuietWindow(
+            // The input ledger the live gate reads.
+            var ledger = ClaudeAccountAutoSwitchLedger()
+            if let inputMs { ledger.noteInput(panelId: panelId, atMs: inputMs) }
+            return SessionPriorityApplyGate.isInsideQuietWindow(
                 nowMs: nowMs,
-                receivedInputAfter: { (inputMs ?? .min) > $0 },
+                receivedInputSince: { ledger.receivedInput(panelId: panelId, since: $0) },
                 lastTurnEndMs: turnEndMs
             )
         }
@@ -216,13 +220,18 @@ struct SessionPriorityApplyGateTests {
         let prompt = turnEnd - 300_000
         #expect(inside(nowMs: turnEnd + 100, inputMs: prompt, turnEndMs: turnEnd))
         #expect(inside(nowMs: turnEnd + 9_999, inputMs: prompt, turnEndMs: turnEnd))
+        // A turn end exactly ten seconds old no longer holds the pane.
         #expect(!inside(nowMs: turnEnd + 10_000, inputMs: prompt, turnEndMs: turnEnd))
         // Input after the turn end restarts the window.
         #expect(inside(nowMs: turnEnd + 12_000, inputMs: turnEnd + 5_000, turnEndMs: turnEnd))
-        #expect(!inside(nowMs: turnEnd + 15_000, inputMs: turnEnd + 5_000, turnEndMs: turnEnd))
+        // Input exactly ten seconds old still holds it: the ledger counts input at its `since`
+        // millisecond, which may have come after it.
+        #expect(inside(nowMs: turnEnd + 15_000, inputMs: turnEnd + 5_000, turnEndMs: turnEnd))
+        #expect(!inside(nowMs: turnEnd + 15_001, inputMs: turnEnd + 5_000, turnEndMs: turnEnd))
         // Either alone.
         #expect(inside(nowMs: 5_000, inputMs: 1, turnEndMs: nil))
-        #expect(!inside(nowMs: 10_001, inputMs: 1, turnEndMs: nil))
+        #expect(inside(nowMs: 10_001, inputMs: 1, turnEndMs: nil))
+        #expect(!inside(nowMs: 10_002, inputMs: 1, turnEndMs: nil))
         #expect(!inside(nowMs: 50_000, inputMs: nil, turnEndMs: nil))
     }
 

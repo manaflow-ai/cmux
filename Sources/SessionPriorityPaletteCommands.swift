@@ -9,6 +9,12 @@ enum SessionPriorityPaletteCommands {
     static let manualOnCommandId = "palette.sessionPriorityManual.on"
     static let manualOffCommandId = "palette.sessionPriorityManual.off"
 
+    /// Palette context key: the palette window's selected workspace is adjustable-manual (its
+    /// flag, or a seen `/effort` or `/model`), set from that window's own tab manager.
+    static let workspaceAdjustableManualKey = CommandPaletteContextKeys(
+        rawValue: "workspace.sessionPriorityAdjustableManual"
+    )
+
     static func difficultyCommandId(_ difficulty: ClaudeSessionDifficulty?) -> String {
         "palette.claudeDifficulty.\(difficulty?.rawValue ?? "auto")"
     }
@@ -24,12 +30,6 @@ enum SessionPriorityPaletteCommands {
         )
     }
 
-    /// Whether the selected workspace is adjustable-manual (flag, or a seen `/effort`).
-    private static func selectedWorkspaceIsAdjustableManual() -> Bool {
-        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace else { return false }
-        return SessionPriorityMenuState(workspace: workspace).adjustableManual
-    }
-
     static func contributions(
         isEnabled: Bool? = nil,
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
@@ -37,6 +37,9 @@ enum SessionPriorityPaletteCommands {
         guard isEnabled ?? SessionPriorityCoordinator.shared.isEnabled else { return [] }
         let hasWorkspace: (CommandPaletteContextSnapshot) -> Bool = {
             $0.bool(CommandPaletteContextKeys.hasWorkspace)
+        }
+        let isAdjustableManual: (CommandPaletteContextSnapshot) -> Bool = {
+            $0.bool(workspaceAdjustableManualKey)
         }
         var contributions: [CommandPaletteCommandContribution] = SessionPriorityActions.difficultyChoices.map { difficulty in
             CommandPaletteCommandContribution(
@@ -58,7 +61,7 @@ enum SessionPriorityPaletteCommands {
                 },
                 subtitle: workspaceSubtitle,
                 keywords: ["claude", "effort", "session", "priority", "manual", "off", "stop", "adjust"],
-                when: { hasWorkspace($0) && !selectedWorkspaceIsAdjustableManual() }
+                when: { hasWorkspace($0) && !isAdjustableManual($0) }
             )
         )
         contributions.append(
@@ -72,7 +75,7 @@ enum SessionPriorityPaletteCommands {
                 },
                 subtitle: workspaceSubtitle,
                 keywords: ["claude", "effort", "session", "priority", "automatic", "auto", "on", "adjust"],
-                when: { hasWorkspace($0) && selectedWorkspaceIsAdjustableManual() }
+                when: { hasWorkspace($0) && isAdjustableManual($0) }
             )
         )
         return contributions

@@ -3,7 +3,7 @@ import CmuxSidebar
 import Foundation
 
 /// What one Claude pane's session priority looks like right now.
-enum SessionPriorityPaneState: Equatable {
+enum SessionPriorityPaneState: Equatable, Sendable {
     case upToDate
     case applying
     case held(SessionPriorityApplyGate.HoldReason)
@@ -45,7 +45,7 @@ enum SessionPriorityStatusRow {
     static func entry(
         tier: SessionPriorityTier,
         difficulty: ClaudeSessionDifficulty,
-        difficultySource: SessionPriorityWorkspaceState.DifficultySource,
+        difficultySource: SessionPriorityDifficultySource,
         target: SessionPriorityTarget?,
         paneStates: [SessionPriorityPaneState]
     ) -> SidebarStatusEntry {
@@ -82,7 +82,7 @@ enum SessionPriorityStatusRow {
 
     private static func difficultyText(
         _ difficulty: ClaudeSessionDifficulty,
-        source: SessionPriorityWorkspaceState.DifficultySource
+        source: SessionPriorityDifficultySource
     ) -> String {
         let name = difficultyName(difficulty)
         switch source {

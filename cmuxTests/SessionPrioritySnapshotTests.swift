@@ -97,6 +97,24 @@ struct SessionPrioritySnapshotTests {
         #expect(restored.sessionPriorityState.isManual)
     }
 
+    /// The workspace's own save and restore carry the override, the auto difficulty and the
+    /// manual flag.
+    @MainActor
+    @Test
+    func workspaceSessionSnapshotRoundTripsThePriorityState() {
+        let workspace = Workspace()
+        workspace.sessionPriorityState.difficultyOverride = .hard
+        workspace.sessionPriorityState.autoDifficulty = .easy
+        workspace.sessionPriorityState.isManual = true
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
+
+        #expect(restored.sessionPriorityState.difficultyOverride == .hard)
+        #expect(restored.sessionPriorityState.autoDifficulty == .easy)
+        #expect(restored.sessionPriorityState.isManual)
+    }
+
     @MainActor
     @Test
     func effectiveDifficultyPrecedence() {

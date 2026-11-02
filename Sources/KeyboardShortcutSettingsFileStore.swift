@@ -994,7 +994,8 @@ final class CmuxSettingsFileStore {
             }
         }
         if block.keys.contains("urgentCount") {
-            if let count = jsonInt(block["urgentCount"]), count >= 0 {
+            if let count = jsonInt(block["urgentCount"]),
+               AutomationCatalogSection.sessionPriorityUrgentCountRange.contains(count) {
                 snapshot.managedUserDefaults[automation.sessionPriorityUrgentCount.userDefaultsKey] = .int(count)
             } else {
                 logInvalid("automation.sessionPriority.urgentCount", sourcePath: sourcePath)

@@ -7474,6 +7474,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
             snapshot.setBool(
+                SessionPriorityPaletteCommands.workspaceAdjustableManualKey,
+                SessionPriorityMenuState(workspace: workspace).adjustableManual
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
@@ -12189,8 +12193,8 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             for workspaceId in SidebarAgentProfileLabel.workspaceIdsToRefresh(
                 afterIndexChange: notification.userInfo,
-                allWorkspaceIds: renderContext.workspaceIds,
-                settings: renderContext.tabItemSettings
+                renderContext: renderContext,
+                shownSnapshots: workspaceSnapshotCache
             ) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }
@@ -15620,10 +15624,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 WorkspaceTodoActions.hideStatus(for: workspaces)
             },
             applyClaudeDifficulty: { difficulty, ids in
-                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+                let workspacesById = tabManager.workspacesById
+                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { workspacesById[$0] })
             },
             setSessionPriorityManual: { on, ids in
-                SessionPriorityActions.setManual(on, for: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+                let workspacesById = tabManager.workspacesById
+                SessionPriorityActions.setManual(on, for: ids.compactMap { workspacesById[$0] })
             },
             requestChecklistAdd: {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)

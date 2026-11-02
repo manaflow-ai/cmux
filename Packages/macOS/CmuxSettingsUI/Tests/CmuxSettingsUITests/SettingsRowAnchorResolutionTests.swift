@@ -67,7 +67,6 @@ struct SettingsRowAnchorResolutionTests {
         "agentMessages.enabled",
         "chief.dangerouslySkipPermissions",
         "chief.effort",
-        "chief.dangerouslySkipPermissions",
         "chief.enabled",
         "chief.harness",
         "chief.model",

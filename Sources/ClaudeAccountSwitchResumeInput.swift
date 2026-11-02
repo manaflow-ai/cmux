@@ -6,8 +6,8 @@ import Foundation
 /// The command replays the plan's launch environment, so it names the target's
 /// `CLAUDE_CONFIG_DIR` (none for the default account) and never the source's. The respawned
 /// shell re-runs rc files and direnv, which can export an account key again, so Claude runs
-/// under `env -u` for every key the plan clears. A snapshot without a launch capture yields a
-/// plain resume; the respawned shell's environment already selects the account then.
+/// under `env -u` for every key the plan clears. A snapshot without a launch capture has no
+/// environment to replay, so the same `env` sets the target's own account keys instead.
 struct ClaudeAccountSwitchResumeInput {
     let snapshot: SessionRestorableAgentSnapshot
     let plan: ClaudeAccountSwitchPlan
@@ -49,10 +49,10 @@ struct ClaudeAccountSwitchResumeInput {
         ) else {
             return nil
         }
-        let unsetArguments = clearedEnvironmentKeys.flatMap { ["-u", $0] }
-        let command = unsetArguments.isEmpty
+        let envArguments = clearedEnvironmentKeys.flatMap { ["-u", $0] } + uncapturedAccountAssignments
+        let command = envArguments.isEmpty
             ? resumeCommand
-            : (["env"] + unsetArguments + [resumeCommand]).joined(separator: " ")
+            : (["env"] + envArguments + [resumeCommand]).joined(separator: " ")
         // The builder's own prefix rule: a registration that ignores the cwd gets no `cd`.
         let workingDirectory = snapshot.registration?.cwd == .ignore ? nil : plan.workingDirectory
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: workingDirectory)
@@ -61,5 +61,14 @@ struct ClaudeAccountSwitchResumeInput {
     /// The account keys the plan clears, sorted so the command is stable.
     private var clearedEnvironmentKeys: [String] {
         plan.surfaceEnvironmentOverrides.filter { $0.value.isEmpty }.keys.sorted()
+    }
+
+    /// `KEY=VALUE` operands, shell-quoted, for the account keys the plan sets, when no launch
+    /// capture replays them; empty when one does.
+    private var uncapturedAccountAssignments: [String] {
+        guard snapshot.launchCommand == nil else { return [] }
+        return plan.surfaceEnvironmentOverrides.filter { !$0.value.isEmpty }
+            .sorted { $0.key < $1.key }
+            .map { TerminalStartupShellQuoting.singleQuoted("\($0.key)=\($0.value)") }
     }
 }

@@ -443,7 +443,22 @@ enum CmuxEmbeddedConfigSchema {
                 "pattern": "^(/|~/)",
                 "description": "Absolute path, or a path starting with ~/, of the account's CLAUDE_CONFIG_DIR, for example ~/.claude-work."
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": ["name"],
+                  "properties": {
+                    "name": { "const": "default" }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "configDir": { "pattern": "^(~|/.*)/\\.claude/?$" }
+                  }
+                }
+              }
+            ]
           }
         },
         "launchers": {
@@ -2102,6 +2117,7 @@ enum CmuxEmbeddedConfigSchema {
             "urgentCount": {
               "type": "integer",
               "minimum": 0,
+              "maximum": 20,
               "default": 3,
               "descriptionKey": "schemaDescriptions.automation.sessionPriorityUrgentCount",
               "description": "How many of the highest-priority sessions count as urgent. All other sessions count as slow."

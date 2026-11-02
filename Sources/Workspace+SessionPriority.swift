@@ -3,11 +3,17 @@ import Foundation
 
 /// Mutation entry points for the workspace's session priority state. Each
 /// ignores a no-op change, otherwise persists and tells the coordinator.
+///
+/// `Workspace` is main-actor isolated (inferred from its `FilePreviewTabMetadataHost`
+/// conformance), as is the `SessionPriorityWorkspaceState` these touch; the extension
+/// states that boundary instead of leaving it to the inference.
+@MainActor
 extension Workspace {
     /// Sets or clears (nil = automatic) the user's difficulty override.
     func setClaudeDifficultyOverride(_ difficulty: ClaudeSessionDifficulty?) {
         guard sessionPriorityState.difficultyOverride != difficulty else { return }
         sessionPriorityState.difficultyOverride = difficulty
+        sendSessionPriorityDidChange()
         sessionPriorityStateDidChange()
     }
 
@@ -25,6 +31,7 @@ extension Workspace {
         if !on { SessionPriorityCoordinatorHook.adjustAutomaticallyRequested?(id) }
         guard sessionPriorityState.isManual != on else { return }
         sessionPriorityState.isManual = on
+        sendSessionPriorityDidChange()
         sessionPriorityStateDidChange()
     }
 
@@ -39,14 +46,25 @@ extension Workspace {
 
     /// Restores from a snapshot; absent or unknown values restore to the default.
     func restoreSessionPriorityState(from snapshot: SessionWorkspaceSnapshot) {
-        sessionPriorityState.difficultyOverride = snapshot.restoredClaudeDifficultyOverride
-        sessionPriorityState.autoDifficulty = snapshot.restoredClaudeDifficultyAuto
-        sessionPriorityState.isManual = snapshot.sessionPriorityManual ?? false
+        let state = sessionPriorityState
+        let before = (state.difficultyOverride, state.isManual)
+        state.difficultyOverride = snapshot.restoredClaudeDifficultyOverride
+        state.autoDifficulty = snapshot.restoredClaudeDifficultyAuto
+        state.isManual = snapshot.sessionPriorityManual ?? false
+        if before != (state.difficultyOverride, state.isManual) {
+            sendSessionPriorityDidChange()
+        }
     }
 
     private func sessionPriorityStateDidChange() {
         // Shares the generic session autosave with the todo edits (historical name).
         AppDelegate.shared?.saveTodoState(in: self)
         SessionPriorityCoordinatorHook.workspaceStateDidChange?(id)
+    }
+
+    /// The sidebar row's change event for the values it freezes into its context menu (the
+    /// override and the manual flag), sent once the new values are in place.
+    private func sendSessionPriorityDidChange() {
+        sessionPriorityDidChangeSubject.send(sessionPriorityDidChangeSubject.value &+ 1)
     }
 }

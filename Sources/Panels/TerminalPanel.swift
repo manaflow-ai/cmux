@@ -699,6 +699,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func close() {
         isClosingPanel = true
         GlobalSearchCoordinator.shared.purgePanel(id: id)
+        ClaudeAccountAutoSwitchCoordinator.shared.paneClosed(panelId: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
