@@ -587,6 +587,15 @@ fn flush_tail(
             // but none can be written now): the snapshot covers them.
             if state.pending.len() >= super::TAIL_IDLE_BYTES {
                 state.fall_back_to_snapshot();
+                // The snapshot that covers them, at the next pass (after a
+                // backoff when one runs).
+                let wait = state.retry_wait();
+                drop(state);
+                match wait {
+                    Some(wait) => store.mark_log_dirty_after(log, wait),
+                    None => store.mark_log_dirty(log),
+                }
+                return;
             }
             if state.tail_unsynced {
                 if sync_due {
