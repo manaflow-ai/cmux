@@ -95,7 +95,7 @@ fn opts(argv: &[String]) -> Result<Opts, String> {
         return Err("--cell is 1 or 2".into());
     }
     let mode = Mode::parse(a.text("pace").unwrap_or("spin"))
-        .ok_or_else(|| "--pace is spin, hybrid or sleep".to_string())?;
+        .ok_or_else(|| "--pace is spin, rt, hybrid or sleep".to_string())?;
     Ok(Opts {
         style,
         fps,
@@ -158,7 +158,13 @@ fn main() -> ExitCode {
     let t0 = sys::monotonic();
     let mut pacer = Pacer::new(o.fps, o.mode, o.spin_ms, t0);
     let mut clock = sys::monotonic;
-    let mut sleep = |s: f64| std::thread::sleep(std::time::Duration::from_secs_f64(s.max(0.0)));
+    let realtime = o.mode == Mode::Rt && sys::realtime_thread(1.0 / o.fps);
+    let sleep_fn: fn(f64) = if o.mode == Mode::Rt {
+        sys::precise_sleep
+    } else {
+        sys::plain_sleep
+    };
+    let mut sleep = |s: f64| sleep_fn(s);
     let mut k: u64 = 0;
     let mut first: Option<f64> = None;
     let mut last = 0.0_f64;
@@ -184,6 +190,7 @@ fn main() -> ExitCode {
             ("spin_ms", Value::Num(o.spin_ms, 3)),
             ("engine", Value::Str("rust".into())),
             ("darwin_bg", Value::Str(sys::darwin_bg().into())),
+            ("realtime", Value::Bool(realtime)),
             ("pid", Value::Int(i64::from(std::process::id()))),
         ],
     );

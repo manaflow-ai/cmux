@@ -16,6 +16,10 @@ name = "tk-gradient"
 path = "src/bin/tk-gradient.rs"
 
 [[bin]]
+name = "tk-beacon"
+path = "src/bin/tk-beacon.rs"
+
+[[bin]]
 name = "tk-storm"
 path = "src/bin/tk-storm.rs"
 

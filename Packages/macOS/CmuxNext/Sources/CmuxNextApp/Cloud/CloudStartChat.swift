@@ -165,7 +165,6 @@ struct CloudStartChat {
                       trusted: Bool = false, tabKey: String) async throws -> String {
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { services.agentTabs.holdsTabs(machine.daemon) },
-            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)

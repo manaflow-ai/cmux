@@ -125,6 +125,7 @@ import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from ".
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
+import { compactingUsage } from "./usageStats";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -633,7 +634,7 @@ export function Composer({
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
   const quietActions = plainFooter;
-  const usage = snapshot.summary?.usage;
+  const usage = compactingUsage(snapshot.summary?.usage, snapshot.summary?.usageStats);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).

@@ -33,6 +33,7 @@ import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { AgentMark } from "../../shared/AgentMark";
 import { TonedIcon } from "../subagents/TonedIcon";
+import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -254,7 +255,7 @@ export function SubagentsSection({
     </li>
   );
   return (
-    <div className="acpmux-session-info-subagents">
+    <div className="acpmux-session-info-subagents" style={SESSION_INFO_WAVE_STYLE}>
       {runningLines.length > 0 && (
         <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
           {shown.map((item, index) => line(item, index, true))}

@@ -111,6 +111,9 @@ public final class DaemonService {
         get { launchMarkSink.withLock { $0 } }
         set { launchMarkSink.withLock { $0 = newValue } }
     }
+    /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
+    /// `debug.daemon_requests` reads it off the main actor.
+    nonisolated let requestLatency = RequestLatencySlot()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -202,11 +205,15 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        // The prestart's connection records into its probe; later connections record into the same one.
+        let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
+        requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
+            requestLatency: latency))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
