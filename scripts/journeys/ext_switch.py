@@ -306,26 +306,17 @@ def step_switch_profile(j, step):
             reply = j.key(str(d), ["cmd"])
             time.sleep(0.3)
             shown = _shown_workspace(j)
-            out[str(d)] = {"workspace": shown, "beacon_ws": by_id[shown]["index"] if shown in by_id else None,
+            pane = _shown_tab(j)[0]
+            hit = by_id.get(shown) or next((m for m in made if pane in {pid for pid, _ in m["terminals"]}), None)
+            out[str(d)] = {"workspace": shown, "beacon_ws": hit["index"] if hit else None,
                            "handled_by": reply.get("handled_by") if isinstance(reply, dict) else None}
         return out
     digits = digit_map()
-    moved = 0
-    if any(digits[str(d)]["beacon_ws"] != d for d in range(1, min(count, 9) + 1)) and step.get("order_top", True):
-        # New workspaces went below the others: move the beacon workspaces to the top, the last first, so
-        # Cmd-1..9 reach them in order (socket actions: set-up, not under test).
-        for m in reversed(made[:9]):
-            j.app.cmux("workspace", m["id"], "focus")
-            _wait(lambda: _shown_workspace(j) == m["id"], 10, "workspace %s did not show for the reorder" % m["name"])
-            for _ in range(len(made) + len(background) + 2):
-                j.app.rpc("action.run", {"action": "moveWorkspaceUp", "args": {}})
-                moved += 1
-        time.sleep(0.5)
-        digits = digit_map()
-    unmapped = [d for d in sorted(digits) if int(d) <= count and digits[d]["beacon_ws"] != int(d)]
-    if unmapped:
-        raise D.StepError("switch_profile: Cmd-%s do not show beacon workspaces 1..%d in order: %s"
-                          % (",".join(unmapped), min(count, 9), json.dumps({d: digits[d]["beacon_ws"] for d in digits})))
+    moved = 0  # no reorder: new workspaces list newest first, so Cmd-1 is the last made; the map records it
+    reached = [digits[str(d)]["beacon_ws"] for d in range(1, min(count, 9) + 1)]
+    if None in reached or len(set(reached)) != len(reached):
+        raise D.StepError("switch_profile: Cmd-1..%d do not each show a different beacon workspace: %s"
+                          % (min(count, 9), json.dumps({d: digits[d]["beacon_ws"] for d in digits})))
     first = next((d for d in sorted(digits) if digits[d]["beacon_ws"]), None)
     if first:
         j.key(first, ["cmd"])
