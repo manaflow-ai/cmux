@@ -346,7 +346,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if target === source, placed == nil {
                 self.open(url: url, adopting: child, engine: engine, profile: profile, in: pane,
                           opener: opener, background: false)
-                return
+                return true
             }
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
