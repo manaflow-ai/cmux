@@ -116,12 +116,29 @@ pub fn reads_keychain(route: &Route) -> bool {
 }
 
 /// One cheap request to the route: its health URL, else the provider's model
-/// list. Never logs or returns a secret. The answer is kept for [`recent`].
+/// list. Never logs or returns a secret. The answer is kept for [`recent`]. A
+/// probe of the same route file from the same home that is already running is
+/// joined, not started again ([`PROBING`]).
 pub async fn probe(route: &Route, home: &Path) -> Value {
-    let answer = probe_once(route, home).await;
-    remember(route, answer.clone());
-    answer
+    let key = (route.id.clone(), route.file.clone(), home.to_path_buf());
+    let (route, home) = (route.clone(), home.to_path_buf());
+    let work = move || async move {
+        let answer = probe_once(&route, &home).await;
+        remember(&route, answer.clone());
+        answer
+    };
+    let failed = |why: String| {
+        let message = format!("the probe did not finish: {why}");
+        json!({"status": ProbeStatus::Unknown.as_str(), "message": message})
+    };
+    PROBING.join(key, work, failed).await
 }
+
+/// The probes running now, by route id, route file and home: a page's
+/// `_acpmux/session/auth {refresh}` on each chat switch and turn, a failed
+/// turn's background probe and `_acpmux/route/test` share one request.
+static PROBING: crate::flights::Flights<(String, RouteFile, std::path::PathBuf), Value> =
+    crate::flights::Flights::new();
 
 async fn probe_once(route: &Route, home: &Path) -> Value {
     let started = Instant::now();

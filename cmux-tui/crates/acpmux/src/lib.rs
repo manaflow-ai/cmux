@@ -54,6 +54,7 @@ pub mod cwd_pin;
 pub mod daemon;
 mod default_harness;
 pub mod deliver;
+mod flights;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
