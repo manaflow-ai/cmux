@@ -1,5 +1,6 @@
 // l10n-allow-file: deterministic session, repository, file and action fixtures.
 import { expect, test } from "bun:test";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate, type Translate } from "../src/agent-session/acpmux/i18n";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { changesSection } from "../src/agent-session/acpmux/session-info/native/changes";
@@ -8,6 +9,7 @@ import { environmentSection } from "../src/agent-session/acpmux/session-info/nat
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 import { outputsSection } from "../src/agent-session/acpmux/session-info/native/outputs";
 import { sourcesSection } from "../src/agent-session/acpmux/session-info/native/sources";
+import { safeExternalUrl } from "../src/agent-session/acpmux/session-info/native/links";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 
@@ -48,7 +50,11 @@ test("Cloud environment actions retain anchors, grants and one Remote Control sw
   expect(section.bare).toBe(true);
   expect(section.rows.find((row) => row.id === "machine")!.trailing).toBe(t("composer.cloud"));
   const control = section.rows.find((row) => row.id === "remoteControl")!;
-  expect(control).toMatchObject({ toggle: true, symbol: "cursorarrow.click" });
+  expect(control).toMatchObject({
+    toggle: true,
+    symbol: "cursorarrow.click",
+    help: t("sessionInfo.environment.remoteControl.help"),
+  });
   expect(control.buttons).toBeUndefined();
   const rect = { left: 10, top: 20, right: 90, bottom: 46 };
   actions.run(section.rows.find((row) => row.id === "cloud-add-repository")!.action!, rect);
@@ -60,6 +66,102 @@ test("Cloud environment actions retain anchors, grants and one Remote Control sw
   expect(revoked).toBe(true);
   expect(section.rows.some((row) => row.id === "cloud-repository:example/extra")).toBe(true);
   expect(section.rows.some((row) => row.id === "cloud-pending:example/pending")).toBe(true);
+});
+
+test("native external links preserve preview callbacks and use the chip host fallback", async () => {
+  const opened: string[] = [];
+  const environment = environmentSection(
+    {
+      summary: { sessionId: "links", hostKind: "local", host: "Maple", cwd: "/repo", branch: "main" },
+      repository: "example/project",
+      onOpenUrl: (url) => opened.push(url),
+    },
+    new NativeInfoActions(),
+    t,
+  )!;
+  const environmentActions = new NativeInfoActions();
+  const rebuilt = environmentSection(
+    {
+      summary: { sessionId: "links", hostKind: "local", host: "Maple", cwd: "/repo", branch: "main" },
+      repository: "example/project",
+      onOpenUrl: (url) => opened.push(url),
+    },
+    environmentActions,
+    t,
+  )!;
+  environmentActions.run(rebuilt.rows.find((row) => row.id === "repository")!.action!);
+  environmentActions.run(rebuilt.rows.find((row) => row.id === "branch")!.action!);
+  await Promise.resolve();
+  expect(opened).toEqual(["https://github.com/example/project", "https://github.com/example/project/tree/main"]);
+  expect(environment.rows.find((row) => row.id === "repository")?.action).toBeDefined();
+  expect(environment.rows.find((row) => row.id === "branch")?.action).toBeDefined();
+
+  const changesActions = new NativeInfoActions();
+  const changes = changesSection(
+    {
+      pullRequests: [
+        {
+          url: "https://github.com/example/project/pull/4",
+          repo: "example/project",
+          number: 4,
+          title: "Links",
+          state: "open",
+          opened: true,
+        },
+      ],
+      statuses: {},
+      onOpenBeside: (url) => opened.push(url),
+      open: true,
+    },
+    changesActions,
+    t,
+  )!;
+  changesActions.run(changes.rows[0]!.action!);
+  const sourcesActions = new NativeInfoActions();
+  const sources = sourcesSection(
+    {
+      sources: [{ kind: "url", url: "https://example.com/source", label: "Source" }],
+      onOpenBeside: (url) => opened.push(url),
+      expanded: false,
+      onExpandedChange: () => {},
+      open: true,
+    },
+    sourcesActions,
+    t,
+  )!;
+  sourcesActions.run(sources.rows[0]!.action!);
+  await Promise.resolve();
+  expect(opened).toEqual([
+    "https://github.com/example/project",
+    "https://github.com/example/project/tree/main",
+    "https://github.com/example/project/pull/4",
+    "https://example.com/source",
+  ]);
+
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  setChipHost(async (method, params) => {
+    calls.push({ method, params });
+    return undefined;
+  });
+  const actions = new NativeInfoActions();
+  const outputs = outputsSection(
+    {
+      files: [],
+      artifacts: 0,
+      links: [{ url: "https://example.com/result", label: "Result" }],
+      open: true,
+    },
+    actions,
+    t,
+  )!;
+  actions.run(outputs.rows[0]!.action!);
+  await Promise.resolve();
+  await Promise.resolve();
+  setChipHost(undefined);
+  expect(calls).toEqual([
+    { method: "browser.openIn", params: { url: "https://example.com/result", browserId: "cmux" } },
+  ]);
+  expect(safeExternalUrl("javascript:alert(1)")).toBeUndefined();
 });
 
 test("Context keeps measured colored segments, expandable lists and Compact", async () => {
@@ -75,6 +177,7 @@ test("Context keeps measured colored segments, expandable lists and Compact", as
         categories: [
           { name: "Messages", tokens: 300, kind: "used" },
           { name: "Buffer", tokens: 100, kind: "buffer" },
+          { name: "Free", tokens: 600, kind: "free" },
         ],
         maxTokens: 1000,
         mcpTools: [{ name: "mcp__files__read", serverName: "files", tokens: 20 }],
@@ -97,11 +200,33 @@ test("Context keeps measured colored segments, expandable lists and Compact", as
     symbol: "square.fill",
     symbolColor: "context0",
   });
+  expect(section.rows.find((row) => row.title === "Free")?.subtitle).toBe(
+    t("sessionInfo.context.untilAutoCompact", { tokens: "600" }),
+  );
   actions.run(section.rows[0]!.buttons![0]!.action);
   actions.run(section.rows.find((row) => row.id === "list:mcpTools")!.action!);
   await Promise.resolve();
   expect(compacted).toBe(true);
   expect(opened).toBe("mcpTools");
+
+  const withoutCompact = contextSection(
+    {
+      usage: { used: 300, size: 1000 },
+      language: "en",
+      open: true,
+      breakdown: {
+        categories: [
+          { name: "Messages", tokens: 300, kind: "used" },
+          { name: "Buffer", tokens: 100, kind: "buffer" },
+          { name: "Free", tokens: 600, kind: "free" },
+        ],
+        maxTokens: 1000,
+      },
+    },
+    new NativeInfoActions(),
+    t,
+  )!;
+  expect(withoutCompact.rows.find((row) => row.title === "Free")?.subtitle).toBeUndefined();
 });
 
 test("Outputs folds the combined list to five and View all invokes the page choice", async () => {
@@ -137,7 +262,7 @@ test("Changes exposes current overflow actions and line breakdown", async () => 
         [url]: {
           additions: 10,
           deletions: 2,
-          breakdown: { code: { additions: 8, deletions: 2 }, tests: { additions: 2, deletions: 0 } },
+          breakdown: { tests: { additions: 2, deletions: 0 }, code: { additions: 8, deletions: 2 }, docs: undefined },
         },
       },
       open: true,
@@ -150,6 +275,7 @@ test("Changes exposes current overflow actions and line breakdown", async () => 
   )!;
   const row = section.rows[0]!;
   expect(row.hover!.detail).toContain("+8 -2");
+  expect(row.hover!.detail).toContain(`${t("sessionInfo.changes.code")} +8 -2`);
   expect(row.menuLabel).toBe(t("sessionInfo.changes.more", { reference: "example/project#7" }));
   expect(row.symbolColor).toBe("green");
   for (const item of row.menu!) actions.run(item.action);

@@ -1,9 +1,34 @@
 //! Normalization of user-typed browser URLs (scheme inference, loopback
 //! detection, query encoding).
+//!
+//! A crate of its own, with no daemon dependency, so the app can link the
+//! same rules through cmux-app-ffi; cmux-tui-core re-exports [`normalize_url`].
+//!
+//! Two policies, on purpose:
+//! - the daemon policy, [`normalize_url`]: every daemon entrypoint (TUI
+//!   omnibar, `browser-navigate`, `new-browser-tab`); explicit schemes pass
+//!   through, so agents and the CLI can load `data:` and other pages;
+//! - the typed policy, [`TypedInput`]: what a person types into the app's
+//!   omnibox and New Tab field; only `http`, `https`, `file` and the cmux and
+//!   Chrome pages load, every other scheme is a search (the app's C ABI,
+//!   `ffi`, behind the `ffi` feature).
+//!
+//! They share no host rule yet: each keeps its current behavior exactly. Where
+//! they differ, see the crate's PR (rust-migration A9) for the case list.
+
+mod chromium;
+#[cfg(any(feature = "ffi", test))]
+pub mod ffi;
+mod text;
+mod typed;
+mod uri;
+
+pub use chromium::{ChromiumPageRoute, chromium_internal_url, chromium_page_route};
+pub use typed::{CMUX_APP_PAGE_HOSTS, TypedInput, contains_pairing_link, is_loopback_host};
 
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`
-/// over the control socket, direct [`BrowserSurface::navigate`](super::BrowserSurface::navigate)):
+/// over the control socket, direct `BrowserSurface::navigate` in cmux-tui-core):
 /// explicit schemes pass through, loopback hosts and intranet addresses
 /// (`go/gday`, `devbox:8080`, `nas.local`, private IPs) get `http://`,
 /// dotted hosts get `https://`, and anything else becomes a web search.
@@ -54,8 +79,7 @@ fn is_intranet_address(input: &str) -> bool {
     if input.chars().any(char::is_whitespace) {
         return false;
     }
-    let authority_end = input.find(['/', '?', '#']).unwrap_or(input.len());
-    let authority = &input[..authority_end];
+    let (authority, after_authority) = text::split_before(input, |c| matches!(c, '/' | '?' | '#'));
     if authority.is_empty() || authority.contains('@') {
         return false;
     }
@@ -79,7 +103,7 @@ fn is_intranet_address(input: &str) -> bool {
     if host.is_empty() || !is_non_unique_host(&host) {
         return false;
     }
-    let has_path = input[authority_end..].starts_with('/');
+    let has_path = after_authority.starts_with('/');
     host.contains(['.', ':']) || has_port || has_path
 }
 
@@ -95,9 +119,11 @@ fn is_non_unique_host(host: &str) -> bool {
     }
     let labels: Vec<&str> = host.split('.').collect();
     let octets: Vec<u8> = labels.iter().filter_map(|label| label.parse::<u8>().ok()).collect();
-    if labels.len() == 4 && octets.len() == 4 {
+    if labels.len() == 4
+        && let [first, second, _, _] = octets.as_slice()
+    {
         return matches!(
-            (octets[0], octets[1]),
+            (*first, *second),
             (10, _) | (192, 168) | (169, 254) | (172, 16..=31) | (100, 64..=127)
         );
     }
@@ -130,7 +156,7 @@ fn is_loopback_address(input: &str) -> bool {
         let Some(rest) = input.strip_prefix(prefix) else {
             return false;
         };
-        rest.is_empty() || matches!(rest.as_bytes()[0], b':' | b'/' | b'?')
+        matches!(rest.bytes().next(), None | Some(b':' | b'/' | b'?'))
     })
 }
 
@@ -141,13 +167,17 @@ fn percent_encode_query(input: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(*byte as char);
             }
-            other => {
-                const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                out.push('%');
-                out.push(HEX[(other >> 4) as usize] as char);
-                out.push(HEX[(other & 0x0F) as usize] as char);
-            }
+            other => text::push_percent_byte(&mut out, other),
         }
     }
     out
 }
+
+#[cfg(test)]
+mod chromium_corpus;
+#[cfg(test)]
+mod ffi_tests;
+#[cfg(test)]
+mod normalize_url_corpus;
+#[cfg(test)]
+mod typed_corpus;

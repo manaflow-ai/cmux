@@ -67,6 +67,7 @@ pub mod harness_fixture;
 pub mod harness_health;
 pub mod harness_icon_set;
 pub mod harness_limits;
+pub(crate) mod heap_future;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hub;

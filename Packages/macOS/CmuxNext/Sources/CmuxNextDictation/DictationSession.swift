@@ -32,6 +32,9 @@ public final class DictationSession {
     /// Consumers that insert dictation into a streaming target can use this
     /// callback without mistaking a volatile hypothesis for committed text.
     public var onFinalText: ((String) -> Void)?
+    /// The live hypothesis as it follows the committed text (with its separator), empty when
+    /// none: what a target that received every ``onFinalText`` segment has not been given yet.
+    public var volatileText: String { transcript.volatileDelta }
 
     private let authorizer: any DictationAuthorizing
     private let makeTranscriber: @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing
