@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4149824422001",
+  "notes": "notes/4149824422001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32490,
+      "title": "ci(nightly): the prepared-app upload sends 32 artifact blocks at a time, not 5",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32495,
+      "title": "Re-pin app FFI to 80d716d after #31921",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32494,
+      "title": "Cloud: cloud.machines reports the app server link's route (native, link, and why Native fell back)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32457,
+      "title": "ci: every runner selection reads its size's declared pool",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
