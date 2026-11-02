@@ -518,6 +518,10 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="default"]'))
+          throw new Error("an unset NewTabScreen template still renders the Default stage");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("an unset NewTabScreen template did not render Minimal");
         const extra = ctx.document.querySelector(".nt-greeting, .nt-headline, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
         // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.

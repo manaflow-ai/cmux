@@ -45,6 +45,16 @@ export function sharedEdge(edges: number[]): number | null {
   return best?.edge ?? null;
 }
 
+/**
+ * A row's lead edge from its leading icon: a glyph up to 16 px is centred in the 16 px icon box, so
+ * the box's left edge is the lead edge; a wider glyph is its own box, its left edge on the column (a
+ * reply footer's 20 glyph, design/transcript-spacing.md "Reply footer": "the first glyph's box on
+ * the prose's left edge", #31690).
+ */
+export function leadEdge(icon: { left: number; width: number }): number {
+  return icon.width > GLYPH_SLOT ? icon.left : icon.left + icon.width / 2 - GLYPH_SLOT / 2;
+}
+
 /** Rows whose lead edge is near the shared column but not on it. */
 export function offColumn(rows: { key: string; edge: number }[], rule: string, what: string): Violation[] {
   const column = sharedEdge(rows.map(({ edge }) => edge));
@@ -158,8 +168,7 @@ function transcriptViolations(doc: Document): Violation[] {
       const text = textRects(row)[0];
       if (icon) {
         const rect = icon.getBoundingClientRect();
-        // The icon is centred in its 16 px box: the box's left edge is the lead edge.
-        leads.push({ key, edge: rect.left + rect.width / 2 - GLYPH_SLOT / 2 });
+        leads.push({ key, edge: leadEdge(rect) });
         const line = textRects(row).find((candidate) => candidate.top < rect.bottom && candidate.bottom > rect.top);
         if (line) {
           const delta = rect.top + rect.height / 2 - (line.top + line.height / 2);

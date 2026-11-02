@@ -1990,10 +1990,40 @@ impl Hub {
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
-            self.detach_child(session).await;
-            self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            // A switch never stops a running turn or cuts an open permission prompt (Leo
+            // 2026-10-22: "switching model/harness/whatever shouldnt immediately stop
+            // things"): the agent restarts on the new model when the turn ends, as a route
+            // switch does (`route_switch.rs`), so the next prompt runs on it. Between turns
+            // the process ends now, under the turn lock, and the next prompt starts it.
+            let idle = || {
+                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                    session.turn_lock.try_lock().ok()
+                } else {
+                    None
+                }
+            };
+            let mut turn = idle();
+            if turn.is_none() {
+                session.route_switch.store(true, std::sync::atomic::Ordering::SeqCst);
+                // The turn may have ended before the flag was seen: then now.
+                turn = idle().filter(|_| {
+                    session.route_switch.swap(false, std::sync::atomic::Ordering::SeqCst)
+                });
+            }
+            let applied = if let Some(_turn) = turn {
+                self.detach_child(session).await;
+                "now"
+            } else {
+                "afterTurn"
+            };
+            self.append(
+                session,
+                "mux",
+                "model",
+                json!({"modelId": model_id, "atSpawn": true, "applied": applied}),
+            );
             super::start_defaults::model_applied(session, model_id);
-            return Ok(json!({}));
+            return Ok(json!({"applied": applied}));
         }
         // Prefer the config option named "model" when the agent exposes one.
         let has_model_option = session

@@ -39,8 +39,16 @@ struct ColdFocusedTerminalTypeAheadTests {
         try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: true)
     }
 
-    /// `clearingFirst`: Ctrl-L before the line.
-    private static func typeAsTheWorkspaceShowsCold(clearingFirst: Bool) async throws {
+    /// The person asked for a new workspace (it replied; the window never shows it), then clicked another workspace in
+    /// the sidebar, which shows cold, and types at once (review of #32148: the click ended their claim, and the hold let
+    /// the keys pass on to the window while the focused terminal had no surface yet, so they reached no view).
+    @Test func aLineTypedAsAColdWorkspaceShowsAfterTheClickThatLeftANewWorkspaceReachesItsTerminal() async throws {
+        try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: false, afterLeavingANewWorkspace: true)
+    }
+
+    /// `clearingFirst`: Ctrl-L before the line. `afterLeavingANewWorkspace`: a person's new workspace's hold is open, and
+    /// their click ended its claim, as the cold workspace shows.
+    private static func typeAsTheWorkspaceShowsCold(clearingFirst: Bool, afterLeavingANewWorkspace: Bool = false) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -101,6 +109,16 @@ struct ColdFocusedTerminalTypeAheadTests {
 
             // In one turn: the frame's surface budget is spent, the workspace shows cold, and the line is typed.
             let nonce = String(UInt32.random(in: 100_000...999_999))
+            if afterLeavingANewWorkspace {
+                let ticket = try #require(coordinator.beginWorkspace(in: controller), "a person's new workspace opened no key hold")
+                coordinator.resolve(ticket, landed: true, workspace: "never-shown-\(nonce)", in: window)
+                // The person's click on the cold workspace's sidebar row (the app's one mouse-down subscription).
+                let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 40, y: 300), modifierFlags: [],
+                                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                            context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                coordinator.personActed(in: window, event: click)
+                #expect(coordinator.isHolding(in: window), "the test needs the new workspace's hold still open as the line is typed")
+            }
             _ = services.presentation.showNow(BudgetSpender()) // false: another pane spent it already
             services.windows.show(workspaceID: id, in: controller.state)
             #expect(controller.workspaceContent?.workspace.id == id, "the window did not show the workspace in this turn")
