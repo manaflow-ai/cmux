@@ -173,6 +173,12 @@ export class AcpmuxClient {
    * with no `sessions`, is an error: a short list would pass for the whole one. */
   private async wholeList(method: string, params: Record<string, unknown>): Promise<SessionList> {
     const reply = await this.request<SessionList>(method, params);
+    // A malformed sessions response is unknown inventory, never an empty fleet.
+    // Legacy watch replies may be {} to acknowledge the subscription.
+    if (reply === null || typeof reply !== "object" || Array.isArray(reply))
+      throw new Error(`${method}: acpmux gave an invalid session-list reply`);
+    if (method === "_acpmux/sessions" && !Array.isArray(reply.sessions))
+      throw new Error(`${method}: the reply lists no sessions`);
     const rest = { ...params };
     delete rest.enabled;
     const seen = new Set<string>();
@@ -212,8 +218,11 @@ export class AcpmuxClient {
       });
       all.push(...page.events);
       const last = page.events.at(-1)?.seq;
-      // A page that does not move the cursor would repeat forever.
-      if (!page.hasMore || typeof last !== "number" || last <= cursor) break;
+      if (!page.hasMore) break;
+      // A repeated, empty or malformed page cannot finish the requested history.
+      // Report the protocol error so the owner retries instead of accepting a short log.
+      if (typeof last !== "number" || !Number.isSafeInteger(last) || last <= cursor)
+        throw new Error("_acpmux/events: hasMore without cursor progress");
       cursor = last;
     }
     return all;

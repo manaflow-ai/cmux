@@ -40,7 +40,8 @@ const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux
     the text would answer the dialog. target is a term_ id (or unique prefix), a tab_ id or \
     an exact terminal title; agents_terminal_list names them. Optional idempotency_key \
     identifies the complete paste-and-Enter send: a lost reply reports its \
-    phase and the same key for a safe retry.";
+    phase, the resolved terminal id and the same key. When passing a key, target \
+    must be the full term_ id so a renamed title or moved tab cannot retarget a replay.";
 
 pub(super) fn descriptors() -> [Value; 2] {
     [
@@ -86,7 +87,7 @@ fn send_schema() -> Value {
             "force": {"type": "boolean", "default": false,
                       "description": "Type even when the agent waits on a dialog."},
             "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128,
-                      "description": "Stable send identity for retries; reuse after an uncertain result."},
+                      "description": "Stable send identity for retries. With this key, target must be the full term_ ID; reuse the original terminal ID and key after an uncertain result."},
             "session": session_schema(),
         },
         "required": ["target", "text"],
