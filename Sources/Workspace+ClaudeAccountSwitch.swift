@@ -75,10 +75,10 @@ extension Workspace {
     /// alone, so a switch never starts a fresh conversation. A session with no conversation yet
     /// is refused there with ``ClaudeAccountSwitchRefusal/noConversationYet``, and copies that went
     /// on under both accounts with ``ClaudeAccountSwitchRefusal/transcriptDiverged(newerAccount:)``.
-    /// A Claude the pane's restart would not stop (inside tmux or screen, or detached) is refused
-    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude that started in the
-    /// pane while the transcript was copied with ``ClaudeAccountSwitchRefusal/noClaudeSession``.
-    /// The surface then respawns with the
+    /// A Claude the pane's restart would not stop (inside tmux or screen, in another terminal, or
+    /// detached) is refused with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude
+    /// that started in the pane while the transcript was copied with
+    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the

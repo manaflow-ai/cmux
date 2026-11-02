@@ -33,8 +33,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case notClaude
     /// The pane runs on another machine.
     case remoteUnsupported
-    /// The pane's Claude runs inside tmux or screen, or detached, so restarting the pane would
-    /// not stop it; the pane was left alone.
+    /// The session's Claude runs inside tmux or screen, in another terminal, or detached, so
+    /// restarting the pane would not stop it; the pane was left alone.
     case agentNotOwnedByPane
     /// A switch for the pane is already in progress.
     case alreadySwitching
@@ -244,7 +244,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         case .agentNotOwnedByPane:
             return String(
                 localized: "dialog.claudeAccountSwitch.agentNotOwnedByPane.message",
-                defaultValue: "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
+                defaultValue: "The Claude that runs this conversation is inside tmux or screen, in another terminal, or detached from any terminal, so restarting this terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
             )
         case .alreadySwitching:
             return String(

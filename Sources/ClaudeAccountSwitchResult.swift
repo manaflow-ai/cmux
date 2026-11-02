@@ -24,9 +24,9 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case notClaude
     /// The pane runs on another machine (SSH, cloud or remote tmux).
     case remoteUnsupported
-    /// The pane's Claude runs on another terminal (inside tmux or screen) or none (detached), so
-    /// restarting the pane would not stop it and the session would run in two places. Nothing
-    /// changed.
+    /// The session's Claude runs on a terminal other than the pane's (inside tmux or screen, or
+    /// in another terminal or cmux pane) or on none (detached), so restarting the pane would not
+    /// stop it and the session would run in two places. Nothing changed.
     case agentNotOwnedByPane
     /// A switch for this pane is already in progress.
     case alreadySwitching

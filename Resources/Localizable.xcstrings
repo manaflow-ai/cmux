@@ -675083,121 +675083,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
+            "value": "The Claude that runs this conversation is inside tmux or screen, in another terminal, or detached from any terminal, so restarting this terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعمل Claude في هذه الطرفية داخل tmux أو screen، أو منفصلًا عن الطرفية، لذا لن توقفه إعادة تشغيل الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
+            "value": "يعمل Claude الذي يشغّل هذه المحادثة داخل tmux أو screen، أو في طرفية أخرى، أو منفصلًا عن أي طرفية، لذا لن توقفه إعادة تشغيل هذه الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude läuft in diesem Terminal innerhalb von tmux oder screen oder vom Terminal getrennt. Ein Neustart des Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
+            "value": "Das Claude, das diese Unterhaltung ausführt, läuft innerhalb von tmux oder screen, in einem anderen Terminal oder von jedem Terminal getrennt. Ein Neustart dieses Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En esta terminal, Claude se ejecuta dentro de tmux o screen, o separado de la terminal, así que reiniciar la terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
+            "value": "El Claude que ejecuta esta conversación está dentro de tmux o screen, en otra terminal o separado de cualquier terminal, así que reiniciar esta terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dans ce terminal, Claude s'exécute dans tmux ou screen, ou détaché du terminal ; redémarrer le terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
+            "value": "Le Claude qui exécute cette conversation tourne dans tmux ou screen, dans un autre terminal, ou détaché de tout terminal ; redémarrer ce terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このターミナルの Claude は tmux や screen の中、またはターミナルから切り離された状態で実行されているため、ターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
+            "value": "この会話を実行している Claude は tmux や screen の中、別のターミナル、またはどのターミナルからも切り離された状態で実行されているため、このターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 터미널의 Claude는 tmux나 screen 안에서, 또는 터미널과 분리되어 실행 중이라 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
+            "value": "이 대화를 실행하는 Claude가 tmux나 screen 안에서, 다른 터미널에서, 또는 어떤 터미널과도 분리되어 실행 중이라 이 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此终端中的 Claude 在 tmux 或 screen 内运行，或已与终端分离，因此重启终端无法将它停止，对话会同时在两处运行。终端保持不变。"
+            "value": "运行此对话的 Claude 在 tmux 或 screen 内、在另一个终端中，或已与所有终端分离，因此重启此终端无法将它停止，对话会同时在两处运行。终端保持不变。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此終端機中的 Claude 在 tmux 或 screen 內執行，或已與終端機分離，因此重新啟動終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
+            "value": "執行此對話的 Claude 在 tmux 或 screen 內、在另一個終端機中，或已與所有終端機分離，因此重新啟動此終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude u ovom terminalu radi unutar tmux ili screen, ili odvojeno od terminala, pa ga ponovno pokretanje terminala ne bi zaustavilo i razgovor bi se odvijao na dva mjesta. Terminal je ostao nepromijenjen."
+            "value": "Claude koji vodi ovaj razgovor radi unutar tmux ili screen, u drugom terminalu ili odvojeno od bilo kojeg terminala, pa ga ponovno pokretanje ovog terminala ne bi zaustavilo i razgovor bi se odvijao na dva mjesta. Terminal je ostao nepromijenjen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude i denne terminal kører i tmux eller screen eller frakoblet terminalen, så en genstart af terminalen ville ikke stoppe den, og samtalen ville køre to steder. Terminalen blev ikke ændret."
+            "value": "Den Claude, der kører denne samtale, kører i tmux eller screen, i en anden terminal eller frakoblet enhver terminal, så en genstart af denne terminal ville ikke stoppe den, og samtalen ville køre to steder. Terminalen blev ikke ændret."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In questo terminale Claude è in esecuzione dentro tmux o screen, oppure scollegato dal terminale, quindi riavviare il terminale non lo fermerebbe e la conversazione verrebbe eseguita in due posti. Il terminale non è stato modificato."
+            "value": "Il Claude che esegue questa conversazione è dentro tmux o screen, in un altro terminale oppure scollegato da qualsiasi terminale, quindi riavviare questo terminale non lo fermerebbe e la conversazione verrebbe eseguita in due posti. Il terminale non è stato modificato."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude ក្នុងទែមីណាល់នេះដំណើរការនៅក្នុង tmux ឬ screen ឬដាច់ចេញពីទែមីណាល់ ដូច្នេះការចាប់ផ្ដើមទែមីណាល់ឡើងវិញនឹងមិនបញ្ឈប់វាទេ ហើយការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ ទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
+            "value": "Claude ដែលដំណើរការការសន្ទនានេះ ស្ថិតនៅក្នុង tmux ឬ screen នៅក្នុងទែមីណាល់ផ្សេងទៀត ឬដាច់ចេញពីទែមីណាល់ទាំងអស់ ដូច្នេះការចាប់ផ្ដើមទែមីណាល់នេះឡើងវិញនឹងមិនបញ្ឈប់វាទេ ហើយការសន្ទនានឹងដំណើរការនៅកន្លែងពីរ។ ទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude i denne terminalen kjører i tmux eller screen, eller frakoblet terminalen, så en omstart av terminalen ville ikke stoppe den, og samtalen ville kjørt to steder. Terminalen ble ikke endret."
+            "value": "Claude-en som kjører denne samtalen, kjører i tmux eller screen, i en annen terminal eller frakoblet alle terminaler, så en omstart av denne terminalen ville ikke stoppe den, og samtalen ville kjørt to steder. Terminalen ble ikke endret."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude w tym terminalu działa wewnątrz tmux lub screen albo jest odłączony od terminala, więc ponowne uruchomienie terminala by go nie zatrzymało, a rozmowa działałaby w dwóch miejscach. Terminal pozostał bez zmian."
+            "value": "Claude prowadzący tę rozmowę działa wewnątrz tmux lub screen, w innym terminalu albo jest odłączony od wszystkich terminali, więc ponowne uruchomienie tego terminala by go nie zatrzymało, a rozmowa działałaby w dwóch miejscach. Terminal pozostał bez zmian."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Claude neste terminal está em execução dentro do tmux ou do screen, ou desanexado do terminal, então reiniciar o terminal não o interromperia e a conversa ficaria em execução em dois lugares. O terminal não foi alterado."
+            "value": "O Claude que executa esta conversa está dentro do tmux ou do screen, em outro terminal ou desanexado de qualquer terminal, então reiniciar este terminal não o interromperia e a conversa ficaria em execução em dois lugares. O terminal não foi alterado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude в этом терминале работает внутри tmux или screen либо отсоединён от терминала, поэтому перезапуск терминала не остановил бы его, и разговор шёл бы в двух местах. Терминал оставлен без изменений."
+            "value": "Claude, который ведёт этот разговор, работает внутри tmux или screen, в другом терминале либо отсоединён от всех терминалов, поэтому перезапуск этого терминала не остановил бы его, и разговор шёл бы в двух местах. Терминал оставлен без изменений."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude ในเทอร์มินัลนี้ทำงานอยู่ภายใน tmux หรือ screen หรือแยกออกจากเทอร์มินัล การเริ่มเทอร์มินัลใหม่จึงจะไม่หยุด Claude และการสนทนาจะทำงานอยู่สองที่ เทอร์มินัลไม่ถูกเปลี่ยนแปลง"
+            "value": "Claude ที่รันการสนทนานี้ทำงานอยู่ภายใน tmux หรือ screen ในเทอร์มินัลอื่น หรือแยกออกจากเทอร์มินัลทั้งหมด การเริ่มเทอร์มินัลนี้ใหม่จึงจะไม่หยุด Claude และการสนทนาจะทำงานอยู่สองที่ เทอร์มินัลไม่ถูกเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu terminaldeki Claude, tmux veya screen içinde ya da terminalden ayrılmış olarak çalışıyor; bu yüzden terminali yeniden başlatmak onu durdurmaz ve konuşma iki yerde çalışırdı. Terminal değiştirilmedi."
+            "value": "Bu konuşmayı yürüten Claude, tmux veya screen içinde, başka bir terminalde ya da tüm terminallerden ayrılmış olarak çalışıyor; bu yüzden bu terminali yeniden başlatmak onu durdurmaz ve konuşma iki yerde çalışırdı. Terminal değiştirilmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude у цьому терміналі працює всередині tmux або screen чи від’єднано від термінала, тому перезапуск термінала не зупинив би його, і розмова виконувалася б у двох місцях. Термінал залишився без змін."
+            "value": "Claude, що веде цю розмову, працює всередині tmux або screen, в іншому терміналі чи від’єднаний від будь-якого термінала, тому перезапуск цього термінала не зупинив би його, і розмова виконувалася б у двох місцях. Термінал залишився без змін."
           }
         }
       }
