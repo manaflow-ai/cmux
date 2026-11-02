@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextPages
 import CmuxNextSettings
 public import Foundation
 
@@ -10,8 +11,8 @@ extension GitHubConnections {
     }
 
     /// The connections of the Cloud sign-in AUTH, through the owner API at OWNER_API; PREVIEW (showcase or
-    /// fixture launches) is always signed out. OPEN shows the GitHub App installation page.
-    public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool, open: @escaping (URL) -> Void) -> GitHubConnections {
+    /// fixture launches) is always signed out. The GitHub App installation page opens through LinkRouter.
+    public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> GitHubConnections {
         let transport = InstallHTTPTransport(baseURL: ownerAPI)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
@@ -36,6 +37,6 @@ extension GitHubConnections {
             let reply = try JSONValue.parse(response.body)
             guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
             return value
-        }, open: open)
+        }, open: { url in LinkRouter.shared.open(url) })
     }
 }
