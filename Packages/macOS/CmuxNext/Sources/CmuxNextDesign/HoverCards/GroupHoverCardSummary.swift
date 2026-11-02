@@ -65,7 +65,7 @@ public nonisolated struct GroupHoverCardSummary: Sendable, Hashable {
     }
 
     /// The JSON of `group_hover_summary` (cmux-tui/crates/cmux-layout-reducer/src/group_hover_summary.rs).
-    fileprivate struct Wire {
+    fileprivate nonisolated struct Wire {
         struct Member: Encodable {
             var title: String
             var activity: String
@@ -146,7 +146,7 @@ public nonisolated struct GroupHoverCardSummary: Sendable, Hashable {
     }
 }
 
-fileprivate extension GroupHoverCardSummary.Wire.Line {
+fileprivate nonisolated extension GroupHoverCardSummary.Wire.Line {
     /// The line in words.
     func words(_ kind: GroupHoverCardSummary.Kind) -> String {
         let listed = { (more: Int?) in (listed ?? "") + ((more ?? 0) > 0 ? " " + GroupHoverCardStrings.more(more ?? 0) : "") }

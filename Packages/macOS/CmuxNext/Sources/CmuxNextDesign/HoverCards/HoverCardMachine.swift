@@ -247,7 +247,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     public static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
     public func hash(into hasher: inout Hasher) { hasher.combine(snapshot) }
 
-    private struct Snapshot: Hashable {
+    private nonisolated struct Snapshot: Hashable {
         var phase: Phase
         var suppressions: Set<HoverSuppression>
         var lastHit: HoverTarget?
