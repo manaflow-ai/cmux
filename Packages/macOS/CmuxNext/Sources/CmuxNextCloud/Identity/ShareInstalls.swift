@@ -42,9 +42,15 @@ public actor ShareInstalls {
     /// The install for `api`, made at its first use; nil, a URL with no https host or one ``accepts`` refuses
     /// is the fallback.
     public func identity(for api: URL?) -> MacInstallIdentity {
-        guard let api, let key = Self.origin(api), let host = api.host?.lowercased() else { return fallback }
+        guard let api, let key = Self.origin(api) else { return fallback }
+        return byOrigin[key] ?? (closed ? nil : made(for: api)) ?? fallback
+    }
+
+    /// The install for an accepted https `api`, made now (also while ``closed``: the scan finds an earlier
+    /// launch's to revoke it).
+    private func made(for api: URL) -> MacInstallIdentity? {
+        guard let key = Self.origin(api), let host = api.host?.lowercased(), accepts(api) else { return nil }
         if let found = byOrigin[key] { return found }
-        guard !closed, accepts(api) else { return fallback }
         let made = make(api, Self.folderPrefix + host)
         byOrigin[key] = made
         return made
@@ -72,7 +78,7 @@ public actor ShareInstalls {
             let names = (try? FileManager.checked.contentsOfDirectory(atPath: root.path)) ?? []
             for name in names where name.hasPrefix(Self.folderPrefix) {
                 let host = String(name.dropFirst(Self.folderPrefix.count))
-                if let api = URL(string: "https://\(host)"), api.host == host { _ = identity(for: api) }
+                if let api = URL(string: "https://\(host)"), api.host == host { _ = made(for: api) }
             }
         }
         var seen: Set<ObjectIdentifier> = [ObjectIdentifier(owner)]
