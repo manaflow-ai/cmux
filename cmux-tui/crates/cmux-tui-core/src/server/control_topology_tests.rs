@@ -52,62 +52,71 @@ fn an_attention_mark_needs_a_reason_and_a_whole_time() {
 /// kinds and titles, tab groups, unread from the notification and the state
 /// record, agent status by surface, and a workspace without a key.
 fn corpus_tree() -> Value {
-    json!({
-        "groups": [{"id": "shared-group", "name": "Shared", "color": null, "collapsed": false}],
-        "workspaces": [
-            {
-                "id": 4, "resource_id": "ws_aaaa", "key": "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
-                "name": "workspace-1", "title": "Release", "color": "#ff0000", "icon": null,
-                "group": "grp_1", "unread_count": 9,
-                "screens": [{
-                    "id": 3, "resource_id": "screen_bbbb", "name": null, "zoomed_pane": 12,
-                    "columns": [
-                        {"id": 20, "layout": {"type": "leaf", "pane": 13}},
-                        {"id": 21, "layout": {"type": "leaf", "pane": 14}, "dock": {"edge": "right", "mode": "docked"}},
-                        {"id": 22, "layout": {"type": "split", "split": 1, "dir": "down", "ratio": 0.5,
-                                              "a": {"type": "leaf", "pane": 12}, "b": {"type": "stack", "panes": [15], "expanded": 15}},
-                         "dock": {"edge": "left", "mode": "docked"}},
-                        {"id": 23, "layout": {"type": "leaf", "pane": 16}, "dock": {"edge": "bottom", "mode": "docked"}},
-                        {"id": 24, "layout": {"type": "leaf", "pane": 17}},
-                    ],
-                    "panes": [
-                        {
-                            "id": 12, "resource_id": "pane_cccc", "name": "main",
-                            "tab_groups": [{"id": "tg_1", "name": "Build", "color": "blue", "collapsed": true, "surfaces": [1, 99]}],
-                            "tabs": [
-                                {"surface": 1, "kind": "pty", "tab_resource_id": "tab_1", "terminal_id": "term-key-1",
-                                 "terminal_resource_id": "term_1", "title": "⠂ Fix the login bug", "name": null,
-                                 "size": {"cols": 80, "rows": 24}, "cwd": "/src", "git_branch": "main", "pinned": true,
-                                 "dead": false, "group": "tg_1",
-                                 "notification": {"notification": 3, "unread": true, "level": "info", "source": "cli"}},
-                                {"surface": 2, "kind": "pty", "terminal_id": "term-key-2", "title": "⠂ busy", "name": "Release",
-                                 "size": null, "dead": true},
-                                {"surface": 5, "kind": "browser", "tab_resource_id": "tab_5", "title": "● Slack | general",
-                                 "url": "https://example.com"},
-                            ],
-                        },
-                        {
-                            "id": 13, "name": null,
-                            "tabs": [
-                                {"surface": 6, "kind": "conversation", "tab_resource_id": "tab_6", "title": "about:blank",
-                                 "conversation": {"page": "files", "route": "/README.md"}},
-                                {"surface": 7, "kind": "conversation", "tab_resource_id": "tab_7", "title": "about:blank",
-                                 "conversation": {"agent_session": {"host": "install:x", "session": "chat-1"}}},
-                            ],
-                        },
-                        {"id": 14, "resource_id": "pane_right", "tabs": [
-                            {"surface": 8, "kind": "remote-terminal", "tab_resource_id": "tab_8", "title": "✳ remote job",
-                             "terminal_id": null, "cwd": null},
-                        ]},
-                        {"id": 15, "resource_id": "pane_stacked", "tabs": [{"surface": 9, "kind": "sidebar-plugin"}]},
-                        {"id": 16, "resource_id": "pane_band", "tabs": []},
-                        {"id": 17, "resource_id": "pane_strip2", "tabs": []},
-                    ],
-                }],
-            },
-            {"id": 30, "name": "workspace-2", "title": "", "screens": [], "unread_count": 2},
-        ],
-    })
+    // Built in parts: one `json!` of the whole tree passes the macro recursion limit.
+    let notification = json!({"notification": 3, "unread": true, "level": "info", "source": "cli"});
+    let terminal = json!({
+        "surface": 1, "kind": "pty", "tab_resource_id": "tab_1", "terminal_id": "term-key-1",
+        "terminal_resource_id": "term_1", "title": "⠂ Fix the login bug", "name": null,
+        "size": {"cols": 80, "rows": 24}, "cwd": "/src", "git_branch": "main", "pinned": true,
+        "dead": false, "group": "tg_1", "notification": notification,
+    });
+    let named = json!({
+        "surface": 2, "kind": "pty", "terminal_id": "term-key-2", "title": "⠂ busy", "name": "Release",
+        "size": null, "dead": true,
+    });
+    let browser = json!({
+        "surface": 5, "kind": "browser", "tab_resource_id": "tab_5", "title": "● Slack | general",
+        "url": "https://example.com",
+    });
+    let tab_group = json!({"id": "tg_1", "name": "Build", "color": "blue", "collapsed": true, "surfaces": [1, 99]});
+    let main = json!({
+        "id": 12, "resource_id": "pane_cccc", "name": "main",
+        "tab_groups": [tab_group], "tabs": [terminal, named, browser],
+    });
+    let files_ref = json!({"page": "files", "route": "/README.md"});
+    let files = json!({
+        "surface": 6, "kind": "conversation", "tab_resource_id": "tab_6", "title": "about:blank",
+        "conversation": files_ref,
+    });
+    let chat_ref = json!({"agent_session": {"host": "install:x", "session": "chat-1"}});
+    let chat = json!({
+        "surface": 7, "kind": "conversation", "tab_resource_id": "tab_7", "title": "about:blank",
+        "conversation": chat_ref,
+    });
+    let pages = json!({"id": 13, "name": null, "tabs": [files, chat]});
+    let remote_tab = json!({
+        "surface": 8, "kind": "remote-terminal", "tab_resource_id": "tab_8", "title": "✳ remote job",
+        "terminal_id": null, "cwd": null,
+    });
+    let right = json!({"id": 14, "resource_id": "pane_right", "tabs": [remote_tab]});
+    let stacked = json!({"id": 15, "resource_id": "pane_stacked", "tabs": [{"surface": 9, "kind": "sidebar-plugin"}]});
+    let band = json!({"id": 16, "resource_id": "pane_band", "tabs": []});
+    let strip2 = json!({"id": 17, "resource_id": "pane_strip2", "tabs": []});
+    let left_layout = json!({
+        "type": "split", "split": 1, "dir": "down", "ratio": 0.5,
+        "a": {"type": "leaf", "pane": 12}, "b": {"type": "stack", "panes": [15], "expanded": 15},
+    });
+    let columns = vec![
+        json!({"id": 20, "layout": {"type": "leaf", "pane": 13}}),
+        json!({"id": 21, "layout": {"type": "leaf", "pane": 14}, "dock": {"edge": "right", "mode": "docked"}}),
+        json!({"id": 22, "layout": left_layout, "dock": {"edge": "left", "mode": "docked"}}),
+        json!({"id": 23, "layout": {"type": "leaf", "pane": 16}, "dock": {"edge": "bottom", "mode": "docked"}}),
+        json!({"id": 24, "layout": {"type": "leaf", "pane": 17}}),
+    ];
+    let screen = json!({
+        "id": 3, "resource_id": "screen_bbbb", "name": null, "zoomed_pane": 12,
+        "columns": columns, "panes": [main, pages, right, stacked, band, strip2],
+    });
+    let release = json!({
+        "id": 4, "resource_id": "ws_aaaa", "key": "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+        "name": "workspace-1", "title": "Release", "color": "#ff0000", "icon": null,
+        "group": "grp_1", "unread_count": 9, "screens": [screen],
+    });
+    let bare =
+        json!({"id": 30, "name": "workspace-2", "title": "", "screens": [], "unread_count": 2});
+    let groups =
+        json!([{"id": "shared-group", "name": "Shared", "color": null, "collapsed": false}]);
+    json!({"groups": groups, "workspaces": [release, bare]})
 }
 
 fn corpus_facts() -> DaemonFacts {
@@ -189,17 +198,33 @@ fn the_daemon_maps_its_tree_as_the_apps_control_mapper_does() {
         main["tab_groups"],
         json!([{"id": "tg_1", "name": "Build", "color": "blue", "collapsed": true, "members": ["tab_1", "99"]}])
     );
-    assert_eq!(
-        main["tabs"][0],
-        json!({
-            "id": "tab_1", "surface": "1", "kind": "terminal", "page": null,
-            "title": "Fix the login bug", "name": null,
-            "terminal": "term_1", "terminal_key": "term-key-1", "columns": 80, "rows": 24,
-            "cwd": "/src", "url": null, "git_branch": "main", "pinned": true, "dead": false,
-            "unread": true, "tab_group": "tg_1", "agent_state": "working", "agent": "claude",
-            "agent_session": null,
-        })
-    );
+    let first = main["tabs"][0].as_object().unwrap();
+    let expected = [
+        ("id", json!("tab_1")),
+        ("surface", json!("1")),
+        ("kind", json!("terminal")),
+        ("page", Value::Null),
+        ("title", json!("Fix the login bug")),
+        ("name", Value::Null),
+        ("terminal", json!("term_1")),
+        ("terminal_key", json!("term-key-1")),
+        ("columns", json!(80)),
+        ("rows", json!(24)),
+        ("cwd", json!("/src")),
+        ("url", Value::Null),
+        ("git_branch", json!("main")),
+        ("pinned", json!(true)),
+        ("dead", json!(false)),
+        ("unread", json!(true)),
+        ("tab_group", json!("tg_1")),
+        ("agent_state", json!("working")),
+        ("agent", json!("claude")),
+        ("agent_session", Value::Null),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value))
+    .collect::<Map<_, _>>();
+    assert_eq!(first, &expected);
     // No public id: the terminal key names it; a name wins over the title.
     let named = &main["tabs"][1];
     assert_eq!(named["id"], "terminal:term-key-2");

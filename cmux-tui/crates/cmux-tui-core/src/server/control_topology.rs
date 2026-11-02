@@ -190,7 +190,7 @@ fn daemon_facts(mux: &Mux) -> anyhow::Result<DaemonFacts> {
     let agents = mux
         .list_agents(None, None)
         .into_iter()
-        .map(|record| (record.surface, (record.state.as_str().to_string(), record.agent.clone())))
+        .map(|record| (record.surface, (record.state.as_str().to_string(), record.agent)))
         .collect();
     let marked_tabs = mux.workspace_registry.lock().recover_poison().read_state(marked_tab_ids)?;
     Ok(DaemonFacts { tree, personal_groups, agents, marked_tabs })
