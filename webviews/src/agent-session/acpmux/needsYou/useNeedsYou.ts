@@ -143,7 +143,7 @@ export function useNeedsYou({
     ask: async (item, question) => {
       // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
       // tab, asked about there. A marked tab names no chat.
-      if (item.kind === "tab") throw new Error("no chat");
+      if (item.kind === "tab") throw new Error();
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
         throw new Error();
