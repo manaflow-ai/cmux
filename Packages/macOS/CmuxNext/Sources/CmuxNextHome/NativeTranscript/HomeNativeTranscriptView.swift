@@ -335,7 +335,11 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The person opened this conversation: the message box takes the keyboard now, or once the
     /// first page installs it if nothing else took the keyboard in between.
-    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// `allowed`: the host's rule, asked when the box takes the keyboard (now, or at its install), when
+    /// nobody opened the conversation (its default one shown by itself).
+    public func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
+        transcript.takeKeyboardOnOpen(while: allowed)
+    }
     /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
     /// store's draft; an open view takes it here, a new one restores it from the store).
     public func showDraft(_ text: String) { transcript.setDraft(text) }

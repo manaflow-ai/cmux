@@ -124,7 +124,7 @@ final class KeyRouter: BrowserKeyRouting {
             // Printable keys, and the keys the primary input claims (a dead key composes where the key
             // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
             let printable = Self.isPrintable(event)
-            guard printable || facts.primaryInputClaimsKey, Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
+            guard printable || facts.primaryInputClaimsKey, focus.resolved.mayHavePrimaryInput else { return .deliver }
             if printable, facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }

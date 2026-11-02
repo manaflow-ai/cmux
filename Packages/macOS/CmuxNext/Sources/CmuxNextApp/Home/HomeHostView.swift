@@ -529,8 +529,8 @@ final class HomeHostView: NSView {
     var focusTarget: NSView { transcript.primaryInput }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
-    /// box takes the keyboard, at once or once its first page installs it.
-    func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// box takes the keyboard, at once or once its first page installs it, while `allowed` says yes.
+    func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) { transcript.takeKeyboardOnOpen(while: allowed) }
 
     /// Whether the pane getting focus moves the keyboard to `focusTarget`
     /// from `responder`: always when it is outside this view; inside, unless
