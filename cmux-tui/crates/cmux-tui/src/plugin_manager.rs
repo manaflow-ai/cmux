@@ -230,7 +230,13 @@ impl PluginUpdateLock {
     fn acquire(root: &Path) -> anyhow::Result<Self> {
         fs::create_dir_all(root)?;
         let path = root.join(".plugin-update.lock");
-        let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
+        // Only the advisory lock matters; the file holds no data, so opening it never truncates.
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path)?;
         fs4::FileExt::lock(&file)?;
         Ok(Self { file })
     }
