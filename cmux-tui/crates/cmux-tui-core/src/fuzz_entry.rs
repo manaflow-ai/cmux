@@ -221,7 +221,7 @@ pub struct OutputSnapshot {
 
 /// An output store snapshot file's contents, `None` when it is unreadable.
 pub fn output_snapshot(contents: &[u8]) -> Option<OutputSnapshot> {
-    crate::output_store::snapshot::decode(contents).map(|(replay, generation)| OutputSnapshot {
+    crate::output_store::snapshot::decode(contents).map(|(replay, generation, _)| OutputSnapshot {
         generation,
         cols: replay.cols,
         rows: replay.rows,

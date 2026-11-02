@@ -865,16 +865,12 @@ pub(super) fn read(
     if files::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
         return None;
     }
-    decode_with_end(&files::read(&file).ok()?)
+    decode(&files::read(&file).ok()?)
 }
 
-/// A snapshot file's replay and generation, `None` when it is malformed.
-pub(crate) fn decode(contents: &[u8]) -> Option<(TerminalReplay, String)> {
-    decode_with_end(contents).map(|(replay, generation, _)| (replay, generation))
-}
-
-/// [`decode`] with the stream offset the snapshot ends at.
-fn decode_with_end(contents: &[u8]) -> Option<(TerminalReplay, String, Option<u64>)> {
+/// A snapshot file's replay, generation and stream end (`None` in a file
+/// written before it was recorded), `None` when it is malformed.
+pub(crate) fn decode(contents: &[u8]) -> Option<(TerminalReplay, String, Option<u64>)> {
     let rest = contents.strip_prefix(MAGIC)?;
     let newline = rest.iter().position(|byte| *byte == b'\n')?;
     let (header, body) = rest.split_at_checked(newline)?;
