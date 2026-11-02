@@ -11,6 +11,10 @@ description = "cmux remote desktop host engine: Linux (virtual X display: damage
 # the cmux-tui workspace build until those dependencies are feature-gated for every OS.
 [workspace]
 
+[lib]
+name = "cmux_rd_host"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cmux-rd"
 path = "src/main.rs"
