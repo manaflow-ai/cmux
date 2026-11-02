@@ -38,6 +38,41 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
+    /// The reopened window: the two panes of `tree()` side by side in a window, laid out, hidden from the layout
+    /// until the test says they are on screen.
+    @MainActor struct LaunchWindow {
+        let window: NSWindow
+        let panes: [PaneController]
+
+        func close() {
+            for pane in panes { pane.teardown() }
+            window.close()
+        }
+    }
+
+    private static func window(_ services: AppServices) throws -> LaunchWindow {
+        let store = services.daemon.store
+        store.connectionState = .connected(try connected())
+        store.apply(snapshot: tree())
+        let models = try #require(store.workspaces.first?.screens.first?.panes)
+        try #require(models.count == 2)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let windowState = WindowState(record: record)
+        let panes = models.map { PaneController(pane: $0, daemon: services.daemon, layoutPaneID: LayoutPaneID($0.id), services: services, state: windowState) }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 400))
+        window.contentView = root
+        for (index, pane) in panes.enumerated() {
+            pane.view.frame = NSRect(x: CGFloat(index) * 450, y: 0, width: 450, height: 400)
+            root.addSubview(pane.view)
+            pane.view.layoutSubtreeIfNeeded()
+        }
+        window.orderFrontRegardless()
+        return LaunchWindow(window: window, panes: panes)
+    }
+
     /// Views under `view` that show a saved frame (a layer whose contents is a bitmap), shown ones only.
     private static func savedFrames(in view: NSView) -> Int {
         guard !view.isHidden else { return 0 }
@@ -55,44 +90,28 @@ import Testing
         environment.sidebarSnapshotFile = SidebarSnapshotFile(url: state.appending(path: "sidebar-snapshot.json"))
         // The key the panes find their frames by (`PaneController.launchFrames`).
         let stateKey = try #require(environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        let services = AppServices(environment: environment)
-        let store = services.daemon.store
-        store.connectionState = .connected(try Self.connected())
-        store.apply(snapshot: Self.tree())
-        let models = try #require(store.workspaces.first?.screens.first?.panes)
-        try #require(models.count == 2)
-        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
-        let windowState = WindowState(record: record)
-        let panes = models.map { PaneController(pane: $0, daemon: services.daemon, layoutPaneID: LayoutPaneID($0.id), services: services, state: windowState) }
-        defer { for pane in panes { pane.teardown() } }
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 400), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 400))
-        window.contentView = root
-        for (index, pane) in panes.enumerated() {
-            pane.view.frame = NSRect(x: CGFloat(index) * 450, y: 0, width: 450, height: 400)
-            root.addSubview(pane.view)
-            pane.view.layoutSubtreeIfNeeded()
-        }
-        window.orderFrontRegardless()
-        let tabKeys = try panes.map { pane in try #require(pane.pane.tabs.first?.id) }
+        // The quit's window, measured: each terminal's frame was saved at its surface's size in its pane.
+        let measured = try Self.window(AppServices(environment: environment))
+        let tabKeys = try measured.panes.map { pane in try #require(pane.pane.tabs.first?.id) }
         #expect(tabKeys == Self.keys, "the tabs' keys are their resource ids")
-
-        // The last quit saved each visible terminal's frame at its surface's size in its pane.
         var images: [String: NSImage] = [:]
-        for (pane, key) in zip(panes, tabKeys) {
+        for (pane, key) in zip(measured.panes, tabKeys) {
             let host = pane.view.contentHost.bounds.size
             try #require(host.width > 0 && host.height > 0, "the pane's content is not laid out")
             let surface = NSSize(width: TerminalHostView.surfaceWidth(hostWidth: host.width), height: host.height)
-            images[key] = TerminalLaunchFrameTests.frame(surface, scale: window.backingScaleFactor)
+            images[key] = TerminalLaunchFrameTests.frame(surface, scale: measured.window.backingScaleFactor)
         }
+        measured.close()
         let directory = stateKey.appending(path: "terminal-launch-frames", directoryHint: .isDirectory)
         await TerminalLaunchFrames(directory: directory).save(images: images)
-        // This launch read them before its window (the app's `main`).
+        // The next launch reads them from its `main`, before it makes any pane (no await after this: the
+        // scheduler's frames must not run before the window's first one, as at a real launch).
         let frames = TerminalLaunchFrames.beside(stateKey)
         await frames.prefetch(on: BackgroundWork(label: "test.reopen-every-terminal"))?.value
+        let services = AppServices(environment: environment)
+        let launch = try Self.window(services)
+        defer { launch.close() }
+        let panes = launch.panes
 
         // The reopened window lays its panes out: both come on screen in one pass, one new surface per frame.
         for pane in panes { pane.setPresence(.visible) }
@@ -108,7 +127,7 @@ import Testing
         var shown: [Double] = []
         for key in tabKeys {
             guard let ms = report["launch_terminals"]?[key]?["frame_shown_ms"]?.doubleValue else {
-                Issue.record("\(key): debug.timings has no launch_terminals row with frame_shown_ms for this terminal")
+                Issue.record("\(key): debug.timings has no launch_terminals row with frame_shown_ms for this terminal: \(String(describing: report["launch_terminals"]))")
                 continue
             }
             shown.append(ms)
