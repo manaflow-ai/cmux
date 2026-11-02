@@ -53,7 +53,9 @@ struct ColdFocusedTerminalTypeAheadTests {
                     if controller.workspaceContent?.workspace.id != id { services.windows.show(workspaceID: id, in: controller.state) }
                     return controller.workspaceContent?.workspace.id == id && controller.workspaceContent?.panes.isEmpty == false
                 }, within: .seconds(30), report: { "waiting for workspace \(id): \(describe())" })
-                try? await PinnedPageTests.until({ terminal(of: id) != nil }, within: .seconds(5))
+                // A plain poll: `PinnedPageTests.until` records an issue on its timeout even under `try?`.
+                let deadline = ContinuousClock.now + .seconds(5)
+                while terminal(of: id) == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
                 if terminal(of: id) == nil { _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)) }
                 try await PinnedPageTests.until({ terminal(of: id) != nil }, within: .seconds(30), report: { "waiting for workspace \(id)'s terminal: \(describe())" })
                 return try #require(terminal(of: id))
