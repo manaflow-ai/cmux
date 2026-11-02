@@ -5515,6 +5515,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   margin: 0;
   padding: 0;
 }
+/* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
+   rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
+   (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+}
 
 
 .cv-repo-recovery {
