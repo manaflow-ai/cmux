@@ -5470,8 +5470,8 @@
         },
         {
           "key": "feed.github.enabled",
-          "title": "Connect GitHub",
-          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "title": "GitHub Inbox",
+          "help": "Inbox shows your GitHub notifications",
           "kind": "toggle",
           "default": false,
           "group": "GitHub Inbox"
