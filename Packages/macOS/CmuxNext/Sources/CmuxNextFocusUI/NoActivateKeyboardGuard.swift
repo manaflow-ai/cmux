@@ -1,17 +1,4 @@
-import AppKit
-import CmuxNextWakeups
-
-/// A retained AppKit application reference that can safely cross the resolver
-/// queue. Reading `NSRunningApplication.processIdentifier` can make a
-/// synchronous LaunchServices request, so the resolver keeps that lookup off
-/// the main actor.
-nonisolated final class NoActivateApplicationReference: @unchecked Sendable { // crash-allow: immutable AppKit reference is only read by the resolver queue and main handoff.
-    let application: NSRunningApplication
-
-    init(_ application: NSRunningApplication) {
-        self.application = application
-    }
-}
+public import AppKit
 
 /// Under `CMUX_NEXT_NO_ACTIVATE=1` the app must never hold the keyboard
 /// unless the user put it there. The app refuses every activation it asks
@@ -19,9 +6,9 @@ nonisolated final class NoActivateApplicationReference: @unchecked Sendable { //
 /// launch, observed on agent runs) or make a window key. This guard gives
 /// the keyboard back when that happens without user intent.
 @MainActor
-final class NoActivateKeyboardGuard {
+public final class NoActivateKeyboardGuard {
     /// What the guard reads and does (AppKit in the app, a fake in tests).
-    @MainActor protocol Host: AnyObject {
+    @MainActor public protocol Host: AnyObject {
         /// Input state right now: a pressed mouse button (a click on our
         /// window activates on mouse-down) or a held Command key (Cmd-Tab).
         var mouseButtonDown: Bool { get }
@@ -34,32 +21,32 @@ final class NoActivateKeyboardGuard {
         func giveActivationBack(to app: NSRunningApplication?)
     }
 
-    enum Trigger: String, Sendable, Equatable {
+    public enum Trigger: String, Sendable, Equatable {
         case appActivated = "app_activated"
         case windowKey = "window_key"
     }
 
-    struct GiveBack: Sendable, Equatable {
-        var trigger: Trigger
-        var cause: String
-        var restoredTo: pid_t?
+    public struct GiveBack: Sendable, Equatable {
+        public var trigger: Trigger
+        public var cause: String
+        public var restoredTo: pid_t?
     }
 
     /// Input this recent counts as the user choosing the app.
-    static let userInputWindow: Duration = .seconds(1)
+    public static let userInputWindow: Duration = .seconds(1)
 
     /// Most recent give-backs (bounded), for `debug.focus`.
-    private(set) var giveBacks: [GiveBack] = []
+    public private(set) var giveBacks: [GiveBack] = []
     /// Every give-back since launch.
-    var giveBackCount: Int { totalGiveBacks }
+    public var giveBackCount: Int { totalGiveBacks }
     private var totalGiveBacks = 0
-    private(set) var previousApp: NSRunningApplication?
-    private(set) var previousAppPID: pid_t?
+    public private(set) var previousApp: NSRunningApplication?
+    public private(set) var previousAppPID: pid_t?
     private var pendingApplicationSequence: UInt64 = 0
     private let host: any Host
     private let onGiveBack: (GiveBack) -> Void
 
-    init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
+    public init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
          onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
         self.host = host
         previousApp = frontmost
@@ -75,15 +62,15 @@ final class NoActivateKeyboardGuard {
 
     /// Checks once when the observers are in place: macOS may have
     /// activated the app before anything observed it.
-    func start() { check(.appActivated) }
+    public func start() { check(.appActivated) }
 
     /// Another app became frontmost: that is where the keyboard goes back.
-    func beginOtherAppActivation() -> UInt64 {
+    public func beginOtherAppActivation() -> UInt64 {
         pendingApplicationSequence &+= 1
         return pendingApplicationSequence
     }
 
-    func otherAppActivated(_ app: NSRunningApplication, processIdentifier: pid_t? = nil,
+    public func otherAppActivated(_ app: NSRunningApplication, processIdentifier: pid_t? = nil,
                            sequence: UInt64? = nil) {
         if let sequence, sequence != pendingApplicationSequence { return }
         previousApp = app
@@ -91,16 +78,16 @@ final class NoActivateKeyboardGuard {
     }
 
     /// A key press or mouse press reached this app.
-    func userInput() { lastUserInput = host.now }
+    public func userInput() { lastUserInput = host.now }
 
-    func appDidBecomeActive() { check(.appActivated) }
+    public func appDidBecomeActive() { check(.appActivated) }
 
     /// A window became key. Only an active app holds the keyboard, so a key
     /// window in an inactive app is left alone.
-    func windowDidBecomeKey() { check(.windowKey) }
+    public func windowDidBecomeKey() { check(.windowKey) }
 
     /// The app really resigned active: the next activation is a new one.
-    func appDidResignActive() { inGivenBackActivation = false }
+    public func appDidResignActive() { inGivenBackActivation = false }
 
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
@@ -124,34 +111,5 @@ final class NoActivateKeyboardGuard {
         totalGiveBacks += 1
         if giveBacks.count > 32 { giveBacks.removeFirst() }
         onGiveBack(giveBack)
-    }
-}
-
-/// The AppKit host: global input state and cooperative activation.
-@MainActor
-final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
-    private let mainWork: MainWorkScheduler
-
-    /// - Parameter mainWork: The app's main-thread scheduler; the LaunchServices handoff is a task on it.
-    init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
-    }
-
-    var mouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
-    var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
-    var isAppActive: Bool { NSApp.isActive }
-    var now: ContinuousClock.Instant { .now }
-
-    func giveActivationBack(to app: NSRunningApplication?) {
-        // Deactivate synchronously so the guard never retains the keyboard.
-        // The LaunchServices handoff is a later task and uses the already-resolved
-        // object, avoiding both PID lookup and activation work in the observer.
-        NSApp.deactivate()
-        guard let app else { return }
-        mainWork.post(.visible, owner: "NoActivateKeyboardGuard.giveBack") {
-            guard !app.isTerminated else { return }
-            NSApp.yieldActivation(to: app)
-            _ = app.activate(from: .current, options: [])
-        }
     }
 }

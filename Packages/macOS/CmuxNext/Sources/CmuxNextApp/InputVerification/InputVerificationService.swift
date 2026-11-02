@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextFocusUI
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
