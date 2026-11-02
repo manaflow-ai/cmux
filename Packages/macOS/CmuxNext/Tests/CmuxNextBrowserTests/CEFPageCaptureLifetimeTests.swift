@@ -1,0 +1,181 @@
+import AppKit
+@testable import CmuxNextBrowser
+import Foundation
+import Testing
+
+/// Dogfood P0 #1 (2026-10-28, 57 of 65 crash reports; handoff/cef-snapshot-crash-result.md): optimized builds crashed
+/// in Chromium (SIGSEGV at 0 in `RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived`) when a DevTools
+/// `Page.captureScreenshot` was in flight on a page whose view went away: a hidden page's surface copy fails and
+/// retries, and the quit (19 of 21 reports) or a discard closed its renderer meanwhile. cmux asks Chromium for a
+/// page's picture only while its browser lives and the engine is not stopping, and for its own pictures (thumbnails)
+/// only while the page shows; a person's or an agent's screenshot of a hidden page is still taken. A picture asked
+/// for and not answered when the browser closes or quit begins ends then with no picture, and its late answer is
+/// dropped. feat's CEF pin (cef-154.0.34-cmux.38) lacks the fork's `cmux_snapshot_view_gone` patch, so these app
+/// rules are the only guard there.
+@MainActor @Suite(.serialized) struct CEFPageCaptureLifetimeTests {
+    @Test func aShownPageIsPictured() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        // The answer never comes: the send is checked, then the close ends the wait with no picture.
+        let picture = Task { @MainActor in try? await tab.snapshot() }
+        await rig.until { !CaptureSpy.methods.isEmpty }
+        #expect(CaptureSpy.methods == ["Page.captureScreenshot"], "a shown page was not pictured")
+        rig.runtime.handle(.beforeClose(browser: Rig.browser))
+        #expect(await picture.value == nil, "a closed page's picture came back")
+    }
+
+    @Test func aHiddenPageGetsNoThumbnail() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        tab.setContentVisible(false)
+        let thumbnail = Task { @MainActor () -> (any Error)? in
+            do { _ = try await tab.thumbnail(); return nil } catch { return error }
+        }
+        await rig.until { !CaptureSpy.methods.isEmpty }
+        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"), "a hidden page was pictured: \(CaptureSpy.methods)")
+        rig.runtime.handle(.beforeClose(browser: Rig.browser)) // ends a wait the red build started
+        #expect(await thumbnail.value as? BrowserTabError == .snapshotUnavailable)
+    }
+
+    /// `browser.page.screenshot` of a background tab: DevTools keeps the hidden page drawing for it.
+    @Test func aScreenshotOfAHiddenPageIsStillTaken() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        tab.setContentVisible(false)
+        let picture = Task { @MainActor in try? await tab.snapshot() }
+        await rig.until { !CaptureSpy.methods.isEmpty }
+        #expect(CaptureSpy.methods == ["Page.captureScreenshot"], "a screenshot of a hidden page was refused")
+        rig.runtime.handle(.beforeClose(browser: Rig.browser))
+        #expect(await picture.value == nil)
+    }
+
+    @Test func noPageIsPicturedOnceTheEngineStops() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        var stopping = CEFShutdownSequence(liveBrowsers: 1, windows: 1)
+        stopping.begin()
+        rig.runtime.shutdownSequence = stopping
+        let pictures = Task { @MainActor () -> [(any Error)?] in
+            var errors: [(any Error)?] = []
+            do { _ = try await tab.snapshot(); errors.append(nil) } catch { errors.append(error) }
+            do { _ = try await tab.thumbnail(); errors.append(nil) } catch { errors.append(error) }
+            return errors
+        }
+        await rig.until { !CaptureSpy.methods.isEmpty }
+        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"), "a page was pictured after quit began: \(CaptureSpy.methods)")
+        rig.runtime.shutdownSequence = nil
+        rig.runtime.handle(.beforeClose(browser: Rig.browser)) // ends a wait the red build started
+        #expect(await pictures.value.map { $0 as? BrowserTabError } == [.snapshotUnavailable, .snapshotUnavailable])
+    }
+
+    /// A screenshot of a hidden page still waiting when quit begins ends then with `closed` (no wait for the quit's
+    /// browser closes or its timeout): the engine is stopping and will never answer it.
+    @Test func aScreenshotWaitingWhenQuitBeginsEndsAtOnce() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        tab.setContentVisible(false)
+        let picture = Task { @MainActor () -> (any Error)? in
+            do { _ = try await tab.snapshot(); return nil } catch { return error }
+        }
+        await rig.until { !CaptureSpy.methods.isEmpty }
+        try #require(CaptureSpy.methods == ["Page.captureScreenshot"])
+        // The browser never closes (the spy reports no close): the quit waits out its timeout.
+        let quit = Task { await rig.runtime.shutdown(timeout: .seconds(3)) }
+        let ended = Flag()
+        let watcher = Task { _ = await picture.value; ended.isSet = true }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !ended.isSet, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(ended.isSet, "the screenshot still waited a second after quit began")
+        #expect(await picture.value as? BrowserTabError == .closed)
+        watcher.cancel()
+        await quit.value
+    }
+
+    @Test func aClosedPageIsNeverPictured() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        CaptureSpy.methods = []
+        rig.runtime.handle(.beforeClose(browser: Rig.browser))
+        await #expect(throws: (any Error).self) { try await tab.snapshot() }
+        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"))
+    }
+
+    // MARK: Rig
+
+    @MainActor final class Rig {
+        static let browser: Int32 = 7
+        let runtime: CEFRuntime
+        let root: URL
+
+        init() throws {
+            CaptureSpy.methods = []
+            root = FileManager.default.temporaryDirectory.appending(path: "cef-capture-lifetime-\(UUID().uuidString)", directoryHint: .isDirectory)
+            runtime = CEFRuntime(shim: try CaptureSpy.library(), storage: CEFProfileStorage(root: root))
+        }
+
+        /// A shown tab whose browser exists (AFTER_CREATED).
+        func attachedTab() throws -> CEFTab {
+            let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+            let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(tab)
+            host.ensureCreated(tab)
+            let request = try #require(runtime.pendingWindows.keys.first)
+            runtime.handle(.afterCreated(browser: Self.browser, request: request, window: 1))
+            try #require(tab.browserID == Self.browser)
+            return tab
+        }
+
+        /// Yields the main actor until `condition` holds or 2 s pass (a refused picture sends nothing, so the
+        /// tests that expect no send wait out the 2 s).
+        func until(_ condition: () -> Bool) async {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        }
+
+        func close() {
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+}
+
+/// Set by a task the test watches (all on the main actor).
+@MainActor private final class Flag {
+    var isSet = false
+}
+
+/// The DevTools methods a CEFTab sends; each gets a message id and no answer.
+private nonisolated enum CaptureSpy {
+    nonisolated(unsafe) static var methods: [String] = []
+    nonisolated(unsafe) static var nextMessage: Int32 = 100
+
+    static func library() throws -> CEFShimLibrary {
+        // feat's pinned fork API (cef-154.0.34-cmux.38).
+        let version: @convention(c) () -> Int32 = { 24 }
+        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
+        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, method, _ in
+            CaptureSpy.methods.append(method.map { String(cString: $0) } ?? "")
+            CaptureSpy.nextMessage += 1
+            return CaptureSpy.nextMessage
+        }
+        let nothing: @convention(c) () -> Int = { 0 }
+        return try CEFShimLibrary.resolving { name in
+            switch name {
+            case "cmux_shim_fork_api_version": unsafeBitCast(version, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_devtools_call": unsafeBitCast(devToolsCall, to: UnsafeMutableRawPointer.self)
+            default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+            }
+        }
+    }
+}
