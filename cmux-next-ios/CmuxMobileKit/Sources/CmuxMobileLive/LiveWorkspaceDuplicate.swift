@@ -1,4 +1,5 @@
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 
 /// Duplicate Workspace and Duplicate Workspace Without Browser Tabs from a phone, as the Mac's
@@ -78,21 +79,21 @@ extension LiveWorkspaceCreationBackend {
         if let layout = workspace.layout {
             for screen in layout.screens {
                 let paneTabs = Dictionary(screen.panes.map { ($0.id, $0.tabIDs) }, uniquingKeysWith: { first, _ in first })
-                func node(_ node: WorkspaceLayout.Node) -> DuplicateBlueprint.Node? {
+                func capture(_ node: WorkspaceLayout.Node) -> DuplicateBlueprint.Node? {
                     switch node {
                     case .pane(let id):
                         let kept = (paneTabs[id] ?? []).compactMap(tab)
                         return kept.isEmpty ? nil : .pane(kept)
                     case .stack(let panes, _):
                         // Panes over each other: equal stacked splits, as the Mac's capture.
-                        let nodes = panes.compactMap { node(.pane($0)) }
+                        let nodes = panes.compactMap { capture(.pane($0)) }
                         guard var folded = nodes.last else { return nil }
                         for (offset, next) in nodes.dropLast().reversed().enumerated() {
                             folded = .split(axis: .vertical, ratio: 1 / Double(offset + 2), first: next, second: folded)
                         }
                         return folded
                     case .split(_, let axis, let ratio, let first, let second):
-                        switch (node(first), node(second)) {
+                        switch (capture(first), capture(second)) {
                         case let (a?, b?): return .split(axis: axis, ratio: ratio, first: a, second: b)
                         case let (a?, nil): return a
                         case let (nil, b?): return b
@@ -102,9 +103,9 @@ extension LiveWorkspaceCreationBackend {
                 }
                 let scrolling = screen.columns.filter { !$0.isDocked }
                 let columns: [DuplicateBlueprint.Column] = scrolling.isEmpty
-                    ? [screen.root.flatMap(node).map { DuplicateBlueprint.Column(width: nil, root: $0) }].compactMap(\.self)
+                    ? [screen.root.flatMap(capture).map { DuplicateBlueprint.Column(width: nil, root: $0) }].compactMap(\.self)
                     : scrolling.compactMap { column in
-                        column.root.flatMap(node).map { DuplicateBlueprint.Column(width: column.width, root: $0) }
+                        column.root.flatMap(capture).map { DuplicateBlueprint.Column(width: column.width, root: $0) }
                     }
                 if !columns.isEmpty { screens.append(DuplicateBlueprint.Screen(name: screen.name, columns: columns)) }
             }
@@ -194,7 +195,7 @@ struct DuplicateBuilder {
             var params: [String: Any] = ["pane": previous]
             if let width = column.width, width > 0 { params["width"] = width }
             let surface = try LiveWorkspaceCreationBackend.surface(await client.request("new-pane-right", params: params))
-            let next = try await pane(holding: surface)
+            let next = try await self.pane(holding: surface)
             try await fill(column.root, pane: next, initial: surface)
             previous = next
         }
