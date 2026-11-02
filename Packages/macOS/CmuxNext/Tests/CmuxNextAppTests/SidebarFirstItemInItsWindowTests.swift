@@ -42,8 +42,22 @@ struct SidebarFirstItemInItsWindowTests {
         var testDescription: String { rawValue }
     }
 
-    @Test(arguments: Entry.allCases, [false, true])
-    func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry, newSpace: Bool) async throws {
+    /// How window B opens.
+    enum Opening: String, CaseIterable, CustomTestStringConvertible {
+        /// `WindowManager.newWindow()`: on window A's space.
+        case sameSpace
+        /// New Window as the person runs it (Cmd-Shift-N, `newWindow`): on a new space.
+        case newSpace
+        /// Move Workspace to New Window (`moveWorkspaceToNewWindow`, the journey's set-up): a workspace of window A
+        /// moves into a new window, on window A's space.
+        case movedWorkspace
+
+        var testDescription: String { rawValue }
+    }
+
+    @Test(arguments: Entry.allCases, Opening.allCases)
+    func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry, opening: Opening) async throws {
+        let newSpace = opening == .newSpace
         try await PasswordManagerRouteTests.withApp { services, connection in
             let keyWindow = services.keyWindowSource
             defer { services.keyWindowSource = keyWindow }
@@ -58,12 +72,20 @@ struct SidebarFirstItemInItsWindowTests {
                                             report: { "window A shows \(windowA.state.workspaceID ?? "nil")" })
 
             let before = Set(services.windows.controllers.map(\.state.id))
-            if newSpace {
+            switch opening {
+            case .newSpace:
                 // New Window as the person runs it: a new space (its personal state must be loaded for that).
                 try await PinnedPageTests.until({ services.machines.local.store.personal.isLoaded }, within: .seconds(30))
                 #expect(services.registry.perform("newWindow", invocation: ActionInvocation(origin: .user)))
-            } else {
+            case .sameSpace:
                 _ = services.windows.newWindow()
+            case .movedWorkspace:
+                let moving = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: NSTemporaryDirectory(), name: "mw1-moved"),
+                                                                        into: windowA.state.id)
+                try await PinnedPageTests.until({ services.windows.registry.value.owner(of: moving) == windowA.state.id }, within: .seconds(30))
+                services.windows.show(workspaceID: ownA, in: windowA.state, from: .thisWindow)
+                let move = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: moving), origin: .user)
+                #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: move))
             }
             let opened = { services.windows.controllers.first { !before.contains($0.state.id) && !services.windows.registry.members(of: $0.state.id).isEmpty } }
             try await PinnedPageTests.until({ opened() != nil }, within: .seconds(60),
