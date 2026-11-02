@@ -411,7 +411,10 @@ class Launch:
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+            # "test" placement puts every window at the agent test size on the last screen, in front, and ignores the
+            # saved frame; "restore" lets the app reopen each window at its saved frame (#32493). With no activation
+            # the restored window is ordered behind, never key (WindowActivation); it still draws (automation launch).
+            **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" else {}),
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
             "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
@@ -491,6 +494,10 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --window-placement: "test" (the agent test window, the saved frame ignored) or "restore" (the app's own restore).
+WINDOW_PLACEMENT = "test"
+# --new-session-each-run: STRESS builds a new session before every measured launch (the first relaunch after it).
+NEW_SESSION_EACH_RUN = False
 
 
 def app_support_tag(tag):
@@ -902,15 +909,18 @@ def seed_stress(tag, scratch, timeout):
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
-        out.write("stress\n")
+        out.write(f"stress placement={WINDOW_PLACEMENT}\n")
 
 
 def seeded_stress(tag):
+    """A STRESS session seeded under this run's window placement: one saved under the other placement restores
+    another window size, so it is seeded again."""
     try:
         with open(seeded_marker(tag)) as marker:
-            return marker.read().startswith("stress")
+            text = marker.read()
     except OSError:
         return False
+    return text.startswith("stress") and f"placement={WINDOW_PLACEMENT}" in text
 
 
 def seeded_agent(tag):
@@ -956,7 +966,7 @@ def one_run(tag, mode, timeout, profile=None):
     if profile == "empty":
         reset_state(tag)
     elif profile == "stress":
-        if not seeded_stress(tag):
+        if NEW_SESSION_EACH_RUN or not seeded_stress(tag):
             seed_stress(tag, scratch, timeout)
         final = [FINAL_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
@@ -1180,11 +1190,26 @@ def main():
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
+    parser.add_argument("--window-placement", choices=["test", "restore"],
+                        help="test: every window at the agent test size (1100 x 720) on the last screen, in front, the "
+                             "saved frame ignored; restore: the app reopens each window at its saved frame, ordered "
+                             "behind and not key (default: restore for --profile stress, else test). STRESS numbers "
+                             "from before restore was its default had a smaller window and are not comparable")
+    parser.add_argument("--new-session-each-run", action="store_true",
+                        help="--profile stress: build a new STRESS session before every measured launch, so each run "
+                             "is the first relaunch after a new session")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN
     HANG_THRESHOLD_MS = args.hangs
+    # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
+    # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
+    # relaunch after a seed refused every saved frame for its size.
+    WINDOW_PLACEMENT = args.window_placement or ("restore" if args.profile == "stress" else "test")
+    NEW_SESSION_EACH_RUN = args.new_session_each_run
+    if NEW_SESSION_EACH_RUN and args.profile != "stress":
+        parser.error("--new-session-each-run needs --profile stress")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:

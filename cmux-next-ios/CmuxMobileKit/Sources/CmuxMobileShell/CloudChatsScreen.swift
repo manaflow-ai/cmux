@@ -126,6 +126,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var error: String?
     @State private var refresh = 0
     @State private var openedPreferred = false
+    /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
+    @State private var shown = CloudChatList.pageSize
 
     var body: some View {
         Group {
@@ -136,8 +138,9 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
+                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(relay.hub.sessions.values.filter { $0.peer == nil }.sorted { $0.id < $1.id }, id: \.id) { chat in
+                        ForEach(listed.rows, id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
                                     Text(chat.name.isEmpty ? chat.harness : chat.name)
@@ -145,6 +148,12 @@ private struct CloudMachineChatsScreen: View {
                                         Text(prompt).lineLimit(2).foregroundStyle(.secondary)
                                     }
                                 }
+                            }
+                        }
+                        if listed.hasOlder {
+                            Section {
+                                Button("Show Older Chats") { shown += CloudChatList.pageSize }
+                                    .accessibilityIdentifier("cloudChats.more")
                             }
                         }
                     }
