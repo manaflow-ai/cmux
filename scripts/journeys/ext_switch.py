@@ -282,8 +282,8 @@ def step_switch_profile(j, step):
     background = []
     for k in range(int(step.get("background", 0))):
         name = "%s-bg-%d" % (prefix, k + 1)
-        j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
-                                                                "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
+        _run_setup_action(j, {"action": "newTab", "args": {"name": name, "focus": True,
+                                                            "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
         ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
         _shows(j, ws, name)
         for t in range(1, int(step.get("background_tabs", 1))):
@@ -291,8 +291,8 @@ def step_switch_profile(j, step):
         background.append(name)
     for i in range(1, count + 1):
         name = "%s-%d" % (prefix, i)
-        j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
-                                                                "command": _beacon_command(i, 0, step)}})
+        _run_setup_action(j, {"action": "newTab", "args": {"name": name, "focus": True,
+                                                            "command": _beacon_command(i, 0, step)}})
         ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
         _shows(j, ws, name)
         first = _terminals_of(ws)[0][1]
@@ -343,18 +343,56 @@ def step_switch_profile(j, step):
     tabs = sum(len(_terminals_of(w)) for w in topo)
     j.switch_profile = {"workspaces": made, "digits": digits, "background": background, "beacons": len(beacons),
                         "session": {"workspaces": len(topo), "terminal_tabs": tabs}, "setup_s": setup_s, "reorder_actions": moved,
-                        "id_match": sorted(getattr(j, "switch_id_match", set()) - {None})}
+                        "id_match": sorted(getattr(j, "switch_id_match", set()) - {None}),
+                        "slow_setup_actions": getattr(j, "slow_setup_actions", [])}
     (j.out / "video").mkdir(exist_ok=True)
     (j.out / "video" / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1, default=str))
     return {"workspaces": len(made), "beacons": len(beacons), "session": j.switch_profile["session"],
-            "setup_s": setup_s, "digits": {d: v["beacon_ws"] for d, v in digits.items()}}
+            "setup_s": setup_s, "digits": {d: v["beacon_ws"] for d, v in digits.items()},
+            "slow_setup_actions": len(getattr(j, "slow_setup_actions", []))}
+
+
+def _run_setup_action(j, payload):
+    """action.run for set-up: a create that outlives action.run's 6 s deadline but says the terminal may still
+    appear is waited for by the caller (it waits for the workspace or terminal), not a failed round. The slow
+    creates are counted (`slow_setup_actions`), since they are app evidence too."""
+    try:
+        return j.app.rpc("action.run", payload)
+    except D.StepError as error:
+        text = str(error)
+        if "terminal_may_appear': True" not in text and '"terminal_may_appear": true' not in text:
+            raise
+        slow = getattr(j, "slow_setup_actions", [])
+        slow.append({"action": payload.get("action"), "error": text[-300:]})
+        j.slow_setup_actions = slow
+        return None
+
+
+def _write_terminal(j, term, text):
+    """`cmux terminal TERM write` for set-up, retried with its idempotency key when the CLI says the change may still
+    apply (a slow daemon at the start of a round), so a retry never writes twice."""
+    import re
+    key = None
+    for attempt in range(4):
+        args = ["terminal", term, "write", "--text", text] + (["--idempotency-key", key] if key else [])
+        try:
+            return j.app.cmux(*args)
+        except D.StepError as error:
+            found = re.search(r"--idempotency-key (mutation_[0-9a-f]+)", str(error))
+            if not found or attempt == 3:
+                raise
+            key = found.group(1)
+            slow = getattr(j, "slow_setup_actions", [])
+            slow.append({"action": "terminal write", "retry": attempt + 1})
+            j.slow_setup_actions = slow
+            time.sleep(1.0)
 
 
 def _new_terminal(j, name, action, args=None, prompt=True):
     """Runs `action` (splitRight, splitDown, newSurface) in the shown workspace `name`; returns the new daemon
     terminal id (with `prompt`, once its shell drew a prompt)."""
     known = {t for _, t in _terminals_of(_ws_named(j, name) or {})}
-    j.app.rpc("action.run", {"action": action, "args": args or {}})
+    _run_setup_action(j, {"action": action, "args": args or {}})
     fresh = _wait(lambda: [t for _, t in _terminals_of(_ws_named(j, name) or {}) if t not in known], 20,
                   "%s in %s made no terminal" % (action, name))
     term = fresh[-1]
@@ -369,7 +407,7 @@ def _pane_of(j, name, term):
 
 def _start_beacon(j, term, ws, pane, step, fill=False, hz=None):
     sub = dict(step, fill=fill, hz=hz or step.get("hz", 240))
-    j.app.cmux("terminal", term, "write", "--text", "exec " + _beacon_command(ws, pane, sub) + "\n")
+    _write_terminal(j, term, "exec " + _beacon_command(ws, pane, sub) + "\n")
     return {"term": term, "ws": ws, "pane": pane, "fill": fill, "hz": sub["hz"]}
 
 
