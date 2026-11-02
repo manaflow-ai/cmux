@@ -1912,6 +1912,14 @@ pre.cv-math-source {
   height: var(--cv-footer-button);
   padding-top: 0;
 }
+/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
+   its ⌃B hint on its line. */
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below .cv-command__bg {
+  top: 0;
+}
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
    Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
    back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
@@ -5032,6 +5040,13 @@ a.cv-sha:focus-visible {
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-button);
+}
+/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
+  min-height: var(--cv-tool-row-height);
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */

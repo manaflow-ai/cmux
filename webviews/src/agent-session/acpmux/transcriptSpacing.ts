@@ -103,7 +103,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row",
-    pending: "grid-system: the live line 22 under a run (25 on base after #31497)",
   },
   {
     id: "live-to-step",
@@ -111,7 +110,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
-    pending: "grid-system: the waiting group 22 under the live line (49 on base after #31497)",
   },
 ];
 

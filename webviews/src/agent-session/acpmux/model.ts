@@ -1101,11 +1101,19 @@ function replyHeight(reply: string): number {
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
-/// The running turn's live run line (conversation/turns.ts ACTIVITY_LINE), by value: turns.ts imports
-/// this module.
-const ACTIVITY_LINE_KIND = "activityLine";
-/// A step row: a tool run, the live run line, or a one-line row (transcriptGrid.ts MARK_STEP).
-const isStepRow = (row: AcpmuxRow) => row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row);
+/// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
+/// MARK_STEP).
+const isStepRow = (row: AcpmuxRow) =>
+  row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's line as its last row (`below`) right under a step row: one more line of the
+/// run, 22 under it and 22 tall (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32
+/// slot, so a step row after it (the waiting messages' head) is 22 under it too (#29965).
+export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
+  row.below === true &&
+  (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
+  prev !== undefined &&
+  isStepRow(prev);
+const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
@@ -1521,6 +1529,7 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
 /// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
   const status = statusEdge(row, next, prev);
+  if (isLiveStep(row, prev)) return LIVE_STEP_EDGE;
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
   return keepsReplyRoom(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
@@ -2113,7 +2122,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
+    marks[index] = isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -2130,7 +2139,9 @@ export function layoutConversation(
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       height = custom
         ? customHeight
-        : measuredRowHeight(
+        : edge === LIVE_STEP_EDGE
+          ? toolRowHeight()
+          : measuredRowHeight(
             row,
             width,
             cache,
