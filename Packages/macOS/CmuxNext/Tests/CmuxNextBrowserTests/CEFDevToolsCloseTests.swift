@@ -61,6 +61,40 @@ import Testing
         #expect(tab.devToolsController.views == nil)
     }
 
+    /// Review finding at bafa181802e: Chromium opens a new DevTools (the page's Inspect) before the older close's
+    /// DEVTOOLS_CLOSED. The new DevTools shows in the views (not hidden), and its own close works.
+    @Test func aDevToolsChromiumOpensDuringTheCloseShowsAndCloses() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.right)
+        tab.performDevTools(.close)
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools + 1, docked: true))
+        let host = try #require(tab.devToolsController.views?.host)
+        #expect(!host.isHiddenOrHasHiddenAncestor, "the new DevTools is shown")
+        #expect(tab.devToolsController.reservesRoom)
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one
+        #expect(tab.devTools.isOpen, "the older DevTools' event leaves the new one open")
+        ShimLog.calls = []
+        tab.performDevTools(.close)
+        #expect(ShimLog.calls == ["command \(Rig.browser) close"], "the new DevTools closes")
+        #expect(!tab.devToolsController.reservesRoom)
+    }
+
+    /// Review finding at bafa181802e: a panel asked during the close (the closing DevTools would take it and stay
+    /// closed) goes after DEVTOOLS_CLOSED.
+    @Test func aPanelDuringTheCloseGoesAfterChromiumClosed() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.bottom)
+        tab.performDevTools(.close)
+        ShimLog.calls = []
+        tab.performDevTools(.panel(.network))
+        #expect(ShimLog.calls.isEmpty, "no panel while Chromium still closes DevTools")
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))
+        #expect(ShimLog.calls == ["panel \(Rig.browser) network"])
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -116,7 +150,7 @@ import Testing
     }
 }
 
-/// The DevTools commands the shim got, in order (the shim is called on the main thread).
+/// The DevTools commands and panels the shim got, in order (the shim is called on the main thread).
 private nonisolated enum ShimLog {
     nonisolated(unsafe) static var calls: [String] = []
 
@@ -129,12 +163,17 @@ private nonisolated enum ShimLog {
             ShimLog.calls.append("command \(browser) \(name ?? String(command))")
             return 1
         }
+        let panel: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { browser, id in
+            ShimLog.calls.append("panel \(browser) \(id.map { String(cString: $0) } ?? "")")
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
             case "cmux_shim_fork_api_version": unsafeBitCast(version, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_command": unsafeBitCast(command, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_devtools_show_panel": unsafeBitCast(panel, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

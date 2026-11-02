@@ -71,6 +71,8 @@ final class CEFDevToolsController {
         case .dock(let dock):
             move(to: dock)
         case .panel(let panel):
+            // The closing DevTools would take the panel and stay closed: the panel opens after it closed.
+            if closing { afterClose = command; return }
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
     }
@@ -126,10 +128,20 @@ final class CEFDevToolsController {
         closing = true
         views.host.isHidden = true
         views.divider.isHidden = true
-        closeWindow()
+        // Only ordered out: this can run inside the window's own close action; `removeViews` releases it.
+        window?.orderOut(nil)
         tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         tab.container.layoutContent()
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: false)
+    }
+
+    /// Chromium opened DevTools (the page's Inspect, a Chromium command) while cmux's close still waited for
+    /// `DEVTOOLS_CLOSED`: the new DevTools takes the views, shown, and the older close's event no longer matches.
+    private func endClosingForNewDevTools() {
+        guard closing else { return }
+        closing = false
+        views?.host.isHidden = false
+        views?.divider.isHidden = false
     }
 
     /// The page gets its whole frame back and the stand-in's views go.
@@ -233,6 +245,7 @@ final class CEFDevToolsController {
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         standIn = false
+        endClosingForNewDevTools()
         opening = true
         let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
         // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
@@ -278,6 +291,7 @@ final class CEFDevToolsController {
 
     func opened(browser: Int32, docked: Bool) {
         guard let tab else { return }
+        endClosingForNewDevTools()
         opening = false
         devToolsBrowserID = browser
         // `docked` = a child of a cmux view (the pane's DevTools host).
