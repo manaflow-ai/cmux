@@ -3,6 +3,7 @@ public import Darwin
 public import Foundation
 import os
 import Security
+public import CmuxNextSettings
 import CmuxNextWakeups
 
 private let helperV2Logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
