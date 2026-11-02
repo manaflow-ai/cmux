@@ -12,7 +12,11 @@ import Testing
 struct DebugAppTerminateTests {
     @Test func aLogoutQuitIsPowerOffAndTerminatesOnce() {
         let center = NotificationCenter()
-        let origins = QuitOriginTracker(workspaceEvents: AppEvents(center: center))
+        // The app keeps its AppEvents for its lifetime (AppServices.workspaceEvents); the tracker's subscription
+        // does not keep it alive, so the test keeps it too.
+        let events = AppEvents(center: center)
+        let origins = QuitOriginTracker(workspaceEvents: events)
+        defer { withExtendedLifetime(events) {} }
         var terminations = 0
         let refusal = origins.debugTerminate(reason: "logout", center: center) { terminations += 1 }
         #expect(refusal == nil, "debug.app.terminate refused a logout: \(refusal ?? "")")
@@ -22,7 +26,11 @@ struct DebugAppTerminateTests {
 
     @Test func anotherReasonQuitsNothing() {
         let center = NotificationCenter()
-        let origins = QuitOriginTracker(workspaceEvents: AppEvents(center: center))
+        // The app keeps its AppEvents for its lifetime (AppServices.workspaceEvents); the tracker's subscription
+        // does not keep it alive, so the test keeps it too.
+        let events = AppEvents(center: center)
+        let origins = QuitOriginTracker(workspaceEvents: events)
+        defer { withExtendedLifetime(events) {} }
         var terminations = 0
         let refusal = origins.debugTerminate(reason: "whatever", center: center) { terminations += 1 }
         #expect(refusal != nil, "an unknown reason must be refused")
