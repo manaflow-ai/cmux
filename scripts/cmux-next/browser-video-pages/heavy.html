@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>bv heavy</title>
+<style>
+  /* browser-video heavy page: the light page's static column, plus a 24,000-node grid that reflows with the
+     viewport width, a canvas drawn every animation frame and a CSS animation. The judge masks what moves
+     before the key (canvas, spinner) and checks the static column as on the light page. */
+  :root { --bg: #f4f4f2; --fg: #15171a; --line: #c9ccd1; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #17191d; --fg: #d8dadf; --line: #3a3e46; } }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/18px Menlo, monospace; }
+  #col { position: absolute; left: 0; top: 0; width: 520px; }
+  .row { box-sizing: border-box; height: 64px; border-bottom: 1px solid var(--line); padding: 6px 10px; }
+  .chip { display: inline-block; width: 40px; height: 40px; vertical-align: middle; margin-right: 12px; }
+  #marker { position: absolute; left: 8px; top: 408px; width: 32px; height: 32px; background: #ff00ff; }
+  #badge { position: fixed; right: 6px; bottom: 6px; width: 20px; height: 20px; background: #00e0ff; }
+  #grid { position: absolute; left: 540px; right: 0; top: 0; display: flex; flex-wrap: wrap; }
+  #grid span { width: 22px; height: 14px; font-size: 9px; line-height: 14px; overflow: hidden; border: 1px solid var(--line); }
+  #anim { position: absolute; left: 280px; top: 420px; width: 200px; height: 120px; }
+  #spin { position: absolute; left: 60px; top: 420px; width: 120px; height: 120px; border-radius: 60px;
+          border: 10px solid #4a8; border-top-color: transparent; box-sizing: border-box; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="col"></div>
+<div id="grid"></div>
+<canvas id="anim" width="400" height="240"></canvas>
+<div id="spin"></div>
+<div id="marker"></div>
+<div id="badge"></div>
+<script>
+  const col = document.getElementById("col");
+  const hues = [0, 32, 64, 120, 180, 220, 270, 310];
+  for (let i = 0; i < 80; i++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background = `hsl(${hues[i % hues.length]}, 70%, 50%)`;
+    row.appendChild(chip);
+    row.appendChild(document.createTextNode(`row ${String(i).padStart(2, "0")}  the quick brown fox ${i * 7919 % 1000}`));
+    col.appendChild(row);
+  }
+  const grid = document.getElementById("grid");
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 12000; i++) {
+    const cell = document.createElement("span");
+    cell.textContent = (i * 2654435761 % 997).toString(36);
+    frag.appendChild(cell);
+  }
+  grid.appendChild(frag);
+  const canvas = document.getElementById("anim");
+  const ctx = canvas.getContext("2d");
+  function draw(t) {
+    ctx.fillStyle = "#202830";
+    ctx.fillRect(0, 0, 400, 240);
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = `hsl(${(i * 6 + t / 10) % 360}, 80%, 55%)`;
+      ctx.fillRect((i * 37 + t / 4) % 400, (i * 53) % 240, 18, 18);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+</script>
+</body>
+</html>

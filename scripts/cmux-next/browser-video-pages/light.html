@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>bv light</title>
+<style>
+  /* browser-video light page: static, left-anchored, fixed-width content, so a narrower or shorter viewport
+     must not move a single pixel of the column (any change there is a jump or a stretch). */
+  :root { --bg: #f4f4f2; --fg: #15171a; --line: #c9ccd1; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #17191d; --fg: #d8dadf; --line: #3a3e46; } }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/18px Menlo, monospace; }
+  #col { position: absolute; left: 0; top: 0; width: 520px; }
+  .row { box-sizing: border-box; height: 64px; border-bottom: 1px solid var(--line); padding: 6px 10px; }
+  .chip { display: inline-block; width: 40px; height: 40px; vertical-align: middle; margin-right: 12px; }
+  #marker { position: absolute; left: 8px; top: 408px; width: 32px; height: 32px; background: #ff00ff; }
+  #badge { position: fixed; right: 6px; bottom: 6px; width: 20px; height: 20px; background: #00e0ff; }
+  #tall { position: absolute; left: 0; top: 0; width: 1px; height: 5200px; }
+</style>
+</head>
+<body>
+<div id="tall"></div>
+<div id="col"></div>
+<div id="marker"></div>
+<div id="badge"></div>
+<script>
+  const col = document.getElementById("col");
+  const hues = [0, 32, 64, 120, 180, 220, 270, 310];
+  for (let i = 0; i < 80; i++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background = `hsl(${hues[i % hues.length]}, 70%, 50%)`;
+    row.appendChild(chip);
+    row.appendChild(document.createTextNode(`row ${String(i).padStart(2, "0")}  the quick brown fox ${i * 7919 % 1000}`));
+    col.appendChild(row);
+  }
+</script>
+</body>
+</html>

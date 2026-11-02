@@ -680,8 +680,9 @@ class BenchApp:
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True):
+                 fresh_state=True, args=()):
         self.low_power_mode_ok = low_power_mode_ok
+        self.args = list(args)  # arguments after the executable (an AppKit default as `-AppleInterfaceStyle Dark`)
         self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
@@ -842,7 +843,7 @@ class BenchApp:
         try:
             with finder_limits() as changed:
                 self.launched_at = time.time()
-                self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
