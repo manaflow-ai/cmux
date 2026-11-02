@@ -21,11 +21,6 @@
 
 use super::*;
 
-/// Modes offered to a phone by the native mobile host. Keep this in the
-/// dispatch side as a second check: the phone's own picker is advisory and a
-/// queued prompt must not inherit the ordinary Web Codex any-mode exception.
-pub(super) const PHONE_MODES: &[&str] = &["default", "plan", "ask"];
-
 use crate::web_modes::WebModeTable;
 use cmux_json::JsonSet as _;
 

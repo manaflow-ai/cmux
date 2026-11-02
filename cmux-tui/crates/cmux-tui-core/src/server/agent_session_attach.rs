@@ -759,8 +759,9 @@ pub(super) fn try_handle(
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
-    let cloud_mobile = mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
-    if !mux.agent_carrier_allowed(client) && !cloud_mobile {
+    // Remote trust comes from the verified Cloud mobile peer
+    // (`cloud_mobile_client`), never from the declared capability alone.
+    if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
     let sessions = &mux.control_clients.agent_sessions;
