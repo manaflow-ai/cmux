@@ -69,9 +69,8 @@ extension IPhoneHostService {
                 ? (exposureConfigured ? !blockedSessionIDs.contains(sessionID) : allowed)
                 : false
         } else {
-            // A running host has not supplied an authoritative policy yet; do not present an
-            // exposed chat while that state is unknown. New-tab/legacy callers retain master
-            // fallback because they have no session to authorize.
+            // New-tab/legacy callers retain master fallback because they have no session to
+            // authorize; a concrete chat above fails closed until host state is authoritative.
             on = allowed
         }
         return AgentPaneRemoteControl.State(on: on, revision: revision)

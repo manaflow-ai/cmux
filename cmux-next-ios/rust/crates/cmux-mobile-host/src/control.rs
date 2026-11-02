@@ -425,7 +425,12 @@ fn emit_exposure_state(state: &SessionExposure) {
     let mut blocked = state.blocked.iter().cloned().collect::<Vec<_>>();
     sessions.sort_unstable();
     blocked.sort_unstable();
-    emit(&Event::SessionExposureState { available: state.available, configured: state.configured, sessions, blocked_sessions: blocked });
+    emit(&Event::SessionExposureState {
+        available: state.available,
+        configured: state.configured,
+        sessions,
+        blocked_sessions: blocked,
+    });
 }
 
 /// What the app supplies over stdin, as it changes.

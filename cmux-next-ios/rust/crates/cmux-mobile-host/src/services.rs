@@ -1044,6 +1044,11 @@ async fn acpmux(
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
+                    let Some(text) = canonicalize_requests(&config.acpmux, &text).await else {
+                        let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
+                        let _ = sender.send(Bytes::from(answer)).await;
+                        continue;
+                    };
                     let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
                     if let Some(answer) = crate::acpmux_policy::exposure_refusal_with_replies(&text, &state, &bound_sessions, &server_reply_ids) {
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
@@ -1090,6 +1095,8 @@ async fn acpmux(
                         }
                         continue;
                     }
+                    let latest = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if crate::acpmux_policy::exposure_refusal_with_replies(&text, &latest, &bound_sessions, &server_reply_ids).is_some() { break; }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
@@ -1099,16 +1106,21 @@ async fn acpmux(
             message = ws_source.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    let ids = match serde_json::from_str::<Value>(&text) {
-                        Ok(Value::Array(items)) => items.iter().filter_map(|item| item.get("id")).map(Value::to_string).collect::<Vec<_>>(),
-                        Ok(value) => value.get("id").map(Value::to_string).into_iter().collect(),
-                        Err(_) => Vec::new(),
-                    };
-                    server_reply_ids.extend(ids);
                     for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
                         if pending_new.remove(&id) { bound_sessions.insert(session); }
                     }
                     let Some(text) = crate::acpmux_policy::filter_response(&text, &state, &bound_sessions) else { continue };
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
+                        for request in requests {
+                            if request.get("method").is_some() {
+                                for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
+                                    bound_sessions.insert(session);
+                                    server_reply_ids.insert(id);
+                                }
+                            }
+                        }
+                    }
                     if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
                         break;
                     }
@@ -1181,6 +1193,57 @@ async fn current_mode(
         *side = None;
     }
     mode
+}
+
+/// Resolve aliases over a fresh trusted side socket. A fresh request id and
+/// socket prevent a timed-out info reply from authorizing another target.
+async fn canonical_session(target: &AcpmuxTarget, session: &str) -> Option<String> {
+    let query = async {
+        let mut socket = connect_acpmux(target).await.ok()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/info","params":{"sessionId":session,"waitLogs":false}});
+        socket.send(Message::Text(request.to_string().into())).await.ok()?;
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
+            if reply.get("id").and_then(Value::as_str) != Some(&id) {
+                continue;
+            }
+            return reply.pointer("/result/sessionId").and_then(Value::as_str).map(str::to_owned);
+        }
+        None
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), query).await.ok().flatten()
+}
+
+async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<String> {
+    let mut value = serde_json::from_str::<Value>(text).ok()?;
+    let requests = match &mut value {
+        Value::Array(items) => items.iter_mut().collect::<Vec<_>>(),
+        other => vec![other],
+    };
+    for request in requests {
+        if request.get("method").is_none() {
+            continue;
+        }
+        let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else { continue };
+        let named = ["sessionId", "session", "name"]
+            .iter()
+            .filter_map(|key| params.get(*key).and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if named.is_empty() {
+            continue;
+        }
+        if named.windows(2).any(|pair| pair[0] != pair[1]) {
+            return None;
+        }
+        let canonical = canonical_session(target, &named[0]).await?;
+        for key in ["sessionId", "session", "name"] {
+            params.remove(key);
+        }
+        params.insert("sessionId".into(), Value::String(canonical));
+    }
+    Some(value.to_string())
 }
 
 /// The largest acpmux message a phone may send (a prompt with images).
