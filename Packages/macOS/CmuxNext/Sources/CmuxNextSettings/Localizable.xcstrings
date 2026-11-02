@@ -1,6 +1,50 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agents.retry.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically Retry Failed Turns"
+          }
+        }
+      }
+    },
+    "settings.agents.retry.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry connection and capacity failures using the existing retry schedule. Stop or a successful turn ends the loop. Changes apply to the next scheduled retry."
+          }
+        }
+      }
+    },
+    "settings.agents.retry.intervalSeconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Interval"
+          }
+        }
+      }
+    },
+    "settings.agents.retry.intervalSeconds.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seconds between retries. Zero keeps the existing backoff schedule and attempt count. Provider reset times can extend a wait."
+          }
+        }
+      }
+    },
     "settings.agentPane.display.presentation": {
       "comment": "Settings > Agent Chat > Chat Presentation",
       "extractionState": "manual",

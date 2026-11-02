@@ -377,6 +377,9 @@ extension SettingsSchema {
         "sessions.keepAwake": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
+        // Whether and how often failed turns retry is the person's choice.
+        "agents.retry.enabled": .userOnly,
+        "agents.retry.intervalSeconds": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
         "sessions.allowFullAccess": .destructive,
         // On, every agent gets tools that start child chats: the person turns that on.
