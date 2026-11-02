@@ -1447,8 +1447,9 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 /// The Account submenu: the harness's own login (the chat's default binding), then each route
 /// for a direct account serving this chat, plus its current binding when that is a transport or
 /// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
-/// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
-/// one; a switch acpmux refused says so first.
+/// is disabled: unbinding the chat would leave it on that route. With no routes it lists CLI login
+/// alone, with no note about route files (Leo 2026-10-28: "add accounts as route files in whatever.
+/// I feel like that's just weird"); a switch acpmux refused says so first.
 function AccountRows({
   list,
   failed,
@@ -1515,11 +1516,6 @@ function AccountRows({
           choiceRows(choices)
         )}
       </MenuRadioGroup>
-      {choices.length === 0 && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {t("picker.accountHint")}
-        </MenuItem>
-      )}
     </>
   );
 }
