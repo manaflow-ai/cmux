@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4137634186201",
+  "notes": "notes/4137634186201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31646,
+      "title": "ci(cmux-next): a failed Blacksmith cache restore compiles whole-module, and saves nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31629,
+      "title": "base red: acpmux detach reads its reply without an index (panic ratchet indexing_slicing 687 > 686, #31487)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31626,
+      "title": "base red: MessageRuns gallery fixture names neutral machines, not fleet hosts (#31398)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30719,
+      "title": "fix(next): show and retry refused opens from All Chats and History (SW-01)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31602,
+      "title": "ci(cmux-next): the DEV compile on Blacksmith keeps its compilation cache through actions/cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31554,
+      "title": "base red: the spinner looks board uses the UI font, not the system font (leo bans)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31501,
+      "title": "base red: Session Info browser tests load the grid tokens #27570 moved the panel onto",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30748,
+      "title": "fix(markdown): keep accessible names on image-only links in both renderers (W2-00)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30773,
+      "title": "fix(ios): isolate cached artifact previews by account and Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31636,
+      "title": "Revert \"ci(nightly): keep the primary preparation off the light-job placement (#31463)\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30752,
+      "title": "fix(mcp): preserve open viewer pane when the app acknowledgement is lost (SW-10)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30715,
+      "title": "fix(composer): pin retrying attachments to their chat (SW-15)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30708,
+      "title": "fix(terminal): reject mutable targets for keyed send replay (SW-10)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30706,
+      "title": "perf(acpmux): pick session pages without cloning 3,000 keys (SW-11)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
