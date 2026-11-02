@@ -523,6 +523,29 @@ fn a_full_seed_retry_refuses_to_replace_an_ignored_cloud_file() {
 }
 
 #[test]
+fn a_full_seed_retry_keeps_ignored_files_when_ignore_rules_change() {
+    let world = World::new("reseed-ignore-rules");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    // Under the previous ignore rules this file was a cache. The incoming
+    // WORK drops that pattern; git clean -fd would then delete the cache.
+    write(&folder.join("ignored/important-cache"), "valuable machine cache\n");
+    write(&world.mac.join(".gitignore"), "# rules changed\n");
+    let newer = world.snapshot("second", &[&world.base]);
+    let before = state(&folder);
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["state"], "failed", "{result}");
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(state(&folder), before);
+    assert_eq!(
+        std::fs::read_to_string(folder.join("ignored/important-cache")).unwrap(),
+        "valuable machine cache\n",
+    );
+}
+
+#[test]
 fn a_full_seed_retry_refuses_cloud_stash_or_assume_unchanged_edits() {
     let world = World::new("reseed-hidden");
     let original = world.snapshot("first", &[&world.base]);
