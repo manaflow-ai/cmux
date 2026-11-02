@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4145248477801",
+  "notes": "notes/4145248477801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32268,
+      "title": "perf(palette): an open builds only the command rows that changed",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28987,
+      "title": "agent pane: the picker's local row names the machine of the page's own acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32249,
+      "title": "Typing under load (F4 follow-up A): a tab opened or closed elsewhere no longer sends every client's next key to the session lock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32271,
+      "title": "Cloud: close the create sheet when the approval hold is answered elsewhere",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32235,
+      "title": "cmux machine new: setup failures keep their reason, next steps keep the socket, --help with options prints help (#32227)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32287,
+      "title": "cmux-next tests: onlyThePreviousCopyLeftStillMigrates's order check is a known intermittent issue (#28425)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32283,
+      "title": "cmux-next tests: the tab hover card fade bound tolerates a loaded mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32281,
+      "title": "cmux-next tests: the transcript layer test reads the zoomed bounds AppKit keeps (base red from #28745)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
