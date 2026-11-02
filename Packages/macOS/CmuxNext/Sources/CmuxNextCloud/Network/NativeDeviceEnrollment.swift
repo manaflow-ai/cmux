@@ -253,14 +253,20 @@ public actor NativeDeviceEnrollment {
     }
     private func owner<T: Decodable & Sendable, P: Encodable & Sendable>(_ op: String, _ params: P, key: String, context: NativeInstallContext) async throws -> T {
         let response = try await identity.nativeOwnerPost(JSONEncoder().encode(NativeOwnerCall(op: op, params: params, idempotency_key: key)), context: context)
-        guard response.status == 200, response.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(response.status) }
+        guard response.status == 200, response.body.count <= 1_048_576 else {
+            NativeNetworkRefusal.log(op, status: response.status, body: response.body)
+            throw NativeDeviceEnrollmentError.refused(response.status)
+        }
         let decoded = try JSONDecoder().decode(NativeOwnerReply<T>.self, from: response.body)
         guard decoded.ok, let value = decoded.value else { throw NativeDeviceEnrollmentError.invalidIdentity }
         return value
     }
     private func readNative<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil, bearer: String? = nil) async throws -> T {
         let reply = try await native.send(method: method, path: path, body: body, bearer: bearer, tenant: bearer == nil ? nil : scope.tenant)
-        guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status) }
+        guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else {
+            NativeNetworkRefusal.log("\(method) \(path)", status: reply.status, body: reply.body)
+            throw NativeDeviceEnrollmentError.refused(reply.status)
+        }
         return try JSONDecoder().decode(T.self, from: reply.body)
     }
     private func hash(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }

@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import os
 
 /// Routing metadata verified by the original owner transport, not transport or serving authority.
 public struct NativeNetworkTarget: Equatable, Sendable {
@@ -41,7 +42,11 @@ extension MacInstallIdentity {
         let context = try await nativeContext(team: team)
         let body = try JSONEncoder().encode(NativeNetworkTargetCall(params: .init(mesh: mesh)))
         let reply = try await nativeOwnerRead(body, context: context)
-        guard reply.status == 200, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status) }
+        guard reply.status == 200, reply.body.count <= 1_048_576 else {
+            // validation.invalid here is a tenant with more than one mesh; selector.not_found is none.
+            NativeNetworkRefusal.log("host.network.target", status: reply.status, body: reply.body)
+            throw NativeDeviceEnrollmentError.refused(reply.status)
+        }
         let decoded = try JSONDecoder().decode(NativeNetworkTargetEnvelope.self, from: reply.body)
         guard decoded.op == "host.network.target" else { throw NativeDeviceEnrollmentError.invalidIdentity }
         let target = try NativeNetworkTarget(decoded.value, team: team, mesh: mesh, context: context)
@@ -57,6 +62,19 @@ struct NativeNetworkTargetReply: Decodable, Sendable {
     let origin: String
     let mesh: String
     let ipv4_cidr: String
+}
+/// A Native refusal's stable code and message (server text, no credential), logged so a route that does not
+/// start says why instead of a bare HTTP status.
+struct NativeNetworkRefusal: Decodable {
+    let code: String?
+    let message: String?
+
+    static func log(_ step: String, status: Int, body: Data) {
+        let refusal = try? JSONDecoder().decode(Self.self, from: body.prefix(4096))
+        let code = refusal?.code ?? "no code", message = String((refusal?.message ?? "").prefix(300))
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.native")
+            .error("\(step, privacy: .public) refused \(status): \(code, privacy: .public): \(message, privacy: .public)")
+    }
 }
 private struct NativeNetworkTargetEnvelope: Decodable { let op: String; let value: NativeNetworkTargetReply }
 private struct NativeNetworkTargetParams: Encodable { let mesh: String? }
