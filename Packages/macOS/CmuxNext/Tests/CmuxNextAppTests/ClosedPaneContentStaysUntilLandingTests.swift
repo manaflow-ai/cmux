@@ -118,10 +118,14 @@ import Testing
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
         let screen = try #require(app.root.screenViews.values.first { !$0.isHidden })
         try #require(screen.hasMotion, "fixture: the close springs")
-        // The daemon's tree drops the pane (its gone-tab watch wakes), then the close's reply settles it and releases its tab.
+        // A close releases its tab more than once before it lands: the gone-tab watch on the tree that drops the pane and
+        // again on each later tree revision, then the reply's finish. Every one of them waits for the landing (review of
+        // #32197: the second release found no pane and ran in the motion).
         app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
         await ClosedPaneContentStaysUntilLandingTests.drainMain()
-        await prepared.finish(false, false)
+        app.cache.release(closedTab) // the gone-tab watch on the tree that dropped the pane
+        app.cache.release(closedTab) // the watch again, on the next tree revision
+        await prepared.finish(false, false) // the reply's release
 
         var releasedInFrame: Int?
         var frames = 0
