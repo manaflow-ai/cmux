@@ -34,11 +34,12 @@ extension BookmarkService {
     }
 
     /// Browser imports saved before bookmarks existed become bookmarks once
-    /// (a marker file records it, so a folder the user deleted stays deleted).
+    /// (a marker file, written when all went in, so a deleted folder stays deleted).
     func migrateLegacyImports() async {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")
         guard await !Self.exists(marker) else { return }
+        var failed = false
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }
@@ -48,10 +49,12 @@ extension BookmarkService {
                 do {
                     try replaceImport(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
                 } catch {
+                    failed = true
                     logger.error("migrate imported bookmarks \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
         }
+        guard !failed else { return }
         await Self.mark(marker, in: directory)
     }
 

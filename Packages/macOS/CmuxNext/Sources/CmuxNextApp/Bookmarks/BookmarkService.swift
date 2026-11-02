@@ -121,15 +121,14 @@ final class BookmarkService {
 
     // MARK: Writing
 
-    /// Applies `operation` to `profile`'s tree and sends it to the daemon.
-    /// Validation errors throw before anything changes; so does an edit
-    /// before the home daemon serves bookmarks (it has nowhere to go).
+    /// Applies `operation` to `profile`'s tree and sends it to the daemon. A validation error, or an edit
+    /// before the home daemon serves bookmarks (the gate's text), throws before anything changes.
     @discardableResult
     func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
-        guard usesDaemon else { throw DaemonError.notConnected }
+        guard usesDaemon else { throw BookmarkError.unavailable(message: services.machines.local.missingCapabilityMessage(DaemonCapability.bookmarks.rawValue)) }
         var tree = tree(profile)
         let change = try tree.apply(operation)
-        guard !change.isEmpty || isImport(operation) else { return change }
+        guard !change.isEmpty || operation.isImport else { return change }
         trees[profile] = tree
         if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
         send(operation, profile: profile)
@@ -137,14 +136,21 @@ final class BookmarkService {
         return change
     }
 
-    /// Marks a bookmark as used now (opened from any bookmark surface).
-    func touch(_ id: String, profile: String) {
-        try? apply(.update(id: id, lastUsed: .set(Date())), profile: profile)
+    /// Applies `operation`, or shows why not (surfaces with no reply of their own); true when it applied.
+    @discardableResult
+    func applyOrRefuse(_ operation: BookmarkOperation, profile: String) -> Bool {
+        do {
+            try apply(operation, profile: profile)
+            return true
+        } catch {
+            services.registry.refuse(BookmarkAppStrings.failure(error))
+            return false
+        }
     }
 
-    private func isImport(_ operation: BookmarkOperation) -> Bool {
-        if case .importDrafts = operation { return true }
-        return false
+    /// Marks a bookmark as used now (opened from any bookmark surface); quiet on a refusal.
+    func touch(_ id: String, profile: String) {
+        try? apply(.update(id: id, lastUsed: .set(Date())), profile: profile)
     }
 
     /// Every view of `profiles` redraws (stars, bars, manager pages).

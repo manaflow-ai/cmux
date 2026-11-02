@@ -131,11 +131,12 @@ public actor ImportHistorySync {
     /// profile being deleted). Returns what went. Sign-ins and passwords stay:
     /// they are in the profile's own stores.
     public func removeImported(profile: String, bookmarks: (any ImportedBookmarkSink)?, forgetPages: Bool = true) async throws -> ImportCounts {
-        let removed = try await store.removeImported(profile: profile)
-        await reconcile()
-        for batch in removed where !batch.bookmarks.isEmpty {
+        // Bookmarks first: a refused one (no home daemon yet) keeps the saved import, so a second Remove still finds them.
+        for batch in await store.batches(profile: profile) where !batch.bookmarks.isEmpty {
             try await bookmarks?.replaceImportedBookmarks([], source: batch.source)
         }
+        let removed = try await store.removeImported(profile: profile)
+        await reconcile()
         if forgetPages { await deliver(profile, [], removed.flatMap(\.history).map(\.url)) }
         return removed.reduce(ImportCounts()) { $0 + ImportCounts(bookmarks: $1.bookmarks.count, history: $1.history.count, openTabs: $1.openTabs.count) }
     }

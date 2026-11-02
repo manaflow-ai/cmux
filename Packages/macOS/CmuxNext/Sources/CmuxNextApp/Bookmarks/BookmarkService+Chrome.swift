@@ -84,9 +84,7 @@ extension BookmarkService {
         var node = tree(profile).bookmarks(for: url).first
         if node == nil {
             let created = BookmarkNode.bookmark(entry.tab.state.title ?? "", url: url, in: defaultFolder(profile: profile))
-            do { try apply(.create(created, index: nil), profile: profile) } catch {
-                return services.registry.refuse(BookmarkAppStrings.failure(error))
-            }
+            guard applyOrRefuse(.create(created, index: nil), profile: profile) else { return }
             node = created
             isNew = true
         }
@@ -101,16 +99,16 @@ extension BookmarkService {
             isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
             onSave: { [weak self] result in
                 guard let self, let current = tree(profile).node(node.id) else { return }
-                if result.title != current.title { try? apply(.update(id: node.id, title: result.title), profile: profile) }
+                if result.title != current.title { applyOrRefuse(.update(id: node.id, title: result.title), profile: profile) }
                 if result.folder != current.parent {
-                    try? apply(.move(id: node.id, parent: result.folder, index: tree(profile).children(of: result.folder).count),
-                               profile: profile)
+                    applyOrRefuse(.move(id: node.id, parent: result.folder, index: tree(profile).children(of: result.folder).count),
+                                  profile: profile)
                     lastFolder[profile] = result.folder
                 }
             },
             onRemove: { [weak self] in
                 guard let self, let url = node.url else { return }
-                for bookmark in tree(profile).bookmarks(for: url) { try? apply(.delete(id: bookmark.id), profile: profile) }
+                for bookmark in tree(profile).bookmarks(for: url) { applyOrRefuse(.delete(id: bookmark.id), profile: profile) }
             },
             onMore: { [weak self] in self?.services.bookmarkPages.open(selecting: node.id) })
         bubble.show(relativeTo: anchor)
@@ -166,11 +164,11 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
     }
 
     func moveToBar(_ id: String, index: Int) {
-        try? service?.apply(.move(id: id, parent: BookmarkRoot.bar.rawValue, index: index), profile: profile)
+        service?.applyOrRefuse(.move(id: id, parent: BookmarkRoot.bar.rawValue, index: index), profile: profile)
     }
 
     func addToBar(url: URL, title: String, index: Int) {
-        try? service?.apply(.create(.bookmark(title, url: url, in: BookmarkRoot.bar.rawValue), index: index), profile: profile)
+        service?.applyOrRefuse(.create(.bookmark(title, url: url, in: BookmarkRoot.bar.rawValue), index: index), profile: profile)
     }
 
     func contextMenu(for node: BookmarkNode?) -> NSMenu? {
