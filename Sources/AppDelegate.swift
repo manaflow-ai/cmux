@@ -4208,6 +4208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+        SessionPriorityCoordinator.shared.sessionRestoreDidComplete()
         if !isManualReopen {
             scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
