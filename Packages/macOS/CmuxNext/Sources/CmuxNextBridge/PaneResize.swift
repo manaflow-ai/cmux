@@ -76,6 +76,9 @@ public nonisolated enum PaneResize {
         case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
         case nil: return false
         }
+        // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
+        // next display frame moves, never one that ran before the layout's observation turn.
+        view.syncWithModel()
         return true
     }
 
