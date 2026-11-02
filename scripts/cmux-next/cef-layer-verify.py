@@ -572,8 +572,11 @@ def app_windows(pid):
 def covering(point, pid):
     """The frontmost on-screen window of another process over POINT (owner name and layer), or None: a system banner
     there takes the click."""
+    main = CG.CGDisplayBounds(CG.CGMainDisplayID())
     for window in app_windows(None):
         b = window["bounds"]
+        if b["width"] >= main.size.x and b["height"] >= main.size.y:
+            continue  # a whole-display overlay (Notification Center's) is clear where it shows nothing
         if b["x"] <= point[0] < b["x"] + b["width"] and b["y"] <= point[1] < b["y"] + b["height"]:
             return None if window["pid"] == pid else {k: window[k] for k in ("owner", "layer", "bounds")}
     return None
@@ -610,8 +613,8 @@ def hosted_pages():
 def hosted_grew(before):
     """hosted_pages after a new Chromium page opened: one more (on) or still 0 (off), within 5 s; (ok, now)."""
     want = (lambda n: n >= before + 1) if opts.mode == "on" else (lambda n: n == 0)
-    now = wait(lambda: (lambda n: n if want(n) else None)(hosted_pages()), 5)
-    return (now is not None), (now if now is not None else hosted_pages())
+    found = wait(lambda: (lambda n: (n,) if want(n) else None)(hosted_pages()), 5)  # a tuple: 0 is an answer in mode off
+    return bool(found), (found[0] if found else hosted_pages())
 
 
 def check_select(pid):
