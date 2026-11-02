@@ -28,11 +28,11 @@ pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 /// (`/etc/cmux/vm-kind`), its disk stays until it is deleted, and an idle machine may be paused
 /// (cmux-platform CloudIdle) and resumes with its files.
 pub const INSTRUCTIONS: &str = "This chat runs on a cmux Cloud machine: a Linux virtual machine \
-in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, and while it is \
-paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push work \
-to GitHub to keep it anywhere else. A chat can start with no repository; then the working folder \
-may be empty. Attach one at any time with add_repo (list_repos finds names), or the person can use \
-Add repository in Session Info. A needs_github result is retried automatically after Connect \
+in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, even while it \
+is paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push \
+work to GitHub to keep it anywhere else. A chat can start with no repository; then the working \
+folder may be empty. Attach one at any time with add_repo (list_repos finds names); Session Info \
+may also offer the person Add repository. A needs_github result is retried automatically after Connect \
 GitHub finishes. When asked what this environment is, say these things plainly.";
 
 /// Cloud machines carry the same image marker used by acpmux host updates.
