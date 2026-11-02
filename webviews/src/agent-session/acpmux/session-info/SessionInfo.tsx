@@ -730,7 +730,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   // How far the chat's content reaches past the column the model expects (chatContentOverflow),
   // read while the panel floats: a panel that would lie over any of it pushes the chat left (Leo,
   // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
@@ -811,6 +810,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
     [drawn, scopedAgent, snapshot.summary, rows],
   );
+  // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],

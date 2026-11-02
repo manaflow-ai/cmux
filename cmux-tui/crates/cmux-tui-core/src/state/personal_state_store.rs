@@ -17,8 +17,8 @@ use crate::workspace_registry::personal_mutations::{
     PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate,
 };
 use crate::workspace_registry::personal_store::{
-    DEFAULT_PROFILE_ID, PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
-    read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
+    DEFAULT_PROFILE_ID, PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group,
+    read_groups, read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {

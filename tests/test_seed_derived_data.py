@@ -711,6 +711,7 @@ MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml
 # the owned slot, side lane or std pool (this route), never back to the mini that stalled; owned_pool_rescue.py does
 # not re-run them (it judges only build-nightly-app). The exemption holds only while a job keeps exactly this route.
 OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+                                     "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool",
                                      "generate-nightly-deltas"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 

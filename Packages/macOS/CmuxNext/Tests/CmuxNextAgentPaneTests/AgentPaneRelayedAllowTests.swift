@@ -325,7 +325,8 @@ struct AgentPaneRelayedAllowTests {
         gestures.record(click: true)
         let older = try #require(gestures.reserve(connection: 1, intent: firstIntent))
         gestures.record(click: true)
-        let newer = try #require(gestures.reserve(connection: 1, intent: try #require(Self.intent(option: "no", permission: "p1"))))
+        let newerIntent = try #require(Self.intent(option: "no", permission: "p1"))
+        let newer = try #require(gestures.reserve(connection: 1, intent: newerIntent))
         #expect(!gestures.redeem(older, connection: 1, method: method, params: frame("p1")))
         #expect(gestures.redeem(newer, connection: 1, method: method, params: frame("p1", option: "no")))
 
@@ -333,7 +334,8 @@ struct AgentPaneRelayedAllowTests {
         var reserved: [String] = []
         for index in 0..<(AgentPaneUserGestures.permissionTicketsKept + 2) {
             gestures.record(click: true)
-            reserved.append(try #require(gestures.reserve(connection: 1, intent: try #require(Self.intent(option: "yes", permission: "q\(index)")))))
+            let intent = try #require(Self.intent(option: "yes", permission: "q\(index)"))
+            reserved.append(try #require(gestures.reserve(connection: 1, intent: intent)))
         }
         #expect(!gestures.redeem(reserved[0], connection: 1, method: method, params: frame("q0")))
         #expect(!gestures.redeem(reserved[1], connection: 1, method: method, params: frame("q1")))
