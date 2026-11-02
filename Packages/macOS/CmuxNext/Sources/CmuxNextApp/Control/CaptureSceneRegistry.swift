@@ -145,6 +145,19 @@ final class CaptureSceneRegistry {
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
+        var nativeSessionInfo: CmuxNextSettings.JSONValue = .null
+        if definition.name == Self.sessionInfoNativeScene {
+            let native = await nativeSessionInfoReadiness(windowID: targetWindowID)
+            guard native.ready else {
+                return .object([
+                    "error": .string("native Session Info did not settle"),
+                    "scene": .string(definition.name), "readiness": readiness,
+                    "action_readiness": actionReadiness, "scene_action": sceneAction,
+                    "native_session_info": native.report,
+                ])
+            }
+            nativeSessionInfo = native.report
+        }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -170,6 +183,7 @@ final class CaptureSceneRegistry {
         result["readiness"] = readiness
         result["action_readiness"] = actionReadiness
         result["scene_action"] = sceneAction
+        if definition.name == Self.sessionInfoNativeScene { result["native_session_info"] = nativeSessionInfo }
         if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
             _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
         }
@@ -201,6 +215,11 @@ final class CaptureSceneRegistry {
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
             return await DebugAgentPane.handle(["action": .string("open_changes")], services)
+        case Self.sessionInfoNativeScene:
+            let native = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"),
+                                                "value": .bool(true)], services: services)
+            let click = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
+            return .object(["native": native, "click": click])
         case "hints-cmd-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
@@ -242,6 +261,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
+        CaptureSceneDefinition(name: sessionInfoNativeScene,
+                               description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
                                description: "A Cloud machine the person opened (its my-project row) and two that agents made, never opened here, each with its image's own workspace-1: the agents' rows show (leaked: true) or none do (false)."),
@@ -658,6 +679,58 @@ extension CaptureSceneRegistry {
             && tabFound && sessionOK && hostKnown && generatedOK && page?.ready == true && sidebarRowMatches && !pending
         let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),sidebarRow=\(sidebarRowMatches),pending=\(pending),\(page?.diagnostic ?? "no view")"
         return (ready, String(diagnostic.prefix(420)))
+    }
+}
+
+/// A deterministic capture of the native Session Info path. The fixture and click are the same
+/// production paths a person uses; only the tunable and the readiness witness are capture-only.
+extension CaptureSceneRegistry {
+    static let sessionInfoNativeScene = "session-info-native"
+
+    private func nativeSessionInfoReadiness(windowID: String) async -> (ready: Bool, report: CmuxNextSettings.JSONValue) {
+        guard let controller = services.windows.controller(for: windowID),
+              let key = controller.content?.focusedPane?.currentTabKey,
+              let view = services.agentTabs.existingView(key) else {
+            return (false, .object(["error": .string("native Session Info has no focused agent view")]))
+        }
+        // The page click has already returned after its event report. Read the toggle once, then
+        // let display frames settle the AppKit panel geometry; no timer or polling loop is needed.
+        let togglePressed = await view.debugSessionInfoHeaderPressed()
+        frames.start()
+        let settled = await frames.settled(
+            until: { view.debugSessionInfoState.ready },
+            start: ContinuousClock.now,
+            window: 100,
+            deadline: 5_000,
+        )
+        let frameStats = frames.stop()
+        let state = view.debugSessionInfoState
+        func rect(_ value: AgentPaneSessionInfoDebugRect?) -> CmuxNextSettings.JSONValue {
+            guard let value else { return .null }
+            return .object([
+                "x": .number(value.x), "y": .number(value.y),
+                "width": .number(value.width), "height": .number(value.height),
+            ])
+        }
+        let report: CmuxNextSettings.JSONValue = .object([
+            "pane": .string(key),
+            "native_host": .bool(state.nativeHost),
+            "open": .bool(state.open),
+            "visible": .bool(state.visible),
+            "frame_ready": .bool(state.frameReady),
+            "ready": .bool(state.ready),
+            "header_toggle_pressed": .bool(togglePressed),
+            "section_count": .number(Double(state.sectionCount)),
+            "panel": rect(state.panel),
+            "page": rect(state.page),
+            "top": state.top.map { .number($0) } ?? .null,
+            "foot": state.foot.map { .number($0) } ?? .null,
+            "zoom": .number(state.zoom),
+            "flipped": .bool(state.flipped),
+            "settled_ms": settled.map { .number($0) } ?? .null,
+            "frames": frameStats,
+        ])
+        return (settled != nil && state.ready && togglePressed, report)
     }
 }
 
