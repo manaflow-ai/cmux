@@ -193,8 +193,13 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     let (mux, root) = persistent_mux("lists-read-committed");
     let first = mux.new_workspace(None, Some((80, 24))).unwrap();
     mux.new_workspace(None, Some((80, 24))).unwrap();
-    let pane = mux.with_state(|state| {
-        state.resource_indexes.pane_ids.get(&state.pane_of(first.id).unwrap()).unwrap().to_string()
+    let (pane, workspace) = mux.with_state(|state| {
+        let pane = state.pane_of(first.id).unwrap();
+        let (workspace, _) = state.screen_of(pane).unwrap();
+        (
+            state.resource_indexes.pane_ids.get(&pane).unwrap().to_string(),
+            state.workspaces[workspace].public_id.to_string(),
+        )
     });
     let call = |mux: &Arc<Mux>, operation: &str, params: Value| {
         let mut params = params;
@@ -208,7 +213,7 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
         ("workspace.list", serde_json::json!({"order": "session"})),
         ("session.ping", serde_json::json!({})),
         ("tab.list", serde_json::json!({"pane": pane})),
-        ("pane.list", serde_json::json!({"pane": pane})),
+        ("pane.list", serde_json::json!({"workspace": workspace})),
     ];
     let expected = reads
         .iter()
