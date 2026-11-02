@@ -417,13 +417,15 @@ GOLDEN_LEDGER = Path(os.environ.get("SMOKE_GATE_GOLDEN_LEDGER", "/Users/lawrence
 def golden_list():
     """(state, [fields...]) of the golden list: ("missing", []) when there is no list (no golden yet), ("listed",
     rows), or ("unreadable: <error>", []) when it or its folder cannot be read (that blocks the .pass)."""
+    # Read the file directly: only FileNotFoundError means "no list"; any other error (an unreadable folder, a
+    # dangling symlink, bad UTF-8) blocks (review at 77ee5e82e93: Path.exists() can hide an unreadable folder).
     try:
-        if not VIDEO_GOLDENS.exists():
-            return "missing", []
-        return "listed", [l.split() for l in VIDEO_GOLDENS.read_text().splitlines()
-                          if l.strip() and not l.lstrip().startswith("#")]
-    except OSError as error:
+        text = VIDEO_GOLDENS.read_text()
+    except FileNotFoundError:
+        return ("unreadable: dangling symlink", []) if VIDEO_GOLDENS.is_symlink() else ("missing", [])
+    except (OSError, UnicodeDecodeError) as error:
         return f"unreadable: {error}", []
+    return "listed", [l.split() for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
 
 
 def golden_blockers(job, listing=None):

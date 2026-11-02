@@ -1985,5 +1985,27 @@ class Loads(unittest.TestCase):
         self.assertIn("smoke-dogfood", listed.stdout)
 
 
+class GoldenListReadTests(unittest.TestCase):
+    """golden_list: only a missing file means 'no list'; a dangling symlink or bad UTF-8 blocks (review at 77ee5e82e93)."""
+
+    def _with(self, path):
+        gate = load_gate()
+        gate.VIDEO_GOLDENS = path
+        return gate.golden_list()
+
+    def test_missing_dangling_and_bad_encoding(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.assertEqual(self._with(d / "none.txt")[0], "missing")
+            (d / "link.txt").symlink_to(d / "gone.txt")
+            self.assertTrue(self._with(d / "link.txt")[0].startswith("unreadable"))
+            (d / "bad.txt").write_bytes(b"\xff\xfe case\n")
+            self.assertTrue(self._with(d / "bad.txt")[0].startswith("unreadable"))
+            (d / "ok.txt").write_text("# c\nrouting-smoke-seq routing g f o\n")
+            self.assertEqual(self._with(d / "ok.txt"), ("listed", [["routing-smoke-seq", "routing", "g", "f", "o"]]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,11 +55,14 @@ def variants(spec):
                                                     "title": "the app log of the run (records only)"}]
         if film:
             fin = [{"do": "video_close_open", "title": "stop a recording a failed check left open"}] + fin
+        # Host dialogs at the start and end (SMOKE ENV mark), as routing/gen.py has: video_golden.py and tally.py
+        # count no run without them (review at 77ee5e82e93).
+        fin = fin + [{"do": "env_windows", "at": "end", "title": "host dialogs at the end (SMOKE ENV mark)"}]
         out.append(dict(spec, id=name + ("" if film else "-nf"),
                         title=spec["title"] + ("" if film else " (no film)"),
                         source=f"VIDEO EXTRA item 6 (multi-window), from journeys/p0/{spec['id']}.json",
                         budget_seconds=int(spec.get("budget_seconds", 120)) + 30 + (12 if film else 0),
-                        steps=[dict(FIRST)] + body, **({"finally": fin} if fin else {})))
+                        steps=[{"do": "env_windows", "at": "start"}, dict(FIRST)] + body, **({"finally": fin} if fin else {})))
     return out
 
 

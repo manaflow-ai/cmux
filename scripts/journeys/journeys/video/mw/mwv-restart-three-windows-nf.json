@@ -7,6 +7,10 @@
   "budget_seconds": 210,
   "steps": [
     {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
       "do": "new_terminal",
       "via": "key",
       "as": "person",
@@ -272,6 +276,11 @@
       "seconds": 240,
       "grep": "cross-window|dropped a key|keyWindow|makeKey",
       "title": "the app log of the run (records only)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
     }
   ]
 }

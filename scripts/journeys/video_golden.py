@@ -44,7 +44,9 @@ def journey_row(run, case):
 def routing_verdict(run, case):
     sys.path.insert(0, str(HERE / "routing"))
     import tally
-    rows = list(tally.attempts(run))
+    # Only this case's attempts: a run folder may hold several routing journeys (review FIX at 77ee5e82e93: another
+    # case's wrong attempt or SMOKE ENV made this case FAIL, and a case with no attempts passed on another's).
+    rows = [r for r in tally.attempts(run) if r.get("case") == case]
     bad = [r for r in rows if r.get("verdict") != "right"]
     return (not bad and bool(rows)), {"attempts": len(rows), "not_right": [(r["attempt"], r["verdict"]) for r in bad]}
 
