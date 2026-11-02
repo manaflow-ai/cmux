@@ -632,6 +632,9 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
     assert!(text.contains("  cmux cloud ssh --target machine:vm-abc"), "{text}");
+    let pending = json!({ "result": { "pending": true, "status": "creating" } });
+    let text = created_line(&params, &pending, &global).unwrap();
+    assert!(text.contains(&format!("`{cmux} machine list`")), "{text}");
 }
 
 /// #32227 (3): `--help` with other options prints help, never asks the app.

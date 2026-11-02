@@ -489,12 +489,12 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     if setup_ran("bootstrap") || setup_ran("machine_config") {
         return None;
     }
+    let cmux = cmux_with_route(global);
     if result.get("pending").and_then(Value::as_bool) == Some(true) {
-        return Some(
+        return Some(format!(
             "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
-             `cmux machine list` when it is ready.\n"
-                .to_owned(),
-        );
+             `{cmux} machine list` when it is ready.\n"
+        ));
     }
     let id = result.get("machine_id")?.as_str()?;
     let target = result
@@ -504,7 +504,6 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
-    let cmux = cmux_with_route(global);
     Some(format!(
         "Created Cloud machine {name}: {status}.\n\n\
          Next:\n  \
