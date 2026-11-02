@@ -234,4 +234,84 @@ struct PlaintextSecretMigrationTests {
         #expect(second == .noPlaintextKey)
         #expect(saved == ["x"])
     }
+
+    // The scrub must remove only the secret's text, like the Settings write path,
+    // instead of reserializing the user's file (#15656).
+
+    @Test func keepsCommentsWhenScrubbing() throws {
+        let url = makeConfig("""
+        {
+          // keep this comment
+          "automation": {
+            "socketPassword": "secret",
+            "portBase": 9100
+          }
+        }
+        """)
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .migratedAndScrubbed)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("// keep this comment"))
+        #expect(!text.contains("socketPassword"))
+    }
+
+    @Test func doesNotEscapeSlashesWhenScrubbing() throws {
+        let url = makeConfig("""
+        {
+          "defaultWorkspacePath": "/Users/me/code",
+          "automation": {
+            "socketPassword": "secret",
+            "portBase": 9100
+          }
+        }
+        """)
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .migratedAndScrubbed)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains(#""/Users/me/code""#))
+        #expect(!text.contains(#"\/"#))
+    }
+
+    @Test func keepsSymlinkedConfigWhenScrubbing() throws {
+        let fileManager = FileManager.default
+        let dotfiles = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-secret-migration-dotfiles-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        let target = dotfiles.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data(#"{"automation":{"socketPassword":"secret","portBase":9100}}"#.utf8).write(to: target)
+        let url = makeConfig(nil)
+        try fileManager.createSymbolicLink(at: url, withDestinationURL: target)
+
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .migratedAndScrubbed)
+        #expect((try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == target.path)
+        let automation = try #require(object(at: target)?["automation"] as? [String: Any])
+        #expect(automation["socketPassword"] == nil)
+        #expect(automation["portBase"] as? Int == 9100)
+
+        // The backup is a copy of the target's original contents beside cmux.json,
+        // not a second link to the file that was just scrubbed.
+        let backup = url.deletingPathExtension().appendingPathExtension("T.bak")
+        #expect((try? fileManager.destinationOfSymbolicLink(atPath: backup.path)) == nil)
+        let backedUp = try #require(object(at: backup)?["automation"] as? [String: Any])
+        #expect(backedUp["socketPassword"] as? String == "secret")
+    }
 }
