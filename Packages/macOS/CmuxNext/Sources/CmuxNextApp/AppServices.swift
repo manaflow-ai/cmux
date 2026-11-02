@@ -563,7 +563,7 @@ final class AppServices {
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
         updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
