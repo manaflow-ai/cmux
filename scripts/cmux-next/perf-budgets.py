@@ -413,6 +413,7 @@ def main():
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
+    ap.add_argument("--palette-rounds", type=int, default=6, help="palette opens per command (6: the budget gate's)")
     ap.add_argument("--load", default="",
                     help="phases to run every bench in: idle, default (agent-like load at the default priority) and "
                          "agent (the same load in acpmux's agent tier); rows get @<phase>. Empty: idle only, no suffix")
@@ -439,7 +440,7 @@ def main():
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
                        "tab_switch.json", rows_tab_switch),
-        "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", "6", "--no-gate",
+        "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", str(opts.palette_rounds), "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
                      "--tickers", str(opts.sidebar_tickers), "--scenarios", opts.sidebar_scenarios,
