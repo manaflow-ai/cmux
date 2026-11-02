@@ -228,7 +228,8 @@ def step_bv_budget(j, step):
         recent = [{"error": str(error)[:200]}]
     runs = [r for r in recent if r.get("id") in want]
     _note(j, step.get("note", "budget"), runs)
-    return {"runs": runs[-4:]}
+    # `all`: every run in the step's result (a journey with no recording keeps them there; a recording's notes have them).
+    return {"runs": runs if step.get("all") else runs[-4:]}
 
 
 STEPS = {"bv_budget": step_bv_budget, "bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,

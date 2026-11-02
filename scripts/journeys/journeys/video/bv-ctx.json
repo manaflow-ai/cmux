@@ -1,0 +1,2606 @@
+{
+ "id": "bv-ctx",
+ "priority": "P1",
+ "title": "#32132: devtools.openDocked over a page just shown in a new browser workspace (18 cycles), then the main-thread time of pane focus moves and tab switches",
+ "why": "The action context must follow the focused web view: the Developer Tools set is never refused over a focused page; the extra context refresh per focus move must cost the hot path nothing visible.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 474,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in dark (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "dark"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: a workspace of its own (not Home: its chat would take the agent chat)",
+   "method": "action.run",
+   "params": {
+    "action": "newTab",
+    "args": {
+     "name": "bv-main",
+     "focus": true
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 1: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-1",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 2: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-2",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 3: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-3",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 4: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-4",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 5: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-5",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 6: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-6",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 7: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-7",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 8: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-8",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 9: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-9",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 10: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-10",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 11: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-11",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 12: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-12",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 13: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-13",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 14: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-14",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 15: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-15",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 16: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-16",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 17: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-17",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "cycle 18: New Browser Workspace (Opt-Cmd-N)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "the test page typed"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "focus the page (a real click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "ctx-open-18",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "perf set-up: a terminal pane beside the page (Cmd-D)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "bv_budget",
+   "note": "perf-pane-focus",
+   "actions": [
+    "focusLeft",
+    "focusRight"
+   ],
+   "all": true
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "the terminal pane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "bv_budget",
+   "note": "perf-tab-switch",
+   "actions": [
+    "nextSurface"
+   ],
+   "all": true
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

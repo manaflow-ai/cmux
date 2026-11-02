@@ -139,6 +139,54 @@ def agent(load, theme, rounds=3, mbps=60):
             "source": SOURCE, "budget_seconds": 60 + 25 * rounds, "options": {"key_path": "real"}, "steps": steps}
 
 
+def ctx(cycles=18, presses=30):
+    """#32132: the Developer Tools action over a page just shown in a new browser workspace (refused 'not available in the
+    current context' in 9 of 18 rounds on feat ad8ae1b), then the main-thread time of tab switches and pane focus moves
+    (debug.action_budget commit_ms: the app's ActionBudgetMonitor, never a Python clock), for the before/after."""
+    jid = "bv-ctx"
+    steps = setup("dark")
+    for c in range(1, cycles + 1):
+        steps += [{"do": "hid_key", "key": "n", "modifiers": ["cmd", "option"], "title": f"cycle {c}: New Browser Workspace (Opt-Cmd-N)"},
+                  {"do": "wait", "seconds": 1.5},
+                  {"do": "hid_key", "key": "l", "modifiers": ["cmd"], "title": "the address bar (Cmd-L)"},
+                  {"do": "wait", "seconds": 0.4},
+                  {"do": "smoke_type", "text": "${bv_base}/light.html", "enter": True, "title": "the test page typed"},
+                  {"do": "bv_page_ready", "page": "light"}, {"do": "wait", "seconds": 0.8},
+                  {"do": "hid_click", "target": {"window_point": [560, 420]}, "title": "focus the page (a real click)"},
+                  {"do": "wait", "seconds": 0.4},
+                  {"do": "bv_action", "action": "devtools.openDocked", "note": f"ctx-open-{c}",
+                   "fallback_key": {"key": "i", "modifiers": ["cmd", "option"]}},
+                  {"do": "bv_devtools", "page": "light", "open": True, "timeout": 5},
+                  {"do": "wait", "seconds": 0.6},
+                  dict(OPEN_KEY, title="close DevTools: real Cmd-Opt-I"),
+                  {"do": "bv_devtools", "page": "light", "open": False, "timeout": 5},
+                  {"do": "wait", "seconds": 0.4}]
+    # Perf: the last browser workspace gets a terminal pane beside it (Cmd-D) with 4 terminal tabs (Ctrl-`), then real
+    # pane focus moves (Cmd-Opt-Left/Right: focusLeft/focusRight, browser <-> terminal) and real Ctrl-Tab (nextSurface).
+    steps += [{"do": "hid_key", "key": "d", "modifiers": ["cmd"], "title": "perf set-up: a terminal pane beside the page (Cmd-D)"},
+              {"do": "wait", "seconds": 1.5}]
+    for _ in range(3):
+        steps += [{"do": "hid_key", "key": "`", "modifiers": ["control"], "title": "perf set-up: one more terminal tab (Ctrl-`)"},
+                  {"do": "wait", "seconds": 1.0}]
+    steps += [{"do": "wait", "seconds": 2.0}]
+    for i in range(presses):
+        steps += [{"do": "hid_key", "key": "left" if i % 2 == 0 else "right", "modifiers": ["cmd", "option"],
+                   "title": "pane focus (Cmd-Opt-Left/Right)"}, {"do": "wait", "seconds": 0.25}]
+    steps += [{"do": "bv_budget", "note": "perf-pane-focus", "actions": ["focusLeft", "focusRight"], "all": True},
+              {"do": "hid_key", "key": "right", "modifiers": ["cmd", "option"], "title": "the terminal pane"},
+              {"do": "wait", "seconds": 0.5}]
+    for _ in range(presses):
+        steps += [{"do": "hid_key", "key": "tab", "modifiers": ["control"], "title": "tab switch (Ctrl-Tab)"},
+                  {"do": "wait", "seconds": 0.25}]
+    steps += [{"do": "bv_budget", "note": "perf-tab-switch", "actions": ["nextSurface"], "all": True}]
+    return {"id": jid, "priority": "P1",
+            "title": "#32132: devtools.openDocked over a page just shown in a new browser workspace (18 cycles), then the "
+                     "main-thread time of pane focus moves and tab switches",
+            "why": "The action context must follow the focused web view: the Developer Tools set is never refused over a "
+                   "focused page; the extra context refresh per focus move must cost the hot path nothing visible.",
+            "source": SOURCE, "budget_seconds": 90 + 18 * cycles + 2 * presses, "options": {"key_path": "real"}, "steps": steps}
+
+
 END = [{"do": "new_terminal", "via": "key", "name": "bvend"}, {"do": "neutral_prompt"},
        {"do": "type", "text": "echo bv-done-${nonce}", "enter": True, "mark": "done"},
        {"do": "expect", "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
@@ -156,6 +204,7 @@ def main():
             out.append(pane(page, theme))
         for load in ("light", "heavy"):
             out.append(agent(load, theme))
+    out.append(ctx())
     for j in out:
         j["steps"] += END
         with open(os.path.join(HERE, j["id"] + ".json"), "w") as f:
