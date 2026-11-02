@@ -60,4 +60,41 @@ struct CmdWOnReplacedStandInTests {
             #expect(store.tab(surface: page.surface) != nil, "Cmd-W closed the browser page")
         }
     }
+
+    /// The same step for a browser tab's stand-in: Close Tab asks the page whether it may close
+    /// (beforeunload, `BrowserUserClosing`) by the tab's id. Asked with the stand-in's id, which no
+    /// page has, the page was never asked and a form the person filled in was lost unasked.
+    @Test func cmdWInThatStepAsksTheReplacedBrowserTabsPageFirst() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            var asked: [String] = []
+            let undo = try #require(services.closedTabs?.undoToasts)
+            undo.pageDecidesClose = { _, id in asked.append(id.rawValue); return false }
+
+            // The browser tab the daemon makes for the stand-in, listed.
+            let made = try await connection.newFrontendBrowserTab(url: "https://example.com/form", engine: .webkit, in: handle, activate: false)
+            try await PinnedPageTests.until({ store.tab(surface: made.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+            let madeID = try #require(store.tab(surface: made.surface)).id
+
+            // Its stand-in, selected; then the reply's turn replaces it in the records only.
+            let standIn = ProvisionalTab()
+            let transaction = ClientTransactionID.generate()
+            store.intend(.createTab(pane: handle, provisional: standIn.browser(url: "https://example.com/form", engine: "webkit", profile: nil)),
+                         transaction: transaction)
+            pane.selectWhenReported(surface: standIn.surface)
+            try #require(pane.stripModel.selectedID?.rawValue == standIn.id, "the stand-in is not selected")
+            pane.pendingSelectSurface = made.surface
+            ProvisionalTab.created(transaction, surface: made.surface, in: store)
+            store.noteSettledAtNextSnapshot(transaction)
+            try #require(pane.stripModel.selectedID?.rawValue == standIn.id,
+                         "the strip already selects \(pane.stripModel.selectedID?.rawValue ?? "-"): the test no longer reaches the step")
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            #expect(asked.contains(madeID), "Close Tab asked \(asked) whether it may close, never the page of \(madeID)")
+            try await PinnedPageTests.until({ store.tab(surface: made.surface) == nil }, within: .seconds(5),
+                                            report: { "Cmd-W closed nothing: the pane holds \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
+        }
+    }
 }
