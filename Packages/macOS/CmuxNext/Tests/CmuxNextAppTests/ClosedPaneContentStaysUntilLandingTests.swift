@@ -93,25 +93,24 @@ import Testing
         try #require(cache.existingTerminal(closedTab) != nil, "fixture: pane 2's terminal exists")
         let kept = try #require(store.tab(surface: CmuxNextDaemon.SurfaceID(rawValue: 1))?.id)
 
-        // The close's turn (Cmd-W on pane 2's last tab): the pane leaves its window, its neighbours spring into its place.
-        let close = try #require(closing.showPaneClose(), "fixture: the layout shows the close")
+        // The close's turn, as Cmd-W on pane 2's last tab runs it (`PaneController.prepareClose`): the tab leaves the
+        // strip (the pane withdraws its terminal), the pane leaves its window and its neighbours spring into its place.
+        let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
         let screen = try #require(root.screenViews.values.first { !$0.isHidden })
         try #require(screen.hasMotion, "fixture: the close springs")
-        // The daemon's tree drops the pane (its gone-tab watch wakes), the close's reply settles it and releases its tab.
+        // The daemon's tree drops the pane (its gone-tab watch wakes), then the close's reply settles it and releases its tab.
         store.apply(snapshot: Self.tree([1, 3]))
         await Self.drainMain()
-        closing.finishPaneClose(close, failed: false)
-        cache.release(closedTab)
-
+        await prepared.finish(false, false)
         var releasedInFrame: Int?
         var frames = 0
-        if cache.existingTerminal(closedTab) == nil || closing.currentTabKey != closedTab { releasedInFrame = 0 }
+        if cache.existingTerminal(closedTab) == nil { releasedInFrame = 0 }
         while frames < 600 {
             let moving = root.advanceFrame(Self.dt)
             frames += 1
             await Self.drainMain()
             if !moving { break }
-            if releasedInFrame == nil, cache.existingTerminal(closedTab) == nil || closing.currentTabKey != closedTab {
+            if releasedInFrame == nil, cache.existingTerminal(closedTab) == nil {
                 releasedInFrame = frames
             }
         }
