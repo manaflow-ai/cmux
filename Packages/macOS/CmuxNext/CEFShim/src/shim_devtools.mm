@@ -81,32 +81,38 @@ void SelectPanel(CefRefPtr<CefBrowser> devtools, const std::string& panel, bool 
   devtools->GetMainFrame()->ExecuteJavaScript(script, "devtools://cmux/show-panel", 0);
 }
 
-// The window that shows DevTools browser's view, when it is a window of its own (a Chromium child window over the
-// host's parent view); nil when the view sits in the parent's own window (never hide that one).
-NSWindow* DevToolsOwnWindow(CefRefPtr<CefBrowser> browser, void* parent_view) {
+// DevTools browsers whose own window this file made invisible (by id: no weak reference to a Chromium window
+// class, which may refuse one; the window is found again from the browser's view when it is shown).
+std::set<int>& HiddenDevTools() {
+  static std::set<int> set;
+  return set;
+}
+
+// The window that shows a DevTools browser's view, or nil (no view yet, or closed).
+NSWindow* DevToolsWindowOf(CefRefPtr<CefBrowser> browser) {
   if (!browser) return nil;
-  NSView* view = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
-  NSWindow* window = view.window;
-  NSWindow* parent = parent_view ? ((__bridge NSView*)parent_view).window : nil;
-  if (!window || window == parent) return nil;
+  CefWindowHandle handle = browser->GetHost()->GetWindowHandle();
+  if (!handle) return nil;
+  id object = (__bridge id)handle;
+  if (![object isKindOfClass:[NSView class]]) return nil;
+  return ((NSView*)object).window;
+}
+
+// The DevTools browser's own window (a Chromium child window over the host's parent view); nil when its view sits
+// in the parent's own window (never hide that one).
+NSWindow* DevToolsOwnWindow(CefRefPtr<CefBrowser> browser, void* parent_view) {
+  NSWindow* window = DevToolsWindowOf(browser);
+  id parent = parent_view ? (__bridge id)parent_view : nil;
+  NSWindow* parent_window = [parent isKindOfClass:[NSView class]] ? ((NSView*)parent).window : nil;
+  if (!window || window == parent_window) return nil;
   return window;
 }
 
 // Shows a DevTools window kept invisible until its frontend loaded (DevToolsClient). Reads no parent view: the
 // backstop runs later, when the host view may be gone; an opaque window (the parent's own) stays as it is.
-// The DevTools windows this file made invisible (weak: a closed DevTools' window just leaves).
-NSHashTable<NSWindow*>* HiddenDevToolsWindows() {
-  static NSHashTable<NSWindow*>* table = [NSHashTable weakObjectsHashTable];
-  return table;
-}
-
 void RevealDevTools(CefRefPtr<CefBrowser> browser) {
-  if (!browser) return;
-  NSView* view = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
-  NSWindow* window = view.window;
-  if (!window || ![HiddenDevToolsWindows() containsObject:window]) return;
-  [HiddenDevToolsWindows() removeObject:window];
-  window.alphaValue = 1;
+  if (!browser || HiddenDevTools().erase(browser->GetIdentifier()) == 0) return;
+  if (NSWindow* window = DevToolsWindowOf(browser)) window.alphaValue = 1;
 }
 
 class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler,
@@ -154,7 +160,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     // invisible over the pane's themed ground (the host view under it) until the frontend's ready marker.
     if (docked_) {
       if (NSWindow* window = DevToolsOwnWindow(browser, parent_view_)) {
-        [HiddenDevToolsWindows() addObject:window];
+        HiddenDevTools().insert(browser->GetIdentifier());
         window.alphaValue = 0;
       }
     }
@@ -179,6 +185,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+    HiddenDevTools().erase(browser->GetIdentifier());
     auto& map = devtools_browsers();
     auto it = map.find(inspected_);
     if (it != map.end() && it->second->IsSame(browser)) {
