@@ -168,9 +168,15 @@ fn acpmux_sessions_have_one_send_tool_and_tell_names_no_session_route() {
     // second route through tell(session:NAME) or control sessions.
     use chief_kernel::prompt::{CONTROL_DESCRIPTION, TELL_DESCRIPTION};
     use chief_kernel::tools::CONTROL_ACTIONS;
-    assert!(!CONTROL_ACTIONS.contains(&"sessions"), "{CONTROL_ACTIONS:?}");
+    assert!(
+        !CONTROL_ACTIONS.contains(&"sessions"),
+        "{CONTROL_ACTIONS:?}"
+    );
     for text in [TELL_DESCRIPTION, CONTROL_DESCRIPTION] {
         assert!(!text.contains("session:<name>"), "{text}");
     }
-    assert!(TELL_DESCRIPTION.contains("acpmux_send"), "{TELL_DESCRIPTION}");
+    assert!(
+        TELL_DESCRIPTION.contains("acpmux_send"),
+        "{TELL_DESCRIPTION}"
+    );
 }

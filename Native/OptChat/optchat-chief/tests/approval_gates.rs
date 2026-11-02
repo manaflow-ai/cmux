@@ -982,11 +982,7 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
             .is_err()
     );
     let send = json!({"to": "lane-b", "text": "deploy"});
-    assert!(
-        h.brain
-            .turn_gate("mcp__cmux__acpmux_send", &send)
-            .is_err()
-    );
+    assert!(h.brain.turn_gate("mcp__cmux__acpmux_send", &send).is_err());
     finish(&mut h);
 }
 
