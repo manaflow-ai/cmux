@@ -316,16 +316,16 @@ function NeedsYouRow({
           <span className="acpmux-needs-you-tools">
             {/* A marked tab names no chat to expand, answer or ask about: Go to is its one action. */}
             {item.kind !== "tab" && (
-            <button
-              type="button"
-              className="acpmux-needs-you-expand"
-              aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-              title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-              aria-expanded={expanded}
-              onClick={toggle}
-            >
-              <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
-            </button>
+              <button
+                type="button"
+                className="acpmux-needs-you-expand"
+                aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                aria-expanded={expanded}
+                onClick={toggle}
+              >
+                <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
+              </button>
             )}
             {!compact && item.kind !== "tab" && (
               <button
