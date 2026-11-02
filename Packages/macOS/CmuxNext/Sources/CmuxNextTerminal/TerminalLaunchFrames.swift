@@ -266,6 +266,7 @@ public final class TerminalLaunchFrames {
         }
         guard let frames = read.value else {
             mark("terminal.launch_frame_missed")
+            dropAheadWaiters(in: content) // an earlier ask of this pane (another tab) is void now
             if waiting[key] == nil { waiting[key] = Waiter(session: nil, content: content, reveal: reveal) }
             return false
         }

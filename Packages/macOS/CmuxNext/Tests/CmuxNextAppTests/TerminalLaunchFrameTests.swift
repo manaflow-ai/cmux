@@ -174,7 +174,7 @@ import os
         defer { try? FileManager.default.removeItem(at: directory) }
         let frames = await Self.launch(directory)
         #expect(frames.showAhead("tab-1", in: waiting.content, reveal: reveal))
-        #expect(waiting.content.alphaValue == 1, "the pane stays held clear: the window's first frame shows it empty")
+        #expect(waiting.content.alphaValue == 1, "the pane stayed held clear: the window's first frame would show it empty")
         #expect(frames.showsAhead(in: waiting.content))
         // Its surface comes on a later frame.
         let io = ScriptedTerminalIO()
