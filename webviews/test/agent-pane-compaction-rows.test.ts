@@ -1705,3 +1705,19 @@ test("a compaction running across three pages stays one row, and its live end en
   expect(compactions(rows())).toEqual([[4, "completed"]]);
   expect(spinners(rows())).toBe(0);
 });
+
+// Leo, 2026-10-21: "what the hell is this compaction fail? But it literally succeeded". A compaction
+// whose turn ended before its end was heard is noted as failed so it stops spinning, but Claude Code
+// never said it failed: the row says it ended, and only a failure Claude Code reports reads as one.
+test("a compaction whose end was never heard says it ended, not that it failed", () => {
+  const render = (compaction: AcpmuxRow["compaction"]) =>
+    renderToStaticMarkup(createElement(CompactionNote, { compaction: compaction! }));
+  const unheard = render({ state: "failed", inferred: true, reason: "account_switch" });
+  expect(unheard).toContain("Compaction ended");
+  expect(unheard).not.toContain("failed");
+  expect(unheard).toContain('data-state="ended"');
+  const reported = render({ state: "failed", error: "Prompt is too long" });
+  expect(reported).toContain("Compaction failed: Prompt is too long");
+  expect(reported).toContain('data-state="failed"');
+  expect(render({ state: "failed" })).toContain("Compaction failed");
+});
