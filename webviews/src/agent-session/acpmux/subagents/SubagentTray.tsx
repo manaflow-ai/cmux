@@ -67,6 +67,7 @@ import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
@@ -458,6 +459,7 @@ export const SubagentTray = memo(function SubagentTray({
           name={item.agent.name}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
+          icon={SUBAGENT_FALLBACK}
           mark={item.agent.harness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}

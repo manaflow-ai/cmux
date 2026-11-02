@@ -29,7 +29,7 @@ import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
-import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
+import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
@@ -63,9 +63,6 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  // The chat's harness when the subagent names none, as its open group's avatar draws it
-  // (SubagentGroup.tsx `Avatar`).
-  const chatHarness = useContext(SubagentHarnessContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
@@ -141,7 +138,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               <Spinner size={16} loading />
             ) : (
               <AgentIdentity
-                harness={agent.harness ?? chatHarness}
+                harness={agent.harness}
                 tone={agentTone(agent.id)}
                 size={16}
                 fallback={SUBAGENT_FALLBACK}

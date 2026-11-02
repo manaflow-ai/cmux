@@ -11,7 +11,6 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SubagentHarnessContext } from "../subagents/SubagentGroup";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
@@ -251,12 +250,12 @@ test("a subagent's line with no harness known draws the subagent mark, not the c
   expect(icon.querySelector('[data-icon="task.ai"]')).not.toBeNull();
 });
 
-test("a subagent's line draws the chat's harness mark when the subagent names none", async () => {
-  const container = await render(
-    <SubagentHarnessContext.Provider value="claude">
-      <SubagentDoneLine row={subagentRow} />
-    </SubagentHarnessContext.Provider>,
-  );
+test("a subagent that names its own harness draws that harness's mark", async () => {
+  const codexRow = {
+    ...subagentRow,
+    subagents: [{ ...subagentRow.subagents![0]!, harness: "codex" }],
+  } as AcpmuxRow;
+  const container = await render(<SubagentDoneLine row={codexRow} />);
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
   expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();

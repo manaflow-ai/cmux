@@ -27,7 +27,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { orderedSubagents } from "./subagentOrder";
 
@@ -197,6 +197,7 @@ export function SubagentStatusList({
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
                 name={agent.name}
+                icon={SUBAGENT_FALLBACK}
                 mark={agent.harness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
