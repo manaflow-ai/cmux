@@ -173,12 +173,14 @@ for (const newTab of [false, true]) {
         );
       expect(recovery()).toBeDefined();
       const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(input, "opus");
-        input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-      });
+      expect(list().querySelectorAll('[role="menuitemradio"]').length).toBeGreaterThan(0);
+      for (const key of "opus")
+        await act(async () => {
+          list().dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true }));
+        });
       await settle();
       expect(input.value).toBe("opus");
+      expect(list().querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
       expect(recovery()).toBeDefined();
       await act(async () => recovery()!.click());
       expect(logins).toBe(1);
