@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// What a press in the vertical tab list landed on; its release decides (`mouseUp`).
@@ -70,7 +71,7 @@ extension VerticalTabListView {
 
     public override func mouseExited(with event: NSEvent) {
         if drag == nil { clearHover() }
-        guard menuEndObserver == nil else { return }
+        guard menuEnd == nil else { return }
         pointerExited()
     }
 
@@ -227,15 +228,13 @@ extension VerticalTabListView {
 
     /// A menu from a widened list keeps it wide while open: the pointer leaves the list for it.
     private func trackMenu(_ menu: NSMenu) {
-        if let menuEndObserver { NotificationCenter.default.removeObserver(menuEndObserver) }
-        menuEndObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                if let observer = self.menuEndObserver { NotificationCenter.default.removeObserver(observer) }
-                self.menuEndObserver = nil
-                self.collapseIfPointerLeft()
-            }
+        let menus = MenuTracking()
+        menus.subscribe { [weak self, weak menu] change in
+            guard case .ended(let ended) = change, ended === menu, let self else { return }
+            self.menuEnd = nil
+            self.collapseIfPointerLeft()
         }
+        menuEnd = menus
     }
 
     // MARK: Scrolling
