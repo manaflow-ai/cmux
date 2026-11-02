@@ -145,7 +145,9 @@ def workspace_count():
 
 
 def ensure_terminal():
-    if (focused() or {}).get("kind") == "terminal":
+    # The undo's focus move can land a frame or two later: wait for it before making a new workspace (a run of 0.3 s
+    # undo waits made 12 workspaces in 60 presses on cmux21, which grew the session under the later presses).
+    if wait(lambda: (focused() or {}).get("kind") == "terminal", 3):
         return True
     reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "shortcut-latency"}, "wait": True})
     note(f"newTab (set-up): {json.dumps(reply)[:200]}")
@@ -221,7 +223,9 @@ def match_runs(presses, intervals, app_pid):
                 fields = interval.get("fields") or {}
                 if fields.get("id") != p["action"] or interval["start_us"] < p["sent_us"] - 500:
                     continue
-                if float(fields.get("input_age_ms", "-1")) < 0:
+                # A run with no input age (a key a terminal routes back, as Cmd-K through Ghostty's binding) still
+                # counts: its origin must be the user's; its input age is then unknown (None).
+                if float(fields.get("input_age_ms", "-1")) < 0 and fields.get("origin") != "user":
                     continue
                 if interval["start_us"] > p["sent_us"] + 2_000_000:
                     return None
@@ -229,13 +233,16 @@ def match_runs(presses, intervals, app_pid):
             return None
         commit, perform = first("action.commit"), first("action.perform")
         if not commit:
-            p["missing"] = "no user action.commit after the send"
+            near = sorted({(i["fields"] or {}).get("id", "?") + "/" + str((i["fields"] or {}).get("origin"))
+                           for i in by_name.get("action.commit", []) if p["sent_us"] - 500 <= i["start_us"] <= p["sent_us"] + 1_000_000})
+            p["missing"] = f"no user action.commit of {p['action']} after the send; runs in the next 1 s: {near}"
             continue
         age = float(commit["fields"].get("input_age_ms", "-1"))
-        p.update(run_start_us=commit["start_us"], commit_end_us=commit["end_us"], input_age_ms=round(age, 3),
-                 event_us=commit["start_us"] - age * 1000.0,
+        known = age >= 0
+        p.update(run_start_us=commit["start_us"], commit_end_us=commit["end_us"], input_age_ms=round(age, 3) if known else None,
+                 event_us=commit["start_us"] - (age * 1000.0 if known else 0.0), origin=commit["fields"].get("origin"),
                  commit_ms=round(commit["ms"], 3), commit_missed=commit.get("missed"), nested=commit.get("nested_loop"),
-                 input_to_commit_ms=round(age + commit["ms"], 3))
+                 input_to_commit_ms=round(age + commit["ms"], 3) if known else None)
         if perform:
             p.update(perform_start_us=perform["start_us"], perform_end_us=perform["end_us"], perform_ms=round(perform["ms"], 3),
                      after_ms=round(commit["ms"] - perform["ms"], 3))
