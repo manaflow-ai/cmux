@@ -2205,8 +2205,10 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
+      # Only after the restore above. The warm builder's kept checkouts carry this workspace's own
+      # paths; dropping their state re-fetched every package (32-222 s, runs 41444184160, 41439348303).
       - name: Sanitize Swift package cache
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && steps.release-derived-data.outputs.mode == ''
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
