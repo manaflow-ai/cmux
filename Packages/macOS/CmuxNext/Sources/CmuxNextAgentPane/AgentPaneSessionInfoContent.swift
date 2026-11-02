@@ -39,11 +39,14 @@ struct SessionInfoLine: Equatable {
     var symbol: String?
     var symbolColor: String?
     var harness: String?
+    var working = false
+    var wave: AgentPaneSessionInfoModel.Wave?
     var spins = false
     var title: String
     var titleInk: Ink = .primary
     var detail: String?
     var subtitle: String?
+    var progress: String?
     var trailing: String?
     var trailingTone: AgentPaneSessionInfoModel.Tone?
     /// A foldable section's chevron: true while it is unfolded.
@@ -111,8 +114,8 @@ extension AgentPaneSessionInfoModel {
             for (index, row) in section.rows.enumerated() {
                 items.append(.line(SessionInfoLine(
                     id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness,
-                    spins: row.tone == .running, title: row.title,
-                    titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
+                    working: row.working == true, wave: row.wave, spins: false, title: row.title,
+                    titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle, progress: row.progress,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
                     menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, reorderable: section.bare == true && index == 0 && section.reorderable == true,
                     hover: row.hover, marks: row.marks,
@@ -380,6 +383,72 @@ final class SessionInfoListView: NSView {
     }
 }
 
+/// A running row's three-dot wave. The page supplies the index and cadence; Motion only gates
+/// whether the supplied loop may run, and Core Animation owns the repeating work.
+private final class SessionInfoWaveView: NSView {
+    private let dots = CAReplicatorLayer()
+    private let dot = CAShapeLayer()
+    private var wave: AgentPaneSessionInfoModel.Wave
+    private let color: CGColor
+    private var motionSubscription: MotionSubscription?
+    /// Says when the wave may have come into sight or left it (moved to a window, shown, its
+    /// window's occlusion changed). It owns the window observation, so this view has no `deinit`.
+    private let visibility = AgentPaneVisibilityProbe(frame: .zero)
+
+    init(wave: AgentPaneSessionInfoModel.Wave, color: NSColor) {
+        self.wave = wave
+        self.color = color.cgColor
+        super.init(frame: .zero)
+        wantsLayer = true
+        dots.actions = [:]
+        dot.actions = [:]
+        dots.addSublayer(dot)
+        layer?.addSublayer(dots)
+        visibility.onChange = { [weak self] in self?.updateAnimation() }
+        addSubview(visibility)
+        motionSubscription = Motion.changes.subscribe { [weak self] _ in self?.updateAnimation() }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        dots.frame = bounds
+        dots.instanceCount = 3
+        let dotSize: CGFloat = 3
+        let gap: CGFloat = 2.5
+        dot.frame = CGRect(x: 0, y: (bounds.height - dotSize) / 2, width: dotSize, height: dotSize)
+        dot.path = CGPath(ellipseIn: dot.bounds, transform: nil)
+        dot.fillColor = color
+        dots.instanceTransform = CATransform3DMakeTranslation(dotSize + gap, 0, 0)
+        updateAnimation()
+    }
+
+    func update(wave: AgentPaneSessionInfoModel.Wave, color: NSColor) {
+        self.wave = wave
+        dot.fillColor = color.cgColor
+        updateAnimation()
+    }
+
+    private func updateAnimation() {
+        guard let dot = dots.sublayers?.first as? CAShapeLayer else { return }
+        dot.removeAllAnimations()
+        guard window != nil, !isHiddenOrHasHiddenAncestor, window?.occlusionState.contains(.visible) != false,
+              Motion.indicators.animatesLoops else {
+            dot.opacity = 1
+            return
+        }
+        let period = max(0.001, Double(wave.periodMs) / 1000)
+        let step = max(0, Double(wave.stepMs) / 1000)
+        let animation = Motion.sampledKeyframes("opacity", values: [0.55, 0.775, 1, 0.775, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55], duration: period)
+        animation.repeatCount = .infinity
+        animation.beginTime = dot.convertTime(SpinnerClock().beginTime(cycle: period) - Double(wave.index) * step, from: nil)
+        dots.instanceDelay = step
+        dot.add(animation, forKey: "session-info.wave")
+    }
+}
+
 /// A line of the panel: lights on hover (the line only, never the panel) when it has an action and
 /// runs it on a click; its buttons light and run their own.
 final class SessionInfoLineView: NSView, NSMenuDelegate {
@@ -418,20 +487,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     /// values from the previous snapshot (meters, marks, menus and action closures included).
     private func rebuild() {
         let colors = ink.colors
-        if let harness = line.harness {
-            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: colors.secondary)
-        } else if line.symbol == "terminal.prompt" {
-            let prompt = ChromeLabel(labelWithString: ">_")
-            prompt.font = Typography.caption
-            prompt.textColor = colors.secondary
-            glyph = prompt
-        } else if line.spins {
-            let spinner = StatusIndicatorView.spinner()
-            spinner.spin(true)
-            glyph = spinner
-        } else if let symbol = line.symbol {
-            glyph = Self.image(symbol, font: Typography.body, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
-        }
+        installGlyph()
         title.stringValue = line.title
         title.font = line.font
         title.lineBreakMode = .byTruncatingTail
@@ -441,7 +497,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         case .danger: colors.danger
         }
         if let text = line.detail { detail = Self.label(text, font: Typography.body, color: colors.tertiary) }
-        if let text = line.subtitle {
+        if let text = line.subtitle ?? line.progress {
             let label = Self.label(text, font: Typography.caption, color: colors.secondary)
             label.wraps = true
             label.maximumNumberOfLines = 2
@@ -478,7 +534,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
         themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
         setAccessibilityElement(true)
-        setAccessibilityLabel([line.title, line.detail, line.subtitle, line.trailing].compactMap { $0 }.joined(separator: ", "))
+        setAccessibilityLabel([line.title, line.detail, line.subtitle ?? line.progress, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)
         if let unfolded = line.unfolded { setAccessibilityExpanded(unfolded) }
     }
@@ -516,6 +572,33 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         updateTrackingAreas()
         needsLayout = true
         paint()
+    }
+
+    private func installGlyph() {
+        glyph?.removeFromSuperview()
+        glyph = nil
+        let colors = ink.colors
+        if line.working {
+            let spinner = StatusIndicatorView.spinner()
+            spinner.spin(true)
+            glyph = spinner
+        } else if let wave = line.wave {
+            glyph = SessionInfoWaveView(wave: wave, color: colors.secondary)
+        } else if let harness = line.harness {
+            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: colors.secondary)
+        } else if line.symbol == "terminal.prompt" {
+            let prompt = ChromeLabel(labelWithString: ">_")
+            prompt.font = Typography.caption
+            prompt.textColor = colors.secondary
+            glyph = prompt
+        } else if line.spins {
+            let spinner = StatusIndicatorView.spinner()
+            spinner.spin(true)
+            glyph = spinner
+        } else if let symbol = line.symbol {
+            glyph = Self.image(symbol, font: Typography.body, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
+        }
+        if let glyph { addSubview(glyph) }
     }
 
     private static func label(_ text: String, font: NSFont, color: NSColor) -> ChromeLabel {
@@ -625,7 +708,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             detail.frame = CGRect(x: after + 4, y: y, width: w, height: titleSize.height)
         }
         if let glyph {
-            let side: CGFloat = line.spins ? 10 : SessionInfoMetrics.glyph
+            let side: CGFloat = line.working || line.spins ? 10 : SessionInfoMetrics.glyph
             glyph.frame = CGRect(x: lead + (SessionInfoMetrics.glyph - side) / 2, y: y + (titleSize.height - side) / 2, width: side, height: side)
         }
         if let grip {

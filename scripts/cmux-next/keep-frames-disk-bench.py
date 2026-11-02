@@ -35,14 +35,22 @@ class RUsage(ctypes.Structure):
         "ri_diskio_byteswritten", "ri_cpu_time_qos_default", "ri_cpu_time_qos_maintenance",
         "ri_cpu_time_qos_background", "ri_cpu_time_qos_utility", "ri_cpu_time_qos_legacy",
         "ri_cpu_time_qos_user_initiated", "ri_cpu_time_qos_user_interactive", "ri_billed_system_time",
-        "ri_serviced_system_time", "ri_logical_writes")]
+        "ri_serviced_system_time", "ri_logical_writes", "ri_lifetime_max_phys_footprint", "ri_instructions", "ri_cycles",
+        "ri_billed_energy", "ri_serviced_energy", "ri_interval_max_phys_footprint", "ri_runnable_time")] + [
+        # Spare room: a later kernel's V4 may be longer; the kernel must never write past this buffer (a too-short struct
+        # segfaulted this bench at its first read, job fbe8728d).
+        ("ri_spare", ctypes.c_uint64 * 32)]
+
+
+_LIBC = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+_LIBC.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+_LIBC.proc_pid_rusage.restype = ctypes.c_int
 
 
 def rusage(pid):
     """RUSAGE_INFO_V4 of `pid` (ri_logical_writes is in V4), or None."""
-    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
     info = RUsage()
-    return info if libc.proc_pid_rusage(pid, 4, ctypes.byref(info)) == 0 else None
+    return info if _LIBC.proc_pid_rusage(pid, 4, ctypes.byref(info)) == 0 else None
 
 
 def frame_files(directory):

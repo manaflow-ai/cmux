@@ -27,6 +27,7 @@ pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 pub(crate) mod cancel;

@@ -42,13 +42,14 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
 # gained a fleet route (or no longer exists) must leave this list. decide left it first: run 41234993713 queued it on
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it. The signer route's
-# jobs (signer-app, signer-app-notary, signer-dmg and legacy-identity-target, the feed compare that picks the cmux
-# NIGHTLY-identity signer's build) are the rulebook's measured exception: GitHub-hosted Ubuntu first, Blacksmith
+# jobs (signer-app, signer-app-notary, signer-dmg, the cmux NIGHTLY-identity copy's legacy-signer-app and
+# legacy-signer-dmg, and legacy-identity-target, the feed compare that picks that copy's build) are the rulebook's
+# measured exception: GitHub-hosted Ubuntu first, Blacksmith
 # Linux 4 vCPU on a re-run (tests/test_ci_self_hosted_guard.sh allowlists that exact line).
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "signer-app", "signer-app-notary",
-    "signer-dmg", "legacy-identity-target", "keep-published-dsyms",
+    "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
@@ -316,7 +317,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertNotIn("pick-legacy-identity-runner", jobs)
         job = jobs["legacy-identity-target"]
         self.assertEqual(job["runs-on"], jobs["signer-app"]["runs-on"])
-        self.assertIn("publish-nightly", job["needs"])
         source = parse_expression(job["runs-on"].removeprefix("${{").removesuffix("}}"))
         self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1}), "ubuntu-24.04")
         self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}),

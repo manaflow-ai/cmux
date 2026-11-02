@@ -360,32 +360,21 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
-        // Keep the same disabled-browser routing as PaneBrowserTabOpener before
-        // considering a same-pane match. A matching cmux tab must not swallow a
-        // web link when the cmux browser is disabled.
-        if !BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(url?.absoluteString) {
-            if let controller = services.paneController(for: pane) {
-                controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
-                                         opener: opener)
-            } else {
-                child?.close()
-                if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    LinkRouter.shared.open(url, in: .system)
-                } else {
-                    services.registry.refuse(MiscHandlerStrings.browserOff)
-                }
-            }
-            return
-        }
-        if let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
-            // Chromium/WebKit may have created a child before this intent arrived. The
-            // matching tab is the one the pane already owns, so discard the duplicate page.
-            child?.close()
+        // `browser.enabled` off: no same-pane reuse (a cmux tab must not swallow a web link); the pane's opener routes it.
+        let enabled = BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(url?.absoluteString)
+        if enabled, let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
+            child?.close() // the engine's duplicate of the page the pane already shows
             return
         }
         if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
                                      opener: opener)
+            return
+        }
+        guard enabled else {
+            child?.close()
+            if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") { LinkRouter.shared.open(url, in: .system) }
+            else { services.registry.refuse(MiscHandlerStrings.browserOff) }
             return
         }
         // The opener's pane is not on screen (its page is kept alive).
@@ -432,26 +421,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    /// Selects the first live browser tab in `pane` that already shows `url`'s page.
-    /// URL identity uses the same normalization as the sidebar; a changed fragment
-    /// navigates the live page for foreground reuse.
-    @discardableResult
+    /// Selects the live browser tab of `pane` that ``BrowserTabMatch`` picks for `url` (#17444).
     private func reuseExistingTab(_ url: URL, in pane: PaneModel, engine: String, profile: String?, background: Bool) -> Bool {
-        guard let services, let match = pane.tabs.first(where: { tab in
-            guard tab.kind == .browser else { return false }
-            guard services.cache.existingBrowser(tab.id)?.tab != nil else { return false }
-            let tabProfile = services.browserProfiles.profileID(ofTab: tab)
-            guard tabProfile == (profile ?? BrowserProfileRecord.defaultID) else { return false }
-            let tabEngine = tab.browserEngine ?? BrowserEngineTag.webkit.rawValue
-            guard tabEngine == engine else { return false }
-            let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
-            return shown.map { SidebarBridge.samePage($0, url) } == true
-        }) else { return false }
-
-        let shown = services.cache.existingBrowser(match.id)?.tab.state.url ?? match.url.flatMap(URL.init(string:))
-        if !background, shown?.fragment != url.fragment, let page = services.cache.existingBrowser(match.id)?.tab {
-            page.load(url)
-        }
+        guard let services else { return false }
+        let rule = BrowserTabMatch(url: url, engine: engine, profile: profile)
+        guard let match = rule.first(in: pane.tabs.lazy.filter { $0.kind == .browser }.compactMap { tab in
+            services.cache.existingBrowser(tab.id).map { BrowserTabMatch.Candidate(id: tab.id, engine: tab.browserEngine,
+                profile: services.browserProfiles.profileID(ofTab: tab), shown: $0.tab.state.url ?? tab.url.flatMap(URL.init(string:))) }
+        }), let page = services.cache.existingBrowser(match.id)?.tab else { return false }
+        if !background, rule.navigates(match) { page.load(url) }
         guard !background, let controller = services.paneController(for: pane) else { return true }
         controller.select(StripTabID(match.id), source: .intent)
         controller.focusContent()

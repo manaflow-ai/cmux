@@ -29,6 +29,8 @@ public final class CreationInputBuffer {
     private var workspaceTickets: Set<Int> = []
     /// The workspace each of them made, once its reply came.
     private var madeWorkspaces: [Int: String] = [:]
+    /// The new workspaces the person moved on from (``personMovedOn()``): their keys typed before it still wait for them.
+    private var movedOnFrom: Set<Int> = []
     /// The focus generation (the person's newest intent) the newest creation of this hold was asked under.
     public private(set) var newestGeneration: UInt64?
     private var nextID = 0
@@ -95,15 +97,24 @@ public final class CreationInputBuffer {
 
     /// Opens a pending close of tabs `closing` (the focused terminal's first, on `machine`): keys typed while the focus
     /// names one of them are its own.
-    public func openClose(closing: [String], machine: String?) -> Ticket {
+    /// `takesEveryKey`: the close took its tabs out of the strip while it reads (the focus moved to a neighbour the
+    /// person did not pick): every key typed in the window until it answers is the close's, whatever has the focus.
+    public func openClose(closing: [String], machine: String?, takesEveryKey: Bool = false) -> Ticket {
         let ticket = open(generation: 0)
         closingTabs[ticket.id] = closing
         laneMachines[ticket.id] = machine
+        if takesEveryKey { everyKeyCloses.insert(ticket.id) }
         return ticket
     }
 
-    /// Whether a close of this hold still waits for its answer and closes `tab`.
-    public func isClosing(tab: String) -> Bool { closingTabs.values.contains { $0.contains(tab) } }
+    /// Closes that take every key of the window while they read (``openClose(closing:machine:takesEveryKey:)``).
+    private var everyKeyCloses: Set<Int> = []
+
+    /// Whether a close of this hold still waits for its answer and closes `tab`, or takes every key of the window
+    /// (a hidden close: the focus moved to a neighbour that `tab` may be).
+    public func isClosing(tab: String?) -> Bool {
+        everyKeyCloses.contains { closingTabs[$0] != nil } || tab.map { tab in closingTabs.values.contains { $0.contains(tab) } } == true
+    }
 
     /// The close behind `ticket` ran or stopped: its keys are tab `tab`'s (the focused terminal's after the close, or the
     /// closing terminal that stays), on `machine`; nil `tab` runs them as typed, in whatever has the focus then.
@@ -112,6 +123,7 @@ public final class CreationInputBuffer {
     /// While another close still waits for its answer (two quick Cmd-Ws), the keys become that close's, in order.
     public func settleClose(_ ticket: Ticket, parked: ParkedClose? = nil, keysTo tab: String?, machine: String?) {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return }
+        everyKeyCloses.remove(ticket.id)
         if let parked { events.insert(contentsOf: parked.events.map { ($0, ticket.id) }, at: 0) }
         if let next = closingTabs.keys.max() {
             events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
@@ -126,6 +138,7 @@ public final class CreationInputBuffer {
     /// so the question's own keys are never held), in typing order, and the close waits for nothing more here.
     public func parkClose(_ ticket: Ticket) -> ParkedClose? {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return nil }
+        everyKeyCloses.remove(ticket.id)
         let parked = events.filter { $0.creation == ticket.id }.map(\.event)
         events.removeAll { $0.creation == ticket.id }
         resolve(ticket, awaitsFocus: false)
@@ -149,6 +162,7 @@ public final class CreationInputBuffer {
     /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
     /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
     public func lane(focusedTab: String?) -> Int? {
+        if let close = everyKeyCloses.filter({ closingTabs[$0] != nil }).max() { return close }
         guard let focusedTab else { return nil }
         if let close = closingTabs.filter({ $0.value.contains(focusedTab) }).map(\.key).max() { return close }
         return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
@@ -182,6 +196,28 @@ public final class CreationInputBuffer {
 
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
+
+    /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
+    /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'
+    /// (review of #32098: they took the new workspace's lane and were dropped when it never showed). Keys held for them
+    /// before it still wait for them.
+    public func personMovedOn() {
+        guard !workspaceTickets.isEmpty else { return }
+        movedOnFrom.formUnion(workspaceTickets)
+        newestGeneration = nil
+    }
+
+    /// Every creation of this hold is a new workspace the person moved on from (``personMovedOn()``): a focused terminal
+    /// still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review of #32148).
+    public var personLeftEveryCreation: Bool { nextID > 0 && movedOnFrom.count == nextID }
+
+    /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
+    /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
+    /// runs as typed waits before it (their order).
+    public func passesOn(focusedTab: String?) -> Bool {
+        guard personLeftEveryCreation, !awaitsPage, lane(focusedTab: focusedTab) == nil else { return false } // a page to show keeps it
+        return !events.contains { $0.creation == nil }
+    }
 
     /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine`: once the window
     /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
@@ -223,7 +259,7 @@ public final class CreationInputBuffer {
     /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
     /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
     public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
-        let workspace = forNewWorkspace ? workspaceTickets.max() : nil
+        let workspace = forNewWorkspace ? workspaceTickets.subtracting(movedOnFrom).max() : nil // never one the person left
         let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
         events.append((event, own ?? workspace))
     }
@@ -258,6 +294,16 @@ public final class CreationInputBuffer {
     public func awaitSurface(of lane: HeldLane) {
         awaitedTab = lane.tab
         _ = adopt(lane)
+    }
+
+    /// The hold waits for a focused page whose content is not made yet (a restored Chromium tab): every key but a close
+    /// waits, with no terminal lane, and runs again as typed once it shows (REOPEN-F4 browser case).
+    public private(set) var awaitsPage = false
+
+    /// The hold waits for `content` (``AwaitedContent``): a terminal by its lane on `machine`, a page with no lane.
+    public func awaitContent(_ content: AwaitedContent, machine: String?) {
+        guard content.hasTerminalLane else { (awaitedTab, awaitsPage) = (content.tab, true); return }
+        awaitSurface(of: HeldLane(tab: content.tab, machine: machine))
     }
 
     /// The terminal lane `id` delivers to; nil for no lane.

@@ -587,7 +587,8 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
 
     let second = mutate(&mux, "tab_group.create", json!({"tabs": [ids[2]]}), "group-create-2");
     let second_id = second["id"].as_str().unwrap().to_string();
-    assert_eq!(second["color"], "grey");
+    // No color named: no color (not grey, not a palette pick).
+    assert_eq!(second["color"], "none");
     let closed = mutate(&mux, "tab_group.close", json!({"tab_group": second_id}), "group-close");
     assert_eq!(closed["tab_ids"], json!([ids[2]]));
     assert!(mux.with_state(|state| {
@@ -598,6 +599,26 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
             .unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["value"], closed);
+}
+
+#[test]
+fn tab_group_color_is_absent_until_explicitly_chosen() {
+    let mux = Mux::new_for_test("state-group-no-color", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group = mutate(&mux, "tab_group.create", json!({"tabs": ids}), "no-color-create");
+    assert_eq!(group["name"], "");
+    assert_eq!(group["color"], "none");
+    let group_id = group["id"].as_str().unwrap();
+    for color in ["grey", "orange", "#336699", "none"] {
+        let updated = mutate(
+            &mux,
+            "tab_group.update",
+            json!({"tab_group": group_id, "color": color}),
+            &format!("choose-{color}"),
+        );
+        assert_eq!(updated["color"], color);
+    }
 }
 
 #[test]

@@ -55,6 +55,16 @@ impl Mux {
         *self.state_commit_after_apply.lock().unwrap() = hook;
     }
 
+    /// Runs `hook` in a resource close after its intent is stored and
+    /// before the close takes the commit locks.
+    #[cfg(test)]
+    pub(crate) fn set_resource_close_before_commit_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.resource_close_before_commit.lock().unwrap() = hook;
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_close_after_commit_hook_for_test(
         &self,
