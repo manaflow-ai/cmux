@@ -744,3 +744,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "snapshot_tests.rs"]
+mod tests;
