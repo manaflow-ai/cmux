@@ -79,12 +79,12 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
-    /// Keeps one spare workspace row view (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
+    /// Keeps spare workspace row views (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
     var keepsSpareRow = false
     var spareRowScheduled = false
     /// Whether `window` shows its lists now (spares are made only then): on screen and not fully covered. Tests inject an answer.
     var windowShowsRows: @MainActor (NSWindow) -> Bool = { $0.isVisible && $0.occlusionState.contains(.visible) }
-    /// Runs work once the current pass committed its frame (`AfterFrameCommit`); tests pass their own.
+    /// Runs work once the current pass committed its frame (`AfterFrameCommit`).
     var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover

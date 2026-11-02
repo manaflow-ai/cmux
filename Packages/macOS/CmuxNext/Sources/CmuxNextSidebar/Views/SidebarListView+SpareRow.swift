@@ -21,8 +21,8 @@ extension SidebarListViewComponents {
         return windowShowsRows(window)
     }
 
-    /// Makes one spare after this pass's frame committed, when the list wants one; each spare made schedules the
-    /// next, one per frame, so no frame pays for more than one row view.
+    /// Makes one spare after this run-loop pass committed its frame, when the list wants one; each spare made schedules
+    /// the next for the pass after, so no pass makes more than one row view.
     func scheduleSpareRow() {
         guard wantsSpareRow, !spareRowScheduled else { return }
         spareRowScheduled = true
@@ -33,14 +33,14 @@ extension SidebarListViewComponents {
         }
     }
 
-    /// A spare, hidden in the list under the rows (its controls register with the window now, not in a key's
-    /// turn); the apply that takes it puts it with the rows.
+    /// A spare, hidden in the list where a new row's view goes, above the drag gap (its controls register with the
+    /// window now, not in a key's turn): a scroll that takes it shows it in place, as it shows a parked view.
     func makeSpareRow() {
         guard wantsSpareRow else { return }
         let view = WorkspaceRowView(key: Self.spareRowKey)
         SidebarPerfCounters.add(.spareRowViews)
         view.isHidden = true
-        addSubview(view, positioned: .below, relativeTo: decorations)
+        addSubview(view, positioned: .above, relativeTo: decorations)
         rowPool.spares.append(view)
         scheduleSpareRow()
     }

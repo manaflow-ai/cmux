@@ -9,8 +9,8 @@ import Testing
 
 /// Cmd-N's turn makes no sidebar row view (SHORTCUT PERF 2). On the bench (light session, 120 Hz) the sidebar redraw in
 /// Cmd-N's turn took 10.4 ms, 5.7 ms of it in `WorkspaceRowView.init` for the new workspace's row. Like Chrome's spare
-/// renderer, the list keeps one workspace row view made after a frame committed, and the next new workspace row takes it:
-/// the key's turn configures and places a row view, it never makes one.
+/// renderer, the list keeps up to three workspace row views made after frames committed, and a new workspace row takes
+/// one: the key's turn configures and places a row view, it never makes one.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSpareRowTests {
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -104,7 +104,12 @@ struct SidebarSpareRowTests {
         await Self.nextTurns()
         let shown = Set(list.rowViews.values.map(ObjectIdentifier.init))
         let waiting = list.subviews.compactMap { $0 as? WorkspaceRowView }.filter { !shown.contains(ObjectIdentifier($0)) }
+        try #require(!waiting.isEmpty, "no spare waits in the list")
         #expect(waiting.allSatisfy { $0.isHidden }, "a row view that is not a row of the list shows")
+        // Above the drag gap, where a row's view goes: a scroll that takes a spare shows it in place.
+        let gap = try #require(list.subviews.firstIndex { $0 === list.decorations })
+        let below = waiting.filter { view in (list.subviews.firstIndex { $0 === view } ?? 0) < gap }
+        #expect(below.isEmpty, "a spare waits under the drag gap")
     }
 
     /// Cmd-N three times faster than the frames (key repeat, its events queued back to back, no frame between them):
