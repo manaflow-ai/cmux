@@ -13,12 +13,15 @@ import Testing
         var calls = 0
         /// The hold is answered elsewhere: the next same-key call answers the machine.
         var answeredElsewhere = false
+        /// The hold is denied elsewhere: the next same-key call answers this code.
+        var deniedElsewhere: String?
         var approved: [String] = []
         var sheetCancelled = false
         var sheetAnswer: CheckedContinuation<Bool, Never>?
 
         func call() throws -> JSONValue {
             calls += 1
+            if let deniedElsewhere { throw CloudAppOpFailure(code: deniedElsewhere, message: "") }
             guard answeredElsewhere else {
                 throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string("apr_1")]))
             }
@@ -58,6 +61,16 @@ import Testing
         let made = try await creating.value
         #expect(made["id"]?.stringValue == "vm_1")
         #expect(backend.sheetCancelled, "the sheet stayed open after the hold was answered elsewhere")
+    }
+
+    @Test(arguments: ["cmux.cloud.approval_denied", "approval.expired"])
+    func aHoldDeniedElsewhereClosesTheSheetAndTheCreateFails(code: String) async throws {
+        let backend = Backend()
+        let creating = Task { try await flow(backend).create(name: "cloud-chats", startedByPerson: true) }
+        while backend.sheetAnswer == nil { await Task.yield() }
+        backend.deniedElsewhere = code
+        await #expect(throws: CloudAppOpFailure.self) { try await creating.value }
+        #expect(backend.sheetCancelled, "the sheet stayed open after the hold was \(code) elsewhere")
     }
 
     @Test func aDeclineInTheSheetSendsNothingMore() async throws {

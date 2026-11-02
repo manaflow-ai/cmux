@@ -25,16 +25,20 @@ public struct CloudWait {
     public static func firstAnswer(ask: @escaping @MainActor () async -> Bool, elsewhere: @escaping @MainActor () async -> Bool) async -> Bool {
         let sheet = Task { @MainActor in await ask() }
         let watch = Task { @MainActor in await elsewhere() }
-        defer { sheet.cancel(); watch.cancel() }
         // concurrency-allow: both children only await the two tasks above, which end on cancellation
-        return await withTaskGroup(of: Bool?.self) { group -> Bool in
-            group.addTask { await sheet.value }
-            group.addTask { await watch.value ? true : nil }
-            defer { sheet.cancel(); watch.cancel() }
-            for await answer in group {
-                if let answer { return answer }
+        return await withTaskCancellationHandler {
+            await withTaskGroup(of: Bool?.self) { group -> Bool in
+                group.addTask { await sheet.value }
+                group.addTask { await watch.value ? true : nil }
+                defer { sheet.cancel(); watch.cancel() }
+                for await answer in group {
+                    if let answer { return answer }
+                }
+                return false
             }
-            return false
+        } onCancel: {
+            sheet.cancel()
+            watch.cancel()
         }
     }
 

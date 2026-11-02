@@ -193,7 +193,7 @@ struct CloudMachineCreateFlow {
 
     /// A denied or expired hold was answered too; anything else leaves the answer to the sheet.
     private func isDefinitiveAnswer(_ error: any Error) -> Bool {
-        (error as? CloudAppOpFailure).map { $0.code.hasSuffix("approval.denied") || $0.code.hasSuffix("approval.expired") } ?? false
+        (error as? CloudAppOpFailure).map { failure in ["approval_denied", "approval.denied", "approval_expired", "approval.expired"].contains { failure.code.hasSuffix($0) } } ?? false
     }
 
     /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the
