@@ -57,11 +57,28 @@ struct HomeSearchGlassTests {
         #expect(below < above)
     }
 
-    /// The avatar-only list hides the filter, and its glass with it.
-    @Test func theAvatarListHidesTheFilterGlass() {
+    /// The avatar-only list keeps the filter on its glass, and the search as a glass circle.
+    @Test func theAvatarListKeepsTheFilterGlassAndASearchCircle() {
         let home = Self.home(width: 90)
-        #expect(home.unreadToggle.isHidden)
-        #expect(home.filterGlass.isHidden)
+        #expect(!home.unreadToggle.isHidden && !home.filterGlass.isHidden)
+        #expect(home.filterGlass.frame == home.unreadToggle.frame)
+        #expect(!home.searchButton.isHidden && !home.searchGlass.isHidden)
+        #expect(home.searchGlass.frame == home.searchButton.frame)
+        #expect(home.searchGlass.cornerRadius == home.searchButton.frame.height / 2)
+    }
+
+    /// The search circle opens the search, which then takes the band.
+    @Test func theSearchCircleOpensTheSearch() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let home = Self.home(width: 90)
+        window.contentView = home
+        home.searchButton.performClick(nil)
+        home.list.headerView.layoutSubtreeIfNeeded()
+        #expect(home.list.searchField.isEditing)
+        #expect(home.header.buttonsCovered && home.searchButton.isHidden && home.unreadToggle.isHidden)
     }
 
     /// Messages' filter glyph: three lines, no ring, in the text colour (white on dark), in light
