@@ -4,7 +4,7 @@
 dev-landing-place (scripts/ci/dev_landing_place.py) picks the owned Mac whose cache is nearest,
 dev-landing-compile compiles there and records the app under the reuse key the DEV run reads,
 and leaves the holder record the next landing's placement reads. These pin the wiring:
-landings only, never cancelled, one producer of a landing's DEV app, Blacksmith only as overflow.
+landings only, never cancelled, one producer of a landing's DEV app, never Blacksmith macOS.
 """
 from __future__ import annotations
 
@@ -40,9 +40,11 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn("push-head-preflight", str(self.jobs[job].get("needs", "")),
                              "a superseded landing still compiles: it warms the next one")
 
-    def test_runs_on_takes_the_placement_then_blacksmith(self):
+    def test_runs_on_takes_the_placement_and_no_placement_skips_the_compile(self):
         runs_on = self.jobs["dev-landing-compile"]["runs-on"]
         self.assertIn("fromJSON(needs.dev-landing-place.outputs.runs_on)", runs_on)
+        self.assertIn("needs.dev-landing-place.outputs.runs_on != ''", self.jobs["dev-landing-compile"]["if"])
+        self.assertNotIn("OVERFLOW_LABEL", str(self.jobs["dev-landing-place"]))
         # With no placement at all (the placing job failed), the larger-capacity 6 vCPU label, never 12 vCPU
         # alone: it started nothing from about 02:11Z on 2026-10-28 (tests/test_ci_runs_on_fallback.py).
         self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"), runs_on)
