@@ -65,6 +65,7 @@ def main():
     ap.add_argument("--journey", action="append", required=True)
     ap.add_argument("--label", required=True, help="the folder name under PUBLISH (the build's name)")
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--spec-file", help="a lease-round spec JSON to hand to the mini scheduler once the build is done")
     ap.add_argument("--vdisplay", default="120x1", help="HZxSCALE of the lease's own main display (run.py --vdisplay); "
                     "'none' keeps the mini's own 60 Hz display (geometry only, never pacing evidence)")
     ap.add_argument("--publish", default="/Users/lawrence/fun/wt/handoff/resize-videos")
@@ -84,6 +85,12 @@ def main():
             return 75
         subprocess.run(["cmux-ci", "wait", opts.build], capture_output=True)
         time.sleep(20)
+    if opts.spec_file:
+        # The lease-round spec goes to the scheduler only now that the build is done.
+        specs = gate.SCHED_ROUNDS.parent / "specs"
+        shutil.copy2(opts.spec_file, specs / f"{opts.spec}.json.tmp")
+        os.replace(specs / f"{opts.spec}.json.tmp", specs / f"{opts.spec}.json")
+        print(f"spec {opts.spec} handed to the mini scheduler", flush=True)
     used, deadline, not_run = set(), time.time() + opts.go_wait_hours * 3600, 0
     for n in range(opts.rounds):
         go, why = gate.await_go(opts.spec, MINIS, used, deadline)
