@@ -48,6 +48,13 @@ struct TipActionRunAllocationTests {
         #expect(!TipState(defaults: updater.defaults).usedActions.contains(action))
     }
 
+    /// The unlocalized action set the run path reads is the catalog's: a tip added to ``TipCatalog/all``
+    /// without its action here would never be marked used.
+    @Test func theActionSetIsTheCatalogs() {
+        #expect(TipCatalog.actions == Set(TipCatalog.all.map(\.action)))
+        #expect(TipCatalog.actions.count == TipCatalog.all.count, "two tips share an action")
+    }
+
     @Test func aCatalogActionIsMarkedUsedOnce() throws {
         let defaults = try defaults()
         let updater = updater(defaults)
