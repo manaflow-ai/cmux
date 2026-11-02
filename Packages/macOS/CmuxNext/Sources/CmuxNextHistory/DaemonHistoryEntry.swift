@@ -71,9 +71,13 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
 
     /// The app's entry for the restore paths (history.open, palette pages). A location comes from the
     /// daemon's trail (`location` and `window`); the caller marks whether its tab is reachable.
-    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled.
-    public func historyEntry(untitled: String) -> HistoryEntry? {
-        let title = kind == .closed && self.title.isEmpty ? untitled : self.title
+    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled;
+    /// `untitledChat`: the same for a closed agent chat (its tab strip title before a session title).
+    public func historyEntry(untitled: String, untitledChat: String) -> HistoryEntry? {
+        // A closed agent chat: the daemon names its session and harness (history_ops/sources.rs).
+        let chat: ClosedItem.AgentSession? = kind == .closed && (sessionID != nil || provider != nil || closedKind == "conversation_tab")
+            ? ClosedItem.AgentSession(sessionID: sessionID, harness: provider) : nil
+        let title = kind == .closed && self.title.isEmpty ? (chat == nil ? untitled : untitledChat) : self.title
         let payload: HistoryEntry.Payload
         switch kind {
         case .location:
@@ -93,7 +97,7 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
             // The daemon's entry id is `closed:<closed history id>`; the app's closed item id is the rest.
             let itemID = id.hasPrefix("closed:") ? String(id.dropFirst("closed:".count)) : id
             payload = .closed(ClosedItem(id: itemID, kind: itemKind, title: title, machine: machine ?? "local",
-                                         workspace: workspace, cwd: cwd, url: url))
+                                         workspace: workspace, cwd: cwd, url: url, agentSession: chat))
         case .agent:
             guard let sessionID, let provider else { return nil }
             payload = .agent(AgentSession(machine: machine ?? "local", provider: provider, sessionID: sessionID, cwd: cwd,

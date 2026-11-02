@@ -25,71 +25,39 @@ struct ClosedAgentIdentityTests {
         #expect(row.json["kind"]?.stringValue == "agent")
     }
 
+    /// The daemon's merged history names a closed chat's session and harness itself
+    /// (history_ops/sources.rs `closed_entry`; its search finds the chat by them, see
+    /// `closed_chat_search_matches_session_and_harness_before_limit`). The app reads them from the
+    /// row; it no longer looks the chat up in its own closed records.
     @Test(arguments: ["closed:daemon:closed_1", "closed:closed_1"])
-    func daemonHistoryEnrichmentUsesMachineAndClosedID(_ id: String) throws {
+    func daemonClosedChatRowCarriesItsAgentIdentity(_ id: String) throws {
         let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
             {"id":"\(id)","kind":"closed","at_ms":"1","title":"",
-             "closed_kind":"browser_tab","available":true}
+             "closed_kind":"conversation_tab","available":true,
+             "session_id":"same-session","provider":"codex"}
             """.utf8))
-        let original = try #require(row.historyEntry(untitled: "Terminal fallback"))
-        let record = CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .browserTab,
-                                               title: AgentPaneModel.tabTitle, machine: "local",
-                                               agentSession: .init(sessionID: "same-session", harness: "codex"))
-        let known = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: original.time,
-                                 title: record.title, payload: .closed(record))
-        let enriched = try #require(HistoryService.enrichClosedEntries([original], from: [known]).first)
-        #expect(enriched.id == original.id)
-        #expect(enriched.title == AgentPaneModel.tabTitle)
-        #expect(HistoryPalettePages.agentBrand(enriched) != nil)
-        guard case .closed(let item) = enriched.payload else { Issue.record("not a closed row"); return }
+        let entry = try #require(row.historyEntry(untitled: "Terminal fallback", untitledChat: AgentPaneModel.tabTitle))
+        #expect(entry.id == id)
+        #expect(entry.title == AgentPaneModel.tabTitle)
+        #expect(HistoryPalettePages.agentBrand(entry) != nil)
+        guard case .closed(let item) = entry.payload else { Issue.record("not a closed row"); return }
         #expect(item.id == String(id.dropFirst("closed:".count)))
         #expect(item.agentSession?.sessionID == "same-session")
+        #expect(item.agentSession?.harness == "codex")
         #expect(NewTabClosed.kind(for: item) == .agent)
-
-        var otherMachine = known
-        var otherRecord = record
-        otherRecord.machine = "remote"
-        otherMachine.payload = .closed(otherRecord)
-        #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
-        otherRecord.machine = "local"
-        otherRecord.id = "daemon:closed_2"
-        otherMachine.payload = .closed(otherRecord)
-        #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
     }
 
-    @Test func daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit() async throws {
-        // Put the matching chat beyond both the requested limit and the daemon's default
-        // 500-row page. Newer unrelated rows must not crowd it out before enrichment.
-        let rows = try (1...501).map { index in
-            try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
-                {"id":"closed:closed_\(index)","kind":"closed","at_ms":"\(index)",
-                 "title":"\(index == 1 ? "" : "Other")","closed_kind":"browser_tab","available":true}
-                """.utf8))
-        }
-        let original = try #require(rows.first?.historyEntry(untitled: "Terminal fallback"))
-        let record = CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .browserTab,
-                                               title: AgentPaneModel.tabTitle, machine: "local",
-                                               agentSession: .init(sessionID: "same-session", harness: "codex"))
-        let known = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: original.time,
-                                 title: record.title, payload: .closed(record))
-        for text in ["same-session", "codex", AgentPaneModel.tabTitle, "no-such-chat"] {
-            let query = HistoryQuery(text: text, kinds: [.closed], limit: 1)
-            let matches = await HistoryService.filteredClosedDaemonEntries(query, closed: { [known] }) { request in
-                #expect(request.kinds == [.closed])
-                #expect(request.range == query.range)
-                var daemonQuery = request
-                daemonQuery.limit = request.limit ?? 500
-                let raw = rows.compactMap { $0.historyEntry(untitled: "Terminal fallback") }
-                let ids = Set(daemonQuery.apply(to: raw).map(\.id))
-                return rows.filter { ids.contains($0.id) }
-            }
-            #expect(matches.map(\.id) == (text == "no-such-chat" ? [] : [original.id]))
-            if let match = matches.first {
-                #expect(match.title == AgentPaneModel.tabTitle)
-                guard case .closed(let item) = match.payload else { Issue.record("not closed"); return }
-                #expect(item.agentSession?.sessionID == "same-session")
-            }
-        }
+    /// A closed terminal or browser row has no agent identity and keeps the terminal fallback title.
+    @Test func daemonClosedRowWithoutSessionIsNoChat() throws {
+        let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
+            {"id":"closed:daemon:closed_2","kind":"closed","at_ms":"1","title":"",
+             "closed_kind":"terminal_tab","available":true}
+            """.utf8))
+        let entry = try #require(row.historyEntry(untitled: "Terminal fallback", untitledChat: AgentPaneModel.tabTitle))
+        #expect(entry.title == "Terminal fallback")
+        guard case .closed(let item) = entry.payload else { Issue.record("not a closed row"); return }
+        #expect(item.agentSession == nil)
+        #expect(NewTabClosed.kind(for: item) == .terminal)
     }
 
     @Test func closedContainersRetainTheirOwnKind() throws {
@@ -108,7 +76,7 @@ struct ClosedAgentIdentityTests {
             {"id":"closed:daemon:closed_1","kind":"closed","at_ms":"1","title":"Chat",
              "closed_kind":"conversation_tab","available":true}
             """.utf8))
-        let entry = try #require(row.historyEntry(untitled: "Terminal"))
+        let entry = try #require(row.historyEntry(untitled: "Terminal", untitledChat: AgentPaneModel.tabTitle))
         guard case .closed(let item) = entry.payload else { Issue.record("not closed"); return }
         #expect(item.kind == .conversationTab)
         #expect(NewTabClosed.kind(for: item) == .agent)
