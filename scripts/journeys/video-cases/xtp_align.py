@@ -31,15 +31,18 @@ KEYS = ("CmuxNext", "Terminal", "Layout", "Pane", "Screen", "Motion", "FrameSche
 
 
 def stall_run(samples):
-    hit = [x for x in samples if x["state"] == "Running"
-           and any("ContinuousClock" in f for f in x["frames"]) and any("AppControl" in f for f in x["frames"])]
+    # debug.stall's busy loop: ContinuousClock.now, which an optimized build shows as swift_get_time /
+    # clock_gettime / mach_continuous_time (the AppControl closure is not on every sample's stack).
+    def is_stall(fr):
+        return any(k in f for f in fr for k in ("ContinuousClock", "swift_get_time", "mach_continuous_time"))
+    hit = [x for x in samples if x["state"] == "Running" and is_stall(x["frames"])]
     if not hit:
         return None
     hit.sort(key=lambda x: x["t_ms"])
     # the longest run of hits with gaps under 5 ms
     best, cur = [], [hit[0]]
     for a, b in zip(hit, hit[1:]):
-        if b["t_ms"] - a["t_ms"] < 5:
+        if b["t_ms"] - a["t_ms"] < 2.5:
             cur.append(b)
         else:
             best = max(best, cur, key=len)
