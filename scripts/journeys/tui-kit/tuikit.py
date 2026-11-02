@@ -305,19 +305,73 @@ def gradient_layout(cols, rows, style):
     return lay
 
 
+def find_cargo():
+    """cargo: $CARGO, PATH, $CARGO_HOME/bin, then the account's own ~/.cargo/bin. A capture slot runs with its own
+    HOME (no .cargo), so the account's home comes from the password database, not from $HOME."""
+    import pwd
+    homes = []
+    try:
+        homes.append(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        pass
+    candidates = [os.environ.get("CARGO"), shutil.which("cargo")]
+    if os.environ.get("CARGO_HOME"):
+        candidates.append(os.path.join(os.environ["CARGO_HOME"], "bin", "cargo"))
+    candidates += [os.path.join(h, ".cargo", "bin", "cargo") for h in homes]
+    candidates.append(os.path.expanduser("~/.cargo/bin/cargo"))
+    # the perf minis have Homebrew's rustup shim (/opt/homebrew/bin/cargo) and no ~/.cargo; a slot's PATH may lack it
+    candidates += ["/opt/homebrew/bin/cargo", "/usr/local/bin/cargo"]
+    for path in candidates:
+        if path and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+BUILD_TIMEOUT = 300  # s: a cargo that waits on another job's package-cache lock does not hang a load run
+
+
+def build_bins(quiet=False):
+    """Builds rust/ (std only, --offline). Returns (exit, {program: path or None}, why): exit 0 built, 69 no cargo
+    or builds turned off (why says which), 124 timed out, else cargo's exit (why: the end of its stderr).
+    Incremental: about 0.3 s when the programs are current, about 2 s from scratch on an M4."""
+    if os.environ.get("CMUX_TUIKIT_NO_BUILD") == "1":  # tests on a host that must not compile (the agents' VM)
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}, "CMUX_TUIKIT_NO_BUILD=1"
+    cargo = find_cargo()
+    if not cargo:
+        why = "no cargo ($CARGO, PATH, $CARGO_HOME/bin, the account's ~/.cargo/bin, /opt/homebrew/bin)"
+        if not quiet:
+            sys.stderr.write("build-bins: %s\n" % why)
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}, why
+    env = dict(os.environ)
+    # A capture slot runs with its own HOME: rustup then finds no toolchain (~/.rustup). Point it at the account's.
+    import pwd
+    try:
+        account = pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        account = None
+    if account and "RUSTUP_HOME" not in env and os.path.isdir(os.path.join(account, ".rustup")):
+        env["RUSTUP_HOME"] = os.path.join(account, ".rustup")
+    if account and "CARGO_HOME" not in env and os.path.isdir(os.path.join(account, ".cargo")):
+        env["CARGO_HOME"] = os.path.join(account, ".cargo")
+    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin() does not look
+    try:
+        done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
+                               os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")],
+                              env=env, stdout=subprocess.DEVNULL if quiet else None,
+                              stderr=subprocess.PIPE if quiet else None, timeout=BUILD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 124, {name: rust_bin(name) for name in RUST_PROGRAMS}, "cargo build took over %d s" % BUILD_TIMEOUT
+    why = (done.stderr or b"").decode(errors="replace").strip()[-400:] if done.returncode else ""
+    return done.returncode, {name: rust_bin(name) for name in RUST_PROGRAMS}, "%s: %s" % (cargo, why) if why else cargo
+
+
 def cmd_build_bins(a):
     """cargo build --release of rust/ (std only, no network); prints where the programs are."""
-    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
-    if not os.access(cargo, os.X_OK):
-        sys.stderr.write("build-bins: no cargo on PATH or in ~/.cargo/bin\n")
-        return 69
-    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin()
-    # does not look
-    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
-                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")])
-    if done.returncode != 0:
-        return done.returncode
-    built = {name: rust_bin(name) for name in RUST_PROGRAMS}
+    code, built, why = build_bins()
+    if code != 0:
+        if code in (69, 124):
+            sys.stderr.write("build-bins: %s\n" % why)
+        return code
     print(json.dumps(dict(bin_dir=os.path.join(RUST_DIR, "target", "release"), **built)))
     return 0 if all(built.values()) else 1
 
@@ -336,6 +390,10 @@ def cmd_beacon(a):
         argv += ["--label", a.label]
     if a.log:
         argv += ["--log", a.log]
+    if a.log_frames:
+        argv.append("--log-frames")
+    if a.inject_stall_ms:
+        argv += ["--inject-stall-ms", repr(float(a.inject_stall_ms)), "--inject-stall-at", str(a.inject_stall_at)]
     sys.stdout.flush()
     os.execv(path, argv)
 
@@ -1410,6 +1468,9 @@ def build_parser():
     p.add_argument("--label")
     p.add_argument("--duration", type=nonnegative(float), default=0.0)
     p.add_argument("--log")
+    p.add_argument("--log-frames", action="store_true", help="one log line per drawn frame (its mono time)")
+    p.add_argument("--inject-stall-ms", type=nonnegative(float), default=0.0, help=argparse.SUPPRESS)  # tests
+    p.add_argument("--inject-stall-at", type=nonnegative(int), default=100, help=argparse.SUPPRESS)
     # rt, not spin: a SWITCH profile runs 18 beacons at 240 Hz, and 18 spinning cores would be the load
     # under test; rt is a real-time thread that waits with mach_wait_until (pace_probe's rust-rt row
     # says whether it holds the rate; the end event's verdict says it per run)

@@ -173,8 +173,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-382e54b7d1408493c7a13c09bffedee20cfdcc97/CCmuxAppFFI.xcframework.zip",
-    checksum: "40d3608d2f5a666802f5b5d0b59698665cb4278a14cf0a2044962510f3c370db"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-c94408d3c4853068b32e73e50afd3cbbeea776c7/CCmuxAppFFI.xcframework.zip",
+    checksum: "5aa860a44fd2742a20196c7a172e63efdecb76fbb119041ced17a6b57380b170"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1584,7 +1584,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch", "CmuxNextTestSupport", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).

@@ -2399,12 +2399,19 @@ export class AcpmuxDirectClient {
       // frame waits on one round trip rather than one per read (Leo, 2026-10-29: "as in i want
       // ours to load fast too :(").
       const peersSince = this.peerEvents.statusStarted();
-      const peersRead = this.request("_acpmux/status", {}).catch(() => undefined);
+      const peersRead = this.request("_acpmux/status", {})
+        .catch(() => undefined)
+        .then((status) => {
+          // A late read belongs only to this connection. A closed or replaced socket must not
+          // replace the next connection's peer state or emit a connected snapshot.
+          if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN) return;
+          this.readPeers(status, peersSince);
+          if (!this.opening && !this.snapshotHold) this.emit();
+        });
       const listRead = this.sessionPages.first();
-      // Awaited below, after the machines: a list that fails meanwhile is not left unobserved.
+      // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early = this.askEarly();
-      this.readPeers(await peersRead, peersSince);
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -2437,6 +2444,17 @@ export class AcpmuxDirectClient {
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
+      // A known chat on this daemon can draw from its attach without the machine list. Keep
+      // status on the path for remote wires, peer chats and missing/unspecified sessions: they
+      // use it to choose a peer copy or explain availability. The late local reply fills the
+      // environment picker above, without holding the transcript's first frame.
+      const localChat =
+        this.localOrigin &&
+        this.selectedSessionId !== undefined &&
+        this.sessions.some(
+          (session) => session.sessionId === this.selectedSessionId && typeof session.peer !== "string",
+        );
+      if (!localChat) await peersRead;
       // A chat on another machine: that machine's daemon attached the session its store records for
       // this tab (agent-session-attach checks it), so that session is the tab's chat even when this
       // page holds another name for it: a session name the tab recorded, or the id from before the
