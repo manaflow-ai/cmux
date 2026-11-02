@@ -8,12 +8,14 @@ import Foundation
 /// page registered a `beforeunload` handler, which the browser knows before the key.
 ///
 /// The focused pane's selected terminal is read (`process-info`) when it gets the focus and again each
-/// time its shell reports a new prompt or a new command (OSC 133 through the daemon: `promptSinceMs`,
-/// `commandSinceMs`). An answer counts only while that shell state is the one it was read in. A
-/// program's start is a new command to the shell, so it ends the answer; a terminal whose shell
-/// reports neither (no shell integration) has no answer, and its close asks the daemon as before.
-/// What is left: a program started in the few milliseconds before the daemon's report of it reaches
-/// the store; that close happens without the question, and its undo toast brings the terminal back.
+/// time its shell reports a new prompt (OSC 133 through the daemon: `promptSinceMs`). Only a terminal at
+/// its prompt is read, and an answer counts only while the shell sits at that same prompt: a command's
+/// start (`commandSinceMs`) ends it. A command's own state is never read ahead: between the shell's
+/// OSC 133 C and the command's exec a read still sees the shell, and that "no program" would hold for the
+/// whole run (review of #31875). A terminal with no prompt report (no shell integration, a command
+/// running) has no answer, and its close asks the daemon at the key as before.
+/// What is left: a command started in the few milliseconds before the daemon's report of it reaches the
+/// store closes without the question and without an undo toast (Reopen Closed brings it back).
 @MainActor
 public final class TerminalProcessReadAhead {
     /// The shell state an answer was read in.
@@ -30,14 +32,14 @@ public final class TerminalProcessReadAhead {
     /// The most terminals an answer is kept for: the focused one and the few focused before it.
     public static let capacity = 16
     private var answers: [SurfaceID: Answer] = [:]
-    /// Reads under way, by the stamp they read in (one read per terminal and shell state).
+    /// The newest prompt each terminal was read at; an older read that answers late is dropped.
     private var pending: [SurfaceID: Stamp] = [:]
 
-    /// `tab`'s shell state, or nil when its shell reports no prompt and no command (nothing can tell a
-    /// program's start apart, so no answer is fresh).
+    /// `tab`'s prompt, or nil unless its shell reports it sits at its prompt with no command running: only
+    /// that state is read ahead and only an answer read in it counts.
     public static func stamp(_ tab: TabModel) -> Stamp? {
-        guard tab.promptSinceMs != nil || tab.commandSinceMs != nil else { return nil }
-        return Stamp(prompt: tab.promptSinceMs, command: tab.commandSinceMs)
+        guard let prompt = tab.promptSinceMs, tab.commandSinceMs == nil else { return nil }
+        return Stamp(prompt: prompt, command: nil)
     }
 
     /// Each of `tabs`' foreground program as read in its current shell state, or nil when any has no
@@ -61,9 +63,10 @@ public final class TerminalProcessReadAhead {
         // task-owner: one bounded process-info read (1 s); its answer is kept for the next close of this terminal.
         Task { [weak self] in
             let response = await connection.readProcessInfo(surface, timeout: .seconds(1))
-            guard let self else { return }
-            if pending[surface] == stamp { pending[surface] = nil }
-            // No answer in time is no answer: the close asks again.
+            // A read for an older prompt answers nothing (a newer one was asked since); no answer in time is no
+            // answer, and the close asks at the key.
+            guard let self, pending[surface] == stamp else { return }
+            pending[surface] = nil
             guard let response else { return }
             if answers[surface] == nil, answers.count >= Self.capacity { answers.removeAll(keepingCapacity: true) }
             answers[surface] = Answer(program: response.runningProgram, stamp: stamp)
