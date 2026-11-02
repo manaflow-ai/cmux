@@ -193,13 +193,14 @@ extension ControlRouter {
 
     /// Aims an agent's surface-opening run that names no target at the
     /// column right of its chat (beside_caller). An explicit target wins;
-    /// a caller the topology does not show leaves the run as it is.
-    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) {
+    /// a caller the topology does not show is refused.
+    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
         guard besideCallerActions.contains(action.id), request.target == nil,
-              request.callerAgentSession != nil || request.callerHomeChat,
-              let location = ControlCallerLocation.resolve(ControlCaller(agentSession: request.callerAgentSession,
-                                                                        homeChat: request.callerHomeChat), in: topology)
-        else { return }
+              request.callerAgentSession != nil || request.callerHomeChat else { return }
+        let caller = ControlCaller(agentSession: request.callerAgentSession, homeChat: request.callerHomeChat)
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
+            throw BrowserCallerTarget.missingCaller(caller)
+        }
         let paneTarget = action.targets.contains("pane")
         // An agent's browser beside a column that is already there: the app measures that column and
         // places it as the chat header's Preview is placed (AgentBesidePlacement, RightColumnPlacement):
