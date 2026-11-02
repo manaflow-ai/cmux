@@ -84,13 +84,19 @@
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 1 / -1;
   grid-row: 3;
-  margin: calc(-1 * var(--grid-gap-foot, 4px)) 0 calc(var(--acpmux-composer-block-inset) - 4px);
+  margin: calc(-4px * var(--cmux-interface-scale, 1)) 0 calc(var(--acpmux-composer-block-inset) - 4px);
   padding-inline-end: calc(var(--acpmux-composer-inset, 8px) - 3px);
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
   > .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot) {
   padding-bottom: 8px;
+}
+/* The look dots ride over the middle of that row (the box's bottom is the host's line). */
+.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)
+  > .acpmux-composer-under
+  .acpmux-look-slot {
+  bottom: calc(var(--acpmux-composer-block-inset) - 4px + var(--grid-composer-quiet-row-height, 28px) / 2 - 12px);
 }
 
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
