@@ -47,4 +47,7 @@ public struct AwaitedContent: Equatable, Sendable {
         }
         return AwaitedContent(tab: tab, kind: kind)
     }
+
+    /// Whether a page hold keeps a key (commit 2 of the fix: every key; the rule follows).
+    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool { true }
 }

@@ -38,4 +38,15 @@ import Testing
         #expect(!AwaitedContent(tab: "b", kind: .browser).hasTerminalLane)
         #expect(AwaitedContent(tab: "t", kind: .terminal).hasTerminalLane)
     }
+
+    /// Review of #32030: a cold Chromium tab (Ctrl-Tab onto a tab never shown) also has no page for 100-400 ms. While
+    /// its hold has no keys, an app shortcut that does not need the page (Ctrl-Tab, Cmd-T, Cmd-1) acts at once; a page
+    /// action (Cmd-L) and every plain key wait for the page; once a key is held, every later one waits behind it.
+    @Test func aPageHoldLetsAppShortcutsPassWhileEmptyButKeepsPageActions() {
+        #expect(!AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: "nextTab"), "Ctrl-Tab waited for a cold tab's page")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: "focusLocation"), "Cmd-L ran before the page existed")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: nil), "a chord the page takes (no app binding) ran into no page")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: false, holdIsEmpty: true, command: nil))
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: false, command: "nextTab"), "a shortcut passed a held key")
+    }
 }
