@@ -38,6 +38,22 @@
    "do": "neutral_prompt"
   },
   {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case (Home docks an agent chat as its main pane)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
    "do": "type",
    "text": "seq -f 'line %g of the column drag video, wrapping text to show reflow' 1 400",
    "enter": true
