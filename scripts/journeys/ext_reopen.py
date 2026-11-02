@@ -980,7 +980,17 @@ def step_kill_all_relaunch(j, step):
         time.sleep(0.3)
         return [r["command"][:100] for r in app.bundle_processes(None)]
 
+    panes_before = {name: alias.get("pane") for name, alias in j.aliases.items()}
     record = D.Journey.step_relaunch(j, dict(step, how="kill-app", after_end=leftovers))
+    # A fix may bring a terminal's content back under a NEW daemon terminal id in the same pane: the named terminal
+    # then follows its pane's only terminal tab (recorded, so the reader sees the id changed).
+    topo = j.topology()
+    for name, alias in j.aliases.items():
+        if record.get("named_terminals", {}).get(name) is None and panes_before.get(name):
+            terms = [t for _ws, pane, _tab, t in j.places(topo) if pane.get("id") == panes_before[name] and t]
+            if len(terms) == 1:
+                record.setdefault("id_changed", {})[name] = {"from": alias["term"], "to": terms[0]}
+                alias["term"], alias["pane"] = terms[0], panes_before[name]
     record["killed"] = [{"pid": r["pid"], "command": r["command"][:100]} for r in rows] + [{"pid": daemon, "command": "daemon"}]
     if record.get("after_end"):
         raise D.StepError(f"bundle processes still ran at the reopen: {record['after_end'][:5]}")
