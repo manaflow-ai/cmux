@@ -20,11 +20,14 @@ extension VerticalTabListView {
             if item.isUnread { parts.append(Strings.axUnread) }
             element.setAccessibilityLabel(parts.joined(separator: ", "))
             element.setAccessibilityValue(id == model.selectedID ? 1 : 0)
-            let close: (@MainActor @Sendable () -> Void)? = item.isClosable ? { [weak self] in
-                guard let self else { return }
-                self.model.send(.close(id, source: .accessibility))
-            } : nil
-            element.onClose = close
+            if item.isClosable {
+                element.onClose = { @MainActor @Sendable [weak self] in
+                    guard let self else { return }
+                    self.model.send(.close(id, source: .accessibility))
+                }
+            } else {
+                element.onClose = nil
+            }
             let mute: @MainActor @Sendable () -> Void = { [weak self] in
                 guard let self else { return }
                 self.model.send(.toggleAudioMute(id))
