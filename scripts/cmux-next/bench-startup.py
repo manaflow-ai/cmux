@@ -901,6 +901,8 @@ def seed_stress(tag, scratch, timeout):
         print("BENCH-STRESS " + json.dumps(summary), flush=True)
     finally:
         prime.quit()
+        # The seed's own quit (#32274 seed run): each terminal's save outcome and the frames it left.
+        print("BENCH-SEED-QUIT " + json.dumps({"quit_marks": getattr(prime, "quit_marks", {}), "frames": frame_files(tag)}), flush=True)
     with open(seeded_marker(tag), "w") as out:
         out.write("stress\n")
 
