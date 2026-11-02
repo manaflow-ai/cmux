@@ -318,8 +318,11 @@ pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<
     fn clean(value: &mut Value, state: &SessionExposure) {
         match value {
             Value::Object(object) => {
-                if object.get("agent_session").and_then(|v| v.get("session")).and_then(Value::as_str)
-                    .is_some_and(|id| state.blocked.contains(id))
+                if object
+                    .get("agent_session")
+                    .and_then(|v| v.get("session"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !allowed(state, id, &HashSet::new()))
                 {
                     *value = Value::Null;
                     return;
@@ -350,7 +353,7 @@ pub fn daemon_request_blocked(message: &str, state: &SessionExposure) -> bool {
             value
                 .pointer("/agent_session/session")
                 .and_then(Value::as_str)
-                .is_some_and(|id| state.blocked.contains(id))
+                .is_some_and(|id| !allowed(state, id, &HashSet::new()))
         })
 }
 
@@ -471,6 +474,30 @@ mod tests {
         }
         let no_id = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_config_option", "params": {"sessionId": "s", "value": "x"}});
         assert!(refusal(&no_id.to_string()).is_some());
+    }
+
+    #[test]
+    fn daemon_nested_projection_keeps_other_tabs_and_terminal_identity() {
+        let blocked = "00000000-0000-7000-8000-000000000001";
+        let visible = "00000000-0000-7000-8000-000000000002";
+        let state = exposure(&[blocked]);
+        let message = json!({"id":1,"data":{"session":"main","workspaces":[{"tabs":[
+            {"id":"hidden","agent_session":{"session":blocked}},
+            {"id":"visible","agent_session":{"session":visible}},
+            {"id":"terminal"}
+        ]}]}})
+        .to_string();
+        let filtered: Value =
+            serde_json::from_str(&filter_daemon_response(&message, &state).unwrap()).unwrap();
+        assert_eq!(filtered["data"]["session"], "main");
+        let tabs = filtered.pointer("/data/workspaces/0/tabs").unwrap().as_array().unwrap();
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0]["id"], "visible");
+        assert_eq!(tabs[1]["id"], "terminal");
+        let singleton = json!({"agent_session":{"session":blocked}}).to_string();
+        assert_eq!(filter_daemon_response(&singleton, &state).as_deref(), Some("null"));
+        let alias = json!({"cmd":"new-conversation-tab","agent_session":{"session":"alias"}}).to_string();
+        assert!(daemon_request_blocked(&alias, &state));
     }
 
     #[test]

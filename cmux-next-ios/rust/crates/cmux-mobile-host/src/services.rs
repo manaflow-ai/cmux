@@ -601,25 +601,7 @@ async fn splice(
                     }
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
-                    let line = if matches!(reply_policy, LinePolicy::Daemon(_)) {
-                        let body = line.strip_suffix(b"\n").unwrap_or(&line);
-                        if serde_json::from_slice::<Value>(body).is_ok() {
-                            match crate::acpmux_policy::filter_daemon_response(
-                                &String::from_utf8_lossy(body),
-                                &daemon_exposure
-                                    .as_ref()
-                                    .map(|receiver| receiver.borrow().clone())
-                                    .unwrap_or_default(),
-                            ) {
-                                Some(filtered) => format!("{filtered}\n").into_bytes(),
-                                None => continue,
-                            }
-                        } else {
-                            line
-                        }
-                    } else {
-                        line
-                    };
+                    let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -693,6 +675,10 @@ async fn splice(
                     let Some(ready) = ready else { return };
                     match ready {
                         Verdict::Rewrite(mut line) => {
+                            if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
+                                if refusals.send(answer).await.is_err() { return; }
+                                continue;
+                            }
                             sized.observe(&line);
                             line.push(b'\n');
                             if daemon_write.write_all(&line).await.is_err() { return; }
@@ -733,14 +719,7 @@ async fn splice(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                let exposure_state =
-                    request_exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                if crate::acpmux_policy::daemon_request_blocked(
-                    &String::from_utf8_lossy(&line),
-                    &exposure_state,
-                ) {
-                    let mut answer = b"{\"error\":\"chat is not exposed\"}".to_vec();
-                    answer.push(b'\n');
+                if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
                     if refusals.send(answer).await.is_err() {
                         return;
                     }
@@ -832,6 +811,7 @@ async fn splice(
         tokio::select! {
             line = lines_rx.recv() => match line {
                 Some(line) => {
+                    let Some(line) = exposed_daemon_line(line, exposure.as_ref()) else { continue };
                     if sender.send(Bytes::from(line)).await.is_err() {
                         // The phone is gone (its close frame, a removed phone). Its
                         // close reaches the phone-to-daemon task, which releases its
@@ -860,13 +840,17 @@ async fn splice(
                 // The phone closed or broke policy; drain what the daemon
                 // already answered, briefly, then end.
                 while let Ok(Some(line)) = tokio::time::timeout(std::time::Duration::from_millis(200), lines_rx.recv()).await {
-                    let _ = sender.send(Bytes::from(line)).await;
+                    if let Some(line) = exposed_daemon_line(line, exposure.as_ref()) {
+                        let _ = sender.send(Bytes::from(line)).await;
+                    }
                 }
                 break;
             }
             _ = &mut from_daemon => {
                 while let Ok(line) = lines_rx.try_recv() {
-                    let _ = sender.send(Bytes::from(line)).await;
+                    if let Some(line) = exposed_daemon_line(line, exposure.as_ref()) {
+                        let _ = sender.send(Bytes::from(line)).await;
+                    }
                 }
                 break;
             }
@@ -876,6 +860,44 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Check again after the side worker's awaits and when draining queued replies.
+/// A policy sampled at ingress cannot authorize a later write or publication.
+fn daemon_exposure_refusal(
+    line: &[u8],
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    let exposure = exposure?;
+    if !crate::acpmux_policy::daemon_request_blocked(&String::from_utf8_lossy(line), &exposure.borrow()) {
+        return None;
+    }
+    let request = serde_json::from_slice::<Value>(line).ok();
+    let mut answer = crate::policy::error_line(
+        request.as_ref().and_then(|request| request.get("id")),
+        "forbidden",
+        "chat is not exposed",
+    )
+    .into_bytes();
+    answer.push(b'\n');
+    Some(answer)
+}
+
+fn exposed_daemon_line(
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    let Some(exposure) = exposure else { return Some(line) };
+    let state = exposure.borrow().clone();
+    if !state.available {
+        return None;
+    }
+    // Terminal streams also carry non-JSON lines, which have no chat projection.
+    if serde_json::from_slice::<Value>(&line).is_err() {
+        return Some(line);
+    }
+    crate::acpmux_policy::filter_daemon_response(&String::from_utf8_lossy(&line), &state)
+        .map(|filtered| format!("{filtered}\n").into_bytes())
 }
 
 fn is_terminal_wait(line: &[u8]) -> bool {
@@ -1022,10 +1044,10 @@ async fn acpmux(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    if let Some(exposure) = &peer.session_exposure {
-        if !exposure.borrow().available {
-            return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
-        }
+    if let Some(exposure) = &peer.session_exposure
+        && !exposure.borrow().available
+    {
+        return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
     }
     let credential = control::phone_credential(&peer.device_id);
     let own = match credential.as_deref() {
@@ -1073,8 +1095,9 @@ async fn acpmux(
                     if let Ok(value) = serde_json::from_str::<Value>(&text) {
                         let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
                         for request in requests {
-                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new") {
-                                if let Some(id) = request.get("id") { pending_new.insert(id.to_string()); }
+                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new")
+                                && let Some(id) = request.get("id") {
+                                pending_new.insert(id.to_string());
                             }
                         }
                     }
@@ -2280,5 +2303,45 @@ mod tests {
         assert_eq!(confine(&roots, &root.path().join("../x")).unwrap_err().code, "not_found");
         assert_eq!(confine(&roots, Path::new("a.txt")).unwrap_err().code, "bad_request");
         assert_eq!(confine(&[], &root.path().join("a.txt")).unwrap_err().code, "forbidden");
+    }
+}
+
+#[cfg(test)]
+mod session_exposure_queue_tests {
+    use super::*;
+
+    const CHAT: &str = "00000000-0000-7000-8000-000000000001";
+
+    #[test]
+    fn queued_daemon_command_and_reply_use_current_policy() {
+        let (tx, rx) = tokio::sync::watch::channel(crate::control::SessionExposure::default());
+        let request = serde_json::json!({"id":"queued","cmd":"new-conversation-tab",
+            "agent_session":{"session":CHAT}})
+        .to_string()
+        .into_bytes();
+        let reply = serde_json::json!({"id":"list","data":{"tabs":[
+            {"id":"hidden","agent_session":{"session":CHAT}}, {"id":"terminal"}
+        ]}})
+        .to_string()
+        .into_bytes();
+        assert!(daemon_exposure_refusal(&request, Some(&rx)).is_none());
+        assert!(
+            String::from_utf8(exposed_daemon_line(reply.clone(), Some(&rx)).unwrap())
+                .unwrap()
+                .contains("hidden")
+        );
+        // The side worker/reply queue was waiting while the person revoked this chat.
+        tx.send_replace(crate::control::SessionExposure {
+            configured: true,
+            blocked: [CHAT.to_owned()].into_iter().collect(),
+            ..crate::control::SessionExposure::default()
+        });
+        let refused: Value =
+            serde_json::from_slice(&daemon_exposure_refusal(&request, Some(&rx)).unwrap()).unwrap();
+        assert_eq!(refused["id"], "queued");
+        let filtered: Value =
+            serde_json::from_slice(&exposed_daemon_line(reply, Some(&rx)).unwrap()).unwrap();
+        assert_eq!(filtered.pointer("/data/tabs").unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(filtered["data"]["tabs"][0]["id"], "terminal");
     }
 }

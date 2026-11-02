@@ -102,7 +102,7 @@ fn persist_session_exposure_at(path: &std::path::Path, state: &SessionExposure) 
     let data = serde_json::to_vec(state).map_err(|error| format!("encoding session exposure: {error}"))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, data).map_err(|error| format!("writing session exposure: {error}"))?;
-    std::fs::rename(&tmp, &path).map_err(|error| format!("committing session exposure: {error}"))
+    std::fs::rename(&tmp, path).map_err(|error| format!("committing session exposure: {error}"))
 }
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
@@ -528,7 +528,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                     match persist_session_exposure(&candidate) {
                         Ok(()) => {
                             exposure_tx.send_replace(candidate.clone());
-                            emit_exposure_state(&candidate)
+                            emit_exposure_state(&candidate);
                         }
                         Err(reason) => {
                             let mut effective = candidate;

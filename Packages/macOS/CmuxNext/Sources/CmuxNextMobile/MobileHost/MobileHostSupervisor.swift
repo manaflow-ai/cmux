@@ -80,7 +80,7 @@ public actor MobileHostSupervisor {
     }
     private var nextExposureRequest: UInt64 = 0
     private var exposureWaiters: [UInt64: ExposureWaiter] = [:]
-    private var exposureTimeouts: [UInt64: Task<Void, Never>] = [:]
+    private var exposureTimeouts: [UInt64: DemandTimer] = [:]
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
@@ -193,13 +193,14 @@ public actor MobileHostSupervisor {
                     continuation.resume(throwing: SessionExposureError.hostUnavailable)
                     return
                 }
-                exposureTimeouts[id] = Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(3))
-                    guard !Task.isCancelled, let self else { return }
-                    await self.timeoutExposureRequest(id)
+                let timeout = DemandTimer(owner: "MobileHostSupervisor.sessionExposure")
+                exposureTimeouts[id] = timeout
+                timeout.schedule(after: .seconds(3)) { [weak self] in
+                    await self?.timeoutExposureRequest(id)
                 }
             }
         }, onCancel: {
+            // task-owner: one actor hop resolves this cancelled request; it never waits or repeats.
             Task { [weak self] in await self?.cancelExposureRequest(id) }
         })
     }

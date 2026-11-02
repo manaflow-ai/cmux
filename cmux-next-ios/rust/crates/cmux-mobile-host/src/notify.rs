@@ -461,14 +461,7 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self {
-            base_url,
-            device_id,
-            tokens,
-            wants: Arc::default(),
-            sealer: None,
-            session_exposure: None,
-        }
+        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None, session_exposure: None }
     }
 
     /// With the sealer of a supervised hostd.
@@ -678,9 +671,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::{TokenSource, Tokens};
     use crate::control::SessionExposure;
     use crate::notify_content::PlaceMap;
     use cmux_mobile_link::api::{NotifyChoice, NotifyQuestion};
+    use tokio::net::TcpListener;
+    use tokio::sync::watch;
+    use tokio::time::{Duration, timeout};
 
     fn watch() -> Value {
         json!({"sessions":[
@@ -711,6 +708,47 @@ mod tests {
         let state = SessionExposure { available: false, configured: true, ..SessionExposure::default() };
         let event = NotifyEvent { session_id: Some("chat".into()), ..NotifyEvent::default() };
         assert!(!exposure_allows(&state, &event));
+    }
+
+    #[tokio::test]
+    async fn reporter_rechecks_after_token_wait_when_chat_is_revoked() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let (token_tx, token_rx) = watch::channel(None);
+        let tokens = Arc::new(Tokens::new(TokenSource::Supplied(token_rx)));
+        let (exposure_tx, exposure_rx) = watch::channel(SessionExposure::default());
+        let reporter =
+            Reporter::new(base_url, "mac-1".into(), tokens).with_session_exposure(Some(exposure_rx));
+
+        reporter.send(NotifyEvent {
+            event_id: "e1".into(),
+            kind: "completed".into(),
+            session_id: Some("chat-off".into()),
+            ..NotifyEvent::default()
+        });
+        // Keep the supplied-token lookup suspended, then revoke the chat before
+        // releasing it. The final policy check must run after this await.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        exposure_tx.send_replace(SessionExposure {
+            configured: true,
+            blocked: ["chat-off".to_owned()].into_iter().collect(),
+            ..SessionExposure::default()
+        });
+        token_tx.send_replace(Some("access-token".into()));
+
+        assert!(timeout(Duration::from_millis(200), listener.accept()).await.is_err());
+
+        // A visible chat still uses the same route, so this also proves the
+        // negative result above was the exposure guard rather than a dead
+        // token or HTTP path.
+        exposure_tx.send_replace(SessionExposure { configured: true, ..SessionExposure::default() });
+        reporter.send(NotifyEvent {
+            event_id: "e2".into(),
+            kind: "completed".into(),
+            session_id: Some("chat-on".into()),
+            ..NotifyEvent::default()
+        });
+        assert!(timeout(Duration::from_millis(200), listener.accept()).await.is_ok());
     }
 
     #[test]
