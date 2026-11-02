@@ -765,11 +765,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextAgentCursor", "CmuxNextFocus"],
             swiftSettings: uiSwiftSettings
         ),
-        .testTarget(
-            name: "CmuxNextAgentCursorVisibilityTests",
-            dependencies: ["CmuxNextAgentCursor", "CmuxNextAgentCursorVisibility"],
-            swiftSettings: uiSwiftSettings
-        ),
         // Workspace naming (hq#1957): the name a workspace made from a moved tab
         // takes, and the name a default-named workspace takes from its front tab
         // (live label, or variant B's one-time rename). Pure rules; the App
@@ -1697,6 +1692,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
+                "CmuxNextAgentCursorVisibility",
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPermissions",
                 "CmuxNextAgentUpdates",

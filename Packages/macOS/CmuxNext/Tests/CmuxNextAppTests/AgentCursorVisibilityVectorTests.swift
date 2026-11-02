@@ -34,7 +34,7 @@ struct AgentCursorVisibilityVectorTests {
     }
 
     static func vectors() throws -> Vectors {
-        // Tests/CmuxNextAgentCursorVisibilityTests/<file> -> repository root.
+        // Tests/CmuxNextAppTests/<file> -> repository root.
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { url.deleteLastPathComponent() }
         let file = url.appending(path: "schemas/agent-cursor-visibility/vectors.json")
