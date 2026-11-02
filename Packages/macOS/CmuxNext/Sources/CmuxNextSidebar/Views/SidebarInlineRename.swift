@@ -121,6 +121,18 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         top.y = (top.y * scale).rounded() / scale
         frame.origin.y = list.convert(top, from: nil).y
         field.frame = frame
+        // The editor's own offset in the field is not a whole pixel, so the snapped field can still leave the text
+        // most of a pixel off a title on a fractional y (editor 46.0, title 46.74 at 1x). Measure where the editor
+        // actually drew and move the field by whole pixels so the text lands within half a pixel of the title's.
+        field.layoutSubtreeIfNeeded()
+        guard let placed = Self.textOrigin(of: field) else { return }
+        let landed = list.convert(placed, from: field)
+        let dx = ((pen.x - landed.x) * scale).rounded() / scale, dy = ((pen.y - landed.y) * scale).rounded() / scale
+        guard dx != 0 || dy != 0 else { return }
+        frame.origin.x += dx
+        frame.origin.y += dy
+        frame.size.width = max(0, maxX - frame.minX)
+        field.frame = frame
     }
 
     /// Where `field`'s editor draws its first glyph on its baseline, in the field's coordinates;
