@@ -49,7 +49,7 @@ public struct PushHistory: Sendable, Equatable {
             return text.isEmpty ? nil : .init(role: .agent, text: text)
         case .failed:
             return payload.body.map { .init(role: .system, text: $0) }
-        case .question, .permission, .terminal:
+        case .question, .permission, .terminal, .computerUse:
             return nil
         }
     }
@@ -61,7 +61,7 @@ public struct PushHistory: Sendable, Equatable {
         case .question, .permission, .failed:
             let text = payload.tail.joined(separator: "\n")
             return text.isEmpty ? nil : .init(role: .agent, text: text)
-        case .chief, .completed, .terminal:
+        case .chief, .completed, .terminal, .computerUse:
             return nil
         }
     }

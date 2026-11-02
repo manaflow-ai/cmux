@@ -45,7 +45,7 @@ final class ComputerUseHost {
             pushTopic: Bundle.main.bundleIdentifier,
             pushEnvironment: PushRegistration.environment == "production" ? .production : .development
         )
-        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+        _ = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { ComputerUseApprovals.shared.interactivityChanged() }
         }
     }
@@ -102,6 +102,9 @@ final class ComputerUseHost {
             case let .refused(message): throw ComputerUseMacAnswer.Failure.refused(message)
             case .unreachable: throw ComputerUseMacAnswer.Failure.unreachable
             }
+        } catch {
+            log.error("computer use answer to the Mac failed: \(String(describing: error), privacy: .public)")
+            throw ComputerUseMacAnswer.Failure.unreachable
         }
         // The question's notification (eventId `cu-` + the digest's first 32 hex digits) leaves Notification Center.
         PushReplies.shared.clearDelivered(eventId: "cu-" + answer.digest.prefix(32))

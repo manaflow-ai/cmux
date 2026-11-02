@@ -123,6 +123,9 @@ public final class PushReplies {
         drainOutbox()
     }
 
+    /// No coordinator could be built (signed out, or the account did not load in time).
+    struct NoCoordinator: Error {}
+
     /// Bumped each time RootView's coordinator attaches (``onCoordinator(_:)`` waits on it).
     private(set) var liveAttachments = 0
 
@@ -141,7 +144,7 @@ public final class PushReplies {
             try await body(live)
             return
         }
-        var outcome: Result<Void, any Error> = .failure(LiveCoordinator.PushReplyFailure(reason: .unreachable))
+        var outcome: Result<Void, any Error> = .failure(NoCoordinator())
         await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
             guard let coordinator else { return }
             do {

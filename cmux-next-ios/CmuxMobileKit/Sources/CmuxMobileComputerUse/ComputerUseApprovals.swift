@@ -462,7 +462,7 @@ public final class ComputerUseApprovals {
     }
 
     /// Face ID, or the passcode when Face ID fails or is not set up.
-    public static func deviceOwnerAuthentication(_ reason: String) async throws {
+    public nonisolated static func deviceOwnerAuthentication(_ reason: String) async throws {
         let context = LAContext()
         context.localizedFallbackTitle = nil
         _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)

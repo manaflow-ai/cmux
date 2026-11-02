@@ -39,9 +39,11 @@ public struct ComputerUseApprovalSheet: View {
         .interactiveDismissDisabled(isDeciding)
     }
 
-    private var isDeciding: Bool {
-        if case .deciding = sheet.phase { return true }
-        return false
+    private var isDeciding: Bool { decidingChoice != nil }
+
+    private var decidingChoice: ComputerUseChoice? {
+        if case let .deciding(choice) = sheet.phase { return choice }
+        return nil
     }
 
     private var isFinished: Bool {
@@ -122,7 +124,7 @@ public struct ComputerUseApprovalSheet: View {
     }
 
     private func choices(_ review: ComputerUseApprovalReview) -> some View {
-        let deciding: ComputerUseChoice? = if case let .deciding(choice) = sheet.phase { choice } else { nil }
+        let deciding = decidingChoice
         return VStack(spacing: 10) {
             PrimaryCapsule("Allow Once", isLoading: deciding == .allowOnce) { approvals.choose(.allowOnce) }
                 .accessibilityIdentifier("computerUse.allowOnce")

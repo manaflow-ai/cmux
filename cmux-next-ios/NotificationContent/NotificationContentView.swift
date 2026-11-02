@@ -81,7 +81,7 @@ final class NotificationContentModel {
     /// What "+" offers: Chief's messages carry text and photos only, an agent's prompt any file.
     var attachmentKinds: AttachmentKinds {
         switch payload?.kind {
-        case .question, .permission, .terminal, nil: []
+        case .question, .permission, .terminal, .computerUse, nil: []
         case .chief: [.photos]
         case .completed, .failed: [.photos, .files]
         }
@@ -326,6 +326,7 @@ struct NotificationContentView: View {
         case .failed: return String(localized: "\(agent) stopped with an error")
         case .chief: return model.chiefName
         case .terminal: return payload.title ?? String(localized: "Terminal")
+        case .computerUse: return String(localized: "\(agent) wants to use an app")
         }
     }
 
@@ -348,12 +349,13 @@ struct NotificationContentView: View {
         case .failed: "exclamationmark.triangle.fill"
         case .chief: "sparkles"
         case .terminal: "terminal.fill"
+        case .computerUse: "cursorarrow.click.2"
         }
     }
 
     private func tint(_ kind: PushKind) -> Color {
         switch kind {
-        case .question, .permission: .orange
+        case .question, .permission, .computerUse: .orange
         case .completed: .green
         case .failed: .red
         case .chief: .purple
