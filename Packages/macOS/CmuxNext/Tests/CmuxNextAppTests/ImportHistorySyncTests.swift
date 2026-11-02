@@ -302,6 +302,31 @@ import Testing
         #expect(await sink.replaced == [batch.source.sourceKey: 0])
         #expect(await store.batches(profile: "p1").isEmpty)
     }
+
+    private struct RefusingSink: ImportedBookmarkSink {
+        struct Refused: Error {}
+        func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws { throw Refused() }
+    }
+
+    /// The bookmarks are emptied before the saved import goes: when that is refused (no home daemon
+    /// yet), the import stays, so Remove Imported Browser Data can run again and still finds them.
+    @Test func aRefusedBookmarkRemovalKeepsTheImportForAnotherTry() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-removal-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history, .bookmarks])
+        let page = URL(fileURLWithPath: "/page")
+        batch.history = [ImportedHistoryEntry(url: page, title: nil, visitCount: 1, lastVisit: Date())]
+        batch.bookmarks = [ImportedBookmark(title: "A", url: page)]
+        try await store.save(batch)
+
+        let forgotten = Forgotten()
+        let sync = ImportHistorySync(store: store, grants: nil) { _, _, gone in await forgotten.add(gone) }
+        await #expect(throws: RefusingSink.Refused.self) { try await sync.removeImported(profile: "p1", bookmarks: RefusingSink()) }
+        #expect(await store.batches(profile: "p1").map(\.bookmarks.count) == [1])
+        #expect(await forgotten.urls.isEmpty)
+    }
 }
 
 /// Moving a source into another profile takes its bookmarks and pages out of the old one.
