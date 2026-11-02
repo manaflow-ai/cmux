@@ -240,50 +240,161 @@ def _shows(j, ws, name):
 
 
 def step_switch_profile(j, step):
+    """Light: `workspaces` x `panes` beacon panes. HEAVY (`grid: [cols, rows]`, `fill_panes`, `background`,
+    `background_tabs`): each workspace a cols x rows grid of beacon panes, `fill_panes` of them redrawing the
+    whole pane every frame (a demanding TUI); plus `background` hidden workspaces with `background_tabs` tabs each
+    (slow beacons and idle shells), so the session holds about 40 workspaces and 200 tabs."""
     count, panes = int(step.get("workspaces", 9)), int(step.get("panes", 2))
+    grid = step.get("grid")
+    fill_n = int(step.get("fill_panes", 0))
     prefix = j.sub(step.get("prefix", "sw"))
-    made = []
+    made, beacons = [], []
+    began = D.now()
     for i in range(1, count + 1):
         name = "%s-%d" % (prefix, i)
         j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
                                                                 "command": _beacon_command(i, 0, step)}})
         ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
         _shows(j, ws, name)
-        for p in range(1, panes):
-            # Columns first, then rows inside them: splitRight for the first half, splitDown for the rest.
-            term = _new_terminal(j, name, "splitRight" if p <= max(1, panes // 2) else "splitDown")
-            j.app.cmux("terminal", term, "write", "--text", "exec " + _beacon_command(i, p, step) + "\n")
+        first = _terminals_of(ws)[0][1]
+        beacons.append({"term": first, "ws": i, "pane": 0, "fill": False})
+        if grid:
+            cols, rows_ = int(grid[0]), int(grid[1])
+            n = cols * rows_
+            fills = set(range(1, n))
+            fills = set(sorted(fills, key=lambda k: (k * 7919) % n)[:fill_n])
+            _, more = _grid(j, name, first, cols, rows_, i, step, fills)
+            beacons.extend(more)
+        else:
+            for p in range(1, panes):
+                term = _new_terminal(j, name, "splitRight" if p <= max(1, panes // 2) else "splitDown", prompt=False)
+                beacons.append(_start_beacon(j, term, i, p, step))
         made.append({"index": i, "name": name, "id": _ws_named(j, name).get("id"),
                      "terminals": _terminals_of(_ws_named(j, name))})
+    background = []
+    for k in range(int(step.get("background", 0))):
+        name = "%s-bg-%d" % (prefix, k + 1)
+        j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
+                                                                "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
+        ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+        _shows(j, ws, name)
+        for t in range(1, int(step.get("background_tabs", 1))):
+            _new_terminal(j, name, "newSurface", prompt=False)
+        background.append(name)
+    missing = _check_beacons(j, beacons, float(step.get("beacon_timeout", 30)))
+    if missing:
+        raise D.StepError("switch_profile: %d beacon panes never started: %s" % (len(missing), missing[:6]))
+    setup_s = round(D.now() - began, 1)
     time.sleep(1.0)
-    # Cmd-1..9 -> the workspace it shows (the sidebar's shown order may hold Home or the launch workspace).
     by_id = {m["id"]: m for m in made}
-    digits = {}
-    for d in range(1, 10):
-        reply = j.key(str(d), ["cmd"])
-        time.sleep(0.4)
-        shown = _shown_workspace(j)
-        digits[str(d)] = {"workspace": shown, "beacon_ws": by_id[shown]["index"] if shown in by_id else None,
-                          "handled_by": reply.get("handled_by") if isinstance(reply, dict) else None}
+
+    def digit_map():
+        # Cmd-1..9 -> the workspace it shows (the sidebar's shown order may hold Home or the launch workspace).
+        out = {}
+        for d in range(1, 10):
+            reply = j.key(str(d), ["cmd"])
+            time.sleep(0.3)
+            shown = _shown_workspace(j)
+            out[str(d)] = {"workspace": shown, "beacon_ws": by_id[shown]["index"] if shown in by_id else None,
+                           "handled_by": reply.get("handled_by") if isinstance(reply, dict) else None}
+        return out
+    digits = digit_map()
+    moved = 0
+    if len({v["beacon_ws"] for v in digits.values()} - {None}) < min(count, 9) and step.get("order_top", True):
+        # New workspaces went below the others: move the beacon workspaces to the top, the last first, so
+        # Cmd-1..9 reach them in order (socket actions: set-up, not under test).
+        for m in reversed(made[:9]):
+            j.app.cmux("workspace", m["id"], "focus")
+            _wait(lambda: _shown_workspace(j) == m["id"], 10, "workspace %s did not show for the reorder" % m["name"])
+            for _ in range(len(made) + len(background) + 2):
+                j.app.rpc("action.run", {"action": "moveWorkspaceUp", "args": {}})
+                moved += 1
+        time.sleep(0.5)
+        digits = digit_map()
     first = next((d for d in sorted(digits) if digits[d]["beacon_ws"]), None)
     if first:
         j.key(first, ["cmd"])
         time.sleep(0.5)
-    j.switch_profile = {"workspaces": made, "digits": digits}
+    topo = _workspaces(j)
+    tabs = sum(len(_terminals_of(w)) for w in topo)
+    j.switch_profile = {"workspaces": made, "digits": digits, "background": background, "beacons": len(beacons),
+                        "session": {"workspaces": len(topo), "terminal_tabs": tabs}, "setup_s": setup_s, "reorder_actions": moved,
+                        "id_match": sorted(getattr(j, "switch_id_match", set()) - {None})}
     (j.out / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1))
-    return {"workspaces": len(made), "panes": panes, "digits": {d: v["beacon_ws"] for d, v in digits.items()}}
+    return {"workspaces": len(made), "beacons": len(beacons), "session": j.switch_profile["session"],
+            "setup_s": setup_s, "digits": {d: v["beacon_ws"] for d, v in digits.items()}}
 
 
-def _new_terminal(j, name, action, args=None):
+def _new_terminal(j, name, action, args=None, prompt=True):
     """Runs `action` (splitRight, splitDown, newSurface) in the shown workspace `name`; returns the new daemon
-    terminal id once its shell drew a prompt."""
+    terminal id (with `prompt`, once its shell drew a prompt)."""
     known = {t for _, t in _terminals_of(_ws_named(j, name) or {})}
     j.app.rpc("action.run", {"action": action, "args": args or {}})
     fresh = _wait(lambda: [t for _, t in _terminals_of(_ws_named(j, name) or {}) if t not in known], 20,
                   "%s in %s made no terminal" % (action, name))
     term = fresh[-1]
-    _wait(lambda: j.app.screen(term)["text"].strip(), 20, "the shell of %s in %s drew no prompt" % (action, name))
+    if prompt:
+        _wait(lambda: j.app.screen(term)["text"].strip(), 20, "the shell of %s in %s drew no prompt" % (action, name))
     return term
+
+
+def _pane_of(j, name, term):
+    return next((pid for pid, t in _terminals_of(_ws_named(j, name) or {}) if t == term), None)
+
+
+def _start_beacon(j, term, ws, pane, step, fill=False, hz=None):
+    sub = dict(step, fill=fill, hz=hz or step.get("hz", 240))
+    j.app.cmux("terminal", term, "write", "--text", "exec " + _beacon_command(ws, pane, sub) + "\n")
+    return {"term": term, "ws": ws, "pane": pane, "fill": fill, "hz": sub["hz"]}
+
+
+def _grid(j, name, first_term, cols, rows_, ws, step, fills):
+    """cols x rows_ panes in the shown workspace `name` (pane 0 runs already); every new pane gets a beacon
+    (`ws`, its creation index); the panes in `fills` redraw the whole pane each frame (--fill, at fill_hz)."""
+    beacons = []
+    top = [first_term]
+    for c in range(1, cols):
+        top.append(_new_terminal(j, name, "splitRight", prompt=False))
+    order = list(top)
+    for t in top:
+        pid = _pane_of(j, name, t)
+        if rows_ > 1 and pid:
+            j.app.cmux("pane", pid, "focus")
+            time.sleep(0.05)
+        for r in range(1, rows_):
+            order.append(_new_terminal(j, name, "splitDown", prompt=False))
+    j.app.rpc("action.run", {"action": "equalizeSplits", "args": {}})
+    for index, term in enumerate(order):
+        if index == 0:
+            continue
+        fill = index in fills
+        beacons.append(_start_beacon(j, term, ws, index, step, fill=fill,
+                                     hz=step.get("fill_hz", 120) if fill else step.get("hz", 240)))
+    return order, beacons
+
+
+def _check_beacons(j, beacons, timeout):
+    """Every beacon terminal shows its label; a shell that dropped the typed command gets it again once."""
+    end = D.now() + timeout
+    left = list(beacons)
+    again = set()
+    while left and D.now() < end:
+        still = []
+        for b in left:
+            try:
+                text = j.app.screen(b["term"])["text"]
+            except D.StepError:
+                text = ""
+            if "PANE %d" % b["pane"] in text:
+                continue
+            if b["term"] not in again and text.strip():
+                again.add(b["term"])
+                j.app.cmux("terminal", b["term"], "write", "--text", "\n")
+            still.append(b)
+        left = still
+        if left:
+            time.sleep(0.5)
+    return [b["term"] for b in left]
 
 
 def step_switch_tabs_profile(j, step):
