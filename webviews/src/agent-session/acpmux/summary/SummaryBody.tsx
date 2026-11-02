@@ -206,7 +206,7 @@ export function SummaryBody({
           )
         }
         row={(source) => (
-          <li key={source.url ?? source.label}>
+          <li key={source.image?.id ?? source.url ?? source.label}>
             {source.url ? (
               <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
                 <Icon name="link.web" size={ROW_ICON} row />
@@ -214,8 +214,8 @@ export function SummaryBody({
               </a>
             ) : (
               <span className="acpmux-summary-row">
-                <Icon name="search.files" size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{source.label}</span>
+                <Icon name={source.image ? "site.permission.images" : "search.files"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{source.label || t("image.viewer")}</span>
               </span>
             )}
           </li>

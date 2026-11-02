@@ -317,6 +317,7 @@ export function useSessionInfo({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenDocument,
   processes: registry,
   onStopProcess,
@@ -371,6 +372,8 @@ export function useSessionInfo({
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
   onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
@@ -451,6 +454,7 @@ export function useSessionInfo({
   const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
   const stableOnOpenUrl = useStableCallback(onOpenUrl);
   const stableOnOpenImage = useStableCallback(onOpenImage);
+  const stableReadPromptImage = useStableCallback(readPromptImage);
   const stableOnOpenDocument = useStableCallback(onOpenDocument);
   const stableOnOpenFolder = useStableCallback(onOpenFolder);
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
@@ -564,6 +568,8 @@ export function useSessionInfo({
         onOpenOutput={openOutput}
         onOpenUrl={stableOnOpenUrl}
         onOpenImage={stableOnOpenImage}
+        // A subagent's prompt images live in its own chat, which this reader does not reach.
+        readPromptImage={subagent ? undefined : stableReadPromptImage}
         onOpenFolder={stableOnOpenFolder}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
@@ -636,6 +642,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
@@ -688,6 +695,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
@@ -910,6 +919,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        readPromptImage={readPromptImage}
         onOpenFolder={openFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
@@ -1133,6 +1143,7 @@ export function SessionInfo({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenDocument,
   remoteControl,
   onSaveEnvironment,
@@ -1203,6 +1214,8 @@ export function SessionInfo({
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
@@ -1415,6 +1428,8 @@ export function SessionInfo({
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
         onOpenBeside={onOpenUrl}
+        onOpenImage={onOpenImage}
+        readImage={readPromptImage}
         expanded={sessionInfoState.sourcesAll}
         onExpandedChange={setSessionInfoSourcesAll}
       />
