@@ -344,11 +344,10 @@ final class CloudService {
                 if accountScope != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    // Another account's machines, connections and share install end first (its next share binds this one).
-                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) {
-                        self.dropAllMachines()
-                        for share in await self.shareInstalls.all(except: self.installIdentity) { await share.unbind() }
-                    }
+                    // Another account's machines, connections and share installs end first (its next share binds this one).
+                    let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
+                    if switched { self.dropAllMachines() }
+                    for share in await self.shareInstalls.began(unbinding: switched, except: self.installIdentity) { await share.unbind() }
                     // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
@@ -360,7 +359,7 @@ final class CloudService {
                     // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
-                    for share in await self.shareInstalls.all(except: self.installIdentity) { await share.unbind() }
+                    for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
                     self.hands.stop()
                 }
             }
@@ -897,7 +896,7 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            for share in await shareInstalls.all(except: installIdentity) { await share.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
+            for share in await shareInstalls.ended(except: installIdentity) { await share.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()

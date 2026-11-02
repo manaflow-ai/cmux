@@ -16,6 +16,9 @@ public actor ShareInstalls {
     private let accepts: @Sendable (URL) -> Bool
     private var byOrigin: [String: MacInstallIdentity] = [:]
     private var scanned = false
+    /// Set from a session's end (``ended(except:)``) to the next one's start (``began(unbinding:except:)``): no
+    /// install is made meanwhile, so none escapes the sign-out that listed the others.
+    private var closed = false
 
     /// - Parameters:
     ///   - root: The folder the installs' stores live in.
@@ -41,15 +44,29 @@ public actor ShareInstalls {
     public func identity(for api: URL?) -> MacInstallIdentity {
         guard let api, let key = Self.origin(api), let host = api.host?.lowercased() else { return fallback }
         if let found = byOrigin[key] { return found }
-        guard accepts(api) else { return fallback }
+        guard !closed, accepts(api) else { return fallback }
         let made = make(api, Self.folderPrefix + host)
         byOrigin[key] = made
         return made
     }
 
+    /// The session ended (a sign-out here, or elsewhere): no install is made until the next one begins, and
+    /// every one but `owner` is returned for its unbind or sign-out.
+    public func ended(except owner: MacInstallIdentity) -> [MacInstallIdentity] {
+        closed = true
+        return all(except: owner)
+    }
+
+    /// A session began: installs are made again. On an account switch (`unbinding`) every one but `owner` is
+    /// returned to be unbound, so the next share binds the new account.
+    public func began(unbinding: Bool, except owner: MacInstallIdentity) -> [MacInstallIdentity] {
+        closed = false
+        return unbinding ? all(except: owner) : []
+    }
+
     /// Every share install but `owner` (which signs in and out on its own), with the ones an earlier
-    /// launch made, so an unbind or a sign-out reaches each.
-    public func all(except owner: MacInstallIdentity) -> [MacInstallIdentity] {
+    /// launch made.
+    private func all(except owner: MacInstallIdentity) -> [MacInstallIdentity] {
         if !scanned {
             scanned = true
             let names = (try? FileManager.checked.contentsOfDirectory(atPath: root.path)) ?? []

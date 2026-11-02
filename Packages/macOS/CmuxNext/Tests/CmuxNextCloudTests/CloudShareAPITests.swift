@@ -53,13 +53,20 @@ struct ShareInstallsTests {
         #expect(staging !== fallback && staging !== owner)
         #expect(await installs.identity(for: Self.staging) === staging)
         #expect(await installs.identity(for: URL(string: "http://cloud-api-staging.cmux.dev")) === fallback)
-        let all = await installs.all(except: owner)
+        #expect(await installs.began(unbinding: false, except: owner).isEmpty)
+        let all = await installs.began(unbinding: true, except: owner)
         #expect(all.count == 2 && all.contains { $0 === staging } && all.contains { $0 === fallback })
+        // After a sign-out listed them, a share racing it makes no install the sign-out missed.
+        #expect(await installs.ended(except: owner).count == 2)
+        #expect(await installs.identity(for: URL(string: "https://cmux-api-other.invalid")) === fallback)
+        #expect(await installs.identity(for: Self.staging) === staging)
+        _ = await installs.began(unbinding: false, except: owner)
+        #expect(await installs.identity(for: URL(string: "https://cmux-api-other.invalid")) !== fallback)
 
         try FileManager.default.createDirectory(at: root.appendingPathComponent("install-share-cloud-api-staging.cmux.dev"),
                                                 withIntermediateDirectories: true)
         let relaunched = Self.installs(root, owner: owner, fallback: fallback)
-        #expect(await relaunched.all(except: owner).count == 2, "a sign-out after a relaunch reaches the staging install")
+        #expect(await relaunched.ended(except: owner).count == 2, "a sign-out after a relaunch reaches the staging install")
     }
 
     @Test func aReleaseBuildSendsCredentialsOnlyToACmuxAPI() async {
