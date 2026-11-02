@@ -532,6 +532,7 @@ fn kill_all_restore_time_of_12_terminals() {
         kill_shell_then_host(record_path, record);
     }
     harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "4".into()));
     let spawned = Instant::now();
     harness.restart();
     let mut restored_ms = Vec::new();
