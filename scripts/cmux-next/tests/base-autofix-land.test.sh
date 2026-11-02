@@ -233,16 +233,19 @@ repair_args() { # [env...]
   tr '\n' ' ' < "$tmp/args"
 }
 first="$(repair_args)"
-for want in "--generated $tmp/exports" --package-dump --sdk --capabilities --docs-shortcuts --app-host --ratchets \
+for want in "--generated $tmp/exports" --package-dump --sdk --capabilities --docs-shortcuts --app-host \
+  --app-host-committed-exports --ratchets \
   "--webviews-fmt-patch $tmp/patchdir/webviews-fmt.patch" --no-fmt; do
   [[ " $first" == *" $want "* ]] || fail "the first round does not pass $want: $first"
 done
 [[ "$first" == *--unverified* ]] && fail "the first round marks verified exports unverified: $first"
 again="$(repair_args CMUX_BASE_AUTOFIX_AGAIN=1)"
-for want in --package-dump --sdk --ratchets --unverified-exports --unverified-settings-exports --no-fmt; do
+# The app-host files are made from the tip's committed action exports even when they are not current.
+for want in --package-dump --sdk --ratchets --app-host --app-host-committed-exports --unverified-exports \
+  --unverified-settings-exports --no-fmt; do
   [[ " $again" == *" $want "* ]] || fail "a round on a moved tip does not pass $want: $again"
 done
-for unwanted in --generated --webviews-fmt-patch --docs-shortcuts --app-host; do
+for unwanted in --generated --webviews-fmt-patch --docs-shortcuts; do
   [[ " $again" == *" $unwanted "* ]] && fail "a round on a moved tip passes $unwanted: $again"
 done
 unverified="$(repair_args EXPORTS_VERIFIED=false SETTINGS_VERIFIED=)"

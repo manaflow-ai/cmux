@@ -15,7 +15,11 @@
 # exports (docs shortcuts, app-host files) is made from the tip's committed action exports when
 # CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1 says they are current there, and the defaults snapshot
 # when CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT=1 says the settings exports are too; otherwise
-# they wait for the next run.
+# they wait for the next run. The app-host files are made from the tip's committed action exports
+# either way (base-autofix.sh --app-host-committed-exports): app platform checks them against those,
+# so a change to the operation catalogs (cmux-tui/spec/resource-operations-v2.json,
+# backend/catalog/cloud-operations.json) never waits on the Mac exports. #32097 changed
+# resource-operations-v2.json while the Mac exports were deferred, and app platform stayed red.
 #
 # Usage: scripts/cmux-next/base-autofix-repair.sh REPO
 # CMUX_BASE_AUTOFIX_SCRIPT: the repair (default: base-autofix.sh beside this one).
@@ -35,12 +39,12 @@ swift_dump() { # dump-package needs the Swift 6.2 tools. The checkout is mounted
     swift package dump-package
 }
 
-args=()
+args=(--app-host-committed-exports)
 shortcuts="${SHORTCUTS:-false}" apphost="${APPHOST:-false}"
 if [[ "$again" == 1 ]]; then
-  shortcuts=false apphost=false
+  shortcuts=false apphost=true
   if [[ "${CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT:-}" == 1 ]]; then
-    shortcuts=true apphost=true
+    shortcuts=true
   else
     args+=(--unverified-exports)
   fi
