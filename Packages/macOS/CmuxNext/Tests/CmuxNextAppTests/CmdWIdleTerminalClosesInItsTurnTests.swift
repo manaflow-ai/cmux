@@ -240,6 +240,36 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// (Review of #32291) While the question shows, the held keys wait for its answer, but a key typed at the question is
+    /// the question's: Escape through the app's key path cancels it, and the line held during the read comes back whole
+    /// to the terminal that stays.
+    @Test func escapeAtTheQuestionCancelsItAndTheHeldLineComesBack() async throws {
+        try await Self.withFocusedTerminal { t in
+            try await Self.input("cat\r", t)
+            try await Self.waitRunning("cat", t)
+            _ = try await Self.newTerminal(t) // the neighbour the hide shows
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            let window = try #require(t.pane.view.window)
+            try Self.press("w", .command, keyCode: 13, in: window, t)
+            try await PinnedPageTests.until({ hold.held == 1 }, report: { "the close did not read" })
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            for character in "es\(nonce)" { try Self.press(String(character), in: window, t) }
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            try Self.press("\u{1B}", keyCode: 53, in: window, t)
+            try await PinnedPageTests.until({ Self.question() == nil && !TabCloseGuard.asking.contains(t.tab.id) },
+                                            report: { "Escape did not answer the question: asking \(TabCloseGuard.asking)" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "Escape closed the terminal running cat")
+            let back = try? await t.connection.request(WaitForTextRequest(surface: t.tab.surface, pattern: "es\(nonce)", timeoutMs: 10_000),
+                                                       timeout: .seconds(15))
+            #expect(back?.matched == true, "the line held during the read did not come back to the terminal that stays")
+        }
+    }
+
     // MARK: Fixture
 
     /// A new terminal tab at the end of `t`'s pane, once its strip lists it.
