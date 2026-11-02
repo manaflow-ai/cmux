@@ -1,13 +1,52 @@
 package import AppKit
 
-/// A page window's clip shape in window coordinates (``WindowImageLayer/page(_:_:holes:clip:)``).
+/// A page window's clip shape in window coordinates (``WindowImageLayer/page(_:_:holes:clip:)``),
+/// held as its path elements: a `CGPath` is not `Sendable`, and the redraw runs off the main actor.
 package nonisolated struct WindowImageClip: Sendable {
-    package let path: CGPath
+    enum Element: Sendable {
+        case move(CGPoint)
+        case line(CGPoint)
+        case quad(CGPoint, CGPoint)
+        case curve(CGPoint, CGPoint, CGPoint)
+        case close
+    }
+
+    let elements: [Element]
 
     /// Nil for no clip (the page shows as a plain rectangle).
     package init?(_ path: CGPath?) {
         guard let path else { return nil }
-        self.path = path
+        var elements: [Element] = []
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            let points = element.points
+            switch element.type {
+            case .moveToPoint: elements.append(.move(points[0]))
+            case .addLineToPoint: elements.append(.line(points[0]))
+            case .addQuadCurveToPoint: elements.append(.quad(points[0], points[1]))
+            case .addCurveToPoint: elements.append(.curve(points[0], points[1], points[2]))
+            case .closeSubpath: elements.append(.close)
+            @unknown default: break
+            }
+        }
+        self.elements = elements
+    }
+
+    /// The shape scaled by `scaleX` and `scaleY` (window points to image pixels).
+    func path(scaleX: CGFloat, scaleY: CGFloat) -> CGPath {
+        func scaled(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x * scaleX, y: point.y * scaleY) }
+        let path = CGMutablePath()
+        for element in elements {
+            switch element {
+            case .move(let point): path.move(to: scaled(point))
+            case .line(let point): path.addLine(to: scaled(point))
+            case .quad(let control, let point): path.addQuadCurve(to: scaled(point), control: scaled(control))
+            case .curve(let first, let second, let point):
+                path.addCurve(to: scaled(point), control1: scaled(first), control2: scaled(second))
+            case .close: path.closeSubpath()
+            }
+        }
+        return path
     }
 }
 
@@ -72,8 +111,8 @@ package nonisolated enum WindowImageLayer: Sendable {
                 guard area.width > 0, area.height > 0 else { continue }
                 context.saveGState()
                 if let clip {
-                    var toPixels = CGAffineTransform(scaleX: scaleX, y: scaleY)
-                    guard let shape = clip.path.copy(using: &toPixels), !shape.boundingBoxOfPath.isEmpty else {
+                    let shape = clip.path(scaleX: scaleX, scaleY: scaleY)
+                    guard !shape.boundingBoxOfPath.isEmpty else {
                         context.restoreGState()
                         continue
                     }

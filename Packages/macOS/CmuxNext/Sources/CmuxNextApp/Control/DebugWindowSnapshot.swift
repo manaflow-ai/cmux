@@ -167,7 +167,8 @@ enum DebugWindowSnapshot {
                     // page, the whole New Tab page) show the window there, as
                     // on screen.
                     let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: WindowImageClip(page.pageWindowClip)))
+                    let clip = WindowImageClip(page.pageWindowClip)
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
                 } catch {
                     pagesFailed += 1
                 }
