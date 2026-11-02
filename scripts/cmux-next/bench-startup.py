@@ -462,12 +462,20 @@ class Launch:
             # between the app's exit and the drain in quit().
             self.hold_fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
             env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = fifo
-            command = ["/usr/bin/open", "-a", bundle_path(tag)] + [arg for key, value in env.items()
-                                                                  for arg in ("--env", f"{key}={value}")]
-            # LaunchServices gives the app launchd's limits, as a Finder or Dock launch.
-            self.spawned_at = time.monotonic()
-            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-            self.popen_returned_at = time.monotonic()
+            # -n: always a new instance, so the environment applies (an `open` of a running one only activates it).
+            command = ["/usr/bin/open", "-n", "-a", bundle_path(tag)] + [arg for key, value in env.items()
+                                                                        for arg in ("--env", f"{key}={value}")]
+            self.known_pids = set(app_pids(tag))
+            try:
+                # LaunchServices gives the app launchd's limits, as a Finder or Dock launch. Popen, not run: the
+                # marks get their arrival times while `open` is still returning.
+                self.spawned_at = time.monotonic()
+                self.opener = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.popen_returned_at = time.monotonic()
+            except OSError:
+                os.close(read_fd)
+                os.close(self.hold_fd)
+                raise
             self.process = None
             print("bench-startup: app launched through LaunchServices (active)", file=sys.stderr, flush=True)
         else:
@@ -488,14 +496,34 @@ class Launch:
         self.marks = {}
         self.arrived = {}  # mark -> ms after spawned_at when its line arrived on the pipe (the bench's clock)
         self._pid = self.process.pid if self.process else None
+        if self.process is not None:
+            self.known_pids = set()
+            self.opener = None
 
     @property
     def pid(self):
-        """The app's pid: the spawned child, or (active) the tag's app process LaunchServices started."""
+        """The app's pid: the spawned child, or (active) the new process of the app's own executable that
+        LaunchServices started (never a CEF helper, nor one that ran before this launch)."""
         if self._pid is None:
-            found = app_pids(self.tag)
-            self._pid = found[0] if found else None
+            binary = app_binary(self.tag)
+            fresh = [pid for pid in pgrep("^" + re.escape(binary) + "$") if pid not in self.known_pids]
+            self._pid = max(fresh) if fresh else None
         return self._pid
+
+    def alive(self):
+        """Whether the launched app still runs (an active launch has no child to wait on)."""
+        if self.process is not None:
+            return self.process.poll() is None
+        pid = self.pid
+        if pid is None:
+            return not (self.opener.poll() not in (None, 0))
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
 
     def wait_for(self, mark, timeout, any_of=False):
         """Reads marks until `mark` (or every mark of a list; with `any_of`,
@@ -507,8 +535,11 @@ class Launch:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            ready, _, _ = select.select([self.read_fd], [], [], remaining)
+            # An active launch's FIFO has the bench's own writer: no end of file at a crash, so its pid is checked.
+            ready, _, _ = select.select([self.read_fd], [], [], min(remaining, 0.5) if self.hold_fd is not None else remaining)
             if not ready:
+                if self.hold_fd is not None and time.monotonic() < deadline and self.alive():
+                    continue
                 return False
             chunk = os.read(self.read_fd, 65536)
             if not chunk:
@@ -552,6 +583,11 @@ class Launch:
             wait_exit([pid], 5)
         if self.process:
             self.process.wait()
+        if self.opener is not None:
+            try:
+                self.opener.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.opener.kill()
         self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
         for name in self.quit_marks:
             self.arrived.pop(name, None)
@@ -1081,13 +1117,15 @@ def one_run(tag, mode, timeout, profile=None):
             for late in set(launch.marks) - before - {VISIBLE_MARK}:
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
-        launch.front = front_app(launch)  # the measured point: is the app the active, frontmost app?
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
             launch.terminals = launch_terminals(tag)
             launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
+        # The measured point: is the app the active, frontmost app? After the stalls are read: its debug.focus runs
+        # on the app's main thread and would show as a stall itself.
+        launch.front = front_app(launch)
     finally:
         launch.quit()
         launch.linger = watch_linger(tag, time.monotonic())
@@ -1114,6 +1152,8 @@ def one_run(tag, mode, timeout, profile=None):
     marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
                             "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
                                                                           FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
+    # An active launch's popen_ms is the time to start `open`, not the app: its spawn-to-main is LaunchServices'.
+    marks["bench_clock"]["activation"] = marks["activation"]
     print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
                                        "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
     return marks
