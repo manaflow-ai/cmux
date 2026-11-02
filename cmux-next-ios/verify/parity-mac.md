@@ -100,7 +100,9 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- |
 | Address bar, Back (⌘[), Forward (⌘]), Reload (⌘R) | TabsKit address bar and toolbar | works on a streaming Mac | `browser-navigate` (http/https only), `browser-back`, `browser-forward`, `browser-reload`. Forward right after Back is one tap (finding 5, fixed in parity2 tabs). The address reads the page's host, and a new tab's about:blank reads "Search or enter website" (finding 4). |
 | Open Address in New Tab (omnibar) | while editing a browser address: a **New Tab** row with what is typed | works (menu-rows batch; live) | `new-browser-tab {url, pane}` beside the edited tab; the edited tab keeps its page. Through the kit's `editingBackground` hook (CmuxTabsKit unchanged). |
-| Open Link in New Tab | — | missing | The streamed page sends no link targets to the phone. |
+| Open Link in New Tab / Window, Search for, View Page Source (page context menu) | long press on the page > the same rows | works (browser-host batch; live) | The browser host forwards Chromium's `OpenURLFromTab` new tabs as `rb.open_tab` and opens View Page Source as an `rb.open_tab` of `view-source:<address>`; the tab opens beside the page (`new-browser-tab`). The Mac's own remote-tab viewer gets the same tabs. |
+| Find… (⌘F), Find Next (⌘G), Find Previous (⇧⌘G) in a browser tab | page menu **Find…**, ⌘F, ⌘G, ⇧⌘G on a hardware keyboard: the system find bar | works (browser-host batch; live) | `rb.find` / `rb.find.stop`; the Mac's browser finds and highlights, `rb.find.result` gives "2 of 5". Case-insensitive, as Safari's. |
+| A page closing its own JavaScript dialog (the iframe that asked is removed) | the alert closes by itself | works (browser-host batch; live) | The host sends `rb.dialog.cancel` when the frame that asked goes away or the tab closes. A page's own navigation while its dialog shows waits for the answer, in Chromium as on the Mac. |
 | Hard Reload, Open in Default Browser, Incognito | — | not applicable | |
 
 ## Agent chat

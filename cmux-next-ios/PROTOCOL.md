@@ -695,21 +695,30 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   long press sends a secondary click at that spot (pointer `button` 2) and
   shows the host's `rb.menu.show` of kind `context` as the system menu; rows
   whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
-  Inspect, Look Up, Speech, Cast, Create QR Code) are left out, and so are the
-  rows Chromium opens as a new tab through `OpenURLFromTab` (Open Link in New
-  Tab or Window, Open Image in New Tab, Search for, View Page Source): the browser host forwards only the page's
-  own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
-  a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out. Rows that open
+  a tab stay (2026-11-01): the browser host forwards the tabs Chromium opens
+  through `OpenURLFromTab` (Open Link in New Tab or Window, Open Image in New
+  Tab, Search for, Cmd-click) as `rb.open_tab`, like the page's own popups
+  (`OnBeforePopup`), and answers View Page Source itself with an `rb.open_tab`
+  of the page's `view-source:` address. The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
   or one that arrives with no long press waiting (after 1.5 s), as `{choice:
   "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
   in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
   (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
   answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
-  `rb.dialog.cancel` close the sheet or alert with no answer; a new stream
+  `rb.dialog.cancel` close the sheet or alert with no answer (the host sends
+  `rb.dialog.cancel` when Chromium resets its dialogs, when the frame that
+  asked goes away, as when the page removes the iframe whose alert shows, and
+  when the tab closes); a new stream
   session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
   color and datalist pickers) are not shown on the phone yet. The page menu's
-  Hard Reload sends `rb.history reload_no_cache`. Under
+  Hard Reload sends `rb.history reload_no_cache`. Find… (page menu, Cmd-F;
+  Cmd-G and Shift-Cmd-G step) shows the system find bar: each query sends
+  `rb.find {query, forward: true, match_case: false, next: false}`, Next and
+  Previous `{next: true, forward}`, and the host's `rb.find.result {matches,
+  active}` sets the bar's count; Done sends `rb.find.stop {keep_selection:
+  true}`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
