@@ -44,7 +44,7 @@ struct NewTabSpareContextTests {
                 made.forEach { $0.close() }
                 try? FileManager.default.removeItem(at: folder)
             }
-            let workspace = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: "sf-spare"),
+            let workspace = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: "sf-spare", command: "/bin/sh"),
                                                                        into: controller.state.id)
             services.windows.show(workspaceID: workspace, in: controller.state)
             @MainActor func focused() -> PaneController? { controller.content?.focusedPane }
@@ -54,7 +54,8 @@ struct NewTabSpareContextTests {
                 focused().flatMap { NewTabPage.page(services, selected: $0.selectedTab, window: window, pane: $0, paletteActions: false).cwd }
             }
             // The workspace's terminal pane gets the focus: a docked agent chat column can hold it (fleet run d87741821d15:
-            // the focused pane showed a conversation, so the page had no folder).
+            // the focused pane showed a conversation, so the page had no folder). The workspace runs a shell, so it has a
+            // terminal even where a new workspace opens on the New Tab page (display worker, step 151622cdd9f4).
             @MainActor func terminalPane() -> PaneController? {
                 controller.content?.panes.values.first { pane in pane.selectedTab?.kind == .pty }
             }
