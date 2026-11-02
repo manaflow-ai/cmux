@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4154067381701",
+  "notes": "notes/4154067381701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32616,
+      "title": "REOPEN-F7: an empty label's size needs no TextKit layout (sidebar rows at window build)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32556,
+      "title": "cmux NEXT Feed: bound the GitHub inbox owner and the reports basket",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
