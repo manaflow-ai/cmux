@@ -37,7 +37,11 @@ import Testing
     }
 
     private static func render(_ view: NSView, appearance: NSAppearance.Name) throws -> NSImage {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        // At least the dialog's own fitting size plus a margin: the stacked actions and a wrapped detail make the
+        // card taller on some Macs (fonts, scale) than a fixed 420x280 root, which clipped the title off the top.
+        view.layoutSubtreeIfNeeded()
+        let fit = view.fittingSize
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: max(420, ceil(fit.width) + 40), height: max(280, ceil(fit.height) + 40)))
         let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -64,8 +68,8 @@ import Testing
         text.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: cg).perform([text])
         let words = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-        #expect(words.contains("Cannot Connect"), "Gallery must draw the title: \\(words)")
-        #expect(words.contains("Retry"), "Gallery must draw recovery actions: \\(words)")
+        #expect(words.contains("Cannot Connect"), "Gallery must draw the title: \(words)")
+        #expect(words.contains("Retry"), "Gallery must draw recovery actions: \(words)")
         let image = NSImage(size: root.bounds.size)
         image.addRepresentation(rep)
         return image

@@ -1381,7 +1381,7 @@ impl Remote for Down {
     }
 }
 
-/// Leo, 2026-10-29: "Couldn't update big-red: acpmux ran past its 900.0 seconds deadline and was
+/// Leo, 2026-10-29: "Couldn't update <host>: acpmux ran past its 900.0 seconds deadline and was
 /// stopped; it exited". A host that does not answer fails at once as `unreachable`, before its lock
 /// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
 #[test]

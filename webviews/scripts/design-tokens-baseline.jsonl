@@ -10,13 +10,13 @@
 {"file":"agent-session/acpmux/addProject.css","kind":"spacing","property":"gap","values":{"6px":3}}
 {"file":"agent-session/acpmux/addProject.css","kind":"spacing","property":"padding","values":{"0 10px":1,"6px 8px":1,"4px 7px":1}}
 {"file":"agent-session/acpmux/bottomStack.css","kind":"height","property":"min-height","values":{"calc(44px + var(--acpmux-transcript-min, 96px))":1,"var(--acpmux-stack-row-min, 34px)":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":2,"29px":2}}
+{"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":2}}
 {"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"min-height","values":{"240px":1}}
 {"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"gap","values":{"6px":4,"2px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"padding","values":{"12px 14px":1,"0 9px":1,"7px 14px":1,"6px 12px":2,"0 10px":3,"4px 12px 6px":1,"8px 10px":1}}
+{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"padding","values":{"6px 12px":2}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"height","property":"min-height","values":{"44px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"gap","values":{"2px":1,"6px":1}}
-{"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"padding","values":{"0 10px":3,"7px 10px":1,"2px":1,"6px 12px":1}}
+{"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"padding","values":{"0 10px":2,"7px 10px":1,"2px":1,"6px 12px":1}}
 {"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"height","property":"min-height","values":{"180px":1}}
 {"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"spacing","property":"gap","values":{"14px":1}}
 {"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"spacing","property":"padding","values":{"28px":1}}

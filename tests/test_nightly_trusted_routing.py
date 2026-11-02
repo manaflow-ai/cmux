@@ -668,7 +668,9 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         readers = sorted(name for name, job in DOC['jobs'].items() if 'light_mini' in str(job.get('runs-on', '')))
         self.assertEqual(readers, sorted(self.LIGHT))
         step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light')
-        self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
+        # The primary preparation keeps its placement-aware runs-on but is not offered: it ran 4.8 min on a
+        # dedicated nightly Mac against 57 s on its Blacksmith route (runs 41360732074, 41358657711).
+        self.assertEqual(step['env']['JOBS'].split(), [job for job in self.LIGHT if job != 'prepare-nightly-variant-primary'])
         self.assertEqual(step['env']['NIGHTLY'], '1')
         self.assertEqual(step['env']['NIGHTLY_WAIT_FOR_FLEET'], '1')
         self.assertEqual(step['timeout-minutes'], 5)

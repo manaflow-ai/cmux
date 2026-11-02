@@ -1,7 +1,6 @@
-import CmuxNextAgentPane
 import CmuxNextCloud
-import CmuxNextDaemon
-import Foundation
+public import CmuxNextDaemon
+public import Foundation
 
 /// The single owner of the local feed handoff (plans/cmux-next/feed.md
 /// section 5 rule 3 and 9.1, B1 to B5). The bundled daemon owns every local
@@ -24,23 +23,31 @@ import Foundation
 /// is gone (feed.md 9.1 step 7). The daemon accepts the handoff steps only
 /// from this app's verified connection (the `frontend` actor, B8).
 @MainActor
-final class FeedHandoffDriver {
+public final class FeedHandoffDriver {
     /// The local daemon's feed-owner commands.
-    struct Daemon {
+    public struct Daemon {
         var serves: @MainActor () -> Bool
         var list: @MainActor (_ state: FeedLocalItem.State, _ unreadOnly: Bool) async throws -> [FeedLocalItem]
         var begin: @MainActor (_ item: String) async throws -> FeedLocalItem
         var done: @MainActor (_ item: String, _ home: String) async throws -> FeedLocalItem
         var abort: @MainActor (_ item: String) async throws -> FeedLocalItem
+
+        public init(serves: @escaping @MainActor () -> Bool,
+                    list: @escaping @MainActor (_ state: FeedLocalItem.State, _ unreadOnly: Bool) async throws -> [FeedLocalItem],
+                    begin: @escaping @MainActor (_ item: String) async throws -> FeedLocalItem,
+                    done: @escaping @MainActor (_ item: String, _ home: String) async throws -> FeedLocalItem,
+                    abort: @escaping @MainActor (_ item: String) async throws -> FeedLocalItem) {
+            (self.serves, self.list, self.begin, self.done, self.abort) = (serves, list, begin, done, abort)
+        }
     }
 
     /// One FeedDO call (`v1/ops` or `v1/read`) as this Mac's install.
-    typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
+    public typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
 
     /// The gate for shipped builds. On: the daemon accepts the handoff steps
     /// only from the verified app connection (the daemon owner's condition,
     /// feed.md 9.1 B8).
-    static let isEnabledByDefault = true
+    public static let isEnabledByDefault = true
 
     /// The home FeedDO items get.
     static let home = "cloud"
@@ -78,10 +85,10 @@ final class FeedHandoffDriver {
     private var withheld: Set<String> = []
     private var minute: (start: Date, count: Int)?
     /// Recent handoffs and failures (for `debug.notifications`).
-    private(set) var log: [String] = []
+    public private(set) var log: [String] = []
     private static let logLimit = 32
 
-    init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner,
+    public init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner,
          isSignedIn: @escaping @MainActor () -> Bool, installID: @escaping @MainActor () -> String?,
          policy: @escaping @MainActor () -> FeedHandoffPolicy, since: @escaping @MainActor (String) -> UInt64 = { _ in 0 },
          now: @escaping @MainActor () -> Date = Date.init) {
@@ -96,12 +103,12 @@ final class FeedHandoffDriver {
     }
 
     /// Whether the driver replaces the step-1 bridge right now.
-    var isActive: Bool { enabled && daemon.serves() && isSignedIn() && installID() != nil }
+    public var isActive: Bool { enabled && daemon.serves() && isSignedIn() && installID() != nil }
 
     /// A notification arrived for `terminal`: whether it alerted on this Mac
     /// (the arrival decision). A withheld terminal's item stays local until
     /// a later notification there alerts.
-    func noteArrival(terminal: String?, alerted: Bool) {
+    public func noteArrival(terminal: String?, alerted: Bool) {
         guard let terminal else { return }
         if alerted {
             withheld.remove(terminal)
@@ -112,7 +119,7 @@ final class FeedHandoffDriver {
 
     /// Runs one pass (at activation and on each new local item). A pass that
     /// is running finishes first; one more pass follows it.
-    func run() {
+    public func run() {
         guard isActive else { return }
         guard pass == nil else {
             again = true
@@ -133,7 +140,7 @@ final class FeedHandoffDriver {
     /// The daemon refused to read these items on an ack (B5): moved items
     /// are read in the cloud at once (nothing queues while signed out or
     /// offline), items still moving once their move completes.
-    func acknowledged(_ refusals: [AckTabNotificationsRequest.Refused]) {
+    public func acknowledged(_ refusals: [AckTabNotificationsRequest.Refused]) {
         var moved = refusals.filter { $0.code == "owner.unreachable" }.map(\.item)
         for refusal in refusals where refusal.code == "feed.moving" {
             if recentlyMoved.contains(refusal.item) {
