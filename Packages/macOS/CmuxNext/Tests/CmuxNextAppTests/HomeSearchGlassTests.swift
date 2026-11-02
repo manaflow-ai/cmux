@@ -69,11 +69,10 @@ struct HomeSearchGlassTests {
 
     /// The search circle opens the search, which then takes the band.
     @Test func theSearchCircleOpensTheSearch() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let home = Self.home(width: 90)
+        let window = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let home = Self.home(width: 90)
         window.contentView = home
         home.searchButton.performClick(nil)
         home.list.headerView.layoutSubtreeIfNeeded()

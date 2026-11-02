@@ -475,7 +475,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
-        let before = [compose, unreadToggle].map(\.debugState)
+        let before = [compose, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
         // used then and sees now (a stale header under the lights shows here).
         func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
@@ -505,7 +505,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
                 "beforeLayout": stale,
-                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
+                "buttons": ["before": before, "after": [compose, unreadToggle, searchButton].map(\.debugState)]]
     }
     #endif
 
