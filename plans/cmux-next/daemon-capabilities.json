@@ -21,6 +21,7 @@
     "agent-session-trust-vm-kind-v1",
     "app-screens-v1",
     "attach-identity-v1",
+    "attach-visibility-v1",
     "batch-close-v1",
     "bookmark-icon-v1",
     "bookmarks-v1",

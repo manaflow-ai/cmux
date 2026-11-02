@@ -234,14 +234,13 @@ enum PaneHandlers {
     // MARK: Sizing
 
     private static func bindSizing(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let resizes: [(ActionID, LayoutDirection)] = [
-            ("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down),
-        ]
+        let resizes: [(ActionID, LayoutDirection)] = [("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down)]
         for (id, direction) in resizes {
             registry.bind(id, invoke: { invocation in
                 guard let pane = ctx.paneController(invocation), let content = pane.workspace,
                       let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-                switch PaneResize.change(for: pane.layoutPaneID, direction: direction, in: screen.layout) {
+                switch PaneResize.change(for: pane.layoutPaneID, direction: direction, in: screen.layout,
+                                         shown: content.layoutView.shownResizeRange(ofScreenContaining: pane.layoutPaneID)) {
                 case .splitRatio(let split, let ratio):
                     content.layoutModel.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
                 case .columnWidth(let column, let width):

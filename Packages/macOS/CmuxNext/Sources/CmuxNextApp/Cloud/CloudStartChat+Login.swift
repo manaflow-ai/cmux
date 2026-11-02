@@ -15,6 +15,9 @@ import Foundation
 /// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps
 /// the token on the Mac, is scoped in cmux#29766.
 ///
+/// The decision's rules are Rust's (``CloudHarnessLoginDecision``, cmux-cloud-start-core); this
+/// extension reads the machine and the account and acts on it.
+///
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
@@ -23,17 +26,10 @@ extension CloudStartChat {
         CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)
     }
 
-    /// The provider whose login a start needs; nil for a harness that has no transfer (pi, opencode).
-    /// No harness named is the app's default agent, Claude.
-    nonisolated static func loginProvider(harness: String?) -> CloudCredentialTransfer.Provider? {
-        guard let harness, !harness.isEmpty else { return .claude }
-        return AgentPaneCloudCredentialTransferRequest.Provider(harnessID: harness).flatMap { CloudCredentialTransfer.Provider(rawValue: $0.rawValue) }
-    }
-
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession) async -> Bool {
-        let cloud = services.cloud, provider = Self.loginProvider(harness: harness), userID = cloud.auth.user?.id
+        let cloud = services.cloud, provider = CloudHarnessLoginDecision.loginProvider(harness: harness), userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID
         let api = cloud.machineAPI.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(gate: Self.passesHarnessLoginHere, provider: provider, signedIn: userID != nil)

@@ -257,6 +257,13 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// The split ratios and column widths `pane`'s screen can show (``ShownResizeRange``), from the geometry its springs
+    /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
+    public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
+        return ShownResizeRange(geometry: view.baseGeometry, style: context.style)
+    }
+
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
     /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
     /// less the pane padding. A split's or a close's panes read their final widths from the turn the

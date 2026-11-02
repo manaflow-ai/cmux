@@ -4,9 +4,12 @@
 //! the group hover card's summary (`group_hover_summary`),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
-//! `cmux-cloud-start-core`'s Cloud start harness login decision
-//! (`cloud_harness_login`, `cloud_harness_login_provider`,
-//! `cloud_guest_kind`, `cloud_guest_kind_probe`),
+//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
+//! one call that reads the harness and both probes' output; `cloud_start_*`:
+//! the refusal, the account checks and the folder a start may copy;
+//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`; and
+//! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
+//! kept for an app pinned before `cloud_harness_login` read them itself),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`) and agent cursor visibility
 //! (`agent_cursor_visibility`), the window focus machine (`cmux_focus_*`,
@@ -167,6 +170,89 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: harness_login::Inputs =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_refusal" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    cloud_disabled: bool,
+                    signed_in: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let refusal = cmux_cloud_start_core::start::refusal(
+                    request.cloud_disabled,
+                    request.signed_in,
+                );
+                serde_json::to_vec(&serde_json::json!({ "refusal": refusal }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_account_text" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    account: Vec<Option<String>>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let text = cmux_cloud_start_core::start::account_text(&request.account);
+                serde_json::to_vec(&serde_json::json!({ "text": text })).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_check_account" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    asked: Vec<Option<String>>,
+                    now: Vec<Option<String>>,
+                    list_current: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let check = cmux_cloud_start_core::start::check_account(
+                    &request.asked,
+                    &request.now,
+                    request.list_current,
+                );
+                serde_json::to_vec(&serde_json::json!({ "check": check }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_uploads" => {
+                let request: cmux_cloud_start_core::start::Folder =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let uploads = cmux_cloud_start_core::start::uploads(&request);
+                serde_json::to_vec(&serde_json::json!({ "uploads": uploads }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_folder_too_broad" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    root: String,
+                    home: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let too_broad =
+                    cmux_cloud_start_core::start::too_broad(&request.root, &request.home);
+                serde_json::to_vec(&serde_json::json!({ "tooBroad": too_broad }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_vm_kind" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    #[serde(default)]
+                    vm_kind: Option<String>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_cloud_start_core::vm_kind::read(
+                    request.vm_kind.as_deref(),
+                ))
+                .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_login_fingerprint" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    token: Vec<u8>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let fingerprint = cmux_cloud_start_core::machine_login::fingerprint(&request.token);
+                serde_json::to_vec(&serde_json::json!({ "fingerprint": fingerprint }))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_harness_login_provider" => {
                 #[derive(serde::Deserialize)]

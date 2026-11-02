@@ -1132,6 +1132,11 @@ public abstract class GeneratedCmuxClient {
         return ServerStatsResult.fromWire(result);
     }
 
+    public final SetAttachVisibilityResult setAttachVisibility(SetAttachVisibilityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_ATTACH_VISIBILITY, request.toWire());
+        return SetAttachVisibilityResult.fromWire(result);
+    }
+
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CELL_PIXELS, request.toWire());
         return SetCellPixelsResult.fromWire(result);
