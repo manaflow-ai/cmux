@@ -55,7 +55,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-A1",
+      "name": "routing-a1",
       "seconds": 40
     },
     {
@@ -91,7 +91,7 @@
       "mark": "a1"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RA1-${nonce}-$((6*7))"
     },
     {
@@ -122,7 +122,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-A1",
+      "name": "routing-a1",
       "tail": 0.6
     },
     {
@@ -131,7 +131,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-A2",
+      "name": "routing-a2",
       "seconds": 40
     },
     {
@@ -167,7 +167,7 @@
       "mark": "a2"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RA2-${nonce}-$((6*7))"
     },
     {
@@ -198,7 +198,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-A2",
+      "name": "routing-a2",
       "tail": 0.6
     },
     {
@@ -207,7 +207,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-A3",
+      "name": "routing-a3",
       "seconds": 40
     },
     {
@@ -243,7 +243,7 @@
       "mark": "a3"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RA3-${nonce}-$((6*7))"
     },
     {
@@ -274,7 +274,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-A3",
+      "name": "routing-a3",
       "tail": 0.6
     },
     {
@@ -283,7 +283,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-A4",
+      "name": "routing-a4",
       "seconds": 40
     },
     {
@@ -319,7 +319,7 @@
       "mark": "a4"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RA4-${nonce}-$((6*7))"
     },
     {
@@ -350,7 +350,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-A4",
+      "name": "routing-a4",
       "tail": 0.6
     }
   ]

@@ -33,7 +33,7 @@ def marker(case, n):
 
 def type_now(case, n):
     text, _line = marker(case, n)
-    return {"do": "smoke_type_now", "text": f"echo {text}-$((6*7))"}
+    return {"do": "routing_type_now", "text": f"echo {text}-$((6*7))"}
 
 
 def check(case, n, on, title, since, extra=(), **marker_opts):
@@ -77,7 +77,7 @@ def filmed(case, n, attempt_steps):
     """One attempt inside its own recording (ext_video, the HARNESS kit: debug.motion record_*): the action, the
     marker line and the check. The movie is routing-<case><n>.mov; geometry and content only (no pacing claim), so
     no require_hz."""
-    name = f"routing-{case}{n}"
+    name = f"routing-{case.lower()}{n}"  # run.py fetches only lowercase movie names (VIDEO_FILE)
     return [{"do": "video_start", "name": name, "seconds": 40}] + attempt_steps + \
         [{"do": "video_stop", "name": name, "tail": 0.6}]
 

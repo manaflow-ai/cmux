@@ -178,7 +178,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-D1",
+      "name": "routing-d1",
       "seconds": 40
     },
     {
@@ -190,7 +190,7 @@
       "mark": "d1"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RD1-${nonce}-$((6*7))"
     },
     {
@@ -220,12 +220,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-D1",
+      "name": "routing-d1",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-D2",
+      "name": "routing-d2",
       "seconds": 40
     },
     {
@@ -237,7 +237,7 @@
       "mark": "d2"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RD2-${nonce}-$((6*7))"
     },
     {
@@ -267,7 +267,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-D2",
+      "name": "routing-d2",
       "tail": 0.6
     }
   ]

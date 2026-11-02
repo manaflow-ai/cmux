@@ -229,6 +229,31 @@ def step_routing_select_workspace(j, step):
     return dict(rec, digit=digit, pane=step["pane"])
 
 
-STEPS = {"routing_click": step_routing_click, "routing_map_workspace_keys": step_routing_map_workspace_keys,
+def step_routing_type_now(j, step):
+    """TEXT and Return as real HID keys at once, like smoke_type_now, but it never refuses: a person's keys go
+    wherever the app has the keyboard, so the routing check must see where they land. It records which window was
+    key when the first key went out (debug.windows: a New Tab page's child Chromium window, a panel) and the
+    debug.focus model, for the finding. Real keys only (key_path=real)."""
+    if (j.spec.get("options") or {}).get("key_path") != "real":
+        raise D.NotRun("routing_type_now: real keys only (journey option key_path=real)")
+    sm, rk = _smoke(), _realkey()
+    key_now, windows = sm._main_key(j)
+    try:
+        focus = (j.app.rpc("debug.focus") or {}).get("windows", [{}])[0].get("model", {}).get("resolved")
+    except (D.StepError, AttributeError, IndexError):
+        focus = None
+    text = j.sub(step["text"])
+    j.hold_from = None
+    rk.require_front(j)
+    sent = D.now()
+    for ch in text:
+        rk.press_char(j, ch)
+    rk.press(j, "return")
+    return {"typed": text, "keys": len(text) + 1, "at": round(sent, 4), "send_ms": round((D.now() - sent) * 1000, 1),
+            "key_path": "real_hid", "main_window_key": key_now, "focus_resolved": focus,
+            "key_windows": [w for w in windows if w.get("key") is True]}
+
+
+STEPS = {"routing_type_now": step_routing_type_now, "routing_click": step_routing_click, "routing_map_workspace_keys": step_routing_map_workspace_keys,
          "routing_select_workspace": step_routing_select_workspace}
 CONDITIONS = {"routing_marker": ("daemon", cond_routing_marker)}

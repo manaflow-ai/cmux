@@ -168,7 +168,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-F1",
+      "name": "routing-f1",
       "seconds": 40
     },
     {
@@ -177,7 +177,7 @@
       "mark": "f1"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RF1-${nonce}-$((6*7))"
     },
     {
@@ -207,12 +207,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-F1",
+      "name": "routing-f1",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-F2",
+      "name": "routing-f2",
       "seconds": 40
     },
     {
@@ -221,7 +221,7 @@
       "mark": "f2"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RF2-${nonce}-$((6*7))"
     },
     {
@@ -251,12 +251,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-F2",
+      "name": "routing-f2",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-F3",
+      "name": "routing-f3",
       "seconds": 40
     },
     {
@@ -265,7 +265,7 @@
       "mark": "f3"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RF3-${nonce}-$((6*7))"
     },
     {
@@ -295,12 +295,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-F3",
+      "name": "routing-f3",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-F4",
+      "name": "routing-f4",
       "seconds": 40
     },
     {
@@ -309,7 +309,7 @@
       "mark": "f4"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RF4-${nonce}-$((6*7))"
     },
     {
@@ -339,7 +339,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-F4",
+      "name": "routing-f4",
       "tail": 0.6
     }
   ]

@@ -142,7 +142,7 @@
     },
     {
       "do": "video_start",
-      "name": "routing-G1",
+      "name": "routing-g1",
       "seconds": 40
     },
     {
@@ -155,7 +155,7 @@
       "mark": "g1"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RG1-${nonce}-$((6*7))"
     },
     {
@@ -185,12 +185,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-G1",
+      "name": "routing-g1",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-G2",
+      "name": "routing-g2",
       "seconds": 40
     },
     {
@@ -203,7 +203,7 @@
       "mark": "g2"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RG2-${nonce}-$((6*7))"
     },
     {
@@ -233,12 +233,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-G2",
+      "name": "routing-g2",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-G3",
+      "name": "routing-g3",
       "seconds": 40
     },
     {
@@ -251,7 +251,7 @@
       "mark": "g3"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RG3-${nonce}-$((6*7))"
     },
     {
@@ -281,12 +281,12 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-G3",
+      "name": "routing-g3",
       "tail": 0.6
     },
     {
       "do": "video_start",
-      "name": "routing-G4",
+      "name": "routing-g4",
       "seconds": 40
     },
     {
@@ -299,7 +299,7 @@
       "mark": "g4"
     },
     {
-      "do": "smoke_type_now",
+      "do": "routing_type_now",
       "text": "echo RG4-${nonce}-$((6*7))"
     },
     {
@@ -329,7 +329,7 @@
     },
     {
       "do": "video_stop",
-      "name": "routing-G4",
+      "name": "routing-g4",
       "tail": 0.6
     }
   ]
