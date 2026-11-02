@@ -327,6 +327,19 @@ def find_cargo():
     return None
 
 
+def cargo_path(cargo, path):
+    """PATH for the build: cargo's own folder first. cargo runs `rustc` (and rustup's shim finds the toolchain) by
+    PATH; a capture slot's PATH lacks /opt/homebrew/bin, so a cargo found there failed with "could not execute
+    process `rustc -vV`" (first real-app L1, cmux20 2026-11-02 08:33Z, exit 101)."""
+    folder = os.path.dirname(os.path.realpath(cargo)) if os.path.islink(cargo) else os.path.dirname(cargo)
+    parts = [folder, os.path.dirname(cargo)] + [x for x in path.split(os.pathsep) if x]
+    out = []
+    for x in parts:
+        if x and x not in out:
+            out.append(x)
+    return os.pathsep.join(out)
+
+
 BUILD_TIMEOUT = 300  # s: a cargo that waits on another job's package-cache lock does not hang a load run
 
 
@@ -353,6 +366,7 @@ def build_bins(quiet=False):
         env["RUSTUP_HOME"] = os.path.join(account, ".rustup")
     if account and "CARGO_HOME" not in env and os.path.isdir(os.path.join(account, ".cargo")):
         env["CARGO_HOME"] = os.path.join(account, ".cargo")
+    env["PATH"] = cargo_path(cargo, env.get("PATH", ""))
     # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin() does not look
     try:
         done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",

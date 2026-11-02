@@ -246,7 +246,19 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   accounts: accounts(),
   ...extra,
 });
-const variants: Record<string, SettingsPageVariant> = {};
+const variants: Record<string, SettingsPageVariant> = {
+  "model-picker-placement-inherited": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    note: "The normal placement row shows the existing left rail preference before a new choice is saved.",
+  }),
+  "model-picker-placement-symbols": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
+    note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+};
 for (const category of categories) {
   const allThemes = category.id === "theme";
   variants[category.id] = variant(category.id, { allThemes });
