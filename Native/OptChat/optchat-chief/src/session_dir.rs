@@ -310,7 +310,8 @@ pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
 /// `MEMORY_SERVER_NAME`) stays too: acpmux adds it only when cmux.json sets
 /// `agents.memory.enabled`, and its three tools wait behind ToolSearch
 /// (measured 2026-10-31: 158 tokens).
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux,cmux-agent-memory");
+pub const TURN_TOOL_SERVERS: (&str, &str) =
+    ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux,cmux-agent-memory");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
