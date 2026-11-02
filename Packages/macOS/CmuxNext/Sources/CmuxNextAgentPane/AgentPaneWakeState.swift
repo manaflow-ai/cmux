@@ -82,6 +82,16 @@ extension AgentPaneView {
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
         await AgentPaneWakeState.read(self, limit: limit, ask: "{}")
     }
+
+    /// A retired page: prompts it holds for a folder trust answer live only in it, so it puts them
+    /// into their chats' drafts before its bridge goes (webviews trustHeld.ts); then `close` runs.
+    public func releaseHeldPrompts(then close: @escaping @MainActor (AgentPaneView) -> Void) {
+        // task-owner: one release then close per retired page; ends with its close
+        Task { @MainActor in
+            await AgentPaneWakeState.releaseHeldPrompts(in: self)
+            close(self)
+        }
+    }
 }
 
 extension AgentPaneWakeState {
@@ -100,6 +110,20 @@ extension AgentPaneWakeState {
         limit: Duration = AgentPaneRelaunchWake.askLimit
     ) async {
         _ = await read(view, limit: limit, ask: "{closing: true}")
+    }
+
+    /// Why a hidden page asked for its wake state (`wake`, nil when it did not answer in time) stays
+    /// instead of being let go, for the log; nil when it may go. A kept page is asked again after
+    /// the planner's `keptRecheck`.
+    public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool) -> String? {
+        // A connected page that did not say what it holds (a large attachment still encoding)
+        // stays: letting it go would drop its chips.
+        if wake == nil, hasHandshake { return "no wake state in time" }
+        // A page holding prompts for a folder trust answer stays: each keeps its send's gesture
+        // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
+        // prompts have.
+        if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
+        return nil
     }
 
     @MainActor static func read(_ view: AgentPaneView, limit: Duration, ask: String) async -> AgentPaneWakeState? {

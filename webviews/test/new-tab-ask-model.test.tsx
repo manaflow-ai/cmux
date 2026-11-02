@@ -236,6 +236,7 @@ async function newTabPage(
       <QueryClientProvider client={new QueryClient()}>
         <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
+            template="default"
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
