@@ -587,8 +587,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun install --frozen-lockfile
         working-directory: scripts/cmux-next/release
-      # Right before the deploy: hold released, 6 h spacing, production's commit a strict ancestor of
-      # the candidate (a re-run or an older job never downgrades). Exit 3 = hold: the job fails.
+      # Right before the deploy: hold released, 6 h spacing, and production's backend changes are
+      # in the candidate by ancestry or patch-equivalent cherry-pick (an older job never downgrades).
+      # Exit 3 = hold: the job fails.
       - name: Recheck the hold, the spacing and the lineage
         working-directory: .
         env:

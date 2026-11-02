@@ -302,7 +302,8 @@ deploy-staging and on `workflow_dispatch target=promote`:
   - spacing: production code changed at least 6 h ago.
   - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
     passed at least 60 minutes ago, with no red staging deploy in those 60 minutes; it must
-    descend from production's commit.
+    descend from production's commit, or contain a patch-equivalent copy of every backend
+    commit unique to production.
   - G2: no open issue labeled `cmux-next-regression` with `P0` or `P1` (beads are not readable
     from CI; the chief labels an issue or sets the hold).
   - G3: every DO migration tag the candidate adds over production is listed in
