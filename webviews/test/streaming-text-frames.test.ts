@@ -186,8 +186,9 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // far fewer than stepped (CI, 2026-10-31: 71 stepped, 25 eased in Chromium). A step counts what
     // moved at once whole and the glide's slide at what a 60 Hz frame draws of it (the harness's
     // follow steps). Frames that arrived late while the page used less than one frame of CPU are
-    // reported as runner starvation and omitted from this motion metric; layout, long-task and work
-    // budgets still inspect those frames.
+    // reported as runner starvation, while their semantic layout movement remains in this metric;
+    // only the glide's scheduler gap is normalized. Layout, long-task and work budgets inspect the
+    // same frames.
     expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX / 2);
     expect(eased.follow.p95).toBeLessThan(LINE_PX / 2);
     expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap / 2);

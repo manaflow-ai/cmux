@@ -432,16 +432,17 @@ function analyze(
   for (let index = 1; index < live.length; index += 1) {
     const previous = live[index - 1]!;
     const frame = live[index]!;
-    const ms = frame.t - previous.t;
+    // Use the same monotonic clock as the animation and the work spans. The rAF timestamp is the
+    // display timestamp, which can stay on the nominal cadence while this callback waits in a
+    // loaded runner; using it would charge that scheduler gap to the glide's 60 Hz step.
+    const ms = frame.at - previous.at;
     const pageWorkMs = frame.scriptMs + frame.layoutMs;
-    // A browser frame can arrive late even when the page used less than one frame of CPU. That
-    // scheduler gap belongs to the runner, not to the follow animation: counting the layout rise
-    // across it turns queued deltas into a fake jump. Keep the frame interval in the report and let
-    // the independent work/long-task checks cover time spent in the page itself.
-    if (ms > FRAME_MS && pageWorkMs < FRAME_MS) {
+    // Keep delayed frames in the motion metric. A low-work, long interval is useful evidence of
+    // runner starvation, but dropping it could hide a real jump from an unmeasured callback. The
+    // glide contribution below is the only part adjusted for the scheduler gap; layout movement
+    // remains a semantic one-frame jump. The work/long-task checks still inspect the same frame.
+    if (ms > FRAME_MS && pageWorkMs < FRAME_MS)
       starvedFrames.push({ t: at(frame.t), intervalMs: round2(ms), pageWorkMs: round2(pageWorkMs) });
-      continue;
-    }
     let took = 0;
     for (; nextGlide < glideEvents.length && glideEvents[nextGlide]!.at <= frame.at; nextGlide += 1)
       if (glideEvents[nextGlide]!.at > previous.at) took += glideEvents[nextGlide]!.px;
