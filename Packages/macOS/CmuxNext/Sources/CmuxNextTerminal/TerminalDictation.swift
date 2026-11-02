@@ -1,24 +1,21 @@
 import AppKit
-import CmuxNextDaemon
-import CmuxNextDaemonService
-import CmuxNextDictation
-import CmuxNextTerminal
+public import CmuxNextDictation
 
-/// Dictation for a terminal surface. Finalized words go through the daemon's
-/// paste path so local, SSH, and Cloud terminals all receive the same safe
-/// bracketed paste. The surface and daemon are pinned until the session ends.
+/// Dictation for a terminal surface. Finalized words go to the `paste` the
+/// owner gives (the App sends them through the daemon's paste path, so local,
+/// SSH and Cloud terminals all receive the same safe bracketed paste). The
+/// host and its paste target are pinned until the session ends.
 @MainActor
-final class TerminalDictation {
+public final class TerminalDictation {
     private let claims: DictationMicrophoneClaims
     private let makeSession: () -> DictationSession
     private var session: DictationSession?
-    private var targetSurface: SurfaceID?
-    private var targetDaemon: DaemonService?
+    private var targetPaste: (@MainActor (String) -> Void)?
     private weak var targetHost: TerminalHostView?
     private var committedText = ""
     private let preview = TerminalDictationPreview()
 
-    init(
+    public init(
         claims: DictationMicrophoneClaims = .shared,
         makeSession: @escaping () -> DictationSession = { TerminalDictation.defaultSession() }
     ) {
@@ -26,22 +23,23 @@ final class TerminalDictation {
         self.makeSession = makeSession
     }
 
-    var isActive: Bool { session?.phase.isStartable == false }
+    public var isActive: Bool { session?.phase.isStartable == false }
 
     /// Toggles the pinned terminal. Once started, a later invocation on a
     /// different tab stops this session rather than retargeting its words.
-    func toggle(entry: TerminalEntry, surface: SurfaceID, daemon: DaemonService) {
+    /// `paste` receives each finalized segment for `host`'s terminal.
+    public func toggle(host: TerminalHostView, paste: @escaping @MainActor (String) -> Void) {
         guard !isActive else {
             session?.stop()
             return
         }
-        start(entry: entry, surface: surface, daemon: daemon)
+        start(host: host, paste: paste)
     }
 
     /// Stops a running terminal session when the shortcut is invoked after
     /// focus moved away from its terminal.
     @discardableResult
-    func stopIfActive() -> Bool {
+    public func stopIfActive() -> Bool {
         guard isActive else { return false }
         session?.stop()
         return true
@@ -56,11 +54,10 @@ final class TerminalDictation {
         clearTarget()
     }
 
-    private func start(entry: TerminalEntry, surface: SurfaceID, daemon: DaemonService) {
+    private func start(host: TerminalHostView, paste: @escaping @MainActor (String) -> Void) {
         let session = activeSession()
-        targetSurface = surface
-        targetDaemon = daemon
-        targetHost = entry.session.view
+        targetPaste = paste
+        targetHost = host
         committedText = ""
         targetHost?.onClose = { [weak self, weak host = targetHost] in
             guard let self, self.targetHost === host else { return }
@@ -81,9 +78,9 @@ final class TerminalDictation {
     }
 
     private func insert(_ delta: String) {
-        guard let surface = targetSurface, let daemon = targetDaemon else { return }
+        guard let paste = targetPaste else { return }
         committedText += delta
-        daemon.send("dictation") { try await $0.send(surface, text: delta, paste: true) }
+        paste(delta)
     }
 
     private func deliver(_ update: DictationUpdate) {
@@ -107,12 +104,11 @@ final class TerminalDictation {
         targetHost?.onClose = nil
         targetHost?.topOverlay = nil
         targetHost = nil
-        targetSurface = nil
-        targetDaemon = nil
+        targetPaste = nil
         committedText = ""
     }
 
-    static func defaultSession() -> DictationSession {
+    public static func defaultSession() -> DictationSession {
         #if DEBUG
         if let recorded = DictationSession.recorded() { return recorded }
         #endif
