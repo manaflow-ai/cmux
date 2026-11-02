@@ -20,6 +20,10 @@ import Testing
         let images = (0..<8).map { _ in NSImage.icon(.search, size: 14) }
         let bitmaps = try images.map { try #require(Self.bitmap($0, side: 14, scale: scale)) }
         #expect(Set(bitmaps.map(ObjectIdentifier.init)).count == 1, "8 identical glyphs rasterized \(Set(bitmaps.map(ObjectIdentifier.init)).count) times at \(scale)x")
+        // The images' own representations are the shared bitmaps (not drawing handlers drawn per image).
+        let reps = images.map { $0.representations.compactMap { ($0 as? NSBitmapImageRep)?.cgImage }.first { $0.width == Int(14 * scale) } }
+        #expect(reps.allSatisfy { $0 != nil } && Set(reps.compactMap { $0.map(ObjectIdentifier.init) }).count == 1,
+                "the images do not share one bitmap representation at \(scale)x")
         #expect(bitmaps[0].width == Int(14 * scale), "the bitmap is not at the asked scale")
         // Another size is another key.
         let other = try #require(Self.bitmap(NSImage.icon(.search, size: 18), side: 18, scale: scale))

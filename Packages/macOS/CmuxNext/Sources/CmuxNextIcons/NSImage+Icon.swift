@@ -19,7 +19,7 @@ extension NSImage {
     private nonisolated static func icon(_ name: IconName, size: CGFloat, style: IconStyle, symbol: String?) -> NSImage {
         let side = max(CGFloat.iconFloor, size)
         let glyph = IconRasters.Glyph(name: name.rawValue, style: style, symbol: symbol)
-        return IconRasters.shared.image(glyph, side: side) {
+        return rasterIcon(glyph, side: side) {
             let drawn = IconCatalog.bundled.style(style, for: name, size: side)
             return symbol.map(IconResolution.system) ?? IconPack.bundled.resolve(name, style: drawn)
         }
