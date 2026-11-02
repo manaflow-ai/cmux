@@ -1042,6 +1042,7 @@ test("Add account submits a local native request and refreshes the picker withou
     active: { routeId: "personal", scope: "chat" },
   };
   setNativeHost(async (method, params) => {
+    if (method !== "account.add") return undefined;
     calls.push({ method, params });
     listed.routes.push({ id: String(params.id), name: String(params.name), kind: String(params.kind), serves: true });
     return { id: params.id };
