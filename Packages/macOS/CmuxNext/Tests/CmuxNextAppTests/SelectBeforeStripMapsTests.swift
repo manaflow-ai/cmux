@@ -8,8 +8,8 @@ import Testing
 /// The strip follows the record one main-actor hop later (its observation), and the focus reducer checks
 /// a selected tab against the topology, which is built from the strip. Before, a select in that gap was
 /// dropped as a stale request and nothing tried it again: BrowserSamePaneReuseTests timed out on macOS 27
-/// (fleet job 4df3398d: the record listed the new tab, the strip and the topology did not), and a CLI,
-/// sidebar or tab-search select of a tab made a moment before was lost the same way.
+/// (fleet job 4df3398d: the record listed the new tab, the strip and the topology did not), and a strip,
+/// shortcut, palette or CLI select (`PaneController.select`) of a tab made a moment before was lost the same way.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
 struct SelectBeforeStripMapsTests {
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
