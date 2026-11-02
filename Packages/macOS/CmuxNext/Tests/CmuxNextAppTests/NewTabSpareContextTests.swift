@@ -73,6 +73,12 @@ struct NewTabSpareContextTests {
             pool.start()
             try await PasswordManagerRouteTests.until({ pool.spare != nil }, report: { "no spare was parked" })
             let spare = try #require(pool.spare?.view)
+            // The pool prepares only a page that finished its handshake and first paint (an adopt event before
+            // React listens is lost). The inert page has neither: the pool must leave it alone until then.
+            try await Task.sleep(for: NewTabSparePool.fitSettle * 3)
+            #expect(spare.model.newTab?.cwd == nil, "the pool prepared a page that had no handshake and no first paint")
+            spare.model.hasHandshake = true
+            spare.model.markPainted()
             // It loads folderless: a spare's handshake keeps its load folder (the chat's start-folder roots), and
             // that folder must be no tab's; the tab's context comes after the load.
             #expect(loaded.allSatisfy { $0.cwd == nil }, "the spare loaded with folder \(loaded.compactMap(\.cwd))")
@@ -80,7 +86,8 @@ struct NewTabSpareContextTests {
             // The context Cmd-T gives the page (NewTabPage.open): the focused pane's.
             let keyPage = NewTabPage.page(services, selected: pane.selectedTab, window: window, pane: pane, paletteActions: false)
             try #require(keyPage.cwd != nil, "the focused terminal has no folder for the page")
-            try await PasswordManagerRouteTests.until({ Self.screen(spare.model.newTab) == Self.screen(keyPage) }, within: .seconds(3),
+            try await PasswordManagerRouteTests.until({ Self.screen(spare.model.newTab) == Self.screen(keyPage) && spare.model.newTabPrepared },
+                                                      within: .seconds(3),
                                                       report: {
                 "the parked spare draws cwd \(spare.model.newTab?.cwd ?? "nil"), home \(spare.model.newTab?.home ?? "nil"); "
                     + "Cmd-T gives cwd \(keyPage.cwd ?? "nil"), home \(keyPage.home ?? "nil")"
@@ -91,6 +98,7 @@ struct NewTabSpareContextTests {
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
             #expect(Self.screen(spare.model.newTab) == drawn, "the adoption changed the screen the spare drew before the key")
+            #expect(!spare.model.newTabPrepared, "after Cmd-T the context is the tab's: its handshake may name its folder")
         }
     }
 }
