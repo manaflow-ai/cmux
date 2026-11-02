@@ -417,7 +417,9 @@ impl Hub {
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = match &meta {
             Some(meta) => self.home_of(meta, &family, &defaults, picked).await,
-            None => target_home(&with_defaults(&defaults, env.clone()), &family, picked),
+            None => {
+                target_home(&with_defaults(&defaults, env.clone()), &family, picked, cwd.as_deref())
+            }
         };
         let var = route_account::home_var(&family);
         let mut facts = Facts {
@@ -477,10 +479,11 @@ impl Hub {
             .unwrap_or(None);
             if let (Some(at), Some((id, evidence))) = (changed, facts.turn.as_mut()) {
                 if let Ok(changed_session) = self.resolve(id) {
-                    {
+                    let current = {
                         let mut meta =
                             changed_session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                        // The file probe awaited off-thread: do not invalidate a newer turn.
+                        // The file probe awaited off-thread: do not invalidate a newer turn,
+                        // including in this response, if one finished while the file was read.
                         if meta
                             .last_turn
                             .as_ref()
@@ -489,15 +492,21 @@ impl Hub {
                         {
                             mark_credentials_changed(&mut meta, at);
                         }
-                    }
+                        session_evidence(&meta)
+                    };
                     self.save_meta_answered(&changed_session)?;
+                    if let Some(current) = current {
+                        *evidence = current;
+                    }
+                } else {
+                    *evidence = TurnEvidence {
+                        state: State::Unknown,
+                        at,
+                        detail:
+                            "the credential file changed; the next turn will check the new sign-in"
+                                .into(),
+                    };
                 }
-                *evidence = TurnEvidence {
-                    state: State::Unknown,
-                    at,
-                    detail: "the credential file changed; the next turn will check the new sign-in"
-                        .into(),
-                };
             }
         }
         if !facts.settled()
@@ -672,13 +681,19 @@ fn target_home(
     env: &BTreeMap<String, String>,
     family: &str,
     route: Option<(&routes::Route, &str)>,
+    cwd: Option<&Path>,
 ) -> Option<PathBuf> {
-    let pinned = route_account::home_var(family).and_then(|var| env.get(var)).map(|value| {
+    let configured = route_account::home_var(family).and_then(|var| env.get(var));
+    let pinned = configured.and_then(|value| {
+        // No target model or directory means these variables cannot select a known account.
+        if value.contains("${model}") || (cwd.is_none() && value.contains("${cwd}")) {
+            return None;
+        }
         let user = dirs::home_dir().unwrap_or_default();
-        PathBuf::from(super::expand_env_value(value, &user, &user, ""))
+        Some(PathBuf::from(super::expand_env_value(value, cwd.unwrap_or(&user), &user, "")))
     });
     let picked =
-        route.filter(|(_, scope)| pinned.is_none() || matches!(*scope, "chat" | "profile"));
+        route.filter(|(_, scope)| configured.is_none() || matches!(*scope, "chat" | "profile"));
     picked.and_then(|(r, _)| r.file.account_home.as_ref().map(PathBuf::from)).or(pinned)
 }
 
@@ -866,12 +881,18 @@ mod tests {
         let pinned = at("/accounts/A");
         let plain = BTreeMap::new();
         let b = route("/accounts/B");
-        let home = |env: &BTreeMap<_, _>, scope| target_home(env, "codex", Some((&b, scope)));
+        let home = |env: &BTreeMap<_, _>, scope| target_home(env, "codex", Some((&b, scope)), None);
         assert_eq!(home(&pinned, "global"), Some(PathBuf::from("/accounts/A")));
         assert_eq!(home(&pinned, "family"), Some(PathBuf::from("/accounts/A")));
         assert_eq!(home(&pinned, "chat"), Some(PathBuf::from("/accounts/B")));
         assert_eq!(home(&plain, "global"), Some(PathBuf::from("/accounts/B")));
-        assert_eq!(target_home(&pinned, "codex", None), Some(PathBuf::from("/accounts/A")));
+        assert_eq!(target_home(&pinned, "codex", None, None), Some(PathBuf::from("/accounts/A")));
+        let templated = BTreeMap::from([("CODEX_HOME".into(), "${cwd}/.codex".into())]);
+        assert_eq!(target_home(&templated, "codex", None, None), None);
+        assert_eq!(
+            target_home(&templated, "codex", None, Some(Path::new("/project"))),
+            Some(PathBuf::from("/project/.codex"))
+        );
         // A home the defaults pin holds as the profile's does, and the profile's wins over it.
         let defaulted = with_defaults(&at("/accounts/A"), BTreeMap::new());
         assert_eq!(home(&defaulted, "global"), Some(PathBuf::from("/accounts/A")));

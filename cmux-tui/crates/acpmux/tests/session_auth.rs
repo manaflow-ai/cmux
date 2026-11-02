@@ -39,6 +39,7 @@ fn hub(root: &Path) -> Arc<Hub> {
         "harnesses": {
             "claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
+            "file": {"argv": [root.join("claude")], "family": "claude", "env": {"CLAUDE_CONFIG_DIR": root.join("file-account"), "HOME": root.join("home")}},
             // A harness whose own check passes only in the env its preset `checked-two` or the
             // chat's own env sets.
             "checked": {"argv": ["python3", FAKE], "family": "plain"},
@@ -186,6 +187,64 @@ async fn session_auth_refresh_recognizes_a_terminal_login_in_only_its_account() 
     let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
     assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
     assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before);
+}
+
+/// A past successful turn is not proof an unrefreshable file token remains usable.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn session_auth_rechecks_expiry_in_the_selected_project_after_a_successful_turn() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("project-expiry");
+    let command = root.join("claude");
+    std::fs::copy(FAKE, &command).unwrap();
+    std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let account = root.join("file-account");
+    let project = root.join("project");
+    let other = root.join("other-project");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(other.join(".claude")).unwrap();
+    std::fs::write(
+        other.join(".claude/settings.json"),
+        r#"{"env":{"ANTHROPIC_API_KEY":"synthetic-project-key"}}"#,
+    )
+    .unwrap();
+    let credential = account.join(".credentials.json");
+    std::fs::write(
+        &credential,
+        r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":9000000000000}}"#,
+    )
+    .unwrap();
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let created = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": project, "mcpServers": [], "_meta": {"acpmux": {"harness": "file"}}}),
+        )
+        .await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let reply = c.prompt(id, "hello").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let ready = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&ready), ("ready", "turn"));
+    std::fs::write(
+        &credential,
+        r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":1}}"#,
+    )
+    .unwrap();
+    let expired = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&expired), ("expired", "authCheck"), "{expired}");
+    let expired_target =
+        c.auth(json!({"target": {"harness": "file", "cwd": project}, "refresh": true})).await;
+    assert_eq!(state(&expired_target), ("expired", "authCheck"), "{expired_target}");
+    // Even after a failed turn, another project can have its own usable credential.
+    c.prompt(id, "fail-streamed: API Error: 401 OAuth token has expired.").await;
+    let valid_project =
+        c.auth(json!({"target": {"harness": "file", "cwd": other}, "refresh": true})).await;
+    assert_eq!(state(&valid_project), ("ready", "authCheck"), "{valid_project}");
+    let unscoped = c.auth(json!({"target": {"harness": "file"}, "refresh": true})).await;
+    assert_eq!(unscoped["state"], "unknown", "omitted cwd cannot exclude project auth: {unscoped}");
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
