@@ -131,4 +131,23 @@ import Testing
         #expect(movedOn.dropKeys(ofWorkspacesOtherThan: "home"))
         #expect(movedOn.take().count == 1, "a key typed after the person moved on was dropped with the new workspace")
     }
+
+    /// Review of #31865 (its merge with #31707): a key typed into a cold terminal opens that terminal's surface hold (an
+    /// adopted lane). The person then asks for a new workspace in the same window. The keys typed after that, before the
+    /// new workspace shows, are its terminal's, never the cold terminal's; the key typed before stays the cold terminal's.
+    @Test func keysForAPersonsNewWorkspaceTypedDuringASurfaceHoldGoToTheNewTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        buffer.awaitSurface(of: CreationInputBuffer.HeldLane(tab: "cold", machine: nil))
+        buffer.capture(Self.key("a", code: 0), focusedTab: "cold")
+        let ticket = buffer.open(generation: 9, newWorkspace: true)
+        buffer.capture(Self.key("b", code: 11), focusedTab: "cold", forNewWorkspace: true)
+        buffer.capture(Self.key("c", code: 8), focusedTab: "cold", forNewWorkspace: true)
+        buffer.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        #expect(!buffer.dropKeys(ofWorkspacesOtherThan: "ws-new"))
+        buffer.bindNewWorkspaceKeys(to: "new-terminal", machine: nil)
+        let routed = buffer.take(focused: "new-terminal") { _, _ in false }.flatMap(\.keys)
+            .map { "\($0.event.characters ?? "?"):\($0.lane?.tab ?? "-")" }
+        #expect(routed == ["a:cold", "b:new-terminal", "c:new-terminal"],
+                "keys typed for the person's new workspace went to the cold terminal, or a key was lost or reordered: \(routed)")
+    }
 }
