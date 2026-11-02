@@ -30,7 +30,7 @@ enum BrowserDeviceHandlers {
         // The fit bar under a fitted page runs browserFit on its tab's pane (nil fit: the palette asks).
         BrowserFitFrameView.perform = { tab, fit in
             guard let pane = context.services.locateTab(tab)?.1 else { return }
-            _ = registry.perform("browserFit", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id), arguments: fit.map { ["fit": .string($0)] } ?? [:]))
+            _ = registry.perform("browserFit", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id), arguments: fit.map { ["fit": .string($0)] } ?? [:]).onMachine(context.services.daemon(for: pane).machineID))
         }
         registry.bind("browserDevice", run: { invocation in
             let entry = try context.page(invocation)

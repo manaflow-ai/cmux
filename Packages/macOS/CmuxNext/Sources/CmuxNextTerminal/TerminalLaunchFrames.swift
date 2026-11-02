@@ -45,6 +45,8 @@ public final class TerminalLaunchFrames {
     private var markAt: @Sendable (String, Date) -> Void = { _, _ in }
     /// Whether the read's results were dropped (``prefetch(on:keep:mark:markAt:)`` then starts no new read).
     private var readDropped = false
+    /// Keeps the visible terminals' frames on disk while the app runs (``keep(_:session:work:)``), for a launch after a kill.
+    private var keeper: TerminalLaunchFrameKeeper?
     /// Frames shown ahead of their terminal's surface, by the pane content they show in (``showAhead(_:in:reveal:)``).
     private var ahead: [ObjectIdentifier: Ahead] = [:]
     /// The terminals the launch's first window frame shows, by tab key: when each asked for its frame and when it
@@ -370,9 +372,28 @@ public final class TerminalLaunchFrames {
         return nil
     }
 
+    /// Keeps `session`'s last frame on disk under `key` while the app runs (``TerminalLaunchFrameKeeper``), so a launch
+    /// after a kill shows it too, not only one after a quit. Once per session; a new session of the key replaces it.
+    public func keep(_ key: String, session: TerminalSession, work: BackgroundWork) {
+        guard let directory else { return }
+        if keeper == nil {
+            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work) { [weak self] in
+                guard let self else { return false }
+                return self.readDropped || self.read?.value != nil || self.read == nil
+            }
+        }
+        keeper?.keep(key, session: session)
+    }
+
+    /// Frames the keeper saved so far (tests, `debug.timings`).
+    var keepSaves: Int { keeper?.saves ?? 0 }
+    /// The size of `key`'s last kept save (tests).
+    func keepSavedSize(_ key: String) -> CGSize? { keeper?.savedSize(key) }
+
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
-    /// prompt too: it is what the pane showed.
+    /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
     public func save(_ sessions: [String: TerminalSession]) async {
+        keeper?.stop()
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
@@ -427,8 +448,34 @@ public final class TerminalLaunchFrames {
         }
     }
 
+    /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
+    /// frames of every key not in it (terminals this run does not show), once the launch read has ended.
+    nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?) {
+        let manager = FileManager.checked
+        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let name = "\(key)@\(scale)x.jpg"
+        let url = directory.appending(path: name)
+        if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+           (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
+            let owner = old.split(separator: "@", maxSplits: 1).first.map(String.init) ?? old
+            guard owner == key || keeping.map({ !$0.contains(owner) }) == true else { continue }
+            try? manager.removeItem(at: directory.appending(path: old))
+        }
+    }
+
+    /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
+    nonisolated static func removeAll(of key: String, in directory: URL) {
+        let manager = FileManager.checked
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
+            try? manager.removeItem(at: directory.appending(path: old))
+        }
+    }
+
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
-    private nonisolated static func isFileSafe(_ key: String) -> Bool {
+    nonisolated static func isFileSafe(_ key: String) -> Bool {
         !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
     }
 }
