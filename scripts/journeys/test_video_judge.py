@@ -288,6 +288,13 @@ class VideoJudgeTests(unittest.TestCase):
             hit = find(self.reports[name], "half-pixel blend")
             self.assertGreaterEqual(sum(h["frames"][1] - h["frames"][0] + 1 for h in hit), 20, (name, hit))
 
+    def test_with_no_trace_an_edge_off_the_grid_at_rest_too_is_still_a_blend(self):
+        # Review B2 of b94c3947324: with no model sample the rest match was always accepted and every blend dropped.
+        base = build_case(self.tmp, "offgrid-divider-notrace", "offgrid-divider")
+        Path(f"{base}.trace.json").unlink()
+        hit = find(vj.judge(base, movie=False), "half-pixel blend")
+        self.assertGreaterEqual(sum(h["frames"][1] - h["frames"][0] + 1 for h in hit), 20, hit)
+
     def test_a_dark_divider_between_panes_is_visible(self):
         row = _bgra(draw(200))[100].astype(np.int16)
         r0, r1 = vj._run_around(row, 200, vj.COLOR_TOL)

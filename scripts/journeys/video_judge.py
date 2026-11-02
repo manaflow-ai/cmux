@@ -743,8 +743,12 @@ MOVED_HALF_PX = 6          # a blend whose 13 px neighbourhood is exactly on the
 
 def _moved_whole_pixels(line, x, rest, rest_edges):
     """Whether line[x-6:x+7] (exact BGRA) occurs at a pixel boundary of one of the rest lines (bytes) with its center
-    away from that rest frame's model edges (rest_edges: one bool mask per rest line). A match centered on a model edge
-    at rest is the same edge drawn off the grid at rest too (review BLOCK of c41e4124528): it stays a blend."""
+    away from that rest frame's model edges (rest_edges: one bool mask per rest line). The match may be anywhere on the
+    line at any shift (text that moved, or the same text elsewhere): either way the frame shows no new mixed color.
+    A match centered within 1 px of a model edge at rest is the same edge drawn off the grid at rest too (review BLOCK
+    of c41e4124528): it stays a blend. Known limit (review of b94c3947324): an edge drawn off the grid at rest 2 px or
+    more from its model edge, with the same 13 px in motion, is no longer found; a wider radius brought back thousands
+    of glyph matches as false reds."""
     lo, hi = x - MOVED_HALF_PX, x + MOVED_HALF_PX + 1
     if lo < 0 or hi > len(line):
         return False
@@ -760,10 +764,12 @@ def _moved_whole_pixels(line, x, rest, rest_edges):
 
 def _model_edges_at(case, line, f, length):
     """Positions within 1 px of a model pane or divider edge on LINE in the sample frame f shows."""
-    marks = np.zeros(length, bool)
     k = committed_sample(case, case.complete_t[f])
     if k is None:
-        return marks
+        # No model (a recording with no trace, review B2 of b94c3947324): a rest match cannot be told apart from an
+        # edge, so every position counts as one and no blend is dropped (the base judge's rule there).
+        return np.ones(length, bool)
+    marks = np.zeros(length, bool)
     s = case.samples[k]
     for rect in list(s.panes.values()) + list(s.dividers.values()):
         if _crosses(rect, line.axis, line.coord / case.scale):
