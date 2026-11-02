@@ -4,7 +4,7 @@
   "title": "Routing D: Cmd-W closes a pane, then a line at once: it runs in the pane the app shows focused",
   "why": "wrong-pane typing after a close (focus moved during the close animation)",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 150,
+  "budget_seconds": 174,
   "options": {
     "key_path": "real"
   },
@@ -164,6 +164,11 @@
       "as": "d2"
     },
     {
+      "do": "video_start",
+      "name": "routing-D1",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "w",
       "modifiers": [
@@ -201,6 +206,16 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-D1",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-D2",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "w",
       "modifiers": [
@@ -236,6 +251,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-D2",
+      "tail": 0.6
     }
   ]
 }

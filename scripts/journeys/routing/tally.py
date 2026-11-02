@@ -53,10 +53,10 @@ def main():
     table = defaultdict(lambda: defaultdict(int))
     for a in rows:
         table[(a["case"], a["build"])][a["verdict"]] += 1
-    print("| Case | Build | Attempts | Right | Wrong | Lost | Split |")
-    print("| --- | --- | --- | --- | --- | --- | --- |")
+    print("| Case | Build | Attempts | Right | Wrong | Lost | Split | Unjudged |")
+    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for (case, build), c in sorted(table.items()):
-        print(f"| {case} | {str(build)[:12]} | {sum(c.values())} | {c['right']} | {c['wrong']} | {c['lost']} | {c['split']} |")
+        print(f"| {case} | {str(build)[:12]} | {sum(c.values())} | {c['right']} | {c['wrong']} | {c['lost']} | {c['split']} | {c['unjudged']} |")
     return 0
 
 

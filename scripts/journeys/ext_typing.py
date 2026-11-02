@@ -11,7 +11,8 @@ and just after the post, on the same clock (time.monotonic, mach_absolute_time o
 `t_post` to the first frame that shows the character.
 
 Steps (`do`):
-  typing_keys   {count?: 60, seed?: 1, gap_ms?: [90, 210], charset?: "abcdefghijklmnopqrstuvwxyz", label?, target?}
+  typing_keys   {count?: 60, seed?: 1, gap_ms?: [90, 210], charset?: "abcdefghijklmnopqrstuvwxyz", label?, target?,
+                 prime?: "", prime_pause_ms?: 600}
                 COUNT printable keys, each after a random gap in GAP_MS (a person's pace; fixed SEED), into whatever
                 has the keyboard now. No Return. TARGET names what should take them (terminal, composer,
                 address_bar): recorded with the target's rect (`typing_rect`) for the judge's crop. Result:
@@ -85,6 +86,12 @@ def step_typing_keys(j, step):
     charset = step.get("charset", "abcdefghijklmnopqrstuvwxyz")
     rng = random.Random(int(step.get("seed", 1)))
     rect = step_typing_rect(j, {"target": step["target"]}) if step.get("target") else getattr(j, "typing_rect", None)
+    # PRIME characters first, not measured: a field's placeholder goes away at its first key, which would read as
+    # a glyph that vanished; then a pause so the first measured key starts from a still frame.
+    for ch in step.get("prime", ""):
+        rk.press_char(j, ch)
+    if step.get("prime"):
+        time.sleep(float(step.get("prime_pause_ms", 600)) / 1000.0)
     keys = []
     next_at = D.now()
     for i in range(count):
@@ -96,7 +103,11 @@ def step_typing_keys(j, step):
             pass
         t_post = D.now()
         rk.press_char(j, ch)
-        keys.append({"i": i, "ch": ch, "t_post": round(t_post, 6), "t_back": round(D.now(), 6)})
+        t_back = D.now()
+        # t_post: just before CuaDriver's call; the key's HID event is made inside it (the call takes ~11 ms a key,
+        # ext_realkey.press), so `call_ms` is kept beside it and the judge reports refreshes from both ends.
+        keys.append({"i": i, "ch": ch, "t_post": round(t_post, 6), "t_back": round(t_back, 6),
+                     "call_ms": round((t_back - t_post) * 1000, 2)})
         next_at = t_post + rng.uniform(lo, hi)
     return {"label": step.get("label"), "keys": keys, "rect": rect, "key_path": "real_hid",
             "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t)"}

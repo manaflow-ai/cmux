@@ -70,7 +70,18 @@ def split_terminal(name, tag, key="d", mods=("cmd",)):
     ]
 
 
+def filmed(case, n, attempt_steps):
+    """One attempt inside its own recording (ext_video, the HARNESS kit: debug.motion record_*): the action, the
+    marker line and the check. The movie is routing-<case><n>.mov; geometry and content only (no pacing claim), so
+    no require_hz."""
+    name = f"routing-{case}{n}"
+    return [{"do": "video_start", "name": name, "seconds": 40}] + attempt_steps + \
+        [{"do": "video_stop", "name": name, "tail": 0.6}]
+
+
 def journey(ident, title, why, steps, budget):
+    # Each filmed attempt adds the recorder's start (frames must come), its 0.6 s tail and the file write.
+    budget += 12 * sum(1 for st in steps if st.get("do") == "video_start")
     return {"id": ident, "priority": "P1", "title": title, "why": why,
             "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
             "budget_seconds": budget, "options": {"key_path": "real"}, "continue_not_judged": True,
@@ -82,49 +93,50 @@ def cases(attempts):
     # A. Cmd-N, then Ctrl-` when the workspace shows, then the line at once (the smoke gate's step; #29530, #30827).
     steps = []
     for n in range(1, attempts + 1):
-        steps += [{"do": "smoke_snapshot", "name": f"a{n}"},
+        steps += [{"do": "smoke_snapshot", "name": f"a{n}"}] + filmed("A", n, [
                   {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": f"a{n}-ws"},
                   {"do": "expect", "title": f"A{n}: Cmd-N shows its workspace", "since": f"a{n}-ws", "timeout": 20,
                    "all": [{"smoke_workspaces": {"new": n}}, {"smoke_frame": {}}]},
                   {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"a{n}"},
                   type_now("A", n),
                   check("A", n, f"new:a{n}", f"A{n}: the line typed at once after Ctrl-` ran in the new terminal only",
-                        f"a{n}", in_new_workspace=True)]
+                        f"a{n}", in_new_workspace=True)])
     out.append(journey("routing-cmdn-ctrlbt", "Routing A: Cmd-N, Ctrl-` when the workspace shows, then a line at once: "
                        "it runs in the new terminal only", "P0 #29530 / #30827 (dogfood #30271): the keys went to the "
                        "New Tab page or nowhere", steps, 40 + 25 * attempts))
     # B. Cmd-N and Ctrl-` with no wait between them, then the line at once (the race the creation hold covers).
     steps = []
     for n in range(1, attempts + 1):
-        steps += [{"do": "smoke_snapshot", "name": f"b{n}"},
+        steps += [{"do": "smoke_snapshot", "name": f"b{n}"}] + filmed("B", n, [
                   {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": f"b{n}-ws"},
                   {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"b{n}"},
                   type_now("B", n),
                   check("B", n, f"new:b{n}", f"B{n}: Cmd-N, Ctrl-` and the line all at once: the line ran in the new "
-                        "terminal only", f"b{n}", extra=({"smoke_workspaces": {"new": n}},), in_new_workspace=True)]
+                        "terminal only", f"b{n}", extra=({"smoke_workspaces": {"new": n}},), in_new_workspace=True)])
     out.append(journey("routing-cmdn-ctrlbt-at-once", "Routing B: Cmd-N, Ctrl-` and a line with no wait: the line runs "
                        "in the new terminal only", "P0 #29530 (Cmd-N's New Tab hold took Ctrl-`), #30827", steps,
                        40 + 20 * attempts))
     # C. Cmd-D, then the line at once: the new right pane gets it.
     steps = home_terminal("c0", "c0home")
     for n in range(1, attempts + 1):
-        steps += [{"do": "smoke_snapshot", "name": f"c{n}"},
+        steps += [{"do": "smoke_snapshot", "name": f"c{n}"}] + filmed("C", n, [
                   {"do": "smoke_key", "key": "d", "modifiers": ["cmd"] if n % 2 else ["cmd", "shift"], "mark": f"c{n}"},
                   type_now("C", n),
                   check("C", n, f"new:c{n}", f"C{n}: Cmd-{'D' if n % 2 else 'Shift-D'} then a line at once: it ran "
-                        "in the new pane only", f"c{n}")]
+                        "in the new pane only", f"c{n}")])
     out.append(journey("routing-split", "Routing C: Cmd-D / Cmd-Shift-D, then a line at once: it runs in the new pane "
                        "only", "P0 1193 (Cmd-D twice, keys to the wrong new terminal), #29262", steps,
                        80 + 20 * attempts))
     # D. Cmd-W closes the focused pane; the line at once goes to the pane the app focuses next (shown focused).
     steps = home_terminal("d0", "d0home") + split_terminal("d1", "d1home") + split_terminal("d2", "d2home")
-    steps += [{"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "d1"},
-              type_now("D", 1),
-              check("D", 1, "focused", "D1: Cmd-W closes the right pane; the line at once runs in the pane the app "
-                    "shows focused, and only there", "d1"),
-              {"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "d2"},
-              type_now("D", 2),
-              check("D", 2, "focused", "D2: Cmd-W again; the line at once runs in the focused pane only", "d2")]
+    steps += filmed("D", 1, [{"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "d1"},
+                             type_now("D", 1),
+                             check("D", 1, "focused", "D1: Cmd-W closes the right pane; the line at once runs in the "
+                                   "pane the app shows focused, and only there", "d1")])
+    steps += filmed("D", 2, [{"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "d2"},
+                             type_now("D", 2),
+                             check("D", 2, "focused", "D2: Cmd-W again; the line at once runs in the focused pane only",
+                                   "d2")])
     out.append(journey("routing-close", "Routing D: Cmd-W closes a pane, then a line at once: it runs in the pane the "
                        "app shows focused", "wrong-pane typing after a close (focus moved during the close animation)",
                        steps, 150))
@@ -134,11 +146,12 @@ def cases(attempts):
         # Each attempt in its own new workspace (review N4 at 2d05ea3072e): one pane, then one split, so the clicked
         # pane never shrinks below the minimum width and never moves to a new column.
         steps += home_terminal(f"e{n}0", f"e{n}0home")
-        steps += [{"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": f"e{n}-split"},
+        steps += filmed("E", n, [
+                  {"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": f"e{n}-split"},
                   {"do": "routing_click", "pane": f"e{n}0", "mark": f"e{n}"},
                   type_now("E", n),
                   check("E", n, f"e{n}0", f"E{n}: Cmd-D, a click into the first pane during the split animation, then "
-                        "a line at once: it ran in the clicked pane only", f"e{n}")]
+                        "a line at once: it ran in the clicked pane only", f"e{n}")])
     out.append(journey("routing-click-during-split", "Routing E: a click into a pane while a split animates, then a "
                        "line at once: it runs in the clicked pane", "#29262 (only the pane AppKit gives a press to "
                        "takes the focus); the creation hold must not keep keys a click sent elsewhere", steps,
@@ -148,10 +161,11 @@ def cases(attempts):
     steps += [{"do": "routing_map_workspace_keys", "names": ["f1", "f2"]}]
     for n in range(1, attempts + 1):
         target = "f1" if n % 2 else "f2"
-        steps += [{"do": "routing_select_workspace", "pane": target, "mark": f"f{n}"},
+        steps += filmed("F", n, [
+                  {"do": "routing_select_workspace", "pane": target, "mark": f"f{n}"},
                   type_now("F", n),
                   check("F", n, target, f"F{n}: Cmd-<number> to the workspace of {target}, then a line at once: it "
-                        f"ran in {target} only", f"f{n}")]
+                        f"ran in {target} only", f"f{n}")])
     out.append(journey("routing-switch-workspace", "Routing F: Cmd-1..9 workspace switch, then a line at once: it runs "
                        "in the shown workspace's terminal", "wrong-pane typing after a switch (keys to the old "
                        "workspace's terminal)", steps, 130 + 15 * attempts))
@@ -159,10 +173,11 @@ def cases(attempts):
     steps = home_terminal("g1", "g1home") + split_terminal("g2", "g2home", key="`", mods=("control",))
     for n in range(1, attempts + 1):
         target, key = ("g1", "[") if n % 2 else ("g2", "]")
-        steps += [{"do": "smoke_key", "key": key, "modifiers": ["cmd", "shift"], "mark": f"g{n}"},
+        steps += filmed("G", n, [
+                  {"do": "smoke_key", "key": key, "modifiers": ["cmd", "shift"], "mark": f"g{n}"},
                   type_now("G", n),
                   check("G", n, target, f"G{n}: Shift-Cmd-{key} to the tab of {target}, then a line at once: it ran "
-                        f"in {target} only", f"g{n}")]
+                        f"in {target} only", f"g{n}")])
     out.append(journey("routing-switch-tab", "Routing G: tab switch in a pane (Shift-Cmd-[ and ]), then a line at "
                        "once: it runs in the selected tab", "wrong-pane typing after a tab switch", steps,
                        100 + 15 * attempts))

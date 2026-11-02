@@ -1,0 +1,156 @@
+{
+  "id": "typing-composer-idle",
+  "priority": "P1",
+  "title": "Typing: 60 real keys into a New Agent Chat composer (idle app), filmed",
+  "why": "VIDEO EXTRA item 1 (lead 2026-11-02 00:29Z): key-to-photon of a typed character, in display refreshes, judged from the real app's screen video (typing/judge.py)",
+  "source": "VIDEO EXTRA (STATUS 4271)",
+  "budget_seconds": 150,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes a workspace",
+      "since": "ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo ready-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal runs its line",
+      "since": "term",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "ready-${nonce}"
+            ]
+          }
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "ready-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "ready-${nonce}",
+      "as": "typed"
+    },
+    {
+      "do": "smoke_key",
+      "key": "i",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "agent"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-I opens a New Agent Chat pane (its frame kept)",
+      "since": "agent",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "set-up: what has the keyboard (records only)"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "typing_rect",
+      "target": "composer"
+    },
+    {
+      "do": "video_start",
+      "name": "typing-composer-idle",
+      "seconds": 40
+    },
+    {
+      "do": "typing_keys",
+      "label": "typing-composer-idle",
+      "target": "composer",
+      "prime": "x",
+      "count": 60,
+      "seed": 1,
+      "gap_ms": [
+        90,
+        210
+      ],
+      "charset": "abcdefghijklmnopqrstuvwxyz"
+    },
+    {
+      "do": "video_stop",
+      "name": "typing-composer-idle",
+      "tail": 0.8
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "after the keys: what has the keyboard (records only)"
+    }
+  ]
+}

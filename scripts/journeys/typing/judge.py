@@ -19,7 +19,9 @@ one repeated character (or any characters into a left-aligned single line), so t
 one glyph per key. Per frame: the ink extent = the rightmost column of the text band whose pixels differ from the
 band's background. Its total growth over the run divided by the keys is the glyph advance A. Key i (0-based) is shown
 in the first frame whose extent >= extent0 + (i + 0.5) * A. Refreshes = vsync instants in (t_post, frame t]: 1 = the
-next refresh. A cursor block moves with the text in a terminal; a blinking caret is ignored (it is thinner than A/2).
+next refresh. A cursor block moves with the text in a terminal (it stays solid while keys come; the start extent
+is the most over the 0.5 s before the first key, so a blink-off then does not shift the count); defects are read only
+from the first key to 0.5 s after the last.
 
 Defects (each with the video time, seconds from the movie's first frame, and the frame index):
   late       refreshes > 1 (the order's target: the next refresh)
@@ -83,12 +85,19 @@ def judge(frames, times, keys, refresh_hz=120.0):
     bg = int(np().median(frames[0]))
     ext = [ink_extent(f, bg) for f in frames]
     defects = []
-    # The extent just before the first key, and its growth over the run.
+    if not keys:
+        return {"error": "no keys"}
+    # The extent just before the first key: the most over the last 0.5 s before it (a blinking cursor that is off in
+    # the last frame would start the count one glyph short; review note 2 at 4adadd2e28e), and its growth over the
+    # keys' span (to the last key plus 0.5 s; after that a blinking cursor comes back).
     t0 = keys[0]["t_post"]
     before = max([i for i, t in enumerate(times) if t <= t0] or [0])
-    e0 = ext[before]
-    grown = max(ext) - e0
-    if grown <= 0 or not keys:
+    pre = [i for i, t in enumerate(times) if t0 - 0.5 <= t <= t0] or [before]
+    e0 = max(ext[i] for i in pre)
+    t_end = keys[-1]["t_post"] + 0.5
+    end = max([i for i, t in enumerate(times) if t <= t_end] or [len(times) - 1])
+    grown = max(ext[before:end + 1]) - e0
+    if grown <= 0:
         return {"error": "the text band shows no growth (wrong rect, or no key showed)", "extent0": e0}
     advance = grown / len(keys)
     # Vsync phase from the frame times: frames land on the grid t = phase + k * period.
@@ -96,7 +105,7 @@ def judge(frames, times, keys, refresh_hz=120.0):
     rows, seen = [], before
     for k in keys:
         need = e0 + (k["i"] + 0.5) * advance
-        idx = next((j for j in range(max(seen, before), len(times)) if times[j] > k["t_post"] and ext[j] >= need), None)
+        idx = next((j for j in range(max(seen, before), end + 1) if times[j] > k["t_post"] and ext[j] >= need), None)
         if idx is None:
             rows.append(dict(k, frame=None, refreshes=None))
             continue
@@ -109,7 +118,7 @@ def judge(frames, times, keys, refresh_hz=120.0):
             defects.append({"kind": "late", "key": k["i"], "frame": idx, "video_s": round(t - times[0], 4),
                             "refreshes": refreshes})
     first_shown = next((r["frame"] for r in rows if r.get("frame") is not None), None)
-    for j in range(max(before, 1), len(ext)):
+    for j in range(max(before, 1), end + 1):
         if ext[j] < ext[j - 1] - advance / 2:
             defects.append({"kind": "shrink", "frame": j, "video_s": round(times[j] - times[0], 4),
                             "from": ext[j - 1], "to": ext[j]})

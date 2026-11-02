@@ -180,6 +180,7 @@ def step_routing_map_workspace_keys(j, step):
             raise D.StepError(f"routing_map_workspace_keys: no pane named {name!r} (smoke_adopt_line first)")
         wanted[name] = named[name]["workspace"]
     sm = _smoke()
+    terms_before = set(sm._layout(j)[0])
     digits, seen, taken = {}, [], set()
     # A digit counts only when the shown workspace CHANGED after it (a digit with no item, or the digit of the
     # workspace already shown, changes nothing and proves nothing); a second pass, from another shown workspace,
@@ -207,6 +208,12 @@ def step_routing_map_workspace_keys(j, step):
         for name, target in wanted.items():
             if ws == target and name not in digits:
                 digits[name] = digit
+    grown = sorted(set(sm._layout(j)[0]) - terms_before)
+    if grown:
+        # A digit ran a launcher item (New Terminal Tab, ...) as a click does: a new tab may now be the selected tab
+        # of a named pane, so the later checks would name the wrong terminal (review should-fix 1 at 4adadd2e28e).
+        raise D.NotRun(f"routing_map_workspace_keys: the digits made {len(grown)} new terminals ({grown[:3]}): a "
+                       f"launcher item has a digit; the map is not usable ({json.dumps(seen)[:300]})")
     missing = [n for n in wanted if n not in digits]
     if missing:
         raise D.NotRun(f"routing_map_workspace_keys: Cmd-1..8 reached no workspace of {missing} ({json.dumps(seen)[:400]})")

@@ -4,7 +4,7 @@
   "title": "Routing C: Cmd-D / Cmd-Shift-D, then a line at once: it runs in the new pane only",
   "why": "P0 1193 (Cmd-D twice, keys to the wrong new terminal), #29262",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 160,
+  "budget_seconds": 208,
   "options": {
     "key_path": "real"
   },
@@ -96,6 +96,11 @@
       "name": "c1"
     },
     {
+      "do": "video_start",
+      "name": "routing-C1",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "d",
       "modifiers": [
@@ -133,8 +138,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-C1",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "c2"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-C2",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -175,8 +190,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-C2",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "c3"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-C3",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -216,8 +241,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-C3",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "c4"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-C4",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -256,6 +291,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-C4",
+      "tail": 0.6
     }
   ]
 }

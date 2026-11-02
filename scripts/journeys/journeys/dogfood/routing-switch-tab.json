@@ -4,7 +4,7 @@
   "title": "Routing G: tab switch in a pane (Shift-Cmd-[ and ]), then a line at once: it runs in the selected tab",
   "why": "wrong-pane typing after a tab switch",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 160,
+  "budget_seconds": 208,
   "options": {
     "key_path": "real"
   },
@@ -128,6 +128,11 @@
       "as": "g2"
     },
     {
+      "do": "video_start",
+      "name": "routing-G1",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "[",
       "modifiers": [
@@ -164,6 +169,16 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-G1",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-G2",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -204,6 +219,16 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-G2",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-G3",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "[",
       "modifiers": [
@@ -242,6 +267,16 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-G3",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-G4",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "]",
       "modifiers": [
@@ -278,6 +313,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-G4",
+      "tail": 0.6
     }
   ]
 }

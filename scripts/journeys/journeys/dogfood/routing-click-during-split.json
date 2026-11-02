@@ -4,7 +4,7 @@
   "title": "Routing E: a click into a pane while a split animates, then a line at once: it runs in the clicked pane",
   "why": "#29262 (only the pane AppKit gives a press to takes the focus); the creation hold must not keep keys a click sent elsewhere",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 210,
+  "budget_seconds": 258,
   "options": {
     "key_path": "real"
   },
@@ -92,6 +92,11 @@
       "as": "e10"
     },
     {
+      "do": "video_start",
+      "name": "routing-E1",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "d",
       "modifiers": [
@@ -132,6 +137,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-E1",
+      "tail": 0.6
     },
     {
       "do": "smoke_key",
@@ -189,6 +199,11 @@
       "as": "e20"
     },
     {
+      "do": "video_start",
+      "name": "routing-E2",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "d",
       "modifiers": [
@@ -229,6 +244,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-E2",
+      "tail": 0.6
     },
     {
       "do": "smoke_key",
@@ -286,6 +306,11 @@
       "as": "e30"
     },
     {
+      "do": "video_start",
+      "name": "routing-E3",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "d",
       "modifiers": [
@@ -326,6 +351,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-E3",
+      "tail": 0.6
     },
     {
       "do": "smoke_key",
@@ -383,6 +413,11 @@
       "as": "e40"
     },
     {
+      "do": "video_start",
+      "name": "routing-E4",
+      "seconds": 40
+    },
+    {
       "do": "smoke_key",
       "key": "d",
       "modifiers": [
@@ -423,6 +458,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-E4",
+      "tail": 0.6
     }
   ]
 }

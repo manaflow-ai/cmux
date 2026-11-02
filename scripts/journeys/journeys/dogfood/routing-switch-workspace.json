@@ -4,7 +4,7 @@
   "title": "Routing F: Cmd-1..9 workspace switch, then a line at once: it runs in the shown workspace's terminal",
   "why": "wrong-pane typing after a switch (keys to the old workspace's terminal)",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 190,
+  "budget_seconds": 238,
   "options": {
     "key_path": "real"
   },
@@ -154,6 +154,11 @@
       ]
     },
     {
+      "do": "video_start",
+      "name": "routing-F1",
+      "seconds": 40
+    },
+    {
       "do": "routing_select_workspace",
       "pane": "f1",
       "mark": "f1"
@@ -186,6 +191,16 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-F1",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-F2",
+      "seconds": 40
     },
     {
       "do": "routing_select_workspace",
@@ -222,6 +237,16 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-F2",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-F3",
+      "seconds": 40
+    },
+    {
       "do": "routing_select_workspace",
       "pane": "f1",
       "mark": "f3"
@@ -256,6 +281,16 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-F3",
+      "tail": 0.6
+    },
+    {
+      "do": "video_start",
+      "name": "routing-F4",
+      "seconds": 40
+    },
+    {
       "do": "routing_select_workspace",
       "pane": "f2",
       "mark": "f4"
@@ -288,6 +323,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-F4",
+      "tail": 0.6
     }
   ]
 }

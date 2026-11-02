@@ -4,7 +4,7 @@
   "title": "Routing B: Cmd-N, Ctrl-` and a line with no wait: the line runs in the new terminal only",
   "why": "P0 #29530 (Cmd-N's New Tab hold took Ctrl-`), #30827",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 120,
+  "budget_seconds": 168,
   "options": {
     "key_path": "real"
   },
@@ -39,6 +39,11 @@
     {
       "do": "smoke_snapshot",
       "name": "b1"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-B1",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -92,8 +97,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-B1",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "b2"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-B2",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -147,8 +162,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-B2",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "b3"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-B3",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -202,8 +227,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-B3",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "b4"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-B4",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -255,6 +290,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-B4",
+      "tail": 0.6
     }
   ]
 }

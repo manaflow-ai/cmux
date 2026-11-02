@@ -4,7 +4,7 @@
   "title": "Routing A: Cmd-N, Ctrl-` when the workspace shows, then a line at once: it runs in the new terminal only",
   "why": "P0 #29530 / #30827 (dogfood #30271): the keys went to the New Tab page or nowhere",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 140,
+  "budget_seconds": 188,
   "options": {
     "key_path": "real"
   },
@@ -39,6 +39,11 @@
     {
       "do": "smoke_snapshot",
       "name": "a1"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-A1",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -103,8 +108,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-A1",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "a2"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-A2",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -169,8 +184,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-A2",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "a3"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-A3",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -235,8 +260,18 @@
       ]
     },
     {
+      "do": "video_stop",
+      "name": "routing-A3",
+      "tail": 0.6
+    },
+    {
       "do": "smoke_snapshot",
       "name": "a4"
+    },
+    {
+      "do": "video_start",
+      "name": "routing-A4",
+      "seconds": 40
     },
     {
       "do": "smoke_key",
@@ -299,6 +334,11 @@
           }
         }
       ]
+    },
+    {
+      "do": "video_stop",
+      "name": "routing-A4",
+      "tail": 0.6
     }
   ]
 }

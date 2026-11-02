@@ -126,12 +126,13 @@ class WorkspaceKeyMapTests(unittest.TestCase):
             page, sel = effect.get(digit, (shown["page"], shown["selected"]))
             shown["page"], shown["selected"] = page, (sel or shown["selected"])
             return {}
-        saved = ext_smoke.step_smoke_key
+        saved, saved_layout = ext_smoke.step_smoke_key, ext_smoke._layout
         ext_smoke.step_smoke_key = key
+        ext_smoke._layout = lambda j: (TERMS, {})
         try:
             rec = ext_routing.step_routing_map_workspace_keys(Fake(), {"names": ["f1", "f2"]})
         finally:
-            ext_smoke.step_smoke_key = saved
+            ext_smoke.step_smoke_key, ext_smoke._layout = saved, saved_layout
         self.assertEqual(rec["digits"], {"f1": 3, "f2": 4})
         self.assertEqual(pressed[:4], [1, 2, 3, 4])
 
