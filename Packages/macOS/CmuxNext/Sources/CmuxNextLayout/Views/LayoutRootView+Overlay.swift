@@ -77,7 +77,7 @@ extension LayoutRootView {
             for view in stripPlane.subviews {
                 if view is StripChromePlane {
                     pruneChrome(in: view)
-                } else if !shown.contains(ObjectIdentifier(view)) {
+                } else if !shown.contains(ObjectIdentifier(view)), !context.isRetiredChrome(view) {
                     view.removeFromSuperview()
                 }
             }
@@ -117,8 +117,9 @@ extension LayoutRootView {
                 overlayHostsPlaced += 1
             }
         }
+        // A retired host's ring is hidden with it and goes with its teardown, not in a close's first frame.
         for view in plane.subviews {
-            if view is PaneOverlayView, !shown.contains(ObjectIdentifier(view)) {
+            if view is PaneOverlayView, !shown.contains(ObjectIdentifier(view)), !context.isRetiredChrome(view) {
                 view.removeFromSuperview()
             } else if view is StripChromePlane {
                 guard stripPlanes.contains(ObjectIdentifier(view)) else {

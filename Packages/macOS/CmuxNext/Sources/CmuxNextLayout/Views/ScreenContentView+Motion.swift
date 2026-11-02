@@ -86,6 +86,8 @@ extension ScreenContentView {
         guard hasMotion || reportScrollOnSettle else {
             // A close on the render server keeps the camera on its spring until it lands (`renderSpringLanded`).
             if renderClose == nil { scrollRidesFrames = false }
+            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
+            context.releaseRetired(of: screenID)
             return cameraMoving
         }
         var moving = false
@@ -130,6 +132,8 @@ extension ScreenContentView {
         applyPresentation()
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()
+        // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
+        if !moving { context.releaseRetired(of: screenID) }
         return moving || cameraMoving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and

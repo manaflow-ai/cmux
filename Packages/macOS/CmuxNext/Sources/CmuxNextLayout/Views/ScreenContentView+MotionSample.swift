@@ -37,7 +37,7 @@ extension ScreenContentView {
             // Where it shows: a pan on the strip container, or a row's or area's, moves it by the translation shown now.
             let moved = screen.shownPanTranslation(of: subview)
             let dx = moved.dx, dy = moved.dy
-            if let host = subview as? PaneHostView {
+            if let host = subview as? PaneHostView, !host.isHidden {
                 let shown = host.stripShownRect
                 let rect = shown.isEmpty ? CGRect.zero : screen.convert(shown, from: host).offsetBy(dx: dx, dy: dy)
                 let frame = host.frame.offsetBy(dx: dx, dy: dy)
