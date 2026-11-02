@@ -336,6 +336,10 @@ def cmd_beacon(a):
         argv += ["--label", a.label]
     if a.log:
         argv += ["--log", a.log]
+    if a.log_frames:
+        argv.append("--log-frames")
+    if a.inject_stall_ms:
+        argv += ["--inject-stall-ms", repr(float(a.inject_stall_ms)), "--inject-stall-at", str(a.inject_stall_at)]
     sys.stdout.flush()
     os.execv(path, argv)
 
@@ -1410,6 +1414,9 @@ def build_parser():
     p.add_argument("--label")
     p.add_argument("--duration", type=nonnegative(float), default=0.0)
     p.add_argument("--log")
+    p.add_argument("--log-frames", action="store_true", help="one log line per drawn frame (its mono time)")
+    p.add_argument("--inject-stall-ms", type=nonnegative(float), default=0.0, help=argparse.SUPPRESS)  # tests
+    p.add_argument("--inject-stall-at", type=nonnegative(int), default=100, help=argparse.SUPPRESS)
     # rt, not spin: a SWITCH profile runs 18 beacons at 240 Hz, and 18 spinning cores would be the load
     # under test; rt is a real-time thread that waits with mach_wait_until (pace_probe's rust-rt row
     # says whether it holds the rate; the end event's verdict says it per run)
