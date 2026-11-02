@@ -534,3 +534,22 @@ fn question_permissions() {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
     }
 }
+
+/// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
+/// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
+/// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,
+/// fileName}` when it is a valid reference with no bytes; every other block
+/// `_meta`, at every depth, goes (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979).
+#[test]
+fn prompt_upload_references() {
+    let all = cases("prompt_uploads.json");
+    for c in all.as_array().unwrap() {
+        assert_eq!(
+            stripping_prompt_meta(&object(&c["frame"])).map(Value::Object),
+            c["prompt_stripped"].as_object().cloned().map(Value::Object),
+            "{}",
+            name(c)
+        );
+    }
+}
