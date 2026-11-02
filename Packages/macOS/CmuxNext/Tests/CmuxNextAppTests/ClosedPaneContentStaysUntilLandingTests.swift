@@ -127,6 +127,11 @@ import Testing
         // #32197: the second release found no pane and ran in the motion).
         app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
         await ClosedPaneContentStaysUntilLandingTests.drainMain()
+        // The test applies the tree as a whole snapshot, which shows the closing pane's tab again for a moment (the
+        // daemon's own tab-closed event does not). The app's frame withdraws it again; so does the test, so every
+        // release below finds no presenter, as in the app (review of #32197: only the withdrawing pane holds them then).
+        if app.cache.presenter(of: closedTab) != nil { app.cache.withdraw(closedTab, by: closing) }
+        try #require(app.cache.presenter(of: closedTab) == nil, "fixture: no pane presents the closing tab")
         func state() -> String { "presenter \(app.cache.presenter(of: closedTab) != nil), withdrawn \(app.cache.withdrawnBy[closedTab]?.value != nil)" }
         app.cache.release(closedTab) // the gone-tab watch on the tree that dropped the pane
         #expect(app.cache.existingTerminal(closedTab) != nil, "the first release ran at once (\(state()))")
