@@ -1454,6 +1454,31 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     );
     assert_eq!(asked.borrow().len(), 1);
 
+    // A second send from the SAME Mac workspace has a new send key. The platform must recheck the
+    // machine's boot request, using its original create key, before the new send is pinned to it.
+    let second = self::key();
+    let reused = plan_with(&path, &request(&second, "user-leo/"), &mut "token-2\n".as_bytes(), &made);
+    assert_eq!(reused["machine"], json!("vm-hot"), "{reused}");
+    assert_eq!(asked.borrow().len(), 2);
+    assert_eq!(asked.borrow()[1].0["clientKey"], json!(Keys::of(&key).create));
+    assert_eq!(asked.borrow()[1].1, "token-2");
+
+    let changed_env = "env_bbbbbbbbbbbbbbbbbbbbbbbb";
+    let mut changed: Value = serde_json::from_str(&request(&self::key(), "user-leo/")).unwrap();
+    changed["environment"] = json!(changed_env);
+    let checks = RefCell::new(0);
+    let denied = |ask: &Ensure, _: &str| -> Result<Value, E> {
+        *checks.borrow_mut() += 1;
+        assert_eq!(ask.body()["environment"], json!(changed_env));
+        assert_eq!(ask.body()["clientKey"], json!(Keys::of(&key).create));
+        Err(E::Status { status: 400, code: "workspace_machine.bootstrap_mismatch" })
+    };
+    let denied_first = plan_with(&path, &changed.to_string(), &mut "token-2\n".as_bytes(), &denied);
+    let denied_retry = plan_with(&path, &changed.to_string(), &mut "token-2\n".as_bytes(), &denied);
+    assert_eq!(denied_first["error_code"], json!("workspace_machine.bootstrap_mismatch"));
+    assert_eq!(denied_retry["error_code"], json!("workspace_machine.bootstrap_mismatch"));
+    assert_eq!(*checks.borrow(), 2, "a refused send must never gain a reusable pin");
+
     // A team's send, and a personal one without the credential flag, keep the App's create.
     let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
     let team =
@@ -1466,17 +1491,20 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let flagless = json!({"key": self::key(), "account": "user-leo/", "local": local}).to_string();
     assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
 
+    // These fallback calls start from an unbound workspace; a known platform-bound machine is verified above.
+    let fallback_dir = scratch();
+    let fallback_path = ledger_in(fallback_dir.path());
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
     let no_route =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
     let fallback =
-        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
+        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
     assert_eq!(
         (fallback["ok"].clone(), fallback["machine"].clone()),
         (json!(true), Value::Null),
         "{fallback}"
     );
-    let empty = plan_with(&path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
+    let empty = plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
     assert_eq!(
         (empty["ok"].clone(), empty["machine"].clone()),
         (json!(true), Value::Null),
@@ -1488,12 +1516,12 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         Err(E::Status { status: 404, code: "cloud_environment.not_found" })
     };
     let refused =
-        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
+        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
     assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
     let lost =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
     assert_eq!(
-        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
+        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
         json!("unreachable")
     );
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
