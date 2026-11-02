@@ -51,21 +51,27 @@ struct KeyboardResizeRowsFollowupTests {
     }
 
     @Test func aRowOnePermilleAboveItsMinimumNeverTakesADeadPress() {
-        // Rows whose minimum (a stack of n panes) sits between two permille: stored at the rounded permille + 1.
-        for n in 1...6 {
-            let stack = (1..<n).reversed().reduce(SplitNode.leaf(PaneID("q\(n)"))) { tail, i in
-                .split(SplitID("s\(i)"), axis: .vertical, ratio: 0.5, a: .leaf(PaneID("q\(i)")), b: tail)
-            }
-            let upperRow = SplitNode.split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: stack)
-            let geometry = ScreenGeometry.compute(Self.layout([500, 500], rows: [upperRow, .leaf("p2")]), viewport: Self.viewport, style: Self.style)
-            let stackGeometry = geometry.rowStacks["c0"]!
-            let minimum = SplitGeometry.minimumSize(of: upperRow, style: Self.style).height
-            let rounded = RowStackGeometry.permille(forPixelHeight: minimum, columnHeight: stackGeometry.frame.height, gap: stackGeometry.gap)
-            let start = Self.layout([rounded + 1, 1000 - rounded - 1], rows: [upperRow, .leaf("p2")])
-            if let heights = Self.change(.up, "p1", start) {
-                let before = Self.edges(start), after = Self.edges(start.settingRowHeights(heights, for: "c0"))
-                #expect(after[0] < before[0], "n=\(n): Up sent \(heights.map(\.height)) and the edge stayed at \(before[0])")
-            }
+        // The minimum pane content height in quarter points from 64 to 400: many sit between two permille, where a floor
+        // rounded to the nearest permille is half a permille low (the review counted 58 such heights at H 841).
+        var checked = 0
+        for quarter in 0...1344 {
+            var style = Self.style
+            style.minimumPaneContentSize.height = 64 + CGFloat(quarter) / 4
+            let start0 = Self.layout([500, 500], rows: [.leaf("p1"), .leaf("p2")])
+            guard let stack = ScreenGeometry.compute(start0, viewport: Self.viewport, style: style).rowStacks["c0"] else { continue }
+            let minimum = SplitGeometry.minimumSize(of: .leaf("p1"), style: style).height
+            let rounded = RowStackGeometry.permille(forPixelHeight: minimum, columnHeight: stack.frame.height, gap: stack.gap)
+            guard rounded + 1 < 900 else { continue }
+            let start = Self.layout([rounded + 1, 999 - rounded], rows: [.leaf("p1"), .leaf("p2")])
+            let geometry = ScreenGeometry.compute(start, viewport: Self.viewport, style: style)
+            guard case .rowHeights(let column, let heights)? = PaneResize.change(for: "p1", direction: .up, in: start,
+                                                                                shown: ShownResizeRange(geometry: geometry, style: style)) else { continue }
+            checked += 1
+            let before = geometry.rowStacks["c0"]!.rows[0].frame.maxY
+            let after = ScreenGeometry.compute(start.settingRowHeights(heights, for: column), viewport: Self.viewport, style: style)
+                .rowStacks["c0"]!.rows[0].frame.maxY
+            #expect(after < before, "content height \(style.minimumPaneContentSize.height): Up sent \(heights.map(\.height)) and the edge stayed at \(before)")
         }
+        #expect(checked > 0)
     }
 }
