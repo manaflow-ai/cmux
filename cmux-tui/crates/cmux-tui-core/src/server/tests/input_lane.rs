@@ -269,7 +269,7 @@ fn a_named_key_reaches_its_terminal_without_the_session_lock() {
 
 /// Reads lines from `reader` until the reply to request `id` (stream lines of an attach come in between).
 #[cfg(target_os = "macos")]
-fn reply_to(reader: &mut std::io::BufReader<Box<dyn transport::Stream>>, id: u64) -> Value {
+fn reply_to(reader: &mut BufReader<Box<dyn transport::Stream>>, id: u64) -> Value {
     use std::io::BufRead;
     loop {
         let mut line = String::new();
@@ -308,7 +308,7 @@ fn a_connection_that_carries_the_persons_keys_runs_at_user_interactive_qos() {
         })
         .unwrap();
     let mut writer = client.try_clone_box().unwrap();
-    let mut reader = std::io::BufReader::new(client);
+    let mut reader = BufReader::new(client);
     let byte = base64::engine::general_purpose::STANDARD.encode(b"a");
     let requests = [
         json!({"id": 1, "cmd": "attach-surface", "surface": surface.id, "cols": 80, "rows": 24}),
@@ -326,7 +326,7 @@ fn a_connection_that_carries_the_persons_keys_runs_at_user_interactive_qos() {
     let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
     for role in ["mux-conn", "mux-control-dispatch", "mux-line-out"] {
         assert_eq!(
-            super::input_qos::observed_thread_qos(role),
+            input_qos::observed_thread_qos(role),
             Some(interactive),
             "{role} carried the person's keys at another QoS than user-interactive"
         );
@@ -354,7 +354,7 @@ fn an_unattached_senders_connection_keeps_the_default_qos() {
         move || handle_connection(mux, server)
     });
     let mut writer = client.try_clone_box().unwrap();
-    let mut reader = std::io::BufReader::new(client);
+    let mut reader = BufReader::new(client);
     let byte = base64::engine::general_purpose::STANDARD.encode(b"a");
     for id in 1..=3u64 {
         let request = json!({"id": id, "cmd": "send", "surface": surface.id, "bytes": byte});
@@ -364,7 +364,7 @@ fn an_unattached_senders_connection_keeps_the_default_qos() {
     }
     let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
     for role in ["mux-control-dispatch", "mux-line-out"] {
-        let observed = super::input_qos::observed_thread_qos(role);
+        let observed = input_qos::observed_thread_qos(role);
         assert!(observed.is_some(), "{role} recorded no QoS");
         assert_ne!(
             observed,
