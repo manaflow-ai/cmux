@@ -214,3 +214,63 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
 });
+
+// Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,
+// like, a bit more metadata. Like, at the very least tell you what model did it, what effort level."
+// The name's tooltip and the mark's name the sender's harness, model and effort: a listed chat's own,
+// else the ones its message names (`fromHarness`, `fromModel`, `fromEffort`).
+test("a listed sender's hover names its harness, model and effort", async () => {
+  const listed = entry({
+    sessionId: "mux-lane",
+    name: "gcp-lane",
+    hostKind: "local",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    effort: "high",
+  });
+  const store = new SubsessionStore();
+  store.set([...sessions, listed]);
+  root = createRoot(host);
+  const text = "Rebased.";
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => undefined }}>
+        <IncomingMessageLine
+          id="row-1"
+          message={{ name: "gcp-lane", sessionId: "mux-lane", text, raw: text }}
+          onOpen={() => undefined}
+        />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+  expect(open.getAttribute("title")).toBe(`${t("subagents.open", { name: "gcp-lane" })}\nCodex · gpt-6.1-sol high`);
+  expect(open.getAttribute("aria-label")).toBe(t("subagents.open", { name: "gcp-lane" }));
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBe("Codex · gpt-6.1-sol high");
+});
+
+test("an unlisted sender's hover reads the harness, model and effort its message names", async () => {
+  const parsed = incomingPrompt("Tests pass", {
+    _meta: {
+      provenance: {
+        kind: "session_message",
+        from: "peer-lane-1",
+        fromName: "peer-lane",
+        fromHarness: "codex",
+        fromModel: "gpt-6-astra",
+        fromEffort: "xhigh",
+      },
+    },
+  });
+  const message = parsed?.kind === "message" ? parsed.message : undefined;
+  expect(message).toMatchObject({ harness: "codex", model: "gpt-6-astra", effort: "xhigh" });
+  await line({ ...message!, sessionId: undefined });
+  const from = host.querySelector<HTMLElement>(".cv-received__from")!;
+  expect(from.getAttribute("title")).toBe("Codex · gpt-6-astra xhigh");
+});
+
+test("a sender nothing describes keeps no tooltip", async () => {
+  await line({ name: "gone-lane" });
+  expect(host.querySelector(".cv-received__from")?.getAttribute("title")).toBeNull();
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBeNull();
+});

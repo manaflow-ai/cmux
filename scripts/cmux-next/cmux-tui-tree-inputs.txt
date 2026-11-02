@@ -47,6 +47,7 @@ blob plans/cmux-next/action-surfaces.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
+blob schemas/agent-cursor-visibility/vectors.json
 blob schemas/automation-input/vectors.json
 blob schemas/automation-lease/vectors.json
 blob schemas/deeplinks/agent-link.json
@@ -64,6 +65,7 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
