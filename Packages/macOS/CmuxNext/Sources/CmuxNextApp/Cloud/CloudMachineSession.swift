@@ -129,7 +129,8 @@ final class CloudMachineSession {
             // That read cannot connect through the pending overlay. Clearing it is a second
             // live edge even when the raw status already reads running.
             connect()
-        } else if previous == .starting, record.status == .running, daemon.connection == nil {
+        } else if previous == .starting || previous == .provisioning, record.status == .running, daemon.connection == nil {
+            // A new machine is live while it provisions, but its daemon answers only once it runs.
             retryNow()
         }
         recoverInterruptedMutation()
@@ -380,6 +381,16 @@ final class CloudMachineSession {
     /// stale: a legacy machine with no daemon connection that does not read
     /// paused (the idle auto-pause may have parked it while the app's copy
     /// still says running).
+    /// A machine made for this send has no daemon until it runs: reads its record (forced) at `pause`'s
+    /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
+    func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
+        guard appLink != nil, machine.status != .running, let refresher else { return }
+        _ = await CloudWait.untilAnswered(limit: 60, pause: pause) { [self] in
+            await refresher(true)
+            return machine.status == .running ? true : machine.status.isLive || machine.shownStatus.isChanging ? nil : false
+        }
+    }
+
     func refreshIfMaybePaused() async {
         guard appLink == nil, daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
         await refresher(true)
