@@ -542,7 +542,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
-        devToolsController.views?.host.isHidden = !visible
+        // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
+        devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
         if visible, host.visibleTab === self { reloadOwedAfterExit() }
     }
