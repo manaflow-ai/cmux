@@ -103,6 +103,10 @@ extension CloudService {
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
+            },
+            watchPause: { attempt in
+                // wakeup-allow: same-key watch while the approval sheet is open; cancelled when the sheet closes
+                try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
     }
@@ -192,10 +196,10 @@ extension CloudPresenter {
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
-        return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
-                    identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
-        }
+        // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
+        guard let window else { return false }
+        return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
+                                                                 button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
     }
 }
 
