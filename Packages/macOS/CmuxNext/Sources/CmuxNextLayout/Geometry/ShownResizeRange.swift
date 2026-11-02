@@ -58,18 +58,30 @@ public nonisolated struct ShownResizeRange {
             return max(LayoutRow.heightRange.lowerBound, Int((placed * scale).rounded(.up)))
         }
         let step = Int((delta * 1000 * scale).rounded())
+        guard step != 0 else { return nil }
         var heights = rows.map { RowHeight(row: $0.id, height: $0.height) }
+        let range = LayoutRow.heightRange
+        // The upper row's permille where it shows: a row stored below what its panes need shows at that minimum.
+        let shownUpper = max(rows[upper].height, floor(rows[upper]))
+        /// From where the row shows, one step toward `next`, inside `low...high`; nil when nothing would move, so a
+        /// press never moves the edge the wrong way or sends a height the model refuses.
+        func stepped(low: Int, high: Int) -> Int? {
+            guard low <= high else { return nil }
+            let next = step > 0 ? min(shownUpper + step, high) : max(shownUpper + step, low)
+            return (step > 0 ? next > shownUpper : next < shownUpper) ? next : nil
+        }
         if fills {
             let pair = rows[upper].height + rows[upper + 1].height
-            let low = floor(rows[upper]), high = pair - floor(rows[upper + 1])
-            guard low <= high else { return nil }
-            let next = min(max(rows[upper].height + step, low), high)
-            guard next != rows[upper].height else { return nil }
+            // Both rows stay in 100...1000 (setRowHeights refuses others) and keep their minimums.
+            guard let next = stepped(low: max(floor(rows[upper]), pair - range.upperBound),
+                                     high: min(pair - floor(rows[upper + 1]), range.upperBound)) else { return nil }
             heights[upper].height = next
             heights[upper + 1].height = pair - next
         } else {
-            let next = min(max(rows[upper].height + step, floor(rows[upper])), LayoutRow.heightRange.upperBound)
-            guard next != rows[upper].height else { return nil }
+            // A scrolling stack: the upper row alone, and never below the sum that fills the column (there the stack
+            // places rows in proportion, a different edge): the press that reaches it is a part step.
+            let rest = sum - rows[upper].height
+            guard let next = stepped(low: max(floor(rows[upper]), 1000 - rest), high: range.upperBound) else { return nil }
             heights[upper].height = next
         }
         return heights

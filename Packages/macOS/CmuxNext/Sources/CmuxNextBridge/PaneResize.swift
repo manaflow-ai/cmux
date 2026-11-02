@@ -32,7 +32,7 @@ public nonisolated enum PaneResize {
         }
         guard let column = layout.column(containing: pane) else { return nil }
         // A pane in a row (rows-v1) with no vertical split of its own: up and down move its row's edge.
-        if axis == .vertical, column.hasRows {
+        if axis == .vertical, column.hasRows, column.dock?.edge.isBand != true {
             return shown?.rowHeights(moving: pane, in: column, by: delta).map { .rowHeights(column.id, $0) }
         }
         let range = ColumnWidthPreset.widthRange
