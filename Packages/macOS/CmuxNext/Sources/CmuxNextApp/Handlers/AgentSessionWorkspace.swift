@@ -35,6 +35,10 @@ import Foundation
 /// sidebar's session tree nests the new workspace under the caller's even
 /// when the session's daemon lists no lineage (a remote or older daemon).
 enum AgentSessionWorkspace {
+    /// How long an agent-opened workspace keeps asking for its create and first chat tab through late
+    /// daemon replies (one budget for both): a Chief session may be starting on a busy host.
+    static let firstTabBudget: Duration = .seconds(120)
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
             try open(invocation, context: context)
@@ -108,7 +112,7 @@ enum AgentSessionWorkspace {
                 // A Chief session may be starting on a busy host. Keep one generous deadline for
                 // workspace creation and its first chat tab; abandoning the tab after the short
                 // control deadline leaves the daemon's late about:blank commit as a bare row.
-                let giveUp = ContinuousClock.now + DaemonConnection.lateTerminalStartBudget
+                let giveUp = ContinuousClock.now + Self.firstTabBudget
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
