@@ -630,11 +630,15 @@ def launch_profile(out, app_pid, until_ms):
     path = exported.get("time-profile")
     if not path:
         return {"error": "no time-profile table"}
-    rows = [r for r in trace.time_profile_samples(path) if (r[2] or {}).get("pid") == app_pid]
+    import collections as _c
+    every = trace.time_profile_samples(path)
+    per_pid = _c.Counter(((r[2] or {}).get("pid"), (r[2] or {}).get("process") or "") for r in every)
+    rows = [r for r in every if (r[2] or {}).get("pid") == app_pid]
     if not rows:
-        return {"error": "no samples of the app"}
-    main_tid = min(rows, key=lambda r: r[0])[2].get("tid")
-    rows = sorted(r for r in rows if r[2].get("tid") == main_tid)
+        return {"error": "no samples of the app", "pids": [[str(k), v] for k, v in per_pid.most_common(12)]}
+    # The main thread: the app's busiest thread over the launch (the first one sampled can be the pre-exec bench fork).
+    main_tid = _c.Counter((r[2] or {}).get("tid") for r in rows).most_common(1)[0][0]
+    rows = sorted((r for r in rows if r[2].get("tid") == main_tid), key=lambda r: r[0])
     start = rows[0][0]
     rows = [r for r in rows if r[0] - start <= until_ms * 1e6]
     own, total = collections.Counter(), collections.Counter()
@@ -645,7 +649,9 @@ def launch_profile(out, app_pid, until_ms):
         for name in set(n[:200] for n in names):
             total[name] += weight
     to_ms = lambda c, n: [[round(v / 1e6, 1), k] for k, v in c.most_common(n)]
-    return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250)}
+    return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250),
+            "pids": [[str(k), v] for k, v in per_pid.most_common(12)],
+            "threads": [[str(k), v] for k, v in _c.Counter((r[2] or {}).get("tid") for r in every if (r[2] or {}).get("pid") == app_pid).most_common(6)]}
 
 
 def load_trace_module():
