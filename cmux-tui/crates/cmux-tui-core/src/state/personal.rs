@@ -277,9 +277,8 @@ fn apply_personal_change(
             // An agent that puts each lane "in Leads" asks for the group once per lane: one
             // group, not one per ask (Leo, 2026-11-02: fifteen "Leads" groups of one row each).
             if reuse && let Some(existing) = personal::group_named(tx, room.as_deref(), &name)? {
-                let mut value = personal::workspace_group_snapshot(tx, &existing)?
+                let value = personal::workspace_group_snapshot(tx, &existing)?
                     .context("named group vanished")?;
-                value["reused"] = Value::Bool(true);
                 return Ok(StateChanges::new(value, Vec::new()));
             }
             // A group made with no place (`cmux workspace group create`, MCP,

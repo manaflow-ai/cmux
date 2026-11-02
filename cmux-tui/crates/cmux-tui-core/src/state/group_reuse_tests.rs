@@ -29,7 +29,6 @@ fn reuse_answers_the_rooms_group_of_that_name() {
             &format!("leads-{n}"),
         );
         assert_eq!(again["id"], leads["id"], "{name:?} is the same group: {again}");
-        assert_eq!(again["reused"], true);
     }
     assert_eq!(group_names(&mux), ["Leads"]);
     mux.shutdown();
@@ -43,7 +42,6 @@ fn reuse_makes_the_group_when_none_has_that_name() {
     let made =
         mutate(&mux, "workspace_group.create", json!({"name": "Leads", "reuse": true}), "leads");
     assert_eq!(made["name"], "Leads");
-    assert_eq!(made.get("reused"), None, "a made group is not marked reused: {made}");
     // The name compares as typed, case included, as the app's exact match does.
     mutate(&mux, "workspace_group.create", json!({"name": "leads", "reuse": true}), "lower");
     assert_eq!(group_names(&mux).len(), 3, "{:?}", group_names(&mux));
