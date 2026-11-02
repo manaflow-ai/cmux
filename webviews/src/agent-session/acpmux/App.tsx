@@ -9087,7 +9087,7 @@ function AcpmuxPane() {
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
-  const newChatLeftover = useRef<() => { leave: () => void } | undefined>(() => undefined);
+  const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -9170,18 +9170,24 @@ function AcpmuxPane() {
   newChatLeftover.current = () => {
     if (snapshotRef.current?.sessionId) return undefined;
     const typed = leftoverInField.current ?? composerHandle.current?.draftText() ?? newChatDraft.typed;
-    const held = trustHeldNow.current.newChatTexts;
-    const text = [...newChatDraft.kept, ...held, typed].filter((part) => part.trim()).join("\n\n");
-    if (!text) return undefined;
+    const kept = newChatDraft.kept;
+    // No held prompt goes while the pick waits for its chat: the page still shows the new chat, so
+    // one could land in the chat picked (cmux#32298 review at 94f283e).
+    const resume = trustHeldNow.current.pauseNewChat();
     return {
+      /// The pick landed: the held prompts leave the hold (with one whose start it cancelled).
       leave: () => {
-        trustHeldNow.current.takeNewChat();
+        const held = trustHeldNow.current.takeNewChat().map((entry) => entry.text);
+        resume();
+        const text = [...kept, ...held, typed].filter((part) => part.trim()).join("\n\n");
         newChatDraft.kept = [];
         newChatDraft.held = [];
         newChatDraft.typed = "";
         leftoverInField.current = undefined;
-        void callNative("chat.leftover", { text }).catch(() => undefined);
+        if (text) void callNative("chat.leftover", { text }).catch(() => undefined);
       },
+      /// The pick failed or a later one took over: the new chat's prompts go as before.
+      cancel: resume,
     };
   };
   // Held prompts given back while no composer of the new chat showed go into the next one's.
@@ -10954,8 +10960,14 @@ function AcpmuxPane() {
             newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
             const leaving = newChatLeftover.current();
-            const selected = await client.adoptSession(String(sessionId));
-            if (!selected || client.attachedSession() !== selected) return undefined;
+            const selected = await client.adoptSession(String(sessionId)).catch((error: unknown) => {
+              leaving?.cancel();
+              throw error;
+            });
+            if (!selected || client.attachedSession() !== selected) {
+              leaving?.cancel();
+              return undefined;
+            }
             // Posted before the pick's own, with no wait between: a later pick still persists last.
             leaving?.leave();
             await persistSession(selected);
@@ -10965,8 +10977,14 @@ function AcpmuxPane() {
             newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
             const leaving = newChatLeftover.current();
-            const selected = await client.select(String(sessionId));
-            if (!selected || client.attachedSession() !== selected) return undefined;
+            const selected = await client.select(String(sessionId)).catch((error: unknown) => {
+              leaving?.cancel();
+              throw error;
+            });
+            if (!selected || client.attachedSession() !== selected) {
+              leaving?.cancel();
+              return undefined;
+            }
             // Posted before the pick's own, with no wait between: a later pick still persists last.
             leaving?.leave();
             await persistSession(selected);

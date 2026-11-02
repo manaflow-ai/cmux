@@ -144,11 +144,14 @@ export function useTrustHeldPrompts({
   const going = useRef<TrustHeldPrompt | undefined>(undefined);
   /// Prompts a quitting page took out (`release`): a send of one that settles later puts nothing back.
   const released = useRef(new Set<string>());
+  /// Picks from the new chat still waiting for the chat they open (``pauseNewChat``): no new chat's
+  /// prompt goes meanwhile, or it could land in that chat.
+  const pausedNewChat = useRef(0);
 
   useEffect(() => {
     if (holds || flushing.current || !held.some((entry) => sentIn(entry, chat, cwd))) return;
-    // A new chat's first prompt is starting it: the rest wait for its session.
-    if (chat === undefined && starting.current) return;
+    // A new chat's first prompt is starting it: the rest wait for its session. A pick paused them.
+    if (chat === undefined && (starting.current || pausedNewChat.current > 0)) return;
     flushing.current = true;
     void (async () => {
       // One at a time, each once acpmux took the one before. A new chat's first prompt starts it;
@@ -157,6 +160,7 @@ export function useTrustHeldPrompts({
         const shown = now.current;
         const entry = shown.held.find((item) => sentIn(item, chat, cwd));
         if (!entry || shown.holds || shown.chat !== chat || shown.cwd !== cwd) break;
+        if (chat === undefined && pausedNewChat.current > 0) break;
         now.current = { ...shown, held: shown.held.filter((item) => item.id !== entry.id) };
         setHeld((list) => list.filter((item) => item.id !== entry.id));
         if (chat === undefined) starting.current = true;
@@ -296,6 +300,19 @@ export function useTrustHeldPrompts({
     edit: (id: string, edit: QueueEdit) => {
       now.current = { ...now.current, held: editHeld(now.current.held, id, edit) };
       setHeld((list) => editHeld(list, id, edit));
+    },
+    /// Holds every new chat's prompt from now, for a pick waiting for the chat it opens; returns
+    /// what resumes them (once, however often it is called). A pick that lands takes them first
+    /// (``takeNewChat``); one that fails only resumes, and they go as before.
+    pauseNewChat: () => {
+      pausedNewChat.current += 1;
+      let resumed = false;
+      return () => {
+        if (resumed) return;
+        resumed = true;
+        pausedNewChat.current -= 1;
+        setRounds((count) => count + 1);
+      };
     },
     /// Takes every new chat's held prompt out, in order, for a tab that opens another chat: what
     /// they say goes with the new chat's leftover (cmux#32276), and none is sent after.
