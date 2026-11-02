@@ -1,5 +1,5 @@
 import CCmuxLayoutReducerFFI
-import Foundation
+public import Foundation
 
 /// The per-key focus rules that stay JSON calls into `cmux-focus-core`
 /// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
