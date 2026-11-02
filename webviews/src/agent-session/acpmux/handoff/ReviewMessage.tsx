@@ -176,10 +176,7 @@ export function HandoffReviewMessage({
         {(validationError || state.error) && <p role="alert">{validationError || state.error}</p>}
         {state.busy === "saving" && <output>{s.saving}</output>}
         <div className="acpmux-handoff-buttons">
-          <button
-            type="submit"
-            disabled={busy || !!state.conflict}
-          >
+          <button type="submit" disabled={busy || !!state.conflict}>
             {state.busy === "starting" || record.state === "starting"
               ? s.starting
               : formatHandoff(s.continueTarget, agentDisplayName(record.target.harness))}
