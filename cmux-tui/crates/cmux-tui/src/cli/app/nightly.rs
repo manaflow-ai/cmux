@@ -94,8 +94,8 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     };
     let limit = match command {
         Command::List { limit } => *limit,
-        // `previous` and a named build are looked up among the same recent builds the card shows.
-        Command::Install { .. } => 20,
+        // `previous` and a named build are looked up among the most builds `updates.builds` lists.
+        Command::Install { .. } => 50,
     };
     let listing = match super::exchange(&mut stream, "updates.builds", json!({ "limit": limit }), LIST_TIMEOUT) {
         Ok(Ok(value)) => value,
