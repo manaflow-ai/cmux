@@ -86,7 +86,13 @@ import Testing
         defer { window.close() }
         window.contentView = content
         reveal.hold(content, until: .pane)
-        #expect(next.showAhead("tab_kept", in: content, reveal: reveal), "the kept frame did not show at the next launch")
+        let shownAhead = next.showAhead("tab_kept", in: content, reveal: reveal)
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+        #expect(shownAhead, """
+            the kept frame did not show at the next launch: \(next.launchPanes["tab_kept"]?.missed ?? "nil"); files \(files); \
+            content \(content.bounds.size), surface \(shown.session.surfaceView.bounds.size), kept size \(String(describing: frames.keepSavedSize("tab_kept"))), \
+            window scale \(window.backingScaleFactor), shown window scale \(shown.window.backingScaleFactor)
+            """)
     }
 
     @Test func aHiddenTerminalLosesItsKeptFrame() async throws {
