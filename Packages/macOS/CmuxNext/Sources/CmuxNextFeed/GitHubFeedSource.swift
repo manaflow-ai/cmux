@@ -120,18 +120,20 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private func post(_ item: FeedItem, detail: GitHubFeedDetail) {
         let key = item.dedupeKey ?? item.id
         githubDetails[key] = detail
+        owner.post(item)
+        // A request's detail stays as long as the owner keeps the request (it never prunes an
+        // open one); a notice's details are bounded like the owner's items, the oldest first.
+        guard !item.isRequest else { return }
         detailOrder.removeAll { $0 == key }
         detailOrder.append(key)
-        owner.post(item)
-        // One detail per item the owner can still hold; the oldest go first.
         if detailOrder.count > Self.maxDetails {
             for stale in detailOrder.prefix(detailOrder.count - Self.maxDetails) { githubDetails[stale] = nil }
             detailOrder.removeFirst(detailOrder.count - Self.maxDetails)
         }
     }
 
-    /// The most details kept: as many as the local feed owner keeps items.
-    public static let maxDetails = InMemoryFeedSource.maxItems
+    /// The most notice details kept: as many as the local feed owner keeps items.
+    public static let maxDetails = InMemoryFeedSource.defaultMaxItems
     /// Detail keys, least recently posted first.
     private var detailOrder: [String] = []
 

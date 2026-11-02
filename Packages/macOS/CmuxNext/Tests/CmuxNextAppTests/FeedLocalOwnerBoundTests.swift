@@ -22,7 +22,7 @@ struct FeedLocalOwnerBoundTests {
                                poster: FeedPoster(kind: .agent, label: "Agent"), createdAt: Date(timeIntervalSince1970: 0))
         source.post(request)
         source.post(notice(-1, read: true))
-        let limit = InMemoryFeedSource.maxItems
+        let limit = InMemoryFeedSource.defaultMaxItems
         for index in 0..<(limit * 3) { source.post(notice(index, read: index % 2 == 0 && index < limit)) }
         #expect(source.itemIDs.count == limit)
         #expect(source.itemIDs.contains("fi_req"))
