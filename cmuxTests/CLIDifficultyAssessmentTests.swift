@@ -47,9 +47,11 @@ import Testing
         let killGrace: TimeInterval = 3
         let config = DifficultyAssessmentConfig.self
         #expect(config.llmTimeout == 30)
-        #expect(config.inFlightExpiry == 45)
+        #expect(config.inFlightExpiry == 50)
         #expect(AutoNamingConfig().llmTimeout + killGrace + config.llmTimeout + killGrace < 120)
-        #expect(config.inFlightExpiry > config.llmTimeout + killGrace)
+        // The in-flight mark also outlives the verdict's send: the CLI's default socket reply wait.
+        let socketReplyWait: TimeInterval = 15
+        #expect(config.inFlightExpiry > config.llmTimeout + killGrace + socketReplyWait)
     }
 
     @Test func parseAcceptsOneWordWithPunctuation() {

@@ -7,9 +7,11 @@ struct DifficultyAssessmentConfig {
     /// Minimum seconds between two assessments of the same session.
     static let minInterval: TimeInterval = 180
     /// An in-flight marker older than this is treated as a crashed pass. Covers
-    /// the call's timeout, the up to 3 seconds it takes to kill a call that
-    /// overran it, and the socket send.
-    static let inFlightExpiry: TimeInterval = 45
+    /// what a pass does after setting it: the call's 30 second timeout, the up
+    /// to 3 seconds it takes to kill a call that overran it, and the verdict's
+    /// socket send, whose reply the CLI waits for at most 15 seconds (12 when
+    /// the hook runs through the delivery process): 48 seconds, plus margin.
+    static let inFlightExpiry: TimeInterval = 50
     /// Maximum characters kept from each of the user and assistant excerpts.
     static let excerptLimit = 1_500
     /// Seconds to wait for the `claude -p` classification call. Auto-naming's
