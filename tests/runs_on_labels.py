@@ -43,6 +43,11 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
+# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
+# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
+GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
     r"|(?P<num>-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*-]*))"
@@ -320,10 +325,15 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
+    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
+
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root)
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
     personal = personal_machine_names()
+    if isinstance(runs_on, str):
+        for output in FLEET_LINUX_OUTPUTS:
+            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}
