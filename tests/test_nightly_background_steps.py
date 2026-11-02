@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Two slow nightly steps run in the background, and their result still gates the job.
 
-prepare-nightly-variant scans every file of the bundle for browser-data import
-targets (cx-f58x, 93-121 s), and build-nightly-app uploads the dSYMs to Sentry
+The cx-f58x scan reads every file of the bundle for browser-data import
+targets (about 105 s), and build-nightly-app uploads the dSYMs to Sentry
 (38-39 s on the serialized warm slot). Both used to block every step after
 them. Each now starts in the background and a later "Finish" step reads its
-status from a FIFO: the scan runs on a clone of the bundle taken before the
-later steps change it, and its failure still fails the job before the prepared
-app is uploaded. The Sentry upload stays non-fatal, as before.
+status from a FIFO: the scan runs on a copy of the bundle taken before the
+later steps change it, and its failure still fails the job. build-nightly-app
+scans the app it just archived beside its uploads (74-77 s of prepare's
+critical path, runs 41416268105 and 41413478144); prepare scans only when that
+job did not prove the app (an unsigned resume). The Sentry upload stays
+non-fatal, as before.
 """
 
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +33,9 @@ PROOF_START = "Prove the browser-data import is compiled out (cx-f58x notary tes
 PROOF_FINISH = "Finish the browser-data import proof"
 SENTRY_START = "Upload dSYMs to Sentry"
 SENTRY_FINISH = "Finish the dSYM upload to Sentry"
-PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
+APP_JOB = "build-nightly-app"
+PROOF_JOBS = (APP_JOB, *PREPARE_JOBS)
 
 
 def steps(job: str) -> list[dict]:
@@ -69,7 +75,12 @@ class BackgroundStepTests(unittest.TestCase):
         # Each step is its own shell, as on the runner: the background job
         # outlives the step that started it.
         env = {**os.environ, "PATH": self.path, "RUNNER_TEMP": str(self.runner_temp)}
-        return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
+        run = step(job, name)["run"]
+        # A step whose block moved to scripts/ci/nightly-steps/ calls it from the job's checkout.
+        for moved in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+            (self.ws / moved).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / moved, self.ws / moved)
+        return subprocess.run(["bash", "-e", "-c", run], cwd=self.ws, env=env,
                               text=True, capture_output=True, timeout=60)
 
     def test_the_proof_finishes_before_the_prepared_app_is_uploaded(self):
@@ -83,7 +94,7 @@ class BackgroundStepTests(unittest.TestCase):
                 self.assertNotIn("continue-on-error", step(job, PROOF_FINISH))
 
     def test_a_clean_bundle_passes_even_when_later_steps_add_files(self):
-        for job in PREPARE_JOBS:
+        for job in PROOF_JOBS:
             with self.subTest(job=job):
                 started = self.run_step(job, PROOF_START)
                 self.assertEqual(started.returncode, 0, started.stderr)
@@ -98,7 +109,7 @@ class BackgroundStepTests(unittest.TestCase):
 
     def test_a_bundle_with_a_browser_target_fails_the_finish_step(self):
         (self.ws / APP / "Contents/MacOS/cmux").write_text("Chrome Safe Storage\n")
-        for job in PREPARE_JOBS:
+        for job in PROOF_JOBS:
             with self.subTest(job=job):
                 started = self.run_step(job, PROOF_START)
                 self.assertEqual(started.returncode, 0, started.stderr)
@@ -116,7 +127,7 @@ class BackgroundStepTests(unittest.TestCase):
                 target = bin_dir / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text("Chrome Safe Storage\n")
-                for job in PREPARE_JOBS:
+                for job in PROOF_JOBS:
                     started = self.run_step(job, PROOF_START)
                     self.assertEqual(started.returncode, 0, started.stderr)
                     finished = self.run_step(job, PROOF_FINISH)
@@ -133,11 +144,37 @@ class BackgroundStepTests(unittest.TestCase):
                     self.assertNotIn("nightly_next_unsigned_run", step(job, name)["if"])
 
     def test_a_finish_without_a_start_fails(self):
-        for job in PREPARE_JOBS:
+        for job in PROOF_JOBS:
             with self.subTest(job=job):
                 finished = self.run_step(job, PROOF_FINISH)
                 self.assertNotEqual(finished.returncode, 0)
                 self.assertIn("never started", finished.stderr)
+
+    def test_the_app_job_proves_the_archived_app_beside_its_uploads(self):
+        job = APP_JOB
+        start, finish = index(job, PROOF_START), index(job, PROOF_FINISH)
+        # The scan reads the bundle as archived, before any upload, and gates the job
+        # after the uploads it overlaps.
+        self.assertEqual(start, index(job, "Archive unsigned nightly app") + 1)
+        self.assertLess(start, index(job, "Upload unsigned nightly app"))
+        self.assertLess(index(job, "Upload unsigned nightly app (retry)"), finish)
+        self.assertLess(index(job, "Keep the nightly-next dSYMs for publication"), finish)
+        self.assertLess(finish, index(job, "Pack the nightly app for reuse"))
+        self.assertEqual(step(job, PROOF_START)["if"], step(job, PROOF_FINISH)["if"])
+        self.assertIn("needs.decide.outputs.notary_test_browser_data == 'true'", step(job, PROOF_START)["if"])
+        self.assertNotIn("continue-on-error", step(job, PROOF_FINISH))
+        output = yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["outputs"]["browser_data_proven"]
+        self.assertIn(f"steps.{step(job, PROOF_FINISH)['id']}.outcome == 'success'", output)
+
+    def test_prepare_scans_only_an_app_the_app_job_did_not_prove(self):
+        for job in PREPARE_JOBS:
+            for name in (PROOF_START, PROOF_FINISH):
+                with self.subTest(job=job, step=name):
+                    self.assertIn("needs.build-nightly-app.outputs.browser_data_proven != 'true'", step(job, name)["if"])
+                    self.assertIn("needs.decide.outputs.notary_test_browser_data == 'true'", step(job, name)["if"])
+        # An unsigned resume restores a saved app without archiving it: the app job
+        # does not prove it, so prepare does.
+        self.assertIn("inputs.nightly_next_unsigned_run == ''", step(APP_JOB, PROOF_START)["if"])
 
     def test_the_sentry_upload_overlaps_the_artifact_uploads_and_stays_non_fatal(self):
         job = "build-nightly-app"

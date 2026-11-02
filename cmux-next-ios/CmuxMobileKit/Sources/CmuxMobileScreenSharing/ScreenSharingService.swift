@@ -35,8 +35,12 @@ public final class ScreenSharingService {
     @ObservationIgnored private var startTask: Task<Void, Never>?
     /// Sessions this phone ended or left: a late ticket for one never starts a stream.
     @ObservationIgnored private var abandoned: Set<String> = []
-    /// The sign-out hook already signed this phone out of the hub.
+    /// The sign-out hook already signed this phone out of the hub (its call succeeded).
     @ObservationIgnored private var signedOut = false
+    /// Signs this phone out of the hub (tests swap it to fail or count the calls).
+    @ObservationIgnored var signOutDevice: @MainActor (DeviceHub) async throws -> Void = { try await $0.signOutDevice() }
+    /// The last stop()'s sign-out and socket close (tests wait for it).
+    @ObservationIgnored private(set) var stopping: Task<Void, Never>?
 
     /// Where the hub is and who this phone is to it.
     public struct Configuration: Sendable {
@@ -137,13 +141,15 @@ public final class ScreenSharingService {
         if let hub {
             hub.onSessionPush = nil
             let alreadySignedOut = signedOut
+            let signOut = signOutDevice
             // task-owner: one sign-out call (the hub lists this phone offline at once), then the socket closes
-            Task {
-                if !alreadySignedOut { try? await hub.signOutDevice() }
+            stopping = Task {
+                if !alreadySignedOut { try? await signOut(hub) }
                 hub.stop()
             }
         }
         hub = nil
+        signedOut = false
         loadStatus = .idle
         abandoned = []
     }
@@ -152,11 +158,20 @@ public final class ScreenSharingService {
     /// screen and sign this phone out of the hub while the account can still reach it.
     public func signOutBeforeSessionEnds() async {
         guard let hub, !signedOut else { return }
+        let viewer = self.viewer
+        do {
+            try await signOutDevice(hub)
+        } catch {
+            // The hub never heard the sign-out (a network failure), so it keeps this phone's
+            // sessions: end the one on screen with its own /end while the account can still
+            // reach the hub, and leave signedOut unset so stop() tries the sign-out again.
+            viewer?.close(reason: .signedOut)
+            return
+        }
         signedOut = true
-        // Signing out ends every session of this phone on the hub (reason signed_out); the
+        // Signing out ended every session of this phone on the hub (reason signed_out); the
         // viewer only stops here, so stop() sends no second /end after the account is gone.
         viewer?.ended(reason: ScreenSharingEndReason.signedOut.rawValue)
-        try? await hub.signOutDevice()
     }
 
     /// The service the signed-in shell runs, for the auth model's sign-out hook.

@@ -4,5 +4,5 @@
     "lib": ["ES2023"],
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types", "node"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "test-node"]
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import ImageIO
 @testable import CmuxNextApp
 import CmuxNextDesign
@@ -13,7 +14,7 @@ import Testing
 /// ``base`` is the pre-change projection, ``hidden`` is Labs off, and ``labs-on`` is Labs on
 /// with the real sidebar's "cmux Updated!" / What's New card. The output is deliberately a
 /// test-owned gallery so it can run in a GUI package lane without leasing a live app window.
-@MainActor @Suite(.serialized) struct LaunchPolishVisibilityGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LaunchPolishVisibilityGalleryTests {
     enum Variant: String, CaseIterable {
         case base
         case hidden

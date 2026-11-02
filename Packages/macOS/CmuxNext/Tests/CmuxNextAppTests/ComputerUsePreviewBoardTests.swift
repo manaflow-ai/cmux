@@ -56,6 +56,48 @@ struct ComputerUsePreviewBoardTests {
         #expect(pick == .init(key: "b", exact: true))
     }
 
+    @Test func anExactAcpSessionMustBelongToTheReportedWorkspace() {
+        let wrong = Self.chat("wrong", session: "acp-target", workspace: "w-other")
+        let session = Self.session("s", acp: "acp-target", workspace: "w-owner")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [wrong]) == nil)
+        let owner = Self.chat("owner", session: "acp-target", workspace: "w-owner")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [wrong, owner]) == .init(key: "owner", exact: true))
+    }
+
+    @Test func anAmbiguousAcpSessionMustNotFallThroughToItsHarness() {
+        let chats = [Self.chat("a", session: "acp-shared", agent: "h", workspace: "w"),
+                     Self.chat("b", session: "acp-shared", agent: "h", workspace: "w")]
+        let session = Self.session("s", acp: "acp-shared", harness: "h", workspace: "w")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats) == nil)
+    }
+
+    @Test func aHarnessIdMustAgreeWithWorkspaceAndFamily() {
+        let session = Self.session("s", kind: "claude", harness: "shared", workspace: "w-owner")
+        let elsewhere = Self.chat("elsewhere", agent: "shared", workspace: "w-other")
+        let otherFamily = Self.chat("other-family", agent: "shared", workspace: "w-owner", harness: "codex")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [elsewhere]) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [otherFamily]) == nil)
+        let owner = Self.chat("owner", agent: "shared", workspace: "w-owner", harness: "claude")
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: [elsewhere, otherFamily, owner]) == .init(key: "owner", exact: true))
+    }
+
+    @Test func duplicateHarnessIdsNeverPickTheFirstChat() {
+        let session = Self.session("s", harness: "shared", workspace: "w")
+        let chats = [Self.chat("a", agent: "shared", workspace: "w"),
+                     Self.chat("b", agent: "shared", workspace: "w")]
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: Array(chats.reversed())) == nil)
+    }
+
+    @Test func anotherWorkspacesLiveComputerFrameCannotAppearInThisChat() {
+        var board = ComputerUsePreviewBoard()
+        board.apply(sessions: [Self.session("s", harness: "shared", workspace: "w-owner")])
+        board.route(chats: [Self.chat("other", agent: "shared", workspace: "w-other", working: true)])
+        board.apply(newestFrame: "frame", at: Self.at(1), session: "s")
+        board.loaded(.init(id: "frame", at: Self.at(1), url: "data:image/jpeg;base64,AA=="), session: "s")
+        #expect(board.card(for: "other") == nil)
+    }
+
     @Test func theWorkingChatOfTheWorkspaceWins() {
         let chats = [Self.chat("a", workspace: "w1", working: true), Self.chat("b", workspace: "w2", working: true),
                      Self.chat("c", workspace: "w2")]

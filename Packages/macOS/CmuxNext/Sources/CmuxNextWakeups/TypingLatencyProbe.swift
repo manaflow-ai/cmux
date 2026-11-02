@@ -16,7 +16,9 @@ import CmuxNextSignposts
 /// that frame lands. Drive it with keys paced wider than one round trip;
 /// a key that arrives while a sample is open closes the old one unfinished.
 /// Times are milliseconds after the event's own timestamp (seconds since
-/// boot, the same clock as `CLOCK_UPTIME_RAW`).
+/// boot, the same clock as `CLOCK_UPTIME_RAW`); the last column,
+/// `event_uptime_ns`, is that timestamp itself, so a row joins a HID post
+/// time, a `debug.hangs` stall or a screen recording's frame times.
 ///
 /// One press at a time, tied to its terminal: the echo hops take a `source`
 /// (``mark(_:source:next:)``), and a hop counts only from the object the
@@ -139,7 +141,9 @@ public final class TypingLatencyProbe: Sendable {
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
            let handle = FileHandle(forWritingAtPath: path) {
             output = handle
-            let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
+            // `event_uptime_ns` last, so readers that pick columns by name or by position keep working.
+            let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName) + ["event_uptime_ns"])
+                .joined(separator: ",") + "\n"
             handle.write(Data(header.utf8))
         } else {
             output = nil
@@ -273,7 +277,8 @@ public final class TypingLatencyProbe: Sendable {
             let millis = sample.marks.map { mark in
                 mark.map { String(format: "%.3f", Double(Int64(bitPattern: $0 &- sample.event)) / 1_000_000) } ?? ""
             }
-            let row = (["\(sample.index)", complete ? "1" : "0", sample.ioWriteOnMain ? "1" : "0"] + millis).joined(separator: ",") + "\n"
+            let row = (["\(sample.index)", complete ? "1" : "0", sample.ioWriteOnMain ? "1" : "0"] + millis + ["\(sample.event)"])
+                .joined(separator: ",") + "\n"
             output.write(Data(row.utf8))
         }
     }

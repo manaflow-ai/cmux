@@ -405,6 +405,7 @@
 
 .ds-hang-duration {
   color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .ds-hang[data-ongoing="true"] .ds-hang-duration {

@@ -25,6 +25,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
+    /// The surface of the content sharing the tab row now (``PaneTabRowSharing/tabRowSurface``), whose
+    /// background the strip paints behind its tabs (``paintStrip()``); nil while nothing shares it.
+    private(set) var rowSurface: SurfaceKind?
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
     let nativeToolOwner = PaneNativeToolOwner()
@@ -85,7 +88,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
-    var launchImageSize: CGSize?
+    var launchImageSizes: [CGSize] = [] // its pixels fit: the host's size when shown, and the image's own
     /// Move covers clear without invoking their one-frame reveal callback on resize.
     var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
@@ -167,6 +170,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
+        let surface = rowTools > 0 ? rowContent?.tabRowSurface : nil
+        if surface != rowSurface { rowSurface = surface; paintStrip() }
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -175,9 +180,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
-            // A move cover owns the clear callback that reveals the page on its next frame. A
-            // resize must discard old-size pixels without consuming that hand-off early.
+        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+            // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
+            // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
@@ -288,6 +293,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
+        WindowControlsAvoiders.refresh(in: window)
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
@@ -438,10 +445,19 @@ final class PaneContentView: NSView, PaneContentChrome {
             let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
-        // The strip: clear, or the user's tab bar background (R55).
-        stripView.wantsLayer = true
-        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+        paintStrip()
         paintPaneBackdrop()
+    }
+
+    /// The strip: clear, or the user's tab bar background (R55). While a chat shares the row, the
+    /// background its page paints under the header (``PaneTabRowSharing/tabRowSurface``), so the row
+    /// behind the tabs and the chat's tools is one fill with no band of its own.
+    func paintStrip() {
+        stripView.wantsLayer = true
+        let surface = rowSurface
+        stripView.layer?.backgroundColor = stripView.performWithTheme {
+            (Palette.surfaceOverride(.tabBar) ?? surface.flatMap { Palette.surfaceOverride($0) })?.cgColor
+        }
     }
 }
 
@@ -458,4 +474,3 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
-

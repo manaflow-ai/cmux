@@ -512,6 +512,11 @@ impl PrelaunchedHost {
         self.terminal_id
     }
 
+    /// Its terminal's public id.
+    pub(crate) fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
+        self.terminal_public_id.as_ref()
+    }
+
     /// Write the workspace key into the host's recovery record now, so the
     /// creation transaction finds it current and skips the synced write
     /// (`Surface::persist_host_workspace`).

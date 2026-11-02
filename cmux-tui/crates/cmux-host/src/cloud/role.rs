@@ -32,18 +32,25 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
+use super::harness_login_thread::{self, HarnessLogins, Method, Platform, Setup as LoginSetup};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
+use super::trajectory::Layout;
+use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
     DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
     heartbeat_ms_for,
 };
 use crate::config::Paths;
+use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
+use crate::linux::spawn::lookup_user;
 
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
+/// Where a trajectory restore stages its bundles (the work user's, 0700).
+pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
@@ -201,20 +208,67 @@ impl Store for FileStore {
 pub struct PosterHttp(pub JsonPoster);
 
 impl Http for PosterHttp {
+    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.0.get(url, bearer)
+    }
+
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post(url, body, bearer)
     }
+
+    fn request_until(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_until(url, body, bearer, deadline)
+    }
+
+    fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_with_deadline(url, body, bearer, deadline)
+    }
 }
 
-/// One `identify` on the daemon's control socket, bounded by `timeout`.
+/// One `identify` on the daemon's control socket. `timeout` bounds the whole
+/// exchange, not each read, and the reply line is at most `MAX_LINE`.
 pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
+    let deadline = Instant::now() + timeout;
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    stream.set_write_timeout(Some(left.max(Duration::from_millis(1))))?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line)?;
-    let reply: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while !line.contains(&b'\n') {
+        if line.len() > MAX_LINE {
+            return Err(io::Error::other("daemon identify line over 64 KB"));
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::from(io::ErrorKind::TimedOut));
+        }
+        stream.set_read_timeout(Some(left))?;
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(read_part(&chunk, n)?),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let end = line.iter().position(|b| *b == b'\n').unwrap_or(line.len());
+    if end > MAX_LINE {
+        return Err(io::Error::other("daemon identify line over 64 KB"));
+    }
+    let reply: Value =
+        serde_json::from_slice(line.get(..end).unwrap_or_default()).map_err(io::Error::other)?;
     if *reply.field("ok") == true && reply.field("data").is_object() {
         Ok(reply.field("data").clone())
     } else {
@@ -275,6 +329,7 @@ fn wg_keypair() -> Result<(String, String), String> {
 pub struct CloudRole {
     paths: Paths,
     worker: Option<WorkerHandle>,
+    bootstrap: Option<super::bootstrap_role::RoleBridge>,
 }
 
 struct WorkerHandle {
@@ -289,7 +344,15 @@ struct WorkerHandle {
 
 impl CloudRole {
     pub fn new(paths: Paths) -> CloudRole {
-        CloudRole { paths, worker: None }
+        CloudRole { paths, worker: None, bootstrap: None }
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        host: Option<Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = host.map(super::bootstrap_role::RoleBridge::new);
+        self
     }
 
     fn send(&mut self, word: &str) {
@@ -302,8 +365,11 @@ impl CloudRole {
         if let Some(worker) = self.worker.as_ref() {
             worker.github_stop.set();
         }
+        let bootstrap = self.bootstrap.as_ref().map(|bridge| bridge.stop(deadline)).transpose();
         self.send("stop");
-        let Some(worker) = self.worker.take() else { return Ok(()) };
+        let Some(worker) = self.worker.take() else {
+            return bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()));
+        };
         // The worker ends after its current request (each is bounded by
         // 20 s); a later deadline is reported, not waited out.
         let wait = deadline.saturating_duration_since(Instant::now());
@@ -313,7 +379,7 @@ impl CloudRole {
             }
             _ => {
                 let _ = worker.thread.join();
-                Ok(())
+                bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()))
             }
         }
     }
@@ -329,6 +395,7 @@ impl Role for CloudRole {
         if self.worker.is_some() {
             return Ok(());
         }
+        let bootstrap = self.bootstrap.as_mut().and_then(|bridge| bridge.start().ok());
         let (ours, theirs) = UnixStream::pair().map_err(|e| RoleError(e.to_string()))?;
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
@@ -339,7 +406,11 @@ impl Role for CloudRole {
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop);
+                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop)
+                    .map(|mut worker| {
+                        worker.bootstrap = bootstrap;
+                        worker
+                    });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
@@ -356,6 +427,9 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                if let Some(bridge) = &self.bootstrap {
+                    let _ = bridge.resume();
+                }
                 self.send("resume");
                 Ok(())
             }
@@ -371,6 +445,10 @@ impl Role for CloudRole {
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
+    output: Vec<u8>,
+    sent: usize,
+    eof: bool,
+    write_deadline: Option<u64>,
 }
 
 struct Activity {
@@ -389,6 +467,9 @@ struct Live {
 }
 
 struct Worker {
+    bootstrap: Option<super::bootstrap_role::WorkerBridge>,
+    bootstrap_retry_at: Option<u64>,
+    bootstrap_backoff: Backoff,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -402,6 +483,10 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
+    trajectories: Option<Trajectories<PosterHttp>>,
+    /// The person's harness logins, kept for their machines (`harness_login_thread.rs`).
+    harness_logins: Option<HarnessLogins<PosterHttp, PlatformHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -422,7 +507,14 @@ impl Worker {
         let inotify = Inotify::new()?;
         inotify.watch_dir(&state_dir)?;
         control.set_nonblocking(true)?;
+        let trajectories =
+            spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
+        let harness_logins =
+            spawn_harness_logins(&paths).map_err(|e| log(&format!("harness login: {e}"))).ok();
         Ok(Worker {
+            bootstrap: None,
+            bootstrap_retry_at: None,
+            bootstrap_backoff: Backoff::new(1_000, 30_000),
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -442,6 +534,8 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            trajectories,
+            harness_logins,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -464,13 +558,16 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
+            self.drive_bootstrap();
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
+                self.bootstrap_retry_at,
             ]
             .into_iter()
             .flatten()
+            .chain(self.clients.iter().filter_map(|c| c.write_deadline))
             .min();
             let timeout_ms =
                 deadline.map_or(-1, |at| at.saturating_sub(self.now()).min(i32::MAX as u64) as i32);
@@ -493,9 +590,14 @@ impl Worker {
             for c in &self.clients {
                 fds.push(libc::pollfd {
                     fd: c.stream.as_raw_fd(),
-                    events: libc::POLLIN,
+                    events: (if c.eof { 0 } else { libc::POLLIN })
+                        | if c.output.is_empty() { 0 } else { libc::POLLOUT },
                     revents: 0,
                 });
+            }
+            let bootstrap_wakes = self.bootstrap.as_ref().and_then(|bridge| bridge.wake_set());
+            if let Some(wakes) = &bootstrap_wakes {
+                fds.extend(wakes.fds());
             }
             // SAFETY: `fds` is a valid array of `fds.len()` pollfd entries.
             let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
@@ -510,6 +612,8 @@ impl Worker {
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
+            // The retained bootstrap descriptors wake the next loop's drive.
+            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -524,7 +628,11 @@ impl Worker {
             }
             let readable: Vec<usize> =
                 (0..polled_clients).filter(|i| ready(clients_from + i)).collect();
-            self.read_clients(&readable);
+            if self.read_clients(&readable) {
+                return Ok(());
+            }
+            let now = self.now();
+            self.clients.retain(|c| c.write_deadline.is_none_or(|at| at > now));
             self.fire_deadlines();
         }
     }
@@ -546,6 +654,14 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    self.bootstrap_retry_at = None;
+                    self.bootstrap_backoff.reset();
+                    if let Some(bridge) = &mut self.bootstrap {
+                        bridge.resume();
+                        if self.live.is_some() {
+                            bridge.enrolled();
+                        }
+                    }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
                         let reqs = live.session.resume(now);
@@ -590,11 +706,18 @@ impl Worker {
             if stream.set_nonblocking(true).is_err() {
                 continue;
             }
-            self.clients.push(Client { stream, buf: Vec::new() });
+            self.clients.push(Client {
+                stream,
+                buf: Vec::new(),
+                output: Vec::new(),
+                sent: 0,
+                eof: false,
+                write_deadline: None,
+            });
         }
     }
 
-    fn read_clients(&mut self, readable: &[usize]) {
+    fn read_clients(&mut self, readable: &[usize]) -> bool {
         let mut closed = Vec::new();
         let mut lines = Vec::new();
         for &i in readable {
@@ -602,49 +725,76 @@ impl Worker {
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
                     lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
-                    if !open || client.buf.len() > MAX_LINE {
+                    client.eof = !open;
+                    if client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
                 }
                 Err(_) => closed.push(i),
             }
         }
-        // A GitHub token ask or a hand-off report takes its connection to
-        // the minter, which answers it with one line and closes it: one ask
-        // per connection, and the poll loop never waits on the API.
-        let mut session_lines = Vec::new();
         let mut asks: Vec<(usize, Ask)> = Vec::new();
         for (i, line) in lines {
-            // One ask per connection, and none from a client already gone:
-            // nobody would read the reply.
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            let ask = agent_ask(&line);
-            if closed.contains(&i) && ask.is_some() {
+            if closed.contains(&i) {
                 continue;
             }
-            match ask {
-                Some(ask) => asks.push((i, ask)),
-                None => session_lines.push(line),
+            if let Some(ask) = agent_ask(&line) {
+                asks.push((i, ask));
+                continue;
             }
-        }
-        closed.extend(asks.iter().map(|(i, _)| *i));
-        closed.sort_unstable();
-        closed.dedup();
-        let mut taken = Vec::new();
-        for i in closed.into_iter().rev() {
-            if i < self.clients.len() {
-                taken.push((i, self.clients.remove(i).stream));
-            }
-        }
-        for (i, ask) in asks {
-            if let Some(pos) = taken.iter().position(|(at, _)| *at == i) {
-                self.github.ask(ask, taken.swap_remove(pos).1);
-            }
-        }
-        for line in session_lines {
             let now = self.now();
+            if serde_json::from_str::<Value>(&line).is_ok_and(|v| {
+                v.get("op").and_then(Value::as_str) == Some(super::receiver::POLICY_OP)
+            }) {
+                let Some(client) = self.clients.get(i) else { continue };
+                if !client.output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                // A queued batch must not hold shutdown behind up to sixteen
+                // separate network deadlines. Check the role's control fd
+                // before every policy request, not only before the batch.
+                if self.control_words().unwrap_or(true) {
+                    return true;
+                }
+                // The request is deliberately parameterless. The role owns
+                // every identity and credential used for this hidden read.
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Request {
+                    op: String,
+                }
+                let valid = serde_json::from_str::<Request>(&line)
+                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
+                let value = if valid {
+                    self.live.as_mut().and_then(|live| {
+                        super::receiver_files::reply(
+                            &self.paths,
+                            &self.instance_id,
+                            &mut live.client,
+                            wall_ms(),
+                        )
+                        .ok()
+                    })
+                } else {
+                    None
+                };
+                let value = value.unwrap_or_else(
+                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
+                );
+                let Some(client) = self.clients.get_mut(i) else { continue };
+                client.output = serde_json::to_vec(&value).unwrap_or_default();
+                if client.output.len() > 1024 * 1024 {
+                    closed.push(i);
+                    continue;
+                }
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -652,6 +802,54 @@ impl Worker {
             }
             self.drive(reqs);
         }
+        let now = self.now();
+        for &i in readable {
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            let Some(client) = self.clients.get_mut(i) else { continue };
+            if client.write_deadline.is_some_and(|deadline| deadline <= now) {
+                closed.push(i);
+                continue;
+            }
+            while client.sent < client.output.len() {
+                let Some(pending) = client.output.get(client.sent..) else {
+                    closed.push(i);
+                    break;
+                };
+                match client.stream.write(pending) {
+                    Ok(0) => {
+                        closed.push(i);
+                        break;
+                    }
+                    Ok(n) => client.sent += n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(_) => {
+                        closed.push(i);
+                        break;
+                    }
+                }
+            }
+            if client.sent == client.output.len() {
+                client.output.clear();
+                client.sent = 0;
+                client.write_deadline = None;
+                if client.eof {
+                    closed.push(i);
+                }
+            }
+        }
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        for i in closed.into_iter().rev() {
+            let client = self.clients.remove(i);
+            if let Some(pos) = asks.iter().position(|(asker, _)| *asker == i) {
+                self.github.ask(asks.swap_remove(pos).1, client.stream);
+            }
+        }
+        false
     }
 
     fn bind_now(&mut self) {
@@ -732,12 +930,47 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        if let Some(trajectories) = self.trajectories.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => trajectories.bound(client),
+                Err(e) => log(&format!("trajectory mirror: {e}")),
+            }
+        }
+        self.harness_logins_bound(&bound, &key);
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
+        if let Some(bridge) = &self.bootstrap {
+            bridge.enrolled();
+        }
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
+    }
+
+    /// Hands the harness-login thread its client when the environment keeps
+    /// logins, and holds the first report until its boot pass (one list and
+    /// the writes it allows) is over or [`harness_login_thread::BOOT_WAIT`]
+    /// passed, so the first chat finds the person's login.
+    fn harness_logins_bound(&self, bound: &Bound, key: &InstallKey) {
+        let (Some(logins), Some(origin)) =
+            (self.harness_logins.as_ref(), bound.env.harness_login_origin())
+        else {
+            return;
+        };
+        let client = match github_client(bound, key) {
+            Ok(client) => client,
+            Err(e) => return log(&format!("harness login: {e}")),
+        };
+        let platform = match JsonPoster::new() {
+            Ok(poster) => PlatformHttp(poster),
+            Err(e) => return log(&format!("harness login: {e}")),
+        };
+        let booted = logins.bound(client, platform, origin);
+        if let Err(RecvTimeoutError::Timeout) = booted.recv_timeout(harness_login_thread::BOOT_WAIT)
+        {
+            log("harness login: boot pass still running; reporting anyway");
+        }
     }
 
     fn activity_reset(&self) -> Activity {
@@ -782,8 +1015,8 @@ impl Worker {
 
     fn read_activity(&mut self) {
         let Some(stream) = self.activity.stream.as_mut() else { return };
-        let open = read_available(stream, &mut self.activity.buf).unwrap_or(false);
-        let lines = take_lines(&mut self.activity.buf);
+        // A line over `MAX_LINE` drops the stream like an EOF, so the buffer never grows past it.
+        let (lines, open) = read_lines(stream, &mut self.activity.buf);
         for line in lines {
             let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                 log("activity: unreadable daemon line ignored");
@@ -886,6 +1119,76 @@ impl Worker {
     }
 }
 
+/// Where the trajectory mirror finds acpmux: the work user's home when the
+/// image has that user (the session host's layout, `linux/spawn.rs`
+/// `select_layout`), else root's. Its staging folder for restores is that
+/// user's (0700): the thread writes bundles as that user.
+fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    let staging = paths.at(TRAJECTORY_STAGING);
+    match fs::symlink_metadata(&staging) {
+        Ok(meta) if !meta.is_dir() => {
+            return Err(io::Error::other(format!("{} is not a folder", staging.display())));
+        }
+        Ok(_) => {}
+        Err(_) => fs::create_dir_all(&staging)?,
+    }
+    std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
+    let acpmux = home.join(".acpmux");
+    let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
+    let importer = AcpmuxImporter {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        home,
+        socket: acpmux.join("acpmux.sock"),
+    };
+    let identity = Some((user.uid, user.gid));
+    Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
+}
+
+/// The harness-login thread: the login files under the work user's home
+/// (read and written as that user), its state under the agent's root.
+fn spawn_harness_logins(paths: &Paths) -> io::Result<HarnessLogins<PosterHttp, PlatformHttp>> {
+    use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    let setup = LoginSetup {
+        home,
+        state_file: paths.at(super::harness_login::STATE_FILE),
+        vm_kind_file: paths.at(super::wire::VM_KIND_FILE),
+        team_files: vec![paths.at(TEAM_ENROLL_FILE), paths.at(TEAM_BOUND_FILE)],
+        fs_identity: Some((user.uid, user.gid)),
+    };
+    HarnessLogins::spawn(setup, wall_ms, random_unit, log)
+}
+
+/// [`Platform`] over cmux-server's HTTPS client.
+pub struct PlatformHttp(pub JsonPoster);
+
+impl Platform for PlatformHttp {
+    fn send(
+        &self,
+        method: Method,
+        url: &str,
+        body: Option<&Value>,
+        bearer: &str,
+    ) -> Result<(u16, Value), String> {
+        let verb = match method {
+            Method::Get => "GET",
+            Method::Put => "PUT",
+        };
+        self.0.send(verb, url, body, Some(bearer))
+    }
+}
+
 /// The minter's own client for the bound machine: the same install key,
 /// its own HTTPS poster and bearer cache.
 fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
@@ -899,6 +1202,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
+    }
+    if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
+        return Some(super::github_repos::ReposAsk::from_json(ask).into());
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())
@@ -921,6 +1227,15 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
             Err(e) => return Err(e),
         }
     }
+}
+
+/// The complete lines available now, and whether the stream is still usable:
+/// `false` at end of stream, on a read error, or when the unfinished line is
+/// over `MAX_LINE`. So `buf` never holds more than `MAX_LINE` plus one read.
+fn read_lines(stream: &mut UnixStream, buf: &mut Vec<u8>) -> (Vec<String>, bool) {
+    let open = read_available(stream, buf).unwrap_or(false);
+    let lines = take_lines(buf);
+    (lines, open && buf.len() <= MAX_LINE)
 }
 
 /// The first `n` bytes of a read buffer; a reader that claims more than
@@ -988,3 +1303,6 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
+
+#[path = "role_bootstrap.rs"]
+mod bootstrap;

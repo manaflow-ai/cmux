@@ -256,6 +256,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
+            super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
             } else {
@@ -571,10 +572,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // one is an error, so callers such as `host setup` see it.
                 Err(e) if start => return Err(e),
                 Err(e) => {
+                    // Why a start would fail, when config.json already says (a network listen
+                    // without its opt-in): the person sees it here, not only in daemon.log.
+                    let refused = crate::daemon::saved_listen_refusal().await;
                     if json_out {
-                        print_json(&json!({"running": false, "error": e.to_string()}))
+                        let out = match &refused {
+                            Some(why) => {
+                                json!({"running": false, "error": e.to_string(), "refused": why})
+                            }
+                            None => json!({"running": false, "error": e.to_string()}),
+                        };
+                        print_json(&out)
                     } else {
-                        println!("daemon not running ({e})")
+                        println!("daemon not running ({e})");
+                        if let Some(why) = &refused {
+                            println!("refused:  {why}");
+                        }
                     }
                 }
             }
@@ -774,6 +787,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
+        Command::Host(PeerCmd::Load) => {
+            let load = crate::host_load::sample().await;
+            print_json(&serde_json::to_value(&load)?);
+            Ok(())
+        }
+        // Only a running daemon's chats: no daemon, no chats to tell.
+        Command::Host(PeerCmd::Notice { text }) => {
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            print_json(&client.request("_acpmux/host_notice", json!({"text": text})).await?);
+            Ok(())
+        }
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
@@ -907,6 +932,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         println!("{}", crate::cli::peer_status::vm_host_line(name.as_deref(), &v));
                     }
                     return Ok(());
+                }
+                PeerCmd::Load | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!("machine load and notice are handled before connecting"));
                 }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
@@ -1044,7 +1072,8 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
     if show_token {
         return url.to_owned();
     }
-    match url.split_once("?token=") {
+    // `#token=` from this build; `?token=` from an older daemon still running.
+    match url.split_once("#token=").or_else(|| url.split_once("?token=")) {
         Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
         None => url.to_owned(),
     }

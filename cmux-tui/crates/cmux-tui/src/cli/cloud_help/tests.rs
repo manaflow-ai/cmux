@@ -39,6 +39,7 @@ fn every_row_starts_its_description_in_one_column() {
         let text = overview(japanese);
         let columns = listed_verbs()
             .into_iter()
+            .filter(|name| renamed(name).is_none())
             .map(|name| {
                 let prefix = format!("  {name} ");
                 let row = text
@@ -71,6 +72,8 @@ const TARGETLESS: &[&str] = &[
     "firewall-delete",
     "domain-list",
     "publication-list",
+    "api-key-list",
+    "api-key-revoke",
     "move",
     "bring-back",
     "sign-in",
@@ -110,7 +113,13 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         destructive,
-        BTreeSet::from(["delete-snapshot", "file-remove", "firewall-delete", "kill-machine"])
+        BTreeSet::from([
+            "api-key-revoke",
+            "delete-snapshot",
+            "file-remove",
+            "firewall-delete",
+            "kill-machine"
+        ])
     );
     let text = overview(false);
     for name in &destructive {
@@ -168,7 +177,8 @@ fn quick_start_commands_parse() {
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .collect::<Vec<_>>();
-        assert_eq!(commands.len(), 6, "{commands:?}");
+        // Five `cmux cloud` lines; the quick start's create is `cmux machine new`.
+        assert_eq!(commands.len(), 5, "{commands:?}");
         for command in commands {
             let words = shell_words(command)
                 .into_iter()
@@ -181,5 +191,23 @@ fn quick_start_commands_parse() {
                 "quick start command does not parse: {command}"
             );
         }
+    }
+}
+
+/// `cloud new-machine` is `cmux machine new`'s old name: the overview shows
+/// only the new one, and the old verb's own help names it.
+#[test]
+fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
+    for japanese in [false, true] {
+        let text = overview(japanese);
+        assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
+        assert!(!text.contains("cmux cloud new-machine"), "{text}");
+        assert!(text.contains("cmux machine new"), "{text}");
+        let help = verb_help("new-machine", japanese).unwrap();
+        assert!(help.contains("cmux machine new"), "{help}");
+        assert!(help.contains("cmux cloud new-machine [--size"), "{help}");
+    }
+    for (old, _) in HIDDEN {
+        assert!(find(old).is_some(), "{old} is hidden but not a verb");
     }
 }

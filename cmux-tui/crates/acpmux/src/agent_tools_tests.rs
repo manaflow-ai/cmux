@@ -197,3 +197,60 @@ fn a_launch_without_servers_removes_the_last_mcp_config() {
     assert!(!file.exists(), "the last launch's config stayed for the hook to read");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn cloud_repo_tools_receive_complete_protected_caller_identity() {
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.to_owned(),
+            command: "/bin/acpmux".into(),
+            args: vec!["repo-mcp".into()],
+            env: vec![
+                ("ACPMUX_SESSION_ID".into(), "foreign".into()),
+                ("CMUX_BIN".into(), "/bin/cmux".into()),
+            ],
+        }],
+        ..Default::default()
+    }
+    .for_session("own-chat");
+    let env: std::collections::HashMap<_, _> = tools.servers[0].env.iter().cloned().collect();
+    assert_eq!(env["ACPMUX_SESSION_ID"], "own-chat");
+    assert_eq!(env[crate::cloud_repo_mcp::SESSION_ENV], "own-chat");
+    assert_eq!(
+        env[crate::hub::person::CALLER_TOKEN_ENV],
+        crate::hub::person::caller_token("own-chat")
+    );
+    assert_eq!(env[crate::hub::person::CALLER_SOCKET_ENV], env["ACPMUX_SOCKET"]);
+    assert_eq!(env["CMUX_BIN"], "/bin/cmux");
+}
+
+/// The session's tool allowlist reaches the `acpmux` server as well as `cmux`, so with
+/// no `cmux` to fold into (cmux.json turns MCP off) the standalone server still filters
+/// its own tools, after `for_session` too (#30082 review).
+#[test]
+fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        (super::SERVERS_ENV.to_owned(), "cmux,acpmux".to_owned()),
+        (super::MCP_TOOLS_ENV.to_owned(), super::CHIEF_TURN_TOOLS.to_owned()),
+    ]);
+    // As production builds them: `for_session` resets the server's env to its credentials.
+    let folded = tools.scoped(&env).for_session("s-allowlist").folded();
+    assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
+    let acpmux = &folded.servers[0];
+    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert!(
+        acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
+        "{:?}",
+        acpmux.env
+    );
+}
