@@ -449,17 +449,24 @@ public final class TerminalLaunchFrames {
         guard let directory else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]
-        for (key, image) in images where Self.isFileSafe(key) && image.size.width > 0 {
-            guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+        var keeping = keeping
+        for (key, image) in images where Self.isFileSafe(key) {
+            // On screen with no bitmap to save: its saved frame stays, as for a snapshot that gave nothing.
+            guard image.size.width > 0, let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                keeping.insert(key)
+                continue
+            }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { Self.write(frames, keeping: keeping, to: directory) }.value
+        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []).sorted().prefix(maximumFiles))
+        // Saved frames only, then the cap: files a killed write left (`<key>@1x.jpg.sb-<id>`) never take a slot.
+        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
         for scale in [2, 1, 3] {
             let suffix = "@\(scale)x.jpg"
@@ -489,16 +496,21 @@ public final class TerminalLaunchFrames {
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
-    /// frames of every key not in it (terminals this run does not show), once the launch read has ended.
-    nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?) {
+    /// frames of every key not in it (terminals this run does not show), once the launch read has ended. `stillWanted`
+    /// is asked again after the encode and before the cleanup: a quit that stopped the keeper meanwhile writes every
+    /// frame itself, so a write that started before it neither lands over those frames nor prunes them.
+    nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
+                                     stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
         if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+           stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+        guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
             // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
             guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }

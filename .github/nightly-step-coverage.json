@@ -56,6 +56,7 @@
       "build-nightly-app": {
         "Mint the routing token for the light-job placement": {"plumbing": true},
         "Place the light jobs on a free mini": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
+        "Collect the light-job placement": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "joins the background placement the step above starts and copies its outputs; tests/test_nightly_trusted_routing.py holds the pair"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -107,6 +108,7 @@
         "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
         "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true},
+        "Offer fleet Linux to the primary preparation": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-remote-daemon": {
         "Keep the resumed daemon assets": {"plumbing": true},
@@ -215,6 +217,7 @@
         "Verify signed app entitlements and the Computer Use helper ticket": {"nightly_only": "reads the Developer ID signature, entitlements and the Computer Use helper's stapled ticket of the signed Release app that only the nightly signs"}},
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Download final DMG (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
@@ -232,6 +235,7 @@
         "Unpack the signed app": {"plumbing": true},
         "Notarize the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "signer-dmg-image": {"Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Download the signed app (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Unpack the signed app": {"plumbing": true},
         "Staple the app's notarization ticket": {"nightly_only": "Apple's stapler fetches the ticket of a release-pool app Apple notarized in signer-app-notary; only a release run has one"},
         "Apple's checks of the stapled app": {"nightly_only": "Apple's tools on a notarized release build; only a release run has one"},

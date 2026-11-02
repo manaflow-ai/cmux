@@ -18,7 +18,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
+from blacksmith_linux_sizes import entry  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -252,6 +252,9 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things cant our minis just run them").
         placed = "needs.portable-placement.outputs"
         attempt = f"{placed}.placed_attempt == format('{{0}}', github.run_attempt)"
+        measured = entry("cmux-next-guards.yml", "ci-guard-group")
+        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
+                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
         self.assertEqual(self.job()["needs"], ["portable-placement"])
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
@@ -261,7 +264,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
             f" || {attempt} && contains({placed}.linux_jobs, ' ci-guard-group ') && {placed}.linux_runner"
             f" || {attempt} && contains({placed}.mini_jobs, ' ci-guard-group ') && {placed}.mini_runner"
             " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + blacksmith_route("cmux-next-guards.yml", "ci-guard-group") + " }}",
+            " || " + pool_route + " }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

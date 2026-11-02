@@ -34,6 +34,8 @@ extension NewTabPage {
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
+        // What a new chat of this window left (cmux#32276), as in a Cmd-T page (``open(in:seed:)``).
+        page.draft = services.windowController(showing: source).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         let opened = SplitPageKey()
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
         // is made, moved to the new pane and shown before it can take them.

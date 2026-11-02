@@ -69,6 +69,10 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let link: (any CloudLinkLaunching)?
     private let onFallback: (any Error) -> Void
     private var usingLink = false
+    /// Why the Native route did not start, when the link took over (for `cloud.machines`' `link_route`).
+    public private(set) var fallbackReason: String?
+    /// The route in use: `native`, or `link` with the Native failure that made the link take over.
+    public var route: String { usingLink ? "link (native failed: \(fallbackReason ?? "unknown"))" : "native" }
 
     public enum Choice: Equatable, Sendable { case native, link }
 
@@ -99,6 +103,7 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
             guard let link, !(error is CancellationError),
                   error as? NativeDeviceEnrollmentError != .signedOut else { throw error }
             onFallback(error)
+            fallbackReason = String(describing: error)
             usingLink = true
             await native.archive(install: install)
             return try await link.ensure(install: install)

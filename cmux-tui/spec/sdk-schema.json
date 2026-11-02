@@ -22658,6 +22658,52 @@
     "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
    ]
   },
+  "set-attach-visibility": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "viewers": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Applies to the caller's snapshot attaches (attach-surface with snapshot ghostsnp) of the surface on this connection; viewers is 0 when there is none.",
+    "A hidden viewer gets its output once per wall-clock second (every hidden viewer of the daemon on the same second), at once when its batch passes 256 KiB, before any snapshot, and at once when it is shown again; no byte is dropped."
+   ]
+  },
   "terminal-history": {
    "authority": "control",
    "since": 12,

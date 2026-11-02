@@ -933,6 +933,9 @@ fn dispatch_command(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SetAttachVisibility(params) => {
+            terminal_snapshot::set_visibility(mux, client, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {

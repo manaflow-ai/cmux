@@ -8,6 +8,7 @@ import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../.
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 import { paneLanguage, translateKey } from "../i18n";
+import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -349,6 +350,15 @@ export default agentPaneEntry({
       value: 250,
       reason: "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
     },
+  },
+  experiment: {
+    definition: newTabComposerTrailingGap,
+    script: [
+      {
+        name: "measure trailing controls",
+        run: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-composer-actions") !== null),
+      },
+    ],
   },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
