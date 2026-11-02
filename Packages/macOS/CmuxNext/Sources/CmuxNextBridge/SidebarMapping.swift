@@ -493,10 +493,12 @@ public struct SidebarMapping {
     }
 
     /// The site's own icon address ("https://github.com/favicon.ico") for a page whose record names no
-    /// favicon (a restored tab never loaded); nil for a page that is not http(s).
+    /// favicon (a restored tab never loaded); nil for a page that is not http(s), and for a loopback page,
+    /// whose icon may belong to another machine's forwarded port (never guessed onto this Mac's).
     public static func siteFavicon(_ url: String?) -> String? {
         guard let url, let components = URLComponents(string: url), let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https", let host = components.host, !host.isEmpty else { return nil }
+              scheme == "http" || scheme == "https", let host = components.host?.lowercased(), !host.isEmpty,
+              !isLoopback(host) else { return nil }
         var site = URLComponents()
         site.scheme = scheme
         site.host = host
@@ -509,6 +511,10 @@ public struct SidebarMapping {
     /// page that never loaded shows its site and not a bare globe (Leo 2026-11-01: "there's no symbols").
     public static func favicon(_ recorded: String?, page url: String?) -> String? {
         recorded.flatMap { $0.isEmpty ? nil : $0 } ?? siteFavicon(url)
+    }
+
+    private static func isLoopback(_ host: String) -> Bool {
+        host == "localhost" || host.hasSuffix(".localhost") || host.hasPrefix("127.") || host == "[::1]" || host == "::1" || host == "0.0.0.0"
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.

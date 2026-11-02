@@ -69,8 +69,8 @@ import Testing
 
     @Test func aNewTabHasNoKindWordUnderIt() {
         let row = WorkspaceTabHoverCardView()
-        row.configure(title: "w", tabs: [SidebarTab(id: TabID("n"), title: "New Tab", kind: .newTab)], now: now, machine: local)
-        #expect(row.reportedLines == ["New Tab"])
+        row.configure(title: "w", tabs: [SidebarTab(id: TabID("n"), title: Strings.hoverCardNewTab, kind: .newTab)], now: now, machine: local)
+        #expect(row.reportedLines == [Strings.hoverCardNewTab])
     }
 
     @Test func pageAddressesGiveAPathAndTheSitesIcon() {
@@ -78,7 +78,9 @@ import Testing
         #expect(SidebarMapping.pagePath("https://github.com/") == nil)
         #expect(SidebarMapping.pagePath("about:blank") == nil)
         #expect(SidebarMapping.siteFavicon("https://github.com/manaflow-ai/cmux?x=1") == "https://github.com/favicon.ico")
-        #expect(SidebarMapping.siteFavicon("http://localhost:3000/app") == "http://localhost:3000/favicon.ico")
+        #expect(SidebarMapping.siteFavicon("http://localhost:3000/app") == nil, "a loopback page may be another machine's port")
+        #expect(SidebarMapping.siteFavicon("http://127.0.0.1:8080/") == nil)
+        #expect(SidebarMapping.siteFavicon("http://[::1]:8080/") == nil)
         #expect(SidebarMapping.siteFavicon("about:blank") == nil)
         #expect(SidebarMapping.siteFavicon("file:///tmp/a.html") == nil)
         #expect(SidebarMapping.favicon("https://cdn.example/icon.png", page: "https://github.com/a") == "https://cdn.example/icon.png")
