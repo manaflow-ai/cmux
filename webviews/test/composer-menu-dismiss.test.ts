@@ -161,8 +161,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    * the pointer checks is the live popup and its geometry; closing popups are filtered explicitly.
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
-    try {
-      await page.waitForFunction(
+    await page.waitForFunction(
       ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
@@ -204,31 +203,9 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         }
         return true;
       },
-        [names.map((name) => [name, chip(name)] as const), want] as const,
-        { timeout: 5_000 },
-      );
-    } catch (error) {
-      const state = await page.evaluate((pairs) => ({
-        open: pairs
-          .map(([name, selector]) => ({ name, button: document.querySelector<HTMLElement>(selector) }))
-          .map(({ name, button }) => ({
-            name,
-            expanded: button?.getAttribute("aria-expanded"),
-            popupOpen: button?.hasAttribute("data-popup-open"),
-            controls: button?.getAttribute("aria-controls"),
-          })),
-        popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => ({
-          id: popup.id,
-          ending: popup.hasAttribute("data-ending-style"),
-          starting: popup.hasAttribute("data-starting-style"),
-          opacity: getComputedStyle(popup).opacity,
-          pointerEvents: getComputedStyle(popup).pointerEvents,
-          height: popup.getBoundingClientRect().height,
-          text: popup.textContent?.slice(0, 80),
-        })),
-      }), names.map((name) => [name, chip(name)] as const));
-      throw new Error(`${error instanceof Error ? error.message : error}\nsettle state ${JSON.stringify(state)}`);
-    }
+      [names.map((name) => [name, chip(name)] as const), want] as const,
+      { timeout: 5_000 },
+    );
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
