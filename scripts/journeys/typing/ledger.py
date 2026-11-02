@@ -153,8 +153,14 @@ def main():
         cell_h = float(rect.get("cell_height") or 16) * scale
         ids = {(e["i"], e["t_post"]) for e in p["result"]["events"]}
         part = [x for x in events if (x["i"], x["t_post"]) in ids]  # this part's keys, with their t_start
-        rep = judge_keys.judge(frames[:m], times[:m], part, cell, cell_h_px=cell_h, origin=state.get("origin"),
+        grid_origin = None
+        if rect.get("origin_x") is not None and not state.get("origin"):
+            grid_origin = ((rect["origin_x"] - rect["rect_points_top_left"][0]) * scale,
+                           (rect["origin_y"] - rect["rect_points_top_left"][1]) * scale)
+        rep = judge_keys.judge(frames[:m], times[:m], part, cell, cell_h_px=cell_h, origin=state.get("origin") or grid_origin,
                                start=tuple(state.get("end") or (0, 0)))
+        if rep.get("error"):  # the judge could not place the line: this part is not judged (review 4)
+            continue
         if rep.get("summary", {}).get("origin"):
             state = {"origin": tuple(rep["summary"]["origin"]), "end": rep["summary"]["end"]}
         (mov.with_suffix(".keys.json")).write_text(json.dumps(rep, indent=1))

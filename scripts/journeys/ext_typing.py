@@ -54,11 +54,15 @@ def _surfaces(j):
             if isinstance(p, dict)]
 
 
+_pane_rect_origin = {}
+
+
 def _pane_rect(j, pick):
     for p in _surfaces(j):
         if pick(p):
             g = p.get("grid") or {}
             if all(k in g for k in ("frame_x", "frame_y", "frame_width", "frame_height")):
+                _pane_rect_origin.update(x=g.get("origin_x"), y=g.get("origin_y"))
                 return ([g["frame_x"], g["frame_y"], g["frame_width"], g["frame_height"]], p.get("pane"),
                         (g.get("cell_width"), g.get("cell_height")))
     return None, None, (None, None)
@@ -88,8 +92,12 @@ def step_typing_rect(j, step):
             rect = [fx, wh - fy - fh, fw, fh]  # bottom-left window points -> top-left
     if rect is None:
         raise D.StepError(f"typing_rect: no rect for {target!r}")
+    origin = dict(_pane_rect_origin) if target != "address_bar" else {}
+    _pane_rect_origin.clear()
     j.typing_rect = {"target": target, "rect_points_top_left": rect, "pane": pane, "window": win,
-                     "cell_width": cell[0], "cell_height": cell[1]}
+                     "cell_width": cell[0], "cell_height": cell[1],
+                     # the grid's first cell corner (window points, top-left): the judge's cell (0, 0)
+                     "origin_x": origin.get("x"), "origin_y": origin.get("y")}
     return j.typing_rect
 
 

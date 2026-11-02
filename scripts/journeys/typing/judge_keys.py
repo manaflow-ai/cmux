@@ -44,7 +44,7 @@ def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24, cell_h_px
     cell_h = float(cell_h_px or 2 * cell_px)
     phase = float(n.median([t % period for t in times])) if times else 0.0
     height, width = frames.shape[1], frames.shape[2]
-    rows_visible = max(1, int(height // cell_h))
+    rows_visible = None  # set once the origin is known: (height - origin_y) // cell_h (review should-fix 1)
 
     def shown_at(t):
         return max([i for i, tt in enumerate(times) if tt <= t] or [0])
@@ -68,6 +68,7 @@ def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24, cell_h_px
                 break
     if origin is None:
         return {"error": "the first key changed nothing in the pane", "keys": [], "summary": {}, "stalls": []}
+    rows_visible = max(1, int((height - origin[1]) // cell_h))
     row, col = start
     rows, defects = [], []
     for e in events:
