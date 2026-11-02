@@ -66,7 +66,7 @@ final class TopPageHost {
     /// The window closed: every page view goes, and providers forget them.
     func teardown() {
         for (route, view) in views {
-            view.removeFromSuperview()
+            view.removeFromSuperviewDetachingSubviews() // a page view never gives up its page in its dealloc
             // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
             if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
         }
