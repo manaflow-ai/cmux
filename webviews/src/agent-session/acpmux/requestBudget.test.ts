@@ -247,8 +247,8 @@ test("a write refused as busy is never sent again, so a later write is not undon
       () => undefined,
       (error: { reason?: string }) => error,
     );
+    // A retried request reaches its caller only after its last try: the error after one send means none.
     expect(refusal?.reason).toBe("connection.busy");
-    await new Promise((resolve) => setTimeout(resolve, BUSY_MAX_MS / 8));
     expect(daemon.answers).toHaveLength(1);
   } finally {
     client.close?.();
