@@ -34,7 +34,7 @@ struct ComputerUseApprovalTests {
         try #require(ComputerUseApprovalRequest(object))
     }
 
-    nonisolated static func json(_ line: Data) throws -> [String: Any] {
+    static func json(_ line: Data) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
     }
 
@@ -101,7 +101,7 @@ struct ComputerUseApprovalTests {
                                                         send: { sink.yield($0) }, consent: { nil }, refused: { _ in })
         #expect(handled)
         var iterator = lines.makeAsyncIterator()
-        let line = try #require(await iterator.next())
+        let line = try #require(await iterator.next(isolation: #isolation))
         #expect(try Self.json(line) as NSDictionary == ["type": "app_approval", "id": 4, "ok": false])
     }
 
@@ -183,7 +183,7 @@ struct ComputerUseApprovalTests {
         func done(digest: String) { finished.append(digest) }
     }
 
-    nonisolated struct Rig {
+    struct Rig {
         let broker: ComputerUseApprovalBroker
         let presenter: FakePresenter
         let phone: FakePhone
@@ -191,7 +191,8 @@ struct ComputerUseApprovalTests {
         var lines: AsyncStream<Data>.AsyncIterator
 
         mutating func next() async throws -> [String: Any] {
-            let line = await lines.next()
+            // On this actor: the iterator is never sent anywhere.
+            let line = await lines.next(isolation: #isolation)
             return try ComputerUseApprovalTests.json(try #require(line))
         }
     }
