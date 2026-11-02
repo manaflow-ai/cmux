@@ -66,7 +66,8 @@ fn splits_sent_on_one_connection_commit_in_one_group_and_reply_in_order() {
     for reply in &replies {
         assert_ne!(reply["ok"], json!(false), "{reply}");
     }
-    let surfaces = replies.iter().map(|reply| reply["surface"].clone()).collect::<HashSet<_>>();
+    let surfaces =
+        replies.iter().map(|reply| reply["data"]["surface"].clone()).collect::<HashSet<_>>();
     assert_eq!(surfaces.len(), 4, "{replies:?}");
     // One projection write with changes for the four new panes.
     let registry = mux.workspace_registry.lock().unwrap();
