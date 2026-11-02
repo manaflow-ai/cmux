@@ -24,7 +24,7 @@ extension AppServices {
     func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel, work: TabModel?) -> SidebarMapping.PageFace {
         let incognito = tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id)
         let favicon = tab.kind != .browser ? nil
-            : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).map { SidebarFavicon($0.cgImage) }
+            : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : SidebarMapping.favicon(tab.faviconURL, page: tab.url)).map { SidebarFavicon($0.cgImage) }
         let names = WorkspaceAutoNameWiring(services: self).reader
         // The media hub's tab list version: a page made or closed later maps the row again.
         if tab.kind == .browser { _ = cache.pageRequests.media.tabsVersion }

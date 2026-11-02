@@ -570,7 +570,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Lookup
 
-    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } }
+    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } ?? daemon.store.creations.replacement(ofStandIn: id.rawValue, in: pane) }
 
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
 
