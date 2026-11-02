@@ -27,6 +27,7 @@ Steps (`do`):
                 the whole window (the judge finds the band the keys changed); pane:NAME: that pane's frame), plus the
                 window frame; kept in the result.
 """
+import json
 import random
 import time
 
@@ -133,31 +134,74 @@ def step_video_close_open(j, step):
                 closed=rec["name"])
 
 
-# Apps whose on-screen window means a host dialog is open (cmux-ad 01:30Z: a round on a mini with an open CuaDriver
-# bypass dialog is SMOKE ENV, not a result): CuaDriver itself, the TCC / notification and settings agents.
-HOST_DIALOG_APPS = ("CuaDriver", "cua-driver", "UserNotificationCenter", "System Settings", "SecurityAgent",
-                    "universalAccessAuthWarn", "tccd", "CoreServicesUIAgent")
+# Host dialogs (cmux-ad 01:30Z: a round on a mini with an open CuaDriver bypass dialog is SMOKE ENV, not a result):
+# a window of one of these apps (exact owner names) at a dialog level (layer 0 or the modal-panel levels 3-8, never
+# the status bar 24-26 or the cursor overlays above) and of dialog size (both sides >= 100 points).
+HOST_DIALOG_APPS = {"CuaDriver", "cua-driver", "UserNotificationCenter", "System Settings", "SecurityAgent",
+                    "universalAccessAuthWarn", "CoreServicesUIAgent", "TCC", "tccd"}
+DIALOG_LAYERS = {0, 3, 4, 5, 6, 7, 8}
+
+
+def _int(v, default=-1):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
 
 
 def step_env_windows(j, step):
-    """Records every on-screen window of another app (CuaDriver list_windows; input-side only, no capture) and marks
-    the round SMOKE ENV when one belongs to a host dialog app (HOST_DIALOG_APPS). Never fails the journey: the mark
-    goes to the result (`smoke_env`) and the round's judge must not count it as a result."""
+    """Records every on-screen window of another app (ext_realkey._app_windows' CuaDriver list_windows parse; input
+    side only, no capture) and marks the round SMOKE ENV (`smoke_env` in the result; routing/tally.py and
+    video_golden.py skip such a run) when one is a host dialog (HOST_DIALOG_APPS at DIALOG_LAYERS, >= 100 points).
+    A host that cannot be read is SMOKE ENV too. Never raises."""
     try:
-        code, answer = _realkey()._cua("list_windows", {})
+        rows = _all_windows(j)
     except Exception as error:  # noqa: BLE001 -- a record step: an unreadable host is SMOKE ENV, never a crash
         j.smoke_env = True
         return {"at": step.get("at", "start"), "smoke_env": True, "error": str(error)[:200]}
-    rows = answer.get("windows") or answer.get("structuredContent", {}).get("windows") or []
-    other = [{"app": w.get("app_name") or w.get("owner_name") or w.get("owner"), "title": w.get("title") or w.get("name"),
-              "pid": w.get("pid") or w.get("owner_pid"), "layer": w.get("layer")}
-             for w in rows if int(w.get("pid") or w.get("owner_pid") or -1) != j.app.pid
-             and w.get("is_on_screen", w.get("on_screen", True))]
-    dialogs = [w for w in other if any(a.lower() in str(w["app"] or "").lower() for a in HOST_DIALOG_APPS)
-               and (w.get("layer") or 0) >= 0]
+    if rows is None:
+        j.smoke_env = True
+        return {"at": step.get("at", "start"), "smoke_env": True, "error": "CuaDriver list_windows gave no window list"}
+    other, dialogs = [], []
+    for w in rows:
+        if _int(w.get("pid", w.get("owner_pid"))) == j.app.pid or not w.get("is_on_screen", w.get("on_screen", True)):
+            continue
+        app = str(w.get("app_name") or w.get("owner_name") or w.get("owner") or "")
+        bounds = w.get("bounds") or w.get("frame") or {}
+        if isinstance(bounds, dict):
+            width, height = bounds.get("width", bounds.get("w", 0)), bounds.get("height", bounds.get("h", 0))
+        elif isinstance(bounds, list) and len(bounds) == 4:
+            width, height = bounds[2], bounds[3]
+        else:
+            width = height = 0
+        rec = {"app": app, "title": w.get("title") or w.get("name"), "layer": w.get("layer"), "size": [width, height]}
+        other.append(rec)
+        try:
+            big = float(width) >= 100 and float(height) >= 100
+        except (TypeError, ValueError):
+            big = False
+        if app in HOST_DIALOG_APPS and _int(w.get("layer"), 0) in DIALOG_LAYERS and big:
+            dialogs.append(rec)
     j.smoke_env = bool(getattr(j, "smoke_env", False) or dialogs)
-    return {"at": step.get("at", "start"), "smoke_env": j.smoke_env, "host_dialogs": dialogs, "other_windows": other[:30],
-            "list_exit": code}
+    return {"at": step.get("at", "start"), "smoke_env": j.smoke_env, "host_dialogs": dialogs, "other_windows": other[:30]}
+
+
+def _all_windows(j):
+    """Every window CuaDriver lists (the answer shapes ext_realkey._app_windows reads), or None when it lists none
+    in any known shape."""
+    code, answer = _realkey()._cua("list_windows", {})
+    rows = answer.get("windows") or answer.get("structuredContent", {}).get("windows")
+    if not rows and isinstance(answer.get("content"), list):
+        for part in answer["content"]:
+            try:
+                rows = json.loads(part.get("text", "")).get("windows")
+            except (ValueError, AttributeError):
+                continue
+            if rows:
+                break
+    if code != 0 or not isinstance(rows, list) or not rows:
+        return None
+    return rows
 
 
 STEPS = {"env_windows": step_env_windows, "typing_keys": step_typing_keys, "typing_rect": step_typing_rect, "video_close_open": step_video_close_open}

@@ -30,6 +30,12 @@ def attempts(run_dir):
             record = json.loads((run_dir / ident / "result.json").read_text())
         except (OSError, ValueError):
             continue
+        env = any(isinstance(st.get("result"), dict) and st["result"].get("smoke_env")
+                  for st in record.get("steps") or [] if st.get("do") == "env_windows")
+        if env:
+            yield {"case": ident, "build": row.get("build_job"), "commit": row.get("commit"), "host": row.get("host"),
+                   "attempt": None, "verdict": "smoke_env", "run": str(run_dir)}
+            continue
         for ev in record.get("evidence") or []:
             if not isinstance(ev, dict) or ev.get("check") != "routing_marker" or not isinstance(ev.get("detail"), dict):
                 continue
@@ -53,10 +59,10 @@ def main():
     table = defaultdict(lambda: defaultdict(int))
     for a in rows:
         table[(a["case"], a["build"])][a["verdict"]] += 1
-    print("| Case | Build | Attempts | Right | Wrong | Lost | Split | Unjudged |")
-    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    print("| Case | Build | Attempts | Right | Wrong | Lost | Split | Unjudged | SMOKE ENV runs |")
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for (case, build), c in sorted(table.items()):
-        print(f"| {case} | {str(build)[:12]} | {sum(c.values())} | {c['right']} | {c['wrong']} | {c['lost']} | {c['split']} | {c['unjudged']} |")
+        print(f"| {case} | {str(build)[:12]} | {sum(v for k, v in c.items() if k != 'smoke_env')} | {c['right']} | {c['wrong']} | {c['lost']} | {c['split']} | {c['unjudged']} | {c['smoke_env']} |")
     return 0
 
 

@@ -109,6 +109,15 @@ def main():
     a = ap.parse_args()
     run = Path(a.run)
     row = journey_row(run, a.case)
+    try:
+        steps = json.loads((run / a.case / "result.json").read_text()).get("steps", [])
+    except (OSError, ValueError):
+        steps = []
+    envs = [st.get("result") for st in steps if st.get("do") == "env_windows" and isinstance(st.get("result"), dict)]
+    if not envs or any(e.get("smoke_env") for e in envs):
+        # cmux-ad 01:30Z: a round with a host dialog open (or no record of the host) is SMOKE ENV, not a result.
+        print(f"{a.case}: SMOKE ENV ({'no env record' if not envs else 'a host dialog was open'}): no ledger row")
+        return 75
     if row is None or row.get("status") not in ("pass", "fail"):
         print(f"{a.case}: not run ({(row or {}).get('reason', 'no result')}): no ledger row")
         return 75
