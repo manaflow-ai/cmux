@@ -511,6 +511,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # The post-publication canary's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
+    ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
