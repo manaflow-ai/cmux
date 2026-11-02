@@ -28,9 +28,10 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
     assert_eq!(stats["contextTokens"], 201_003, "{stats}");
     assert_eq!(stats["tokens24h"], 201_053, "{stats}");
     assert_eq!(stats["launcher"], "python3", "{stats}");
-    // This daemon started it with no cap, and its Claude home has no settings: known uncapped.
-    assert_eq!(stats["autocompact"], "none", "{stats}");
-    assert_eq!(stats["autocompactCap"], Value::Null, "{stats}");
+    // Its Claude home has no settings, so acpmux started it with the default 400K window
+    // (harness_limits::CLAUDE_AUTOCOMPACT_WINDOW, #31936).
+    assert_eq!(stats["autocompact"], "capped", "{stats}");
+    assert_eq!(stats["autocompactCap"], 400_000, "{stats}");
     assert_eq!(stats["subagents24h"], 0, "{stats}");
     assert!(stats["costUsd24h"].as_f64().is_some_and(|c| c > 0.0), "{stats}");
 
