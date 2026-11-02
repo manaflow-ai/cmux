@@ -220,3 +220,42 @@ fn a_start_wave_is_sized_before_its_first_respawn_and_gives_back_the_unplanned()
     drop(reservations);
     wait_for_kitty_image_budget(&mux);
 }
+
+/// One host lost while the session runs: its dead runtime still owns a
+/// share when its respawn is expected. Counted twice (the old entry and the
+/// expectation), two terminals moved the bucket from 2 to 4, and the
+/// hysteresis kept it there: the live terminal lost half its Kitty share for
+/// good (review of #32164). The dead runtime gives its share up in the same
+/// step, so the live one keeps its share and the respawn reserves at once.
+#[test]
+fn a_runtime_respawn_does_not_count_its_terminal_twice() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let lost = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    wait_for_kitty_image_budget(&mux);
+    let share = kitty_image_limits_for_capacity(2);
+    assert_eq!(
+        first.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap(),
+        share
+    );
+
+    let slot = mux.next_id();
+    let expectation = mux.expect_kitty_image_respawn(Some(&lost), slot);
+    assert_eq!(
+        mux.kitty_image_budget.lock().unwrap().capacity,
+        2,
+        "the respawn of one of two terminals counted it twice"
+    );
+    let started = Instant::now();
+    let reservation = mux.reserve_kitty_image_surface(slot).unwrap();
+    let waited = started.elapsed();
+    drop(expectation);
+    assert!(waited < Duration::from_millis(100), "the respawn reservation waited {waited:?}");
+    assert_eq!(reservation.initial_limits(), share, "the respawn did not get its old share");
+    drop(reservation);
+    wait_for_kitty_image_budget(&mux);
+    close_terminal_runtime_for_test(&mux, &lost);
+    close_terminal_runtime_for_test(&mux, &first);
+    wait_for_kitty_image_budget(&mux);
+}

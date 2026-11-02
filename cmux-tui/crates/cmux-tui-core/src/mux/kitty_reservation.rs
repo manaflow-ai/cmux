@@ -31,6 +31,17 @@ impl Mux {
         KittyImageSurfaceExpectation { mux: Arc::downgrade(self), surface }
     }
 
+    /// [`Self::expect_kitty_image_surface`] for a respawn that replaces
+    /// `old_runtime` (stub: the old runtime keeps its share).
+    pub(crate) fn expect_kitty_image_respawn(
+        self: &Arc<Self>,
+        old_runtime: Option<&Arc<Surface>>,
+        slot: SurfaceId,
+    ) -> KittyImageSurfaceExpectation {
+        drop(old_runtime);
+        self.expect_kitty_image_surface(slot)
+    }
+
     /// Size the Kitty image budget for `count` terminals a respawn wave will
     /// add before any of them is planned ([`KittyImageWaveExpectation`]).
     pub(crate) fn expect_kitty_image_wave(

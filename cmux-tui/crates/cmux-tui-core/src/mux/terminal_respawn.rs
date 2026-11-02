@@ -254,8 +254,10 @@ impl Mux {
         // its reservation then never waits for another respawn's launch.
         // One after a backoff is not: it would shrink running terminals for
         // the length of the backoff.
-        let kitty_expectation =
-            plan.delay.is_zero().then(|| mux.expect_kitty_image_surface(plan.slot));
+        let kitty_expectation = plan
+            .delay
+            .is_zero()
+            .then(|| mux.expect_kitty_image_respawn(plan.old_runtime.as_ref(), plan.slot));
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             let _kitty_expectation = kitty_expectation;
