@@ -50,7 +50,8 @@ def load_frames(movie):
 
 
 def decode(movie):
-    reader = imageio_ffmpeg.read_frames(movie, pix_fmt="rgb24")
+    # Every stored frame once (no constant-rate duplication of a variable-rate movie).
+    reader = imageio_ffmpeg.read_frames(movie, pix_fmt="rgb24", output_params=["-fps_mode", "passthrough"])
     meta = next(reader)
     w, h = meta["size"]
     for buf in reader:
@@ -170,7 +171,8 @@ def judge_round(root, entry, stills, window_px):
     res["page_a"], res["page_b"] = page_a, page_b
     # Static column: 520 CSS px wide from the page's left, inside the page in BOTH layouts, less the badge corner.
     col_bottom = min(page_a[3], page_b[3] if page_b else page_a[3]) - round(40 * dpr)
-    column = [page_a[0], page_a[1], min(page_a[0] + round(520 * dpr), page_b[2] if page_b else page_a[2]), col_bottom]
+    # Less 4 px at the right: the divider line sits at the open page's edge.
+    column = [page_a[0], page_a[1], min(page_a[0] + round(520 * dpr), (page_b[2] if page_b else page_a[2]) - round(4 * dpr)), col_bottom]
     res["column"] = column
     # DevTools area: what changed between A and B outside the shrunk page.
     ab = changed_mask(A, B) & ~anim
