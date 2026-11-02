@@ -1,7 +1,7 @@
 {
   "id": "typing-load-l6-r120",
   "priority": "P0",
-  "title": "Typing under load L6: a seeded 2-minute typist (real HID keys) into a terminal, filmed at 120 Hz (L6 target 120 calls/s, 48 storm workers started once L2..L5 are ready, daemon lock stats; HEVC 30 Mbit/s): the re-measure after the CLI-1 daemon fixes (lead 16:5xZ)",
+  "title": "Typing under load L6: a seeded 2-minute typist (real HID keys) into a terminal, filmed at 120 Hz (L6 target 120 calls/s, 48 storm workers started once L2..L5 are ready, daemon lock stats; HEVC 30 Mbit/s so the two L6 movies fetch inside the lease): the re-measure after the CLI-1 daemon fixes (lead 16:5xZ)",
   "why": "Lawrence 2026-11-02: 'video + metric evidence that typing into terminals is never laggy, even when there's a lot of CLI/mcp commands and browser use and browser tabs etc going on in the background'. Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
   "source": "TYPING UNDER LOAD (lead 02:3xZ)",
   "budget_seconds": 260,
@@ -124,7 +124,7 @@
       "seed": 7,
       "duration": 400,
       "keep": "typing",
-      "ready_timeout": 180,
+      "ready_timeout": 120,
       "args": [
         "--rate",
         "120",

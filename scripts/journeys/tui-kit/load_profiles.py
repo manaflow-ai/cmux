@@ -896,16 +896,20 @@ def run_l6(a):
     """L1..L5 at the same time, one child process each; LOAD-READY L6 once every child is ready.
     --storm-after-ready: the L1 storm starts only once L2..L5 are ready (or have ended), so their set-up (L3's
     browser tab, L5's 40 workspaces and 200 tabs) is not starved by the storm; the storm is the load during the typing,
-    not during the set-up. At 120 calls/s from the start, L3's browser identify timed out (2 s) and L5 stopped at 38 of
+    not during the set-up; L1's --duration then counts from its own (later) start. At 120 calls/s from the start, L3's browser identify timed out (2 s) and L5 stopped at 38 of
     40 workspaces on both builds (cmux20 2026-11-02 17:4xZ), so L6 was never ready."""
     folder = os.path.join(a.out, "L6")
     os.makedirs(folder, exist_ok=True)
     children = {}
     later = ("L1",) if getattr(a, "storm_after_ready", False) else ()
+    stopping = []
 
     def start(name):
         argv = [sys.executable, os.path.abspath(__file__), "run", name, "--out", folder] + passthrough(a)
-        children[name] = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+        children[name] = proc
+        if stopping:  # a stop that came while it started (forward() did not see it yet): it stops too
+            proc.send_signal(signal.SIGTERM)
 
     for name in PROFILES[:5]:
         if name not in later:
@@ -927,7 +931,6 @@ def run_l6(a):
     threads = [threading.Thread(target=follow, args=item, daemon=True) for item in children.items()]
     for t in threads:
         t.start()
-    stopping = []
 
     def forward(signum, _frame):
         stopping.append(signum)
@@ -940,9 +943,11 @@ def run_l6(a):
     announced = False
     while later or any(p.poll() is None for p in children.values()):
         with lock:
-            settled = all(name in ready or children[name].poll() is not None for name in children)
-        if later and (settled or stopping):
-            if not stopping:
+            failed = [name for name in children if name not in ready and children[name].poll() is not None]
+            settled = all(name in ready for name in children)
+        if later and (settled or failed or stopping):
+            # A child that ended before it was ready means L6 can never be ready: no storm then.
+            if not stopping and not failed:
                 for name in later:
                     start(name)
                     manifest["storm_started_wall"] = time.time()
@@ -951,7 +956,7 @@ def run_l6(a):
                     threads.append(t)
             later = ()
         with lock:
-            if not announced and not later and len(ready) == len(children) == 5:
+            if not announced and not later and not stopping and len(ready) == len(children) == 5:
                 announced = True
                 print("LOAD-READY L6 t_mono=%.6f t_wall=%.6f" % (time.monotonic(), time.time()), flush=True)
         time.sleep(0.1)
@@ -959,7 +964,7 @@ def run_l6(a):
         t.join(5)
     codes = {name: p.returncode for name, p in children.items()}
     for name in PROFILES[:5]:
-        if name not in children:  # a stop before the storm's turn: it never ran
+        if name not in children:  # a stop, or a child that ended unready, before the storm's turn: it never ran
             manifest["children"][name] = {"exit": None, "dir": os.path.join(folder, name), "ready": None,
                                           "done": None, "not_started": True}
     for name in children:

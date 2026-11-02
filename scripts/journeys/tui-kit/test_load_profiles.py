@@ -612,6 +612,70 @@ class AllL6(Base):
         self.assert_torn_down(app)
 
 
+class L6StormStart(unittest.TestCase):
+    """--storm-after-ready: a stop while the storm starts reaches it, and a child that ended unready starts no storm
+    (review FIX at 3861f366bec). run_l6 with stand-in children (no app)."""
+
+    def run_l6(self, behaviour, stop_inside_start=False):
+        import signal
+        import types
+        import load_profiles as mod
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = os.path.join(tmp, "child.py")
+            with open(stub, "w") as f:
+                f.write("import sys, time, signal, os\n"
+                        "name = sys.argv[2]\n"
+                        "b = os.environ['L6_BEHAVIOUR']\n"
+                        "signal.signal(signal.SIGTERM, lambda *_: (open(os.path.join(os.environ['L6_DIR'], name + '.term'), 'w').close(), sys.exit(0)))\n"
+                        "if b == 'l5-fails' and name == 'L5':\n"
+                        "    print('LOAD-DONE L5 refusals=1', flush=True); sys.exit(1)\n"
+                        "print('LOAD-READY %s t_mono=0 t_wall=0' % name, flush=True)\n"
+                        "time.sleep(float(os.environ.get('L6_HOLD', '1.5')))\n"
+                        "print('LOAD-DONE %s' % name, flush=True)\n")
+            os.environ.update({"L6_BEHAVIOUR": behaviour, "L6_DIR": tmp})
+            real_popen, real_file = mod.subprocess.Popen, mod.__file__
+            started = []
+
+            def popen(argv, **kw):
+                started.append(argv[3])
+                proc = real_popen([sys.executable, stub] + argv[2:4], **kw)
+                if stop_inside_start and argv[3] == "L1":
+                    os.kill(os.getpid(), signal.SIGTERM)  # the stop lands while L1 starts
+                return proc
+
+            mod.subprocess.Popen = popen
+            old_term, old_int = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
+            try:
+                a = types.SimpleNamespace(out=tmp, seed=7, duration=1.0, storm_after_ready=True)
+                saved = mod.passthrough
+                mod.passthrough = lambda _a: []
+                code = mod.run_l6(a)
+            finally:
+                mod.subprocess.Popen, mod.passthrough = real_popen, saved
+                signal.signal(signal.SIGTERM, old_term)
+                signal.signal(signal.SIGINT, old_int)
+            with open(os.path.join(tmp, "L6", "manifest.json")) as f:
+                manifest = json.load(f)
+            return code, started, manifest, set(n[:-5] for n in os.listdir(tmp) if n.endswith(".term"))
+
+    def test_a_stop_while_the_storm_starts_stops_it_and_l6_is_never_ready(self):
+        import signal
+        code, started, m, termed = self.run_l6("ok", stop_inside_start=True)
+        self.assertEqual(started[-1], "L1")
+        # stopped by the SIGTERM (by its handler, or by the default action before the handler was set): never its
+        # full run (exit 0 after LOAD-DONE)
+        self.assertTrue("L1" in termed or m["children"]["L1"]["exit"] == -signal.SIGTERM, m["children"]["L1"])
+        self.assertIsNone(m["children"]["L1"]["done"])
+        self.assertFalse(m["all_ready"])
+
+    def test_a_child_that_ended_unready_starts_no_storm(self):
+        code, started, m, _ = self.run_l6("l5-fails")
+        self.assertNotIn("L1", started)
+        self.assertTrue(m["children"]["L1"]["not_started"])
+        self.assertFalse(m["all_ready"])
+        self.assertEqual(code, 1)
+
+
 class WorkersOption(unittest.TestCase):
     """--workers reaches L1 (default 8) and the L6 children get it through passthrough."""
 
