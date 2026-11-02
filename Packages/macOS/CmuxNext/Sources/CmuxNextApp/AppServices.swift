@@ -860,7 +860,7 @@ final class AppServices {
         for controller in windows.controllers {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
-        return windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.pane === pane } }.first
+        return windows.controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
     }
 
     /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is
