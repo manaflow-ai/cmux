@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
 nonisolated enum CEFFocusSource: Int32, Sendable {
