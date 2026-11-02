@@ -48,7 +48,9 @@ struct ControlCaller: Sendable, Equatable {
             }
             homeChat = on
         }
-        guard agentSession != nil || terminalID != nil || homeChat else { return nil }
+        guard agentSession != nil || terminalID != nil || homeChat else {
+            throw ControlError.invalidParams("caller must name agent_session, terminal_id, or home_chat")
+        }
     }
 }
 

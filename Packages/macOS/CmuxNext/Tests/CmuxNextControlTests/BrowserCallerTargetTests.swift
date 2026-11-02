@@ -156,6 +156,12 @@ import Testing
         let emptyCallers: [JSONValue] = [.object([:]), ["terminal_id": ""], ["home_chat": false]]
         for caller in emptyCallers {
             #expect(await state(router, caller: caller).failure?.code == "invalid_params")
+            let action = await router.handle(ControlRequest(method: "action.run",
+                params: ["action": "browserReload", "caller": caller]))
+            #expect(action.failure?.code == "invalid_params")
+            let all = await router.handle(ControlRequest(method: "browser.page.tabs",
+                params: ["caller": caller, "all": true]))
+            #expect(all.failure?.code == "invalid_params")
         }
         #expect(await state(router, caller: ["terminal_id": 1]).failure?.code == "invalid_params")
     }

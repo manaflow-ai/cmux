@@ -73,6 +73,9 @@ extension BrowserPageService {
     static func tabList(_ call: ControlCall) throws -> JSONValue {
         let topology = call.snapshot.topology
         let params = call.request.params
+        // Validate an explicitly supplied caller even for the intentionally
+        // unscoped `all` list; malformed caller objects must never be ignored.
+        _ = try ControlCaller(params)
         let all = params["all"]?.boolValue == true
         var workspaceID = topology.focus.workspaceID
         if !all, let requested = params["tab"]?.stringValue, !requested.isEmpty {
