@@ -181,6 +181,47 @@ import Testing
     private static let firstBrowser: Int32 = 1
 
     /// A runtime that outlives the test (a pane's scheduled work reads it through an unowned reference).
+    /// reopen-browser-plain-keys cycle B (REOPEN VIDEO 7660, 7710, 7801): keys sent on when the browser existed reached
+    /// the empty document the restore replaced; at the restored document's commit they reached a page whose script had
+    /// not run; at a load end or any load error they reached a document the same load then replaced (an aborted load, a
+    /// load end with the next navigation on its way). The page is ready for keys once Chromium stopped loading on a real
+    /// document, or on an error page. Events in CEF's order.
+    @Test func aTabIsReadyForKeysOnlyOnceLoadingStoppedOnARealDocument() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (_, tab) = try Self.livePane(runtime)
+        var reported = 0
+        tab.onReadyForKeys = { reported += 1 }
+        let browser = Self.firstBrowser
+        #expect(!tab.pageReady, "keys sent on when the browser exists reach the empty document the restore replaces")
+        Self.load(runtime, browser, "about:blank")
+        #expect(!tab.pageReady, "a blank document's load is not the restored page")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: browser, code: -3, text: "net::ERR_ABORTED", url: "https://example.com/", chromiumInterstitial: false))
+        #expect(!tab.pageReady, "an aborted load (a navigation the next one replaced) is no page")
+        runtime.handle(.loadStart(browser: browser, url: "https://example.com/", fromPost: false))
+        #expect(!tab.pageReady, "keys sent on at the commit reach a page whose script has not run")
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        #expect(!tab.pageReady, "a load end while Chromium still loads: the next navigation replaces this document")
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady, "loading stopped on a real document, and the page is not ready")
+        Self.load(runtime, browser, "https://example.com/next")
+        #expect(reported == 1, "one browser reported ready \(reported) times")
+        tab.attach(browser: browser)
+        #expect(!tab.pageReady && reported == 1, "a browser attached again was ready before its page loaded")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: browser, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://nowhere.invalid/", chromiumInterstitial: false))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady && reported == 2, "an error page takes keys: the hold must not wait for its bound")
+    }
+
+    /// One whole load of `url` in CEF's order.
+    private static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: browser, url: url, fromPost: false))
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+    }
+
     private static func runtime(hostMode: Bool) throws -> CEFRuntime {
         FocusSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-tab-focus-\(UUID().uuidString)", directoryHint: .isDirectory)

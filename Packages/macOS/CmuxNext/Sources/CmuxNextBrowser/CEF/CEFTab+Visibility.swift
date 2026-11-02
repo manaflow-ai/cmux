@@ -97,3 +97,8 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
         rendererHangVisibilityChanged()
     }
 }
+
+public extension BrowserTab {
+    /// The page can take keys: Chromium created its browser and a real document loaded (a non-Chromium page always can).
+    var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil && $0.hasDocument } ?? true }
+}

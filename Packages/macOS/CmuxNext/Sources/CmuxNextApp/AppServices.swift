@@ -973,6 +973,7 @@ final class AppServices {
         input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
+            self?.keyRouter.creationInputCoordinator.pageArrived(key)
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }

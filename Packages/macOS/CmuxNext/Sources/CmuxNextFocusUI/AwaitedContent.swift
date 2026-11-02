@@ -29,9 +29,12 @@ public struct AwaitedContent: Equatable, Sendable {
         public var shownKind: Kind?
         /// The selected tab is a terminal that will draw (not a dead one).
         public var selectedIsLiveTerminal: Bool
+        /// The shown browser content has its page ready for keys (Chromium stopped loading on its document).
+        public var shownPageReady: Bool
 
-        public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool) {
+        public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool, shownPageReady: Bool = true) {
             (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)
+            self.shownPageReady = shownPageReady
         }
     }
 

@@ -402,6 +402,9 @@ final class CreationInputCoordinator {
         return services.windows.owner(of: window)?.state.id
     }
 
+    /// `key`'s page is ready for keys: a hold that awaited it ends now (reopen-browser-plain-keys cycle B).
+    func pageArrived(_ key: String) { holdEnds.pageArrived(key); router?.services?.windows.controllers.compactMap(\.window).filter { buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
+
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()
@@ -454,7 +457,7 @@ final class CreationInputCoordinator {
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
         let unshown = buffer.waitsForWorkspace(other: shown)
         let pending = buffer.take(shown: shown)
-        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
@@ -480,7 +483,7 @@ extension CreationInputCoordinator {
         let state = controller.focus.currentState()
         guard let focused = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
         let shown = content.paneController(key: focused.pane).map { shown in
-            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal)
+            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } } ?? true)
         }
         return AwaitedContent.awaited(focused.isPage ? .browser : .terminal, tab: focused.tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == focused.pane })
     }
