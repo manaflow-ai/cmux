@@ -411,8 +411,9 @@ class Launch:
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            # "test" placement puts every window at the agent test size on the last screen and ignores the saved
-            # frame; "restore" lets the app reopen its windows where they were, as a person's relaunch does (#32493).
+            # "test" placement puts every window at the agent test size on the last screen, in front, and ignores the
+            # saved frame; "restore" lets the app reopen each window at its saved frame (#32493). With no activation
+            # the restored window is ordered behind, never key (WindowActivation); it still draws (automation launch).
             **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" else {}),
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
             "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
@@ -908,15 +909,18 @@ def seed_stress(tag, scratch, timeout):
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
-        out.write("stress\n")
+        out.write(f"stress placement={WINDOW_PLACEMENT}\n")
 
 
 def seeded_stress(tag):
+    """A STRESS session seeded under this run's window placement: one saved under the other placement restores
+    another window size, so it is seeded again."""
     try:
         with open(seeded_marker(tag)) as marker:
-            return marker.read().startswith("stress")
+            text = marker.read()
     except OSError:
         return False
+    return text.startswith("stress") and f"placement={WINDOW_PLACEMENT}" in text
 
 
 def seeded_agent(tag):
@@ -1187,9 +1191,10 @@ def main():
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
     parser.add_argument("--window-placement", choices=["test", "restore"],
-                        help="test: every window at the agent test size on the last screen, the saved frame ignored; "
-                             "restore: the app reopens its windows where they were (default: restore for --profile "
-                             "stress, else test)")
+                        help="test: every window at the agent test size (1100 x 720) on the last screen, in front, the "
+                             "saved frame ignored; restore: the app reopens each window at its saved frame, ordered "
+                             "behind and not key (default: restore for --profile stress, else test). STRESS numbers "
+                             "from before restore was its default had a smaller window and are not comparable")
     parser.add_argument("--new-session-each-run", action="store_true",
                         help="--profile stress: build a new STRESS session before every measured launch, so each run "
                              "is the first relaunch after a new session")
@@ -1203,6 +1208,8 @@ def main():
     # relaunch after a seed refused every saved frame for its size.
     WINDOW_PLACEMENT = args.window_placement or ("restore" if args.profile == "stress" else "test")
     NEW_SESSION_EACH_RUN = args.new_session_each_run
+    if NEW_SESSION_EACH_RUN and args.profile != "stress":
+        parser.error("--new-session-each-run needs --profile stress")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:

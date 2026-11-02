@@ -222,10 +222,11 @@ public final class TerminalLaunchFrames {
         waiting = waiting.filter { $0.value.session != nil || ($0.value.content.map { $0 !== content } ?? false) }
     }
 
-    /// Records why `key`'s frame did not show. The first reason stays: a later ask finds the frame taken by the first
-    /// one and would say `no_frame`, which hides the cause (#32493: frames refused for their `size`).
+    /// Records why `key`'s frame did not show. A later `no_frame` never replaces a reason: that ask finds the frame
+    /// taken by the earlier one, and `no_frame` would hide the cause (#32493: frames refused for their `size`). Any
+    /// other later reason (`size`, `scale`, `live`) is the newer cause and replaces it.
     private func noteMissed(_ key: String, _ reason: String) {
-        guard var pane = panes[key], pane.shown == nil, pane.missed == nil else { return }
+        guard var pane = panes[key], pane.shown == nil, !(reason == "no_frame" && pane.missed != nil) else { return }
         pane.missed = reason
         panes[key] = pane
     }
