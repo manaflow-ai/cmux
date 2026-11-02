@@ -49,6 +49,36 @@ struct CloudMachineChangeStateTests {
         func close(_ key: CloudLinkKey) async {}
     }
 
+    /// The first open waits for `release`, then fails; later opens fail at once.
+    private actor HeldFailingLinkResolver: CloudLinkResolver {
+        private(set) var attempts = 0
+        private var opened: CheckedContinuation<Void, Never>?
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
+        private var next: (Int, CheckedContinuation<Void, Never>)?
+        func waitForOpen() async {
+            if attempts > 0 { return }
+            await withCheckedContinuation { opened = $0 }
+        }
+        func release() { releaseWaiter?.resume(); releaseWaiter = nil }
+        func waitForAttempts(_ count: Int) async {
+            if attempts >= count { return }
+            await withCheckedContinuation { next = (count, $0) }
+        }
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            attempts += 1
+            if attempts == 1 {
+                opened?.resume()
+                opened = nil
+                await withCheckedContinuation { releaseWaiter = $0 }
+            } else if let (count, continuation) = next, attempts >= count {
+                next = nil
+                continuation.resume()
+            }
+            throw CloudLinkError.disconnected(reason: "provider still provisioning")
+        }
+        func close(_ key: CloudLinkKey) async {}
+    }
+
     private actor ResumeLinkResolver: CloudLinkResolver {
         private(set) var attempts = 0
         private var opened: CheckedContinuation<Void, Never>?
@@ -107,6 +137,62 @@ struct CloudMachineChangeStateTests {
         session.applyRecord(CloudMachine(id: session.machineID, status: .running))
         await Task.yield()
         #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
+    }
+
+    /// A machine made for a send reads provisioning (live) before its daemon can answer: a connect
+    /// that failed then is retried once the record runs, and the start waits for running first.
+    @Test(.timeLimit(.minutes(1)))
+    func runningRetriesAnAppLinkThatFailedWhileProvisioning() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "new-machine", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "new-machine"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        #expect(await resolver.attempts == 1)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2, "provisioning -> running did not retry the failed connect")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runningWhileAConnectIsInFlightRetriesItWhenItFails() async throws {
+        let services = MachineIconTests.services()
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "racing", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "racing"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        await resolver.waitForOpen()
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.release()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2, "the running edge was lost behind the in-flight connect")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aStartWaitsForANewMachineToRun() async throws {
+        let services = MachineIconTests.services()
+        let session = CloudMachineSession(machine: CloudMachine(id: "booting", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "booting"), resolver: StartingLinkResolver()),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        var reads = 0
+        session.refresher = { force in
+            #expect(force)
+            reads += 1
+            if reads == 3 { session.machine.status = .running }
+        }
+        await session.untilRunning(pause: { _ in await Task.yield() })
+        #expect(reads == 3 && session.machine.status == .running, "the start stopped reading before the machine ran")
+        reads = 0
+        session.machine.status = .provisioning
+        session.refresher = { _ in reads += 1; session.machine.status = .failed }
+        await session.untilRunning(pause: { _ in await Task.yield() })
+        #expect(reads == 1, "a machine that failed while provisioning is not read again")
     }
 
     @Test(.timeLimit(.minutes(1)))

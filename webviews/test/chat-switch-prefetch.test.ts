@@ -86,6 +86,13 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   const calls: { method: string; sessionId?: string }[] = [];
   /// Chats whose newest page the daemon answered a read-ahead for, and who waits on that.
   const readAhead = new Set<string>();
+  /// The page whose reads `readAhead` holds (`openPage` moves it on). A socket is tagged with the
+  /// page that was current when it connected: an answer that reaches a page the test closed already
+  /// (its read went out just before the close) is that page's, never the next one's. Counting it
+  /// let a test switch before its own page had read the chat ahead, so the switch waited on the
+  /// attach.
+  let currentPage = 0;
+  let staleReadAheads = 0;
   const readAheadWaiters = new Set<() => void>();
 
   function answer(method: string, params: Record<string, any>): unknown {
@@ -131,7 +138,9 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: { page: currentPage } })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
@@ -144,6 +153,10 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
               ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
               // A read ahead: an event page of the newest records, outside any attach.
               if (message.method === "_acpmux/events" && typeof message.params?.beforeSeq === "number") {
+                if ((ws.data as { page: number }).page !== currentPage) {
+                  staleReadAheads += 1;
+                  return;
+                }
                 readAhead.add(String(message.params.sessionId));
                 for (const waiter of readAheadWaiters) waiter();
               }
@@ -163,6 +176,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
+    console.log(`chat-switch-prefetch: ${staleReadAheads} read-ahead answers reached a page the test had closed`);
     await browser?.close();
     await vite?.close();
     await daemon?.stop(true);
@@ -224,6 +238,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   const openPage = async (first: (typeof chats)[number]) => {
     // What the daemon read ahead belongs to the page that asked: each test opens its own.
     readAhead.clear();
+    currentPage += 1;
     const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     await page.goto(url(first.sessionId));

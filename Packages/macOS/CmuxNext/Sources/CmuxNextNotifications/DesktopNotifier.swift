@@ -1,10 +1,10 @@
-import AppKit
+package import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
 import os
-import UserNotifications
+package import UserNotifications
 
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
@@ -20,52 +20,55 @@ import UserNotifications
 /// can be shown and shot) uses the system center as a user's launch does; its socket stays in
 /// automation mode.
 @MainActor
-final class DesktopNotifier: NSObject {
+package final class DesktopNotifier: NSObject {
     /// A banner the app asked for (for `debug.notifications`).
-    struct Posted: Hashable {
-        var id: String
-        var title: String
+    package struct Posted: Hashable {
+        package var id: String
+        package var title: String
         /// The workspace a terminal program's banner came from, else nil.
-        var subtitle: String?
-        var body: String
-        var surface: UInt64?
-        var sound: String?
+        package var subtitle: String?
+        package var body: String
+        package var surface: UInt64?
+        package var sound: String?
         /// The status badge PNG the banner carries (OSC 7501 alerts), else nil.
-        var attachment: Data?
+        package var attachment: Data?
         /// The banner takes a typed reply (`notify --reply`).
-        var reply = false
+        package var reply = false
         /// The banner answers an agent chat's permission prompt (Allow once, Deny).
-        var approval = false
+        package var approval = false
         /// The banner's action set (`defaultCategory`, `replyCategory`, the approval one, ...).
-        var category: String?
+        package var category: String?
     }
 
     /// Banner clicked: the notification id and its tab's surface handle.
-    var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
+    package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
-    var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
+    package var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
-    var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
+    package var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
     /// Mark as Read: the notification id and its tab's surface handle; the tab is read, not opened.
-    var onMarkRead: ((_ id: String, _ surface: UInt64?) -> Void)?
+    package var onMarkRead: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// The category of banners with a Reply field, and its action.
-    nonisolated static let replyCategory = "cmux.notification.reply"
-    nonisolated static let replyAction = "cmux.notification.reply.send"
+    package nonisolated static let replyCategory = "cmux.notification.reply"
+    package nonisolated static let replyAction = "cmux.notification.reply.send"
     /// Every other app banner's category: Open and Mark as Read.
-    nonisolated static let defaultCategory = "cmux.notification.default"
-    nonisolated static let openAction = "cmux.notification.open"
-    nonisolated static let markReadAction = "cmux.notification.markRead"
+    package nonisolated static let defaultCategory = "cmux.notification.default"
+    package nonisolated static let openAction = "cmux.notification.open"
+    package nonisolated static let markReadAction = "cmux.notification.markRead"
+    /// A tab an agent marked as needing the person (tab-attention-v1): Show goes to the tab.
+    package nonisolated static let attentionCategory = "cmux.notification.attention"
+    package nonisolated static let showAction = "cmux.notification.attention.show"
     /// The last banners asked for, newest last (bounded).
-    private(set) var posted: [Posted] = []
+    package private(set) var posted: [Posted] = []
     /// Whether this launch uses the system notification center (not in automation launches,
     /// unless they opt in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`).
-    nonisolated static let usesSystemCenter = usesSystemCenter(in: ProcessInfo.processInfo.environment)
+    package nonisolated static let usesSystemCenter = usesSystemCenter(in: ProcessInfo.processInfo.environment)
     /// The launch variable an automation launch sets to post real system banners.
-    nonisolated static let nativeNotificationsVariable = "CMUX_NEXT_NATIVE_NOTIFICATIONS"
+    package nonisolated static let nativeNotificationsVariable = "CMUX_NEXT_NATIVE_NOTIFICATIONS"
 
     /// Whether a launch with `environment` uses the system notification center: every launch but
     /// an automation one, and an automation one that sets `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
-    nonisolated static func usesSystemCenter(in environment: [String: String]) -> Bool {
+    package nonisolated static func usesSystemCenter(in environment: [String: String]) -> Bool {
         optsIntoNativeNotifications(environment) || !WindowDrawPolicy.isAutomationLaunch(environment)
     }
 
@@ -73,17 +76,17 @@ final class DesktopNotifier: NSObject {
     /// `notifications.status` / `notifications.request`: one that uses the system center, unless it is a
     /// GUI job (`NX_REMOTE=1`, `CMUX_TEST_REQUIRE_GUI=1`: the banner would catch its clicks) that did not
     /// opt in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
-    nonisolated static func asksPermission(in environment: [String: String]) -> Bool {
+    package nonisolated static func asksPermission(in environment: [String: String]) -> Bool {
         usesSystemCenter(in: environment) && (optsIntoNativeNotifications(environment) || !isGUIJob(environment))
     }
 
     /// An automation launch that opted in to the system center (`CMUX_NEXT_NATIVE_NOTIFICATIONS=1`): it starts
     /// with this bundle's delivered notifications removed (`startsWithoutDeliveredBanners(in:)`).
-    nonisolated static let startsWithoutDeliveredBanners = startsWithoutDeliveredBanners(in: ProcessInfo.processInfo.environment)
+    package nonisolated static let startsWithoutDeliveredBanners = startsWithoutDeliveredBanners(in: ProcessInfo.processInfo.environment)
 
     /// Whether a launch with `environment` removes this bundle's delivered notifications when it first uses the
     /// system center: only an automation launch that opted in, never a user's launch.
-    nonisolated static func startsWithoutDeliveredBanners(in environment: [String: String]) -> Bool {
+    package nonisolated static func startsWithoutDeliveredBanners(in environment: [String: String]) -> Bool {
         optsIntoNativeNotifications(environment) && WindowDrawPolicy.isAutomationLaunch(environment)
     }
 
@@ -92,7 +95,7 @@ final class DesktopNotifier: NSObject {
     }
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
-    private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
+    package private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
     private var center: UNUserNotificationCenter?
     /// Whether this launch asked for authorization (a banner or `notifications.request`).
     private var askedAuthorization = false
@@ -104,7 +107,7 @@ final class DesktopNotifier: NSObject {
     /// played by `NotificationSoundPlayer`. `attachment` is a status badge PNG
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
-    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
+    package func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
               defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil,
               incognito: Bool = false) {
         // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
@@ -158,7 +161,7 @@ final class DesktopNotifier: NSObject {
     }
 
     /// Whether banner `id` is in Notification Center (an automation launch has none).
-    func isDelivered(_ id: String) async -> Bool {
+    package func isDelivered(_ id: String) async -> Bool {
         guard let center = configuredCenter() else { return posted.contains { $0.id == id } }
         return await withCheckedContinuation { continuation in
             center.getDeliveredNotifications { delivered in continuation.resume(returning: delivered.contains { $0.request.identifier == id }) }
@@ -166,35 +169,50 @@ final class DesktopNotifier: NSObject {
     }
 
     /// Removes banners whose notifications were read or ended, shown or still queued.
-    func withdraw(_ ids: [String]) {
+    package func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
         for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
     }
 
+    /// Finds attention requests retained across launches, without asking for notification permission.
+    package func attentionBannerIDs() async -> [String] {
+        guard let center = configuredCenter() else { return [] }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in
+                let deliveredIDs = delivered.map(\.request.identifier)
+                center.getPendingNotificationRequests { pending in
+                    continuation.resume(returning: (deliveredIDs + pending.map(\.identifier)).filter {
+                        $0.hasPrefix(AttentionBannerLifecycle.attentionBannerPrefix)
+                    })
+                }
+            }
+        }
+    }
+
     /// The banner click path, also used by `debug.notifications` (click).
-    func open(id: String, surface: UInt64?) {
+    package func open(id: String, surface: UInt64?) {
         onOpen?(id, surface)
     }
 
     /// The Reply field's Send path, also used by `debug.notifications` (reply).
-    func reply(id: String, surface: UInt64?, text: String) {
+    package func reply(id: String, surface: UInt64?, text: String) {
         onReply?(id, surface, text)
     }
 
     /// Mark as Read, also used by `debug.notifications` (mark_read).
-    func markRead(id: String, surface: UInt64?) {
+    package func markRead(id: String, surface: UInt64?) {
         onMarkRead?(id, surface)
     }
 
     /// An approval banner's Allow once or Deny, also used by `debug.notifications` (allow, deny).
-    func approve(id: String, surface: UInt64?, allow: Bool) {
+    package func approve(id: String, surface: UInt64?, allow: Bool) {
         onApprove?(id, surface, allow)
     }
 
     /// CEF embeds the same executable in helper app bundles whose identifiers
     /// contain a `.helper.*` component. Only the main cmux app may own the
     /// macOS notification center and request authorization.
-    nonisolated static func isMainAppBundle(bundleIdentifier: String?, bundleURL: URL) -> Bool {
+    package nonisolated static func isMainAppBundle(bundleIdentifier: String?, bundleURL: URL) -> Bool {
         let root = "com.cmuxterm.app"
         guard let bundleIdentifier,
               (bundleIdentifier == root || bundleIdentifier.hasPrefix(root + ".")),
@@ -232,7 +250,7 @@ final class DesktopNotifier: NSObject {
             center.removeAllDeliveredNotifications()
             center.removeAllPendingNotificationRequests()
         }
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(),
+        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(), AgentApprovalBanners.notificationCategory(),
                                           IPhonePairNotices.notificationCategory()])
         self.center = center
         return center
@@ -247,7 +265,7 @@ final class DesktopNotifier: NSObject {
     /// The permission `notifications.status` reads and `notifications.request` asks for, on the
     /// banners' own center. A launch that never asks (an automation launch, a GUI job, not the
     /// main app bundle) answers `unavailable`.
-    func permission() throws -> any NotificationPermissionCenter {
+    package func permission() throws -> any NotificationPermissionCenter {
         guard Self.asksPermission, configuredCenter() != nil else {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
@@ -280,6 +298,12 @@ final class DesktopNotifier: NSObject {
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
+    /// Needs you banners' category: Show, which brings cmux to the marked tab.
+    package static func attentionBannerCategory() -> UNNotificationCategory {
+        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .module), options: [.foreground])
+        return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
+    }
+
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
@@ -289,17 +313,17 @@ final class DesktopNotifier: NSObject {
 
 extension DesktopNotifier: UNUserNotificationCenterDelegate {
     /// The app decided to post it: show it even while cmux is active.
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    package nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .list, .sound])
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    package nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction].contains(response.actionIdentifier)
+        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction, Self.showAction].contains(response.actionIdentifier)
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
