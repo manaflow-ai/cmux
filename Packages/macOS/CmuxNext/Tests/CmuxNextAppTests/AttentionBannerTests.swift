@@ -138,8 +138,9 @@ struct AttentionBannerTests {
         #expect(notifications.attentionMarks(for: hereWorkspace).isEmpty)
         #expect(!notifications.attentionMarks(for: labWorkspace).isEmpty, "legacy local mute hid the remote ring")
         notifications.preferences.mutedWorkspaces = [remoteKey]
-        #expect(NotificationWorkspaceKey.workspaceIDs([hereWorkspace.id], machine: ssh.machineID, localMachine: "local").isEmpty)
-        #expect(NotificationWorkspaceKey.workspaceIDs([remoteKey], machine: ssh.machineID, localMachine: "local") == [labWorkspace.id])
+        let localHolds = { (id: String) in id == hereWorkspace.id }
+        #expect(NotificationWorkspaceKey.workspaceIDs([hereWorkspace.id], machine: ssh.machineID, localMachine: "local", localHolds: localHolds).isEmpty)
+        #expect(NotificationWorkspaceKey.workspaceIDs([remoteKey], machine: ssh.machineID, localMachine: "local", localHolds: localHolds) == [labWorkspace.id])
         #expect(notifications.attentionMarks(for: labWorkspace).isEmpty)
         #expect(!notifications.attentionMarks(for: hereWorkspace).isEmpty, "remote mute hid the local ring")
         notifications.preferences.mutedWorkspaces = []
@@ -196,6 +197,52 @@ struct AttentionBannerTests {
         let burst = service.attentionDecision(Self.item("request-two", at: 2_000))
         #expect(burst.desktop, "sound cooldown must not suppress the new banner")
         #expect(burst.sound == nil, "a second attention request bypassed the shared cooldown")
+    }
+
+    /// A remote workspace muted by an earlier build, which saved the bare workspace id: upgrading
+    /// keeps it muted while no workspace on this Mac has that id, and its toggle clears the mute.
+    @Test func aRemoteMuteSavedBeforeQualifiedKeysStaysMuted() {
+        let none = { (_: String) in false }
+        #expect(NotificationWorkspaceKey.mutes(["ws_lab"], machine: "lab", workspace: "ws_lab", localMachine: "local", localHolds: none),
+                "an earlier build's remote mute was dropped on upgrade")
+        #expect(NotificationWorkspaceKey.workspaceIDs(["ws_lab"], machine: "lab", localMachine: "local", localHolds: none) == ["ws_lab"])
+        #expect(NotificationWorkspaceKey.legacyRemoteKey(["ws_lab"], machine: "lab", workspace: "ws_lab", localMachine: "local", localHolds: none) == "ws_lab")
+        let localHas = { (id: String) in id == "ws_lab" }
+        #expect(!NotificationWorkspaceKey.mutes(["ws_lab"], machine: "lab", workspace: "ws_lab", localMachine: "local", localHolds: localHas),
+                "a local mute reached a forked machine's same-id workspace")
+        #expect(NotificationWorkspaceKey.workspaceIDs(["ws_lab"], machine: "lab", localMachine: "local", localHolds: localHas).isEmpty)
+        let otherMachine = NotificationWorkspaceKey.qualified(machine: "other", workspace: "ws_lab")
+        #expect(NotificationWorkspaceKey.workspaceIDs([otherMachine], machine: "lab", localMachine: "local", localHolds: none).isEmpty,
+                "another machine's qualified key read as a bare id")
+    }
+
+    /// A tab in an incognito window: its banner names neither the workspace, the tab nor the
+    /// agent's reason, the way every other banner from that window does (DesktopNotifier+Incognito).
+    @Test func anIncognitoTabsBannerNamesNothing() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        let window = services.windows.newIncognitoWindow()
+        let key = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_secret", title: "deploy keys")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        let store = services.machines.local.store
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: key, name: "secret-project", screens: [screen])]))
+        let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        let requestID = String(repeating: "b", count: 32)
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Rotate the prod key", atMs: 1_000, requestID: requestID)), progress: nil)
+        let item = AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: services.machines.local.machineID, tab: "tab_secret", requestID: requestID),
+                                               reason: "Rotate the prod key", workspaceTitle: "secret-project", tabTitle: "deploy keys", atMs: 1_000)
+        let service = services.notifications
+        service.preferences.desktop = .always
+        service.attentionMarksChanged([])
+        service.attentionMarksChanged([item])
+        let posted = try #require(service.desktop.posted.last, "an incognito tab's request posted no banner at all")
+        let shown = [posted.title, posted.subtitle ?? "", posted.body].joined(separator: " | ")
+        for secret in ["secret-project", "deploy keys", "prod key"] {
+            #expect(!shown.contains(secret), "Notification Center keeps \"\(secret)\" from an incognito window: \(shown)")
+        }
+        #expect(posted.title == DesktopNotifier.incognitoTitle && posted.body == DesktopNotifier.incognitoBody)
     }
 
     @Test func theBannerOffersShow() {

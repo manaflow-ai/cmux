@@ -156,7 +156,8 @@ extension NotificationCenterService {
         let attention = DesignSettings.shared.attention
         let machine = services?.machines.daemons.first { $0.store.workspace(id: workspace.id) === workspace }?.machineID
         let muted = machine.map {
-            preferences.workspaceMuted(machine: $0, workspace: workspace.id, localMachine: services?.machines.local.machineID ?? "local")
+            preferences.workspaceMuted(machine: $0, workspace: workspace.id, localMachine: services?.machines.local.machineID ?? "local",
+                                       localHolds: { id in self.services?.machines.local.store.workspace(id: id) != nil })
         } ?? preferences.mutedWorkspaces.contains(workspace.id)
         guard attention.style != .none, !muted else { return [:] }
         let key = highlightKey(for: workspace)

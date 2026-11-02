@@ -758,7 +758,10 @@ extension NotificationCenterService {
     }
 
     private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
-        guard liveAttention(item) != nil else { return }
+        guard let (daemon, tab) = liveAttention(item) else { return }
+        // An incognito window's tab names nothing of itself in Notification Center (DesktopNotifier+Incognito).
+        let incognito = daemon.store.pane(holding: tab).flatMap { daemon.store.workspace(containing: $0.handle) }
+            .map { services?.windows.isIncognito(workspace: $0) == true } ?? false
         let decision = attentionDecision(item)
         note("attention \(item.tabId) \(decision)")
         if decision.desktop {
@@ -766,7 +769,8 @@ extension NotificationCenterService {
             let content = bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .module), posterSubtitle: nil, body: item.reason,
                                                   workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
             desktop.post(id: AttentionBannerLifecycle.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
-                         surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
+                         surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory,
+                         incognito: incognito)
         }
         if let sound = decision.sound, sound != "default" || !decision.desktop {
             soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop)
@@ -786,7 +790,8 @@ extension NotificationCenterService {
             if let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
                 arrival.workspaceMuted = preferences.workspaceMuted(machine: daemon.machineID, workspace: workspace.id,
-                                                                    localMachine: services.machines.local.machineID)
+                                                                    localMachine: services.machines.local.machineID,
+                                                                    localHolds: { id in services.machines.local.store.workspace(id: id) != nil })
                 (arrival.soundEvent, arrival.soundScope) = soundGate.classify(
                     level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent,
                     workspace: NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,

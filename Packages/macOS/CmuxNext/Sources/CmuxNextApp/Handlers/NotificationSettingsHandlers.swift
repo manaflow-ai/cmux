@@ -20,7 +20,13 @@ enum NotificationSettingsHandlers {
             let key = NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
                                                             localMachine: context.services.machines.local.machineID)
             var muted = notifications.preferences.mutedWorkspaces
-            if muted.remove(key) == nil { muted.insert(key) }
+            // A remote mute saved before keys were qualified (NotificationWorkspaceKey.legacyRemoteKey) unmutes too.
+            if let legacy = NotificationWorkspaceKey.legacyRemoteKey(muted, machine: daemon.machineID, workspace: workspace.id,
+                                                                    localMachine: context.services.machines.local.machineID,
+                                                                    localHolds: { id in context.services.machines.local.store.workspace(id: id) != nil }) {
+                muted.remove(legacy)
+                muted.remove(key)
+            } else if muted.remove(key) == nil { muted.insert(key) }
             notifications.preferences.mutedWorkspaces = muted
             let list = JSONValue.array(muted.sorted().map(JSONValue.string))
             context.writeSetting("mute workspace", ["notifications", "mutedWorkspaces"], list, reloadOnFailure: true)
