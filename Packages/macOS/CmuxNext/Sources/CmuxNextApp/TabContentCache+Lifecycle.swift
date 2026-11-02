@@ -28,7 +28,7 @@ extension TabContentCache {
     /// `presenter` stopped showing `key`. Ignored when another presenter
     /// took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
-        withdrawnBy[key] = WeakPresenter(value: presenter) // a closing pane withdraws its tab first; it still holds the release
+        if ledger.owner(of: key) == ObjectIdentifier(presenter) { withdrawnBy[key] = WeakPresenter(value: presenter) } // only its owner's withdraw counts: a closing pane still holds the release
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
 

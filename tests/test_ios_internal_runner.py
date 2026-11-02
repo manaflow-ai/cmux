@@ -147,7 +147,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", archive["runs-on"])
-        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| 'blacksmith-6vcpu-macos-26'"))
+        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])

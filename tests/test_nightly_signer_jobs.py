@@ -344,6 +344,45 @@ class Wiring(unittest.TestCase):
                 self.assertIn("signer-app/signed-app.tar", later)
                 self.assertIn("APP_SHA256", later)
 
+    def test_the_mac_jobs_read_big_artifacts_in_parallel_ranges_first(self):
+        # Run 41478567483: both 5-minute download-artifact tries of the signed app ran out on a nightly Mac
+        # and that tip never published; run 41481821056's final-DMG download took 446 s. The Mac jobs read
+        # these artifacts with fetch_run_artifact.py first, and download-artifact runs only when it failed.
+        # The script asks download-artifact's own artifact service with the job's runtime token, which only
+        # a JavaScript step sees: a pinned github-script step starts it, and no job gains a permission.
+        github_script = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
+        spawn = ("require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', "
+                 "'--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})")
+        cases = (("signer-dmg-image", "Download the signed app (parallel ranges)", "Download the signed app"),
+                 ("verify-final-dmg-nightly", "Download final DMG (parallel ranges)", "Download final DMG"))
+        for job, ranged_name, fallback_name in cases:
+            with self.subTest(job=job):
+                steps = JOBS[job]["steps"]
+                names = [s.get("name") for s in steps]
+                ranged, fallback = steps[names.index(ranged_name)], steps[names.index(fallback_name)]
+                self.assertEqual(names.index(ranged_name) + 1, names.index(fallback_name))
+                self.assertEqual((ranged["uses"], ranged["continue-on-error"], ranged["timeout-minutes"]),
+                                 (github_script, True, 5))
+                self.assertEqual(ranged["env"]["ARTIFACT"], fallback["with"]["name"])
+                self.assertEqual(ranged["env"]["FETCH_DEST"], fallback["with"]["path"])
+                self.assertIn(spawn, ranged["with"]["script"])
+                self.assertIn("core.setFailed(", ranged["with"]["script"])
+                self.assertNotIn("GITHUB_ENV", yaml.safe_dump(ranged))
+                self.assertNotIn("GH_TOKEN", ranged["env"])
+                self.assertEqual(JOBS[job]["permissions"], {"contents": "read"})
+                self.assertIn("download-artifact", fallback["uses"])
+        image = {s.get("name"): s for s in JOBS["signer-dmg-image"]["steps"]}
+        self.assertIn("else core.exportVariable('SIGNER_APP_FETCHED', 'true')",
+                      image["Download the signed app (parallel ranges)"]["with"]["script"])
+        self.assertEqual(image["Download the signed app"]["if"], "env.SIGNER_APP_FETCHED != 'true'")
+        # signer-dmg reuses the download-artifact steps, has no ranged step and so never sets the flag.
+        self.assertNotIn("SIGNER_APP_FETCHED", yaml.safe_dump(JOBS["signer-dmg"].get("env") or {}))
+        self.assertNotIn("Download the signed app (parallel ranges)", [s.get("name") for s in JOBS["signer-dmg"]["steps"]])
+        verify = {s.get("name"): s for s in JOBS["verify-final-dmg-nightly"]["steps"]}
+        ranged = verify["Download final DMG (parallel ranges)"]
+        self.assertEqual(ranged["id"], "fetch-final-dmg")
+        self.assertEqual(verify["Download final DMG"]["if"], ranged["if"] + " && steps.fetch-final-dmg.outcome != 'success'")
+
     def test_verify_final_reads_one_copy_of_a_pool_signed_dmg(self):
         # cmux-nightly-variant-arm64 holds the DMG under two names; verify-final-dmg-nightly runs on
         # an office Mac, so a pool-signed build hands it the DMG once, with the appcast.

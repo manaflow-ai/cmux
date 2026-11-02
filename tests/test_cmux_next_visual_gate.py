@@ -1223,7 +1223,7 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(line(verdict, "needs"), line(gate, "needs").replace("]", ", verify-final-dmg-nightly]"))
         # A Linux runner of its own, never the gate's Mac.
         runs_on = line(verdict, "runs-on")
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
         self.assertNotIn("route-visual-gate-nightly", runs_on)
         perms = verdict[verdict.index("    permissions:\n"):verdict.index("    outputs:\n")]
         self.assertEqual(re.findall(r"^      ([a-z-]+): ", perms, re.MULTILINE), ["contents", "actions"])
