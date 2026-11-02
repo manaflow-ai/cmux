@@ -142,6 +142,10 @@ def validate(spec):
             for sub in (gap.get("fallback") or []) if isinstance(gap, dict) else []:
                 if sub.get("do") not in STEP_NAMES:
                     problems.append(f"step {index}: known_gap fallback names an unknown do {sub.get('do')!r}")
+                for cond in sub.get("all") or []:
+                    for name in cond if isinstance(cond, dict) else []:
+                        if name not in driver.KIND:
+                            problems.append(f"step {index}: known_gap fallback uses an unknown condition {name!r}")
             if not isinstance(gap, dict) or not gap.get("name") or not gap.get("ref"):
                 problems.append(f"step {index}: known_gap needs a name and a ref")
         if step.get("do") not in STEP_NAMES:

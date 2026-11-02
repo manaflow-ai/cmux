@@ -199,7 +199,7 @@ def failing_step(out):
         # `finally` steps (app_log, debug.focus, close all) only record or clean up: never the round's failing step.
         if step.get("ok") is False and not step.get("finally"):
             return {"index": step.get("index"), "do": step.get("do"), "title": step.get("title"),
-                    "error": (step.get("error") or "")[:400]}
+                    "fallback_of": step.get("fallback_of"), "error": (step.get("error") or "")[:400]}
     return None
 
 
@@ -634,7 +634,8 @@ def main(argv=None):
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
         if detail and r["failing_step"].get("index") is not None:
-            detail = f"step {r['failing_step']['index']} " + detail
+            detail = (f"step {r['failing_step']['index']}" + (" (its fallback)" if r["failing_step"].get("fallback_of") else "")
+                      + " " + detail)
         if detail and r.get("known_gap_steps"):
             # The first failure AFTER a known gap (a gap step itself is never the failing step): name the last gap
             # step before it.

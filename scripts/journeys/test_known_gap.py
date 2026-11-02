@@ -70,6 +70,12 @@ class Stub(D.Journey):
                 raise D.StepError("smoke_same_widths, smoke_frame never held")
             if outcome == "gone":
                 raise D.TerminalGone("TERMINAL GONE")
+            if outcome == "socket":
+                raise OSError("socket closed")
+            if outcome == "settle-broke":
+                self.evidence.append({"kind": "app", "pass": False, "check": "smoke_same_widths",
+                                      "detail": {"problems": ["0 new columns, not 1"], "broke_during_settle": True}})
+                raise D.StepError("smoke_same_widths did not hold at the end")
             if outcome == "notrun":
                 raise D.NotRun("cannot judge")
             for kind in ("app", "daemon", "frame"):
@@ -138,6 +144,24 @@ class KnownGap(unittest.TestCase):
         j, result = self.run_steps(journey(modifiers=("option", "cmd")))
         self.assertEqual(result["status"], "fail")
         self.assertNotIn("KNOWN GAP", result["reason"])
+
+    def test_an_app_crash_after_the_gap_names_its_own_step(self):
+        j, result = self.run_steps(journey(later="socket"))
+        self.assertEqual(result["status"], "fail")
+        self.assertTrue(result["reason"].startswith("step 3 (x): socket closed"), result["reason"])
+        self.assertIn("after step 2: KNOWN GAP", result["reason"])
+        later = next(s for s in result["steps"] if s.get("index") == 3)
+        self.assertIs(later["ok"], False)
+
+    def test_a_column_that_came_and_went_is_not_the_gap(self):
+        j, result = self.run_steps(journey(check="settle-broke"))
+        self.assertEqual(result["status"], "fail")
+        self.assertNotIn("KNOWN GAP", result["reason"])
+
+    def test_a_not_run_after_the_gap_still_names_the_gap(self):
+        j, result = self.run_steps(journey(later="notrun"))
+        self.assertEqual(result["status"], "not run")
+        self.assertIn("KNOWN GAP: New Column real key (STATUS 1712/1724), not a result", result["reason"])
 
     def test_on_the_debug_key_path_the_check_is_a_real_failure(self):
         j, result = self.run_steps(journey(key_path="debug.key"))

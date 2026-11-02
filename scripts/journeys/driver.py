@@ -1703,6 +1703,11 @@ class Journey:
                     self.known_gaps.append({"step": index + 1, "title": step.get("title", ""), "text": text,
                                             "error": str(error)[-300:]})
                     gap_fallback = gap.get("fallback") or []
+                except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    # An app crash, a hung socket or a bad reply: the step's own record names the failure, so the
+                    # round names this step, not a count of records (the gap's fallback adds records).
+                    record["ok"], record["error"] = False, f"{type(error).__name__}: {error}"[-600:]
+                    raise
                 except NotRun as error:
                     # A journey with `continue_not_judged` (the dogfood smoke gate) records a check it cannot judge
                     # (a hidden view, a host prompt) and goes on, so one run has data for every later step; the
@@ -1741,12 +1746,17 @@ class Journey:
                              + "; every later step passed")
         except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
+            gaps = [f"step {g['step']}: {g['text']}" for g in getattr(self, "known_gaps", []) if g["text"] not in reason]
+            if gaps:
+                reason += " (after " + "; ".join(gaps) + ")"
             earlier = [n for n in not_judged if n not in reason]
             if earlier:
                 reason += f" (and {len(earlier)} checks not judged before it: " + " | ".join(earlier) + ")"
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             failed = next((st for st in reversed(self.steps) if st.get("ok") is False), None)
-            where = f"step {failed['index']}" if failed and failed.get("index") else f"step {len(self.steps)}"
+            last = self.steps[-1] if self.steps else {}
+            index = (failed or {}).get("index") or last.get("index") or len(self.steps)
+            where = f"step {index}" + (" (the known gap's fallback)" if (failed or last).get("fallback_of") else "")
             status, reason = "fail", f"{where} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
             if self.known_gaps:
                 reason += " (after " + "; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps) + ")"
@@ -1816,7 +1826,8 @@ class Journey:
         failed = [r for r in rows if not r.get("pass")]
         want = gap.get("problems", ["0 new columns, not 1"])
         if not failed or any(r.get("check") != "smoke_same_widths" or not isinstance(r.get("detail"), dict)
-                             or r["detail"].get("problems") != want for r in failed):
+                             or r["detail"].get("problems") != want or r["detail"].get("broke_during_settle")
+                             for r in failed):
             return None
         return gap
 
