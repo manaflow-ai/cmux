@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NewTabHoldCancellationTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NewTabHoldCancellationTests {
     @Test func anUninterruptedHoldOpensExactlyOneMenu() async throws {
         let fixture = Fixture()
         defer { fixture.close() }
