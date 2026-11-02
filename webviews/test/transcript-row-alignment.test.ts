@@ -15,8 +15,9 @@
 // - every row with a leading icon (a tool row, a subagent's end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
 // - each status row between two replies has the same room above it as every other, and the same
-//   below; the room above is the reply's kept room (model.ts `keepsReplyRoom`), 26px more than below
-//   (design/chat-transcript.md "Rows between replies").
+//   below; the room above is the stack's gap from a message to a step, the room below its gap from
+//   a step to a message (transcriptGrid.ts `transcriptGap`). #30865's 26px more above went with
+//   #27580, which set `--cv-reply-room` to 0 (design/grid.md 5.5: the stack owns every gap).
 //
 // CMUX_ROW_ALIGNMENT_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes each theme's
 // 2x stills and measurements to DIR.
@@ -26,6 +27,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -37,10 +39,10 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   /** How far apart two edges may be, in CSS px. */
   const TOLERANCE = 0.5;
   /**
-   * How much more room a status row has above than below when a reply is over it: the reply's kept
-   * room (`--cv-reply-room`, 36px) against the plain share it replaces over a status row (10px).
+   * How much more room a status row has above than below when a reply is over it: the stack's gap
+   * from the reply to the row against the one from the row to the next reply (26 before #27580).
    */
-  const REPLY_ROOM_EXTRA = 26;
+  const REPLY_ROOM_EXTRA = transcriptGap(MARK_MESSAGE, MARK_STEP) - transcriptGap(MARK_STEP, MARK_MESSAGE);
 
   try {
     await (await chromium.launch({ headless: true })).close();

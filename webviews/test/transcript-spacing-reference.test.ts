@@ -14,12 +14,14 @@
 // Those two are asserted to 0.5px; the rest are logged beside their 2026-10-30 values, since later
 // settled designs own them (the one-line row pitch, #29965). No per-reply action row comes back.
 //
-// The second of them is now the grid's: #27580 (044769ae, transcript columns and block spacing) put
-// every vertical gap on the stack (leo-workspace design/grid.md 5.5 Vertical rhythm: block 24, turn
-// 32; "the boundary between a user message and another transcript element takes 32") and set
+// Both are now the grid's: #27580 (044769ae, transcript columns and block spacing) put every vertical
+// gap on the stack (leo-workspace design/grid.md 5.5 Vertical rhythm: block 24, turn 32; "the
+// boundary between a user message and another transcript element takes 32") and set
 // `--cv-reply-room` to 0. So a reply to the next prompt is one turn gap between the two rows' boxes,
-// read from `--grid-gap-turn` (45.75px ink to ink here), and is asserted that way in its own case.
-// The reply to the status row under it is still held to its 2026-10-30 value here.
+// read from `--grid-gap-turn` (45.75px ink to ink here), and a reply to the status row under it is
+// the stack's gap between a message and a step (transcriptGrid.ts `transcriptGap`; 29.75px ink to
+// ink here, 43.75 on 2026-10-30), each asserted in its own case. The transcript-spacing table
+// (transcriptSpacing.ts prose-to-step, 38.375 centre to centre) supersedes both when it lands.
 //
 // CAPTURE keeps the capture's own gaps, read from its pixels, for reference only: they are not the
 // 2026-10-30 build's, and a follow-up decides whether they become the target
@@ -31,6 +33,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -149,6 +152,10 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
       const thirdRow = holding("The other lanes may have stopped")?.closest<HTMLElement>(".acpmux-row");
       return {
         "paragraph -> prompt (rows)": gap(rowBox(thirdRow), rowBox(rowOf("we should regroup"))),
+        "reply -> notice (rows)": gap(
+          rowBox(holding("docs half of the release page")?.closest<HTMLElement>(".acpmux-row")),
+          rowBox(rowOf("Fixed the stale release cache")),
+        ),
         "turn gap": turnGap,
         "reply -> notice": gap(reply, notice),
         "notice -> prompt": gap(notice, there),
@@ -189,11 +196,9 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
     "card -> prompt": 28,
   };
   /**
-   * The gap this test holds to OCT_30: the one under a reply over its status row. (A reply to the
-   * next prompt is the grid's turn gap since #27580: its own case below.) The
-   * others are logged beside them; later settled designs own them (the one-line row pitch, #29965).
+   * What 8f5dfe06ee58 drew is logged beside each gap, not asserted: the grid owns both moved gaps since
+   * #27580 (the cases below), and later settled designs own the rest (the one-line row pitch, #29965).
    */
-  const MOVED = ["reply -> notice"] as const;
   const TOLERANCE = 0.5;
 
   /**
@@ -213,16 +218,18 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
   };
 
   for (const theme of THEMES)
-    test(`a reply keeps its 2026-10-30 room (${theme.name})`, async () => {
+    test(`a reply is the stack's message-to-step gap from the status row under it (${theme.name})`, async () => {
       const page = await open(theme.name);
       try {
         const measured = await measure(page);
-        console.log(`TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} capture ${JSON.stringify(CAPTURE)}`);
+        console.log(
+          `TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} 2026-10-30 ${JSON.stringify(OCT_30)} capture ${JSON.stringify(CAPTURE)}`,
+        );
         if (LOG_ONLY) return;
-        const off = MOVED.map((name) => [name, OCT_30[name]!] as const)
-          .filter(([name, want]) => measured[name] === null || Math.abs(measured[name]! - want) > TOLERANCE)
-          .map(([name, want]) => `${name}: ${measured[name]}px, not ${want}px`);
-        expect(off).toEqual([]);
+        // The notice is a one-line row (model.ts isLineRow, a step), under a reply (a message).
+        const want = transcriptGap(MARK_MESSAGE, MARK_STEP);
+        expect(measured["reply -> notice (rows)"]).not.toBeNull();
+        expect(Math.abs(measured["reply -> notice (rows)"]! - want)).toBeLessThanOrEqual(TOLERANCE);
       } finally {
         await page.close();
       }
