@@ -1875,6 +1875,9 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
 const SCROLL_LEAD_STEPS = 2;
+/// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
+/// of the reader and makes every later render pay for a scroll that already ended.
+const SCROLL_LEAD_IDLE_MS = 120;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
@@ -2179,11 +2182,26 @@ export function VirtualTranscript({
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
   const scrollRef = useRef({ top: 0, delta: 0 });
+  const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [, setScroll] = useState(scrollRef.current);
+  const scheduleScrollLeadReset = () => {
+    clearTimeout(scrollLeadTimer.current);
+    if (scrollRef.current.delta === 0) {
+      scrollLeadTimer.current = undefined;
+      return;
+    }
+    scrollLeadTimer.current = setTimeout(() => {
+      scrollLeadTimer.current = undefined;
+      if (scrollRef.current.delta === 0) return;
+      scrollRef.current = { ...scrollRef.current, delta: 0 };
+      setScroll(scrollRef.current);
+    }, SCROLL_LEAD_IDLE_MS);
+  };
   const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
     const next = { top, delta };
     scrollRef.current = next;
     setScroll(next);
+    scheduleScrollLeadReset();
   };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -2247,6 +2265,7 @@ export function VirtualTranscript({
     // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
     // CI runner, mounted rows a step behind the view).
     scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
+    scheduleScrollLeadReset();
     scrollPacer.current!.enqueue({ top, atLatest });
   };
   useEffect(() => {
@@ -2254,6 +2273,7 @@ export function VirtualTranscript({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
+      clearTimeout(scrollLeadTimer.current);
     };
   }, []);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
