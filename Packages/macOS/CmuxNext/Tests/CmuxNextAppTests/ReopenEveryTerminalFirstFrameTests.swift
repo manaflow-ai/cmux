@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
@@ -41,10 +42,6 @@ import Testing
         guard !view.isHidden else { return 0 }
         let own = (view.layer?.contents).map { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID } == true ? 1 : 0
         return view.subviews.reduce(own) { $0 + savedFrames(in: $1) }
-    }
-
-    private static func milliseconds(_ value: JSONValue?) -> Double? {
-        if case .number(let ms) = value { ms } else { nil }
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -105,22 +102,18 @@ import Testing
         }
 
         // The launch number: every visible terminal apart, and the last of them.
+        // (debug.timings' JSON value: read through its accessors, the type is the settings module's.)
         let report = DebugTimings.handle([:])
-        guard case .object(let timings) = report else { Issue.record("debug.timings is not an object"); return }
-        guard case .object(let terminals)? = timings["launch_terminals"] else {
-            Issue.record("debug.timings has no per-terminal launch rows (launch_terminals)")
-            return
-        }
         var shown: [Double] = []
         for key in tabKeys {
-            guard case .object(let row)? = terminals[key], let ms = Self.milliseconds(row["frame_shown_ms"]) else {
-                Issue.record("\(key): no frame_shown_ms in launch_terminals")
+            guard let ms = report["launch_terminals"]?[key]?["frame_shown_ms"]?.doubleValue else {
+                Issue.record("\(key): debug.timings has no launch_terminals row with frame_shown_ms for this terminal")
                 continue
             }
             shown.append(ms)
         }
         #expect(shown.count == 2)
-        #expect(Self.milliseconds(timings["launch_terminals_frame_shown_max_ms"]) == shown.max(),
+        #expect(report["launch_terminals_frame_shown_max_ms"]?.doubleValue == shown.max(),
                 "the launch number is the last terminal to show its frame, never the first")
 
         // The waiting pane's surface comes on a later frame and takes the frame over: one frame, never two.
