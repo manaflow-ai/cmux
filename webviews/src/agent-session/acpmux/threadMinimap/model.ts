@@ -52,10 +52,16 @@ export function railPlacement(
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const paneInset = transcriptColumn(paneWidth).inset;
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
+  // The tight gutter: a gutter too short for the widest step keeps up to the compact step of room left
+  // of the ticks, taken from the hit width down to its narrowest, before the inset drops toward the
+  // narrowest step (Lawrence via Leo, 2026-10-28: "needs more left padding"). The edge strip keeps its
+  // 2026-10-28 placement.
+  const roomy =
+    spacing.narrowest === undefined ? spacing.min : Math.min(spacing.compact, Math.floor(paneInset - minimumWidth));
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH), roomy));
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
