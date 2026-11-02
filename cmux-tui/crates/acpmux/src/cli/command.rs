@@ -272,7 +272,7 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
-    /// Team-scoped durable messages. Requires Labs `meshRelay.teamMessaging`.
+    /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local

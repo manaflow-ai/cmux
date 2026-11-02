@@ -699,7 +699,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
             serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
         assert_eq!(request["method"], "_acpmux/team/send");
         let response = json!({"jsonrpc": "2.0", "id": request["id"],
-            "error": {"code": -32602, "message": "team messaging is disabled in Labs"}});
+            "error": {"code": -32602, "message": "team messaging is off on this daemon"}});
         write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
     });
     let client = Client::connect(&path).await.unwrap();
@@ -719,7 +719,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
     .await
     .unwrap();
     assert_eq!(result["isError"], true, "{result}");
-    assert!(text(&result).contains("team messaging is disabled in Labs"), "{result}");
+    assert!(text(&result).contains("team messaging is off on this daemon"), "{result}");
     server.await.unwrap();
 }
 
