@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: verify-app-bundle-channel-metadata.sh <app-path> <stable|nightly|next|rc>
+usage: verify-app-bundle-channel-metadata.sh <app-path> <stable|nightly|next|next-stable|rc>
 
 Verifies the built app bundle metadata that LaunchServices and Sparkle use for
 system prompts. This intentionally checks the final bundle artifact, not the
@@ -45,6 +45,12 @@ case "$CHANNEL" in
     EXPECTED_NAME="cmux NEXT"
     EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly.cmux-next"
     EXPECTED_ICON_NAME="AppIcon-Nightly"
+    ;;
+  next-stable)
+    # cmux NEXT Stable (scripts/ci/stable-next-identity.sh): the nightly's bits, the regular icon.
+    EXPECTED_NAME="cmux NEXT Stable"
+    EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly.cmux-next-stable"
+    EXPECTED_ICON_NAME="AppIcon"
     ;;
   rc)
     EXPECTED_NAME="cmux RC"

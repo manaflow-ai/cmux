@@ -23,8 +23,11 @@ pub struct Detected {
 }
 
 /// Finds what this Mac holds, fast (no transcript is converted): Claude Code
-/// transcripts and memory notes, Codex memory notes, and export zips of
-/// claude.ai or ChatGPT in `~/Downloads` and `~/Desktop`.
+/// transcripts and memory notes and Codex memory notes, all in the agents' own
+/// folders. Never a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): Home's
+/// first-run offer runs this at launch with no action of the person, and a read
+/// in `~/Downloads` or `~/Desktop` raises a macOS prompt for cmux. Export zips
+/// are `detect_with_exports`, for when the person asks.
 pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
     let mut found = Vec::new();
     let projects = crate::claude_import::default_projects_dir(user_home, claude_config_dir);
@@ -53,6 +56,14 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             });
         }
     }
+    found
+}
+
+/// `detect` plus the export zips of claude.ai or ChatGPT in `~/Downloads` and
+/// `~/Desktop`. Only for a person's own request (`detect --exports`, the Import
+/// Memories dialog): listing those folders asks macOS for access.
+pub fn detect_with_exports(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
+    let mut found = detect(user_home, claude_config_dir);
     found.extend(detect_zips(user_home));
     found
 }
@@ -394,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn detect_finds_claude_code_notes_codex_and_export_zips() {
+    fn detect_with_exports_finds_claude_code_notes_codex_and_export_zips() {
         let home = temp("detect");
         write(
             &home.join(".claude/projects/-Users-me-app/s1.jsonl"),
@@ -421,7 +432,7 @@ mod tests {
         );
         // A zip with no conversations.json is not an export.
         zip_of(&stage, &home.join("Downloads/photos.zip"), &["a.txt"]);
-        let found = detect(&home, None);
+        let found = detect_with_exports(&home, None);
         let kinds: Vec<&str> = found.iter().map(|d| d.kind.as_str()).collect();
         assert!(kinds.contains(&"claude-code"), "{kinds:?}");
         assert!(kinds.contains(&"claude-memory"), "{kinds:?}");
@@ -434,6 +445,37 @@ mod tests {
             found
                 .iter()
                 .any(|d| d.source.starts_with("zip:") && d.source.ends_with("data-2026.zip"))
+        );
+    }
+
+    /// LAUNCH-NO-TCC-PROMPTS: Home's first-run offer runs `detect` at launch with no action of
+    /// the person, so `detect` never reads ~/Downloads or ~/Desktop (a read there raises the
+    /// macOS "access files in your Downloads folder" prompt for cmux). Export zips are found
+    /// only when the person asks (`detect --exports`, the Import Memories dialog).
+    #[test]
+    fn unasked_detect_never_lists_downloads_or_desktop() {
+        let home = temp("unasked");
+        let stage = temp("unasked-stage");
+        write(&stage.join("conversations.json"), "[]");
+        zip_of(
+            &stage,
+            &home.join("Downloads/data-2026.zip"),
+            &["conversations.json"],
+        );
+        zip_of(
+            &stage,
+            &home.join("Desktop/claude-export.zip"),
+            &["conversations.json"],
+        );
+        write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        let found = detect(&home, None);
+        assert!(
+            found.iter().all(|d| !d.source.starts_with("zip:")),
+            "detect listed a protected folder: {found:?}"
+        );
+        assert_eq!(
+            found.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>(),
+            ["codex"]
         );
     }
 

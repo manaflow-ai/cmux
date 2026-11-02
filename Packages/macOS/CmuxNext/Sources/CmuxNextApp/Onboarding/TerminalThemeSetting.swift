@@ -41,6 +41,7 @@ final class TerminalThemeSetting {
                       background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
                       terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
+            edits.highlight = snapshot.highlightColor
         }
     }
 
@@ -131,6 +132,7 @@ final class TerminalThemeSetting {
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
+        state.edits.highlight = snapshot.highlightColor
         state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
         apply(state)
     }

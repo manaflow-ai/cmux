@@ -29,6 +29,15 @@ public final class OverlayPlane: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Whether the home's overlay sync is pending in this turn (a presentation moved panes): then the window's
+    /// pages hear a change made now (an occluder that moved with the panes) in that sync's one page update, which
+    /// this asks for, instead of in an update of their own.
+    public func carriesPageUpdate() -> Bool {
+        guard let root = home as? LayoutRootView, root.overlayIsStale, root.isLive, root.planeHost != nil else { return false }
+        root.context.stripClipsChanged = true
+        return true
+    }
+
     override public var isFlipped: Bool { true }
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -91,7 +100,7 @@ public final class OverlayPlane: NSView {
 
     /// The nearest view at or above `view` whose layer clips with a corner
     /// radius, or above `view` clips square (the main pane while a sidebar
-    /// slide holds content wider than it, `MainPaneCardView.contentHold`): its
+    /// slide holds content at another width, `MainPaneCardView.contentHold`): its
     /// bounds in window coordinates and its radius. `view`'s own square clip
     /// is its bounds, which the plane's frame already is.
     static func roundedClip(around view: NSView) -> (rect: CGRect, radius: CGFloat)? {
@@ -125,8 +134,9 @@ public protocol OverlayPlaneHosting: AnyObject {
     /// Stops managing `plane`. The caller puts it back in its home.
     func releasePlane(_ plane: OverlayPlane)
     /// The interactive overlay rects or divider mouse areas of a plane
-    /// changed (`LayoutRootView.interactiveOverlayRects`, `dividerMouseAreas`).
-    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane)
+    /// changed (`LayoutRootView.interactiveOverlayRects`, `dividerMouseAreas`); `shapesChanged`: a pane's strip
+    /// clip changed too, so content drawn outside the view tree re-reads its clip (one update for both).
+    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane, shapesChanged: Bool)
     /// The plane's home finished a layout pass (its size or position may
     /// have changed); not called on animation frames.
     func planeDidLayout(_ plane: OverlayPlane)

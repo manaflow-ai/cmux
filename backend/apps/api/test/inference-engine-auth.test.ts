@@ -5,6 +5,7 @@ import worker from "../src/index.ts"
 import { MODELS, type ModelEntry } from "../src/inference/catalog.ts"
 import { servingRoutes } from "../src/inference/route.ts"
 import { makeTenant } from "./setup/tenant.ts"
+import { paidPerson } from "./setup/inference-person.ts"
 
 /**
  * Chief-engines design section 4 (decided by Lawrence, Oct 28): every free model reaches the free
@@ -53,8 +54,9 @@ describe("Chief engine calls (section 4)", () => {
   })
 
   it("a model outside the catalog allowlist is a 404 whose message names the allowlist", async () => {
-    const t = await makeTenant("engine-unknown")
-    const r = await chatWith(t.installToken, { model: "example/not-in-catalog", max_tokens: 16, messages: [{ role: "user", content: "hi" }] })
+    // A paid person: the caller resolves at once, so the model check is what answers (no plan check 503).
+    const { t } = await paidPerson("engine-unknown")
+    const r = await chatWith(t, { model: "example/not-in-catalog", max_tokens: 16, messages: [{ role: "user", content: "hi" }] })
     expect(r.status).toBe(404)
     expect(r.body.error.code).toBe("model.not_found")
     for (const m of MODELS) expect(r.body.error.message).toContain(m.id)

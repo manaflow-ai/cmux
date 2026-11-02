@@ -22,6 +22,10 @@ let package = Package(
         .library(name: "CmuxConversationGeometry", targets: ["CmuxConversationGeometry"]),
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
+    dependencies: [
+        // The composer's keyboard dock (MobileKeyboardDock), iOS only.
+        .package(path: "../CmuxMobileSupport"),
+    ],
     targets: [
         .target(
             name: "CmuxConversationCore",
@@ -36,7 +40,10 @@ let package = Package(
         ),
         .target(
             name: "CmuxConversationUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
+            dependencies: [
+                "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation",
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            ],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),

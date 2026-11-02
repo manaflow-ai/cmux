@@ -97,9 +97,20 @@ fn file_body(
     started: Instant,
     progress: Arc<UploadProgress>,
 ) -> reqwest::Body {
+    reqwest::Body::wrap_stream(file_chunks(file, len, started, progress))
+}
+
+/// [`file_body`]'s chunks: `len` bytes of the file from where it stands, a chunk at a time.
+fn file_chunks(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
     use tokio::io::AsyncReadExt;
+    // Exactly the declared length: the Content-Length counts that many, from where the file stands.
     let file = tokio::fs::File::from_std(file).take(len);
-    let chunks = futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
+    futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
         let progress = progress.clone();
         async move {
             let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
@@ -115,8 +126,7 @@ fn file_body(
             chunk.truncate(read);
             Ok(Some((chunk, (file, read_so_far))))
         }
-    });
-    reqwest::Body::wrap_stream(chunks)
+    })
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -130,10 +140,11 @@ fn stall_left(idle: Duration, sent: bool) -> Duration {
     (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
 }
 
-/// How long the slot's reply body may take to arrive once its head came:
-/// `streamed` for a file body (the slot answers after committing it).
-fn reply_body_window(streamed: bool) -> Duration {
-    if streamed { UPLOAD_REPLY } else { UPLOAD_STALL }
+/// How long the slot's reply body may take to arrive once its head came. A
+/// slot answers after it stored the bytes, a streamed file or a derived image
+/// alike.
+fn reply_body_window() -> Duration {
+    UPLOAD_REPLY
 }
 
 /// Resolves once [`stall_left`] says the upload stalled. It ends with its
@@ -175,6 +186,40 @@ impl CloudBackend for RemoteCloudBackend {
                     "reply of {} bytes exceeds the limit",
                     bytes.len()
                 )));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn platform(
+        &self,
+        method: &str,
+        url: &str,
+        bearer: &str,
+        body: &Value,
+    ) -> Result<HttpReply, TransportError> {
+        let method = match method {
+            "GET" => reqwest::Method::GET,
+            "POST" => reqwest::Method::POST,
+            "PATCH" => reqwest::Method::PATCH,
+            _ => return Err(TransportError("unsupported platform method".into())),
+        };
+        // Reuse the no-redirect transport: an install bearer never follows an upstream redirect.
+        let mut request = self
+            .files
+            .request(method.clone(), url)
+            .timeout(REQUEST_TIMEOUT)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .bearer_auth(bearer);
+        if method != reqwest::Method::GET {
+            request = request.json(body);
+        }
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError("platform reply exceeds the limit".into()));
             }
             Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
         })
@@ -248,7 +293,6 @@ impl CloudBackend for RemoteCloudBackend {
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
-        let streamed = matches!(body, PutBody::File { .. });
         self.runtime.block_on(async move {
             let response = match body {
                 PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
@@ -279,7 +323,7 @@ impl CloudBackend for RemoteCloudBackend {
             let status = response.status().as_u16();
             let etag = response.headers().get(reqwest::header::ETAG)
                 .and_then(|value| value.to_str().ok()).map(str::to_owned);
-            let bytes = tokio::time::timeout(reply_body_window(streamed), response.bytes())
+            let bytes = tokio::time::timeout(reply_body_window(), response.bytes())
                 .await
                 .map_err(|_| TransportError("the upload reply did not finish".into()))?
                 .map_err(|error| transport(&error))?;
@@ -555,11 +599,37 @@ mod tests {
         assert!(stall_left(UPLOAD_REPLY, true).is_zero());
     }
 
+    /// Review of #26498 at 2eba8e2f: a staged file's body was read to its end,
+    /// not its declared length, so a file positioned past its start (or longer
+    /// than `len`) sent bytes the Content-Length did not count.
+    #[tokio::test]
+    async fn a_file_body_sends_exactly_len_bytes_from_where_the_file_stands() {
+        use std::io::{Seek, SeekFrom, Write as _};
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"0123456789abcdefghij").unwrap();
+        file.seek(SeekFrom::Start(7)).unwrap();
+        let progress = Arc::new(UploadProgress::default());
+        let chunks: Vec<Vec<u8>> = file_chunks(file, 4, Instant::now(), progress.clone())
+            .map(|chunk| chunk.unwrap())
+            .collect()
+            .await;
+        assert_eq!(chunks.concat(), b"789a");
+        assert!(progress.sent.load(Ordering::Relaxed), "its last byte marks it sent");
+    }
+
     /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
     /// read within the stall window, not the reply window.
     #[test]
     fn a_streamed_uploads_reply_body_has_the_reply_window() {
-        assert_eq!(reply_body_window(true), UPLOAD_REPLY);
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
+    }
+
+    /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
+    /// read within the stall window, not the reply window, though its whole
+    /// request has UPLOAD_TIMEOUT (10 min).
+    #[test]
+    fn a_byte_uploads_reply_body_has_the_reply_window_too() {
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
     }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
@@ -589,6 +659,46 @@ mod tests {
             sender.send((head, String::from_utf8(body).unwrap())).unwrap();
         });
         (origin, receiver)
+    }
+
+    #[test]
+    fn cloud_environment_patch_sends_install_token_and_never_follows_redirects() {
+        let backend = RemoteCloudBackend::new().unwrap();
+        let patch =
+            json!({"setup_script":null,"set_secrets":[{"name":"TOKEN","value":"write-only"}]});
+        let (origin, seen) = one_http_exchange(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
+        );
+        let reply = backend
+            .platform(
+                "PATCH",
+                &format!("{origin}/v1/cloud-environments/env_default"),
+                "install.jwt",
+                &patch,
+            )
+            .unwrap();
+        assert_eq!(reply.status, 200);
+        let (head, body) = seen.recv().unwrap();
+        let head = head.to_ascii_lowercase();
+        assert!(head.starts_with("patch /v1/cloud-environments/env_default "), "{head}");
+        assert!(head.contains("authorization: bearer install.jwt"), "{head}");
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), patch);
+
+        // Following this redirect would fail the request; returning 307 proves
+        // that no second request sends the install token to the target.
+        let (origin, seen) = one_http_exchange(
+            "HTTP/1.1 307 Temporary Redirect\r\nlocation: http://127.0.0.1:1/stolen\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        );
+        let reply = backend
+            .platform(
+                "PATCH",
+                &format!("{origin}/v1/cloud-environments/env_default"),
+                "install.jwt",
+                &patch,
+            )
+            .unwrap();
+        assert_eq!(reply.status, 307);
+        assert!(seen.recv().unwrap().0.starts_with("PATCH "));
     }
 
     #[test]

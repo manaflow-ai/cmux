@@ -15,7 +15,9 @@ private let helperV2Logger = Logger(subsystem: "com.cmuxterm.app.next", category
 /// macOS checks Accessibility and Screen Recording against the helper and
 /// never against cmux. Its stdin is our control pipe: we send the socket
 /// path, the per-launch secret and the trusted acpmux cdhash there, and
-/// EOF (stop, quit or crash of this app) stops the helper.
+/// EOF (stop, quit or crash of this app) stops the helper. Machine consent
+/// travels only on the host consent socket (``ComputerUseHelperV2HostLink``),
+/// where the helper checks this app by audit token.
 ///
 /// The helper socket admits only `acpmux cua-mcp` bridges that descend from
 /// an acpmux daemon this app registered (`registerAcpmuxDaemon`). acpmux
@@ -40,6 +42,7 @@ public final class ComputerUseHelperV2 {
     nonisolated static let endpointDirectoryKey = "CMUX_NEXT_CUA_V2_DIR"
     nonisolated static let endpointFileName = "endpoint.json"
     nonisolated static let socketFileName = "h.sock"
+    nonisolated static let hostSocketFileName = "c.sock"
 
     private(set) var state: State = .off
     public let directory: String
@@ -49,6 +52,13 @@ public final class ComputerUseHelperV2 {
     /// This app's acpmux (executable and daemon socket), set by the agent
     /// pane source once it resolves acpmux.
     public var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
+    /// This app's acpmux daemon's `_acpmux/machine_consent_get` result (nil
+    /// on any failure), asked fresh for each of the helper's consent
+    /// questions; set with `acpmux`. Unset, every answer is "no answer" and
+    /// the helper refuses every call that needs consent.
+    public var machineConsent: @Sendable () async -> Data? = { nil }
+    /// Records a call the helper refused for consent ("screen" or "control").
+    public var consentRefused: @Sendable (String) async -> Void = { _ in }
     private let spawner: any ComputerUseHelperV2Spawning
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
@@ -56,53 +66,12 @@ public final class ComputerUseHelperV2 {
     private var child: ComputerUseHelperV2Child?
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
+    /// The helper's host consent connection, while it runs.
+    private var hostLink: ComputerUseHelperV2HostLink?
     private var generation = 0
     private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
-
-    /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule.
-    nonisolated static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
-
-    /// The code-signing identifier read from an executable. A raced path can
-    /// at worst produce a requirement the real helper does not satisfy: the
-    /// live audit-token check still requires this app's team.
-    nonisolated static func codeIdentifier(_ executable: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        return info[kSecCodeInfoIdentifier as String] as? String
-    }
-
-    /// Release helpers check every bridge's live audit token against its exact
-    /// identifier and this app's team. Only ad-hoc development uses a
-    /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
-                                            identifier: (URL) -> String? = codeIdentifier,
-                                            hash: (URL) -> Data? = cdhash)
-        -> (hashes: [String], requirement: String?) {
-        if let teamIdentifier {
-            let plain = { (text: String) in
-                !text.isEmpty && text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
-            }
-            guard plain(teamIdentifier), let identifier = identifier(executable), plain(identifier) else { return ([], nil) }
-            return ([], "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(teamIdentifier)\"")
-        }
-        return (hash(executable).map { [hex($0)] } ?? [], nil)
-    }
 
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
@@ -124,6 +93,7 @@ public final class ComputerUseHelperV2 {
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
+    var hostSocketPath: String { directory + "/" + Self.hostSocketFileName }
     var endpointPath: String { directory + "/" + Self.endpointFileName }
 
     /// What every acpmux daemon this app spawns gets: the endpoint directory
@@ -138,8 +108,14 @@ public final class ComputerUseHelperV2 {
     /// Cua Driver values itself before the driver loads.
     nonisolated static func environment(home: String = NSHomeDirectory(),
                                         temporaryDirectory: String = ComputerUseHelperDaemon.userTemporaryDirectory(),
-                                        user: String = NSUserName()) -> [String: String] {
-        [
+                                        user: String = NSUserName(),
+                                        bundleID: String? = Bundle.main.bundleIdentifier) -> [String: String] {
+        // Legacy permits an exact tagged DEV bundle for dogfood. Only this
+        // app chooses that scope. Do not read it from an agent or inherited env.
+        let prefix = "com.cmuxterm.app.debug."
+        let allowed = bundleID.flatMap { $0.hasPrefix(prefix) && $0.count > prefix.count ? $0 : nil } ?? ""
+        return [
+            "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed,
             "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
             "CUA_TELEMETRY_ENABLED": "false",
             "CUA_DRIVER_RS_UPDATE_CHECK": "false",
@@ -161,6 +137,11 @@ public final class ComputerUseHelperV2 {
     nonisolated static func defaultDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> String {
         "\(ComputerUseHelperDaemon.userTemporaryDirectory())cmux-cua-v2/\(ComputerUseHelperDaemon.scope(bundleID))"
     }
+
+    /// Whether this build carries the helper v2. DEV builds embed it; a
+    /// build without it (NIGHTLY, release today) runs the legacy helper
+    /// when `computerUse.driver` is "upstream" (`ComputerUseHelperDaemon.effectiveDriver`).
+    public var isInBuild: Bool { helperApp() != nil }
 
     /// DEV builds embed the dev helper at Contents/Library (scripts/cmux-next/embed-cua-helper-dev.sh).
     nonisolated static func embeddedHelperApp(bundle: Bundle = .main) -> URL? {
@@ -207,13 +188,11 @@ public final class ComputerUseHelperV2 {
             return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
         let secret = Self.makeSecret()
+        // The host link's own secret: sent only on the helper's stdin, never written to disk.
+        let hostSecret = Self.makeSecret()
         let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
-        } ?? (hashes: [], requirement: nil)
-        await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+        await spawned.send(Self.configureLine(socket: socketPath, hostSocket: hostSocketPath, hostSecret: hostSecret,
+                                              secret: secret, acpmuxExecutable: acpmux?.executable))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -225,6 +204,18 @@ public final class ComputerUseHelperV2 {
             spawner.terminate(spawned.pid)
             return unavailable("the helper did not report ready")
         }
+        let link = await ComputerUseHelperV2HostLink.connect(path: hostSocketPath, helperPID: spawned.pid,
+                                                             executable: executable, secret: hostSecret)
+        guard current == generation else {
+            link?.close()
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
+        }
+        if link == nil {
+            helperV2Logger.error("cmux Computer Use helper v2 consent link failed; the helper refuses every call that needs consent")
+        }
+        hostLink = link
         child = spawned
         state = .running(spawned.pid)
         restarts.watch(spawner.watchExit(of: spawned.pid) { [weak self, pid = spawned.pid] in self?.helperExited(pid) })
@@ -232,8 +223,21 @@ public final class ComputerUseHelperV2 {
         controlLog?.cancel()
         let lines = spawned.lines
         let pid = spawned.pid
+        // Read per question, so wiring set after this start still answers.
+        let consent: @Sendable () async -> Data? = { [weak self] in
+            guard let query = await MainActor.run(body: { self?.machineConsent }) else { return nil }
+            return await query()
+        }
+        let refused: @Sendable (String) async -> Void = { [weak self] surface in
+            guard let record = await MainActor.run(body: { self?.consentRefused }) else { return }
+            await record(surface)
+        }
         // task-owner: stored in controlLog, cancelled by stop() and terminateForQuit(); it ends at the helper's EOF.
-        controlLog = Task.detached { await Self.logControlLines(lines, pid: pid) }
+        controlLog = Task.detached {
+            async let control: Void = Self.logControlLines(lines, pid: pid)
+            if let link { await ComputerUseHelperV2Consent.serve(link, pid: pid, consent: consent, refused: refused) }
+            await control
+        }
         guard await Self.writeEndpoint(path: endpointPath, socket: socketPath, secret: secret, owner: spawned.pid) else {
             await stop()
             return unavailable("cannot write \(endpointPath)")
@@ -254,8 +258,7 @@ public final class ComputerUseHelperV2 {
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
         guard let child, let executable = acpmux()?.executable,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
-        await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
-                              "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
+        await child.send(Self.registerLine(stamp))
     }
 
     /// A person's permission button in Computer Use setup. Startup and agent
@@ -289,6 +292,8 @@ public final class ComputerUseHelperV2 {
         state = .off
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         child.closeInput()
         let spawner = self.spawner
         // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
@@ -305,6 +310,8 @@ public final class ComputerUseHelperV2 {
         unlink(endpointPath)
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         child?.closeInput()
         child = nil
         state = .off
@@ -318,6 +325,8 @@ public final class ComputerUseHelperV2 {
         self.child = nil
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         unlink(endpointPath)
         child.closeInput()
         // The exited child stays a zombie until reaped; a SIGTERM to it does nothing.
@@ -347,94 +356,18 @@ public final class ComputerUseHelperV2 {
         return data
     }
 
-    nonisolated static func makeSecret() -> Data {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes)
-    }
-
-    nonisolated static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
-
-    /// The cdhash of a signed executable on disk.
-    nonisolated static func cdhash(_ url: URL) -> Data? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
-              let dictionary = info as? [String: Any] else { return nil }
-        return dictionary[kSecCodeInfoUnique as String] as? Data
-    }
-
-    /// endpoint.json for acpmux: 0600, written to a temporary name and renamed.
-    /// `owner` is the helper's pid, with its start time, so an acpmux daemon
-    /// that outlives a crash of this app sees the file is stale (cx-zgk0).
-    @concurrent nonisolated static func writeEndpoint(path: String, socket: String, secret: Data, owner: pid_t) async -> Bool {
-        var fields: [String: Any] = ["protocol": 1, "socket": socket, "secret": hex(secret), "pid": Int(owner)]
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        if proc_pidinfo(owner, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize {
-            fields["start_sec"] = Int(info.pbi_start_tvsec)
-            fields["start_usec"] = Int(info.pbi_start_tvusec)
-        }
-        let body = line(fields)
-        let temporary = path + ".tmp"
-        unlink(temporary)
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return false }
-        // concurrency-allow: @concurrent, never on the main actor; one small local file.
-        let written = body.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
-        close(descriptor)
-        guard written == body.count, rename(temporary, path) == 0 else {
-            unlink(temporary)
-            return false
-        }
-        return true
-    }
-
-    /// pid + start time of the process listening on `socketPath`, when the
-    /// connected peer runs as this user and runs `executable`. No team gate on
-    /// a same-user acpmux socket ("acpmux is too belt and suspenders there", Leo).
-    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL) async
-        -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard socketPath.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: socketPath.utf8)
-            buffer[socketPath.utf8.count] = 0
-        }
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        // This probe only connects and reads the peer; it never writes. Still no SIGPIPE.
-        var noSigPipe: Int32 = 1
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                // concurrency-allow: @concurrent, never on the main actor; a local Unix socket connect.
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else { return nil }
-        guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(), peer.runs(executable) else {
-            return nil
-        }
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(peer.pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
-        return (peer.pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
-    }
-
     /// Logs each control line the helper writes after `ready` (the
     /// `register_acpmux` acks and control errors; tool `result` lines are
     /// skipped), so a live check reads them from the unified log
     /// (scripts/cmux-next/cua-helper-v2-live.py). The lines carry no secret.
-    nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t) async {
+    /// `handled` takes the lines it answers (machine consent) first.
+    nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t,
+                                            handled: @Sendable ([String: Any]) -> Bool = { _ in false }) async {
         // Its own Logger: the file-level one is main-actor isolated.
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         for await line in lines {
             guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  let type = object["type"] as? String, type != "result" else { continue }
+                  let type = object["type"] as? String, type != "result", !handled(object) else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
             logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
         }

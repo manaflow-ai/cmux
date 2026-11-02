@@ -96,6 +96,22 @@ grep -q '^cache-hit=true$' <<<"$out" || fail "an exact key must report a hit, go
 diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "restored contents differ"
 echo "PASS: an exact key restores the same files and reports a hit"
 
+# A persistent nightly cache is linked into the workspace. A populated target
+# must win over a remote seed, and an empty target may be seeded without
+# unlinking the workspace path.
+rm -rf "$WORK/persistent" "$WORK/linked"
+mkdir -p "$WORK/persistent"
+echo local > "$WORK/persistent/local.txt"
+ln -s "$WORK/persistent" "$WORK/linked"
+out="$(output_of restore "$WORK/linked" family-tool-one family-tool-)"
+[[ "$out" == "cache-hit=false" ]] || fail "a populated cache symlink must not be replaced, got: $out"
+[[ -L "$WORK/linked" && -f "$WORK/persistent/local.txt" ]] || fail "a populated cache symlink was removed"
+rm -f "$WORK/persistent/local.txt"
+out="$(output_of restore "$WORK/linked" family-tool-one family-tool-)"
+grep -q '^cache-hit=true$' <<<"$out" || fail "an empty cache symlink must accept a remote seed, got: $out"
+[[ -L "$WORK/linked" && -f "$WORK/persistent/a.txt" ]] || fail "a seeded cache symlink was replaced"
+echo "PASS: R2 restore preserves and seeds persistent cache symlinks"
+
 rm -rf "$WORK/dst"
 out="$(output_of restore "$WORK/dst" family-tool-two family-tool-)"
 grep -q '^cache-hit=false$' <<<"$out" || fail "a prefix match is not an exact hit, got: $out"
@@ -202,6 +218,8 @@ while True:
         answer = {"code": 0, "record": {"bytes": os.path.getsize(request["dest"]), "seconds": 0.1, "wait_seconds": 0}}
     elif mode == "miss":
         answer = {"code": 3, "record": {"reason": "not in the bucket"}}
+    elif mode == "old":
+        answer = {"code": 1, "record": {"tool": "glaeda-lan-fetch", "error": "bad request"}}
     else:
         answer = {"code": 1, "record": {"error": "host down"}}
     conn.sendall((json.dumps(answer) + "\n").encode()); conn.close()
@@ -232,6 +250,15 @@ grep -q '"verb": "cache"' "$WORK/lan-log" && grep -q "\"file\": \"$lan_object\""
 echo down > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
 out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
 [[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "a down LAN host must fall back to the bucket, got: $out"
+# A broker without the cache verb (an older glaeda) falls through to the bucket and warns, once per job.
+echo old > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"; warn_tmp="$(mktemp -d "$WORK/rt.XXXXXX")"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "an old broker must fall back to the bucket, got: $out"
+grep -q '^::warning title=LAN cache unused::' "$WORK/log" || fail "an old broker must warn, log: $(cat "$WORK/log")"
+rm -rf "$WORK/dst"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* ]] || fail "a second old-broker restore must still hit the bucket, got: $out"
+grep -q '::warning' "$WORK/log" && fail "the old-broker warning must show once per job, log: $(cat "$WORK/log")"
 echo miss > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
 out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
 [[ "$out" == "cache-hit=false" ]] || fail "the LAN host's miss is the bucket's miss, got: $out"

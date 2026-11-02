@@ -148,6 +148,7 @@ enum AccountsStrings {
         case let error as CodeRouterError:
             switch error {
             case .notSignedIn: return errorNotSignedIn
+            case .scopeChanged: return errorStaleList
             case .timedOut: return errorTimedOut
             case .http, .transport, .decoding: return errorFailed(error.description)
             }

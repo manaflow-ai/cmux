@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Terminals resize at the start of a Cmd-D / Cmd-W, not after the spring (Lawrence 2026-10-23): when a split
 /// starts, each pane it resizes tells its content the size it will rest at, once, in the first motion frame,
 /// and the final size it gives (`bounds + sizeChange`) is the size the content has once the spring landed.
 @MainActor
-@Suite struct PaneMotionFinalSizeTests {
+@Suite(.closesItsWindows) struct PaneMotionFinalSizeTests {
     /// A terminal-like leaf under a fixed 30 pt header, as a pane's tab strip sits over its terminal.
     final class Leaf: NSView, PaneMotionTargeting {
         var announced: [CGSize] = []
@@ -38,6 +39,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: provider)
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         let before = try #require(provider.leaves[PaneID("p0-0")])
@@ -67,6 +69,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: Panes())
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))

@@ -138,7 +138,8 @@ await requireBrowserLane("new-tab-headline-place.test.ts", async () => {
             ready: "1",
             error: null,
             menu: true,
-            headline: "What should we work on in cmux?",
+            // The headline names the machine too since #31125.
+            headline: "What should we work on in cmux on This Mac?",
           });
         } finally {
           await page.close();

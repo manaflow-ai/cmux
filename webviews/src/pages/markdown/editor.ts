@@ -66,6 +66,7 @@ import {
   ResizableTableView,
   tableClipboard,
   tableDragOutPlugin,
+  tableTextSelectPlugin,
   tableKeyDown,
   tableViewAt,
   type TableWidths,
@@ -333,6 +334,8 @@ export class MarkdownEditor {
           },
         }));
       })
+      // Before gfm's table editing: its Shift-click handler would end the event first.
+      .use(tableTextSelectPlugin)
       .use(commonmark)
       .use(gfm)
       .use(referenceLinkSchema)

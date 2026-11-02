@@ -15,6 +15,9 @@ struct ChatComposerField: UIViewRepresentable {
     @Binding var isFocused: Bool
     /// A hardware Return: send the draft (the composer checks there is one).
     let onSend: () -> Void
+    /// A copied image or file pasted into the field (edit menu Paste or
+    /// Command-V): the composer attaches it.
+    var onPasteAttachments: (() -> Void)?
 
     static let maxLines = 8
     static let accessibilityIdentifier = "chat.composer.field"
@@ -47,6 +50,9 @@ struct ChatComposerField: UIViewRepresentable {
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
+        view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onPasteAttachments?()
+        }
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
             view.font = .preferredFont(forTextStyle: .body)

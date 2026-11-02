@@ -123,6 +123,48 @@ struct AgentPaneVideoInfoTests {
         #expect((reply["frames"] as? [[String: Any]])?.count == 4)
     }
 
+    /// Leo, 2026-11-01: "i feel like cmux-next should give u better tools to deal with this kind of
+    /// thing". The answer carries small gray probes for the page's scene pick, and `video.frames`
+    /// decodes the picked times large enough to read a screen recording's text.
+    @Test func theAnswerCarriesGrayProbesThatSeeTheCut() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("cut.mov")
+        try await Self.movie(at: clip, width: 320, height: 180)
+
+        let info = try #require(await AgentPaneVideoInfo.read(clip))
+        // Two a second, at least 12: a 2 s clip gives 12, in order, inside it.
+        #expect(info.probes.count == 12)
+        #expect(info.probes.map(\.atMs) == info.probes.map(\.atMs).sorted())
+        let cells = try info.probes.map { try #require(Data(base64Encoded: $0.cells)) }
+        #expect(cells.allSatisfy { $0.count == AgentPaneVideoInfo.probeGrid * AgentPaneVideoInfo.probeGrid })
+        // Red, then blue: the first and last probes' grays differ well past a cell's step.
+        let first = Int(cells[0][cells[0].count / 2]), last = Int(cells[11][cells[11].count / 2])
+        #expect(abs(first - last) > 24, "\(first) \(last)")
+        #expect((info.reply["probes"] as? [[String: Any]])?.count == 12)
+        #expect(AgentPaneVideoInfo.probeTimes(duration: 60).count == 48)
+        #expect(AgentPaneVideoInfo.probeTimes(duration: 0).isEmpty)
+    }
+
+    @Test func pickedFramesComeAtTheirTimesAt1280() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("wide.mov")
+        try await Self.movie(at: clip, width: 1920, height: 1080)
+
+        let frames = try #require(await AgentPaneVideoInfo.frames(clip, at: [200, 1800]))
+        #expect(frames.count == 2)
+        #expect(abs(frames[0].atMs - 200) <= 150 && abs(frames[1].atMs - 1800) <= 150, "\(frames.map(\.atMs))")
+        let images = try frames.map { try Self.image($0.jpeg) }
+        #expect(images.allSatisfy { $0.width == 1280 && $0.height == 720 })
+        #expect(try Self.isRed(images[0]))
+        #expect(try !Self.isRed(images[1]))
+        // Not a movie: nothing.
+        let text = folder.appendingPathComponent("notes.mov")
+        try Data("not a movie".utf8).write(to: text)
+        #expect(await AgentPaneVideoInfo.frames(text, at: [0]) == nil)
+    }
+
     @Test func aRotatedVideoShowsUpright() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -370,5 +412,16 @@ struct AgentPaneVideoInfoTests {
         #expect(!AgentPaneReplyRequest.quickLookVideo("/a.mov").isPassive)
         #expect(AgentPageOps.method(for: "cmux.agent.video.info") == "video.info")
         #expect(AgentPageOps.method(for: "cmux.agent.video.quickLook") == "video.quickLook")
+        // `video.frames`: 1 to 16 whole milliseconds within a day; nothing else.
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [0, 7200]])
+            == .videoFrames("/a.mov", times: [0, 7200]))
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": []]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": Array(0...16)]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [1.5]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [-1]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [true]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov"]) == nil)
+        #expect(AgentPaneReplyRequest.videoFrames("/a.mov", times: [0]).isPassive)
+        #expect(AgentPageOps.method(for: "cmux.agent.video.frames") == "video.frames")
     }
 }

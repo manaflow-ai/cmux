@@ -1,5 +1,5 @@
 {
-  "_comment": "The PR size check (scripts/ci/pr_size.py, .github/workflows/pr-checks.yml, job size) counts added plus deleted lines on feat-cmux-next pull requests and fails above `limit` unless the body has a `Size:` line. Files matching a glob here are not counted: generated output, lockfiles, localization catalogs and fixture or vector data. `**` matches any number of directories, `*` stays within one. tests/test_ci_pr_size.py fails when a glob no longer matches any tracked file, and when a committed output that scripts/cmux-next/generated_outputs.py lists is not covered here.",
+  "_comment": "The PR size check (scripts/ci/pr_size.py, .github/workflows/pr-checks.yml, job size) counts added plus deleted lines on feat-cmux-next pull requests and warns above `limit` unless the body has a `Size:` line. Files matching a glob here are not counted: generated output, lockfiles, localization catalogs and fixture or vector data. `**` matches any number of directories, `*` stays within one. tests/test_ci_pr_size.py fails when a glob no longer matches any tracked file, and when a committed output that scripts/cmux-next/generated_outputs.py lists is not covered here.",
   "limit": 800,
   "exclude": [
     {"glob": "plans/cmux-next/action-surfaces.json", "why": "action export, regenerate-action-exports.sh"},

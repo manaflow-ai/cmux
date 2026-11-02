@@ -7,6 +7,8 @@ nonisolated enum AppsStrings {
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// An app mount failed and the supervisor gave no reason.
+    static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }

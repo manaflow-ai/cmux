@@ -33,6 +33,20 @@ the exact head, treats ordinary pending and base-red findings as non-blocking,
 and still holds a required compile, risk, fast-gates or freeze verdict. Do not
 use `gh-merge-green` as a second gate for a feat-cmux-next PR.
 
+When the helper's merged-tree web check runs, local dependency installation and
+`vp check` require an explicit allow verdict from the shared fleet host policy,
+`leo-workspace/tools/host_policy.py heavy-local-ok --json`. The helper finds the
+workspace at `$HOME/Projects/leo-workspace`, then `$HOME/src/leo-workspace`;
+`LEO_WORKSPACE` selects a different workspace root. The policy reads the fleet
+registry; the merge helper carries no host list. A no-build or unknown host
+(including a missing policy helper) skips only this heavy local web check and
+prints the exact merged tree, base and head as **not checked**. Run any needed
+web validation through `cmux-ci test` on a supported remote worker. Only exit 0
+with a well-formed allow response permits heavy local work. Every other result,
+including a crash, usage error or malformed response, skips the heavy local
+check with a named warning rather than adding a merge gate. GitHub checks, freezes, merge
+conflict detection and the scoped Swift check retain their existing behavior.
+
 `ci-status` is an aggregate verdict, not a useful build step. On the feature
 line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
 and the sampled run took 52 seconds from creation to completion (run
@@ -975,12 +989,19 @@ its `watch` job, on another Blacksmith pool, waits for the probe:
   failover, when and which run), then points the variables at their
   failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` (32 vCPU when it
   already names 16) and `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404`
-  (4 when it names 2), never GitHub-hosted Ubuntu, `MACOS_RUNNER_15`, `_26`,
+  (4 when it names 2), never GitHub-hosted Ubuntu, `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
-  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  read. That is the lever pulled by hand on 2026-09-29. `MACOS_RUNNER_26` and
+  `LINUX_RUNNER` are the variables signing jobs read
+  (`scripts/ci/signing_runner_variables.py`), so the switch never writes a
+  label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
+  has no owned failover, an override naming a reused machine for either is
+  refused, and a stalled probe never re-applies an older record's owned value
+  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
+  pull request). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
@@ -1160,3 +1181,43 @@ Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` rejects any required-job or generic fleet
 route.
+
+## Runner pools
+
+Leo, 2026-10-28: "I hate pins. Like, just pin the set of the stuff that isn't
+hilariously slow."
+
+A job never names a single-size Blacksmith label as a route. It reads the pool
+of the size it was measured at:
+
+```yaml
+runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+```
+
+main's `.github/runners.json` `pools` declares each pool and its members in
+order; `scripts/ci/runner_pools.py` on main keeps the `RUNNER_POOLS` repository
+variable on a live member of each and moves a pool off a member that starts
+nothing, so the job follows with no YAML edit. This branch keeps a copy of the
+declaration for its tests (`tests/runs_on_labels.py` resolves a pool read to its
+members; `tests/test_ci_runner_pools_copy.py` keeps the copy equal to main's).
+
+| Pool | Members (first is preferred) |
+| --- | --- |
+| `linux` | Blacksmith 4 vCPU, 16 vCPU (may gain the fleet Linux label) |
+| `linux_2` | Blacksmith 2 vCPU, then 4 vCPU |
+| `linux_4` | Blacksmith 4 vCPU, then 16 vCPU (ephemeral only, unlike `linux`) |
+| `linux_8` | Blacksmith 8 vCPU, then 16 vCPU |
+| `linux_16` | Blacksmith 16 vCPU, then 32 vCPU |
+| `linux_32` | Blacksmith 32 vCPU, then 16 vCPU |
+| `linux_arm64` | Blacksmith 4 vCPU ARM64 |
+| `windows` | Blacksmith 4 vCPU Windows |
+| `macos_15` | Blacksmith macOS 15 |
+| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
+| `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
+| `macos_latest` | Blacksmith macOS latest image, then macOS 26 |
+
+Literal labels stay only where they are not a route: the fork pull request
+branch (a fork's run gets no repository variables), the owner branch, membership
+lists and comparisons. GitHub-hosted routes are the exact exceptions in
+`tests/test_ci_self_hosted_guard.sh`.
+

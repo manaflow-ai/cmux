@@ -29,6 +29,11 @@ KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
 
 FAKE_CURL = r"""#!/usr/bin/env python3
 import json, os, sys
+from datetime import datetime, timedelta, timezone
+def started(minutes):
+    # A run that started this many minutes ago (default: just now).
+    when = datetime.now(timezone.utc) - timedelta(minutes=float(minutes or 0))
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 out = args[args.index("-o") + 1] if "-o" in args else None
@@ -56,13 +61,15 @@ if "/actions/runs/" in url:
     if run_id in os.environ.get("FAKE_BUILDERS", "").split(","):
         print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress"),
                           "event": os.environ.get("FAKE_BUILDER_EVENT", "push"),
-                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next")}))
+                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next"),
+                          "run_started_at": started(os.environ.get("FAKE_BUILDER_MINUTES"))}))
         sys.exit(0)
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
     print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
                       "event": os.environ.get("FAKE_OWNER_EVENT", "push"), "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
-                      "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40)}))
+                      "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40),
+                      "run_started_at": started(os.environ.get("FAKE_OWNER_MINUTES"))}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
     sys.exit(22)
@@ -202,6 +209,41 @@ def check_recheck():
     result, out, log = run_wait("4", script=script, FAKE_NOTIFY_STATUS="in_progress")
     _check(result.returncode == 0 and "takeover=false" in out and 0 < log.count("sleep") <= 16,
            f"an owner whose hand-off never ends: the wait is bounded ({out.strip()!r}, {log.count('sleep')} sleeps)")
+
+
+def check_lease():
+    """A live owner holds its key for a bounded lease, not until its job timeout.
+
+    2026-10-28: owner run 40641041752 of tree 04cb6703 hung in a Zig package
+    fetch for over 25 minutes (as 40630560459 had for 58). Every later
+    feat-cmux-next push of the key saw a live owner and deferred, so nothing
+    built the key until the owner timed out: the feat-cmux-next tree went two
+    hours and 97 commits unpublished.
+    """
+    env = job("tree-owner-wait")["steps"]
+    lease = next(s for s in env if s.get("id") == "wait")["env"].get("OWNER_LEASE_MINUTES")
+    _check(lease is not None and 15 <= int(lease) <= 30,
+           f"a live owner's lease is bounded so the newest tree publishes within about 30 minutes ({lease})")
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40")
+        _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out and "deferred=false" in out,
+               f"a feat-cmux-next push takes over a key whose {status} feat-cmux-next owner is past its lease ({out.strip()!r}, {result.stderr.strip()[-300:]!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
+           f"a feat-cmux-next owner inside its lease still holds the key ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", REF="refs/heads/op-next-other")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"only a feat-cmux-next push takes a stuck owner's key over ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a stuck owner that published anyway: no build ({out.strip()!r})")
+    # Later pushes defer to the run that took over, while it holds its own lease.
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="5")
+    _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
+           f"a later push defers to the feat-cmux-next run that took a stuck owner's key over ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="40")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a feat-cmux-next builder past its own lease does not hold the key either ({out.strip()!r})")
 
 
 def main():
@@ -347,6 +389,7 @@ def main():
         _check("scripts/ci/cmux_tui_tree_handoff.py" in script,
                "notify-unpublished-tree hands the key on through scripts/ci/cmux_tui_tree_handoff.py")
 
+    check_lease()
     check_recheck()
 
     if FAILURES:

@@ -49,7 +49,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
@@ -101,6 +101,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
       act(async () => {
         dom.window.dispatchEvent(new dom.window.CustomEvent(`cmux-acpmux-${name}`));
         await scrolled();
+        // The rows mount at the new offset on the scroll pacer's next frame (#25770); `reading`
+        // reads mounted rows, so it waits for that frame, as the retried-prompt test does.
+        await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
       });
     /// The turn being read: the last whose prompt bubble is at or below 35 px under the viewport's
     /// top, where a step lands it (the thread pads its rows 16 px down); the first before any is.
@@ -109,7 +112,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16; // less the thread's top padding
+        // Less the thread's top padding.
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;
@@ -180,7 +185,8 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16;
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;
@@ -195,6 +201,9 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
       await act(async () => {
         dom.window.dispatchEvent(new dom.window.CustomEvent("cmux-acpmux-nextTurn"));
         await scrolled();
+        // The transcript mounts the rows at its new offset on the scroll pacer's next frame;
+        // `reading` reads mounted rows, so it waits for that frame (well inside STEP_PENDING_MS).
+        await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
       });
       seen.push(reading());
     }

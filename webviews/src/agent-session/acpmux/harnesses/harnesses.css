@@ -1,24 +1,24 @@
-.acpmux-harnesses{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;padding:20px max(18px,calc((100% - 560px)/2));color:var(--agent-text)}
+.acpmux-harnesses{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;padding:calc(var(--grid-base) * 5) max(calc(var(--grid-base) * 4),round(down,calc((100% - var(--harness-column))/2),var(--grid-base)));color:var(--agent-text);--harness-column:560px;--harness-inset:var(--grid-gap);--harness-mark:20px;--harness-gap:var(--grid-gap)}
 .acpmux-harnesses-head{display:flex;align-items:flex-start;gap:8px}
 .acpmux-harnesses-heading{flex:1;min-width:0}
 .acpmux-harnesses-heading h2{margin:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-harnesses-heading p{margin:2px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-harnesses-close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-soft)}
+.acpmux-harnesses-close{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-soft)}
 .acpmux-harnesses-close:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-harnesses-list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
-.acpmux-harness-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:4px 6px;border-radius:8px}
-.acpmux-harness-row:hover{background:var(--agent-control-hover)}
+.acpmux-harness-row{display:flex;align-items:center;gap:var(--harness-gap);min-height:40px;padding:4px var(--harness-inset);border-radius:8px}
 .acpmux-harness-text{flex:1;min-width:0;display:flex;flex-direction:column}
 .acpmux-harness-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-harness-status{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-harness-row[data-harness-status="ready"] .acpmux-harness-status{color:var(--agent-soft)}
-.acpmux-harness-row[data-harness-status="failed"] .acpmux-harness-status{color:var(--agent-danger)}
+.acpmux-harness-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-harness-row[data-harness-status="ready"] .acpmux-harness-detail{color:var(--agent-soft)}
+.acpmux-harness-row[data-harness-status="failed"] .acpmux-harness-detail{color:var(--agent-danger)}
 .acpmux-harness-row .acpmux-harness-spinner{flex:none;width:12px;height:12px;margin-right:4px;box-sizing:border-box;border:1.5px solid transparent;border-top-color:var(--agent-muted);border-radius:50%}
 @media (prefers-reduced-motion: no-preference){.acpmux-harness-row .acpmux-harness-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
-.acpmux-harness-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-harness-action{flex:none;height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 :root[data-status-indicators=static] .acpmux-harness-row .acpmux-harness-spinner{animation:none}
 .acpmux-harness-action:hover{background:var(--acpmux-composer-hover)}
 .acpmux-harness-action.is-primary{background:var(--agent-accent);box-shadow:none;color:var(--agent-accent-text,#fff)}
-.acpmux-harnesses-custom{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 6px;border:0;border-top:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;text-align:left}
+.acpmux-harness-action.is-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-accent-text,#fff))}
+.acpmux-harnesses-custom{display:flex;flex-direction:column;align-items:stretch;min-width:0;gap:0;padding:8px var(--harness-inset) 8px calc(var(--harness-inset) + var(--harness-mark) + var(--harness-gap));border:0;border-top:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;text-align:left}
 .acpmux-harnesses-custom:hover .acpmux-harness-name{text-decoration:underline}
 .acpmux-harnesses button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}

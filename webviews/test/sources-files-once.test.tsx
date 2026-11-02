@@ -6,6 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { activity, tool } from "../src/gallery/fixtures/acpmux";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -42,12 +44,21 @@ async function sourcesRows(
   changed: never[],
   onOpenChanges: (path?: string) => void = () => {},
   onOpenOutput: (path: string) => void = () => {},
+  cwd?: string,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
   act(() => root?.unmount());
   root = createRoot(host);
-  const summary = { scheduled: [], pullRequests: [], outputs, subagents: [], sources: [], backgroundTasks: [] };
+  const summary = {
+    ...(cwd ? { cwd } : {}),
+    scheduled: [],
+    pullRequests: [],
+    outputs,
+    subagents: [],
+    sources: [],
+    backgroundTasks: [],
+  };
   const changes = { additions: 1, deletions: 0, files: changed };
   await act(async () =>
     root!.render(
@@ -150,6 +161,29 @@ test("a same-named file in another folder keeps its own row and opens its own ch
   expect(outputsOpened).toEqual(["/repo/a/index.ts"]);
 });
 
+test("an out-of-project checkpoint cannot replace an allowed output with the same display path", async () => {
+  const opened: string[] = [];
+  const allowed = { ...(file("/repo/src/index.ts", 1) as object), displayPath: "src/index.ts" } as never;
+  const outside = {
+    ...(file("/elsewhere/src/index.ts", 9) as object),
+    displayPath: "src/index.ts",
+    canonical: "/elsewhere/src/index.ts",
+  } as never;
+  const sections = await sourcesRows(
+    [allowed],
+    [outside],
+    () => {},
+    (path) => opened.push(path),
+    "/repo",
+  );
+  expect(sections["Outputs"]?.filter((row) => row.includes("index.ts"))).toEqual(["src/index.ts+1-0"]);
+  const button = [...host.querySelectorAll<HTMLButtonElement>("section button")].find((b) =>
+    b.textContent?.includes("index.ts"),
+  );
+  await act(async () => button?.click());
+  expect(opened).toEqual(["/repo/src/index.ts"]);
+});
+
 // A checkpoint's root file takes the root output, not a package's file of the same name.
 test("a checkpoint's root package.json is the root output, not a package's", async () => {
   const opened: string[] = [];
@@ -168,4 +202,11 @@ test("a checkpoint's root package.json is the root output, not a package's", asy
   for (const button of buttons) await act(async () => button.click());
   expect(opened).toEqual(["/Users/me/repo/package.json"]);
   expect(outputsOpened).toEqual(["~/repo/packages/x/package.json"]);
+});
+
+test("completed searches without URLs remain named Sources", () => {
+  const sources = sessionSummary([
+    activity([tool("Search retry policies", "fetch", "completed", { inputSummary: '{"query":"retry policies"}' })], 1),
+  ]).sources;
+  expect(sources).toEqual([{ label: "Search retry policies" }]);
 });

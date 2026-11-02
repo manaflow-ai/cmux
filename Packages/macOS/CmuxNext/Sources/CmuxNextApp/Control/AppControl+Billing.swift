@@ -21,9 +21,11 @@ extension AppControl {
             ControlMethod.async("billing.checkout") { call in
                 let params = call.params
                 let request: BillingCheckoutRequest
+                // The success page's "Open cmux" returns to this build, not classic `cmux://`.
+                let scheme = await MainActor.run { services.cloud.configuration.callbackScheme }
                 do {
                     request = try BillingCheckoutRequest(plan: params["plan"]?.stringValue ?? "pro",
-                                                         team: (params["teamId"] ?? params["team_id"])?.stringValue)
+                                                         team: (params["teamId"] ?? params["team_id"])?.stringValue, scheme: scheme)
                 } catch let invalid as BillingCheckoutRequest.Invalid {
                     throw ControlError.invalidParams(invalid.description)
                 }
@@ -71,7 +73,7 @@ extension AppControl {
     /// The signed-in cmux.com client (``CodeRouterClient`` authenticates any `/api/*` call as the user).
     nonisolated private static func billingClient(_ services: AppServices) async throws -> CodeRouterClient {
         try await MainActor.run {
-            if let refusal = Self.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
+            if let refusal = ControlError.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: BillingStrings.unavailable) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn) }
             return client
@@ -86,6 +88,7 @@ extension AppControl {
         } catch let error as CodeRouterError {
             switch error {
             case .notSignedIn: throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn)
+            case .scopeChanged: throw ControlError(code: "scope_changed", message: error.description)
             case .timedOut: throw ControlError(code: "timeout", message: error.description)
             case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
             case .transport: throw ControlError(code: "unavailable", message: error.description)

@@ -44,7 +44,8 @@ MAX_ENTRIES = 24
 LIMITS = {"headline": 90, "title": 60, "summary": 240, "alt": 160}
 FOREIGN_SLACK = 1.6
 TOP_LEVEL = {"schemaVersion", "version", "channel", "date", "headline", "entries"}
-ENTRY_KEYS = {"id", "category", "title", "summary", "media", "tryIt", "docs", "platforms", "audience"}
+ENTRY_KEYS = {"id", "category", "title", "summary", "media", "tryIt", "pr", "docs", "platforms", "audience"}
+PR_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$")
 
 # Internal names that never reach users. Each is (pattern, what it is).
 INTERNAL = [
@@ -62,11 +63,47 @@ INTERNAL = [
     (re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b"), "a decision codename"),
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
 ]
-SENTENCE_END = re.compile(r"[.!?。！？](?=\s|$)")
+SENTENCE_END = re.compile(r"[.!?。！？](?=[)'\"”’»]*\s|[)'\"”’»]*$)")
+ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 # Conductor-quality notes (2026-10-20): text written for people, never a commit subject such as
 # "fix(sidebar): ..." or "sidebar: ...". See release-notes/next/WRITING.md.
 COMMIT_STYLE = re.compile(r"^[a-z][\w./-]*(\([^)]*\))?!?:\s")
-WHOLE_SENTENCE = re.compile(r"[.!?。！？][)\"”’»]*$")
+WHOLE_SENTENCE = re.compile(r"[.!?。！？][)'\"”’»]*$")
+
+
+def is_abbreviation_period(text, index):
+    """An abbreviation only continues a sentence when lowercase prose follows it."""
+    if not ABBREVIATED_SENTENCE.search(text[:index + 1]):
+        return False
+    following = text[index + 1:].lstrip(" \t\r\n)'\"“”‘’»")
+    return bool(following) and not following[0].isupper()
+
+
+def is_inline_quoted_punctuation(text, index):
+    """Closing quotes followed by lowercase prose continue the enclosing sentence."""
+    following = text[index + 1:]
+    after_closers = following.lstrip(")'\"”’»")
+    if after_closers == following or not after_closers.strip():
+        return False
+    # Allow another quoted sentence after the closing quote.
+    next_sentence = after_closers.lstrip().lstrip("('\"“‘«")
+    return not next_sentence or not next_sentence[0].isupper()
+
+
+def sentence_end_count(text):
+    """Count sentence punctuation while ignoring abbreviations and ellipses."""
+    count = 0
+    for match in SENTENCE_END.finditer(text):
+        index = match.start()
+        if text[index] == "." and ((index and text[index - 1] == ".") or
+                                   (index + 1 < len(text) and text[index + 1] == ".")):
+            continue
+        if is_abbreviation_period(text, index):
+            continue
+        if is_inline_quoted_punctuation(text, index):
+            continue
+        count += 1
+    return count
 
 
 class Problems:
@@ -99,7 +136,7 @@ def check_text(problems, where, text, kind, language):
         problems.add(where, f"{language} reads like a commit subject ({text.split(':', 1)[0]!r}:); write what people can do now")
     if kind == "summary" and language == "en" and not WHOLE_SENTENCE.search(text):
         problems.add(where, f"{language} does not end a sentence; a summary is one or two whole sentences")
-    if kind == "summary" and language == "en" and len(SENTENCE_END.findall(text)) > 2:
+    if kind == "summary" and language == "en" and sentence_end_count(text) > 2:
         problems.add(where, "en has more than 2 sentences")
     if kind in ("title", "headline") and text.endswith("."):
         problems.add(where, f"{language} ends with a period")
@@ -189,7 +226,9 @@ def check_entry(problems, index, entry, channel, root, seen, draft=False):
             problems.add(where, "tryIt.deeplink must start with cmux://")
     if docs is not None and not (isinstance(docs, str) and re.match(r"^https://[^\s]+$", docs)):
         problems.add(where, "docs must be an https URL")
-    if try_it is None and docs is None:
+    if "pr" in entry and not (isinstance(entry["pr"], str) and PR_URL.match(entry["pr"])):
+        problems.add(where, "pr must be a GitHub pull request URL")
+    if try_it is None and docs is None and "pr" not in entry:
         problems.add(where, "needs a tryIt action/deeplink or a docs link")
     media = entry.get("media")
     if media is not None:

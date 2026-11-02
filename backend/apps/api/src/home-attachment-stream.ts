@@ -85,21 +85,58 @@ export class ResumableSha256 {
   }
 }
 
+/** A streaming part's claim renewal: `run` every `everyMs` while bytes arrive; false means the claim is gone. */
+export interface PartRenewal {
+  readonly everyMs: number
+  readonly run: () => Promise<boolean>
+}
+
 /**
  * Streams one multipart part (exactly `length` bytes) into R2 part `part`, hashing it onto `sha`.
- * Null when the body has another length or R2 refused it; R2 keeps nothing until the completion.
+ * Null when the body has another length or `renew` reports the claim gone (the stream fails before
+ * the next bytes, so R2 keeps none of this upload). "unavailable" when R2 or the network failed a
+ * body that was fine so far: the client sends the same part again (the hash state is the slot's,
+ * untouched by this request). R2 keeps nothing until the completion.
  */
-export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256): Promise<R2UploadedPart | null> => {
+export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256, renew?: PartRenewal): Promise<R2UploadedPart | null | "unavailable"> => {
   if (!request.body || request.headers.get("content-length") !== String(length)) return null
   let count = 0
+  let renewedAt = Date.now()
+  // The body's own fault (too long, too short, or a claim that lapsed): no retry of the same request fixes it here.
+  let refused = false
   const meter = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, ctl) {
+    async transform(chunk, ctl) {
       count += chunk.byteLength
-      if (count > length) return ctl.error(new Error("body longer than declared"))
+      if (count > length) {
+        refused = true
+        return ctl.error(new Error("body longer than declared"))
+      }
+      if (renew && Date.now() - renewedAt >= renew.everyMs) {
+        renewedAt = Date.now()
+        // A claim that cannot be confirmed may have lapsed: stop rather than risk replacing another request's part.
+        if (!(await renew.run().catch(() => false))) {
+          refused = true
+          return ctl.error(new Error("the part's claim was not renewed"))
+        }
+      }
       sha.update(chunk)
       ctl.enqueue(chunk)
+    },
+    flush() {
+      if (count !== length) refused = true
+      // Every byte passed the claim checks above: while R2 writes the part and has not answered, the claim keeps
+      // renewing, so a slow R2 answer never lets another request take a part this one may still write. Only now:
+      // while bytes stream, the per-chunk check renews and stops a request whose claim was taken.
+      else if (renew)
+        heartbeat = setInterval(() => {
+          if (Date.now() - renewedAt < renew.everyMs) return
+          renewedAt = Date.now()
+          void renew.run().catch(() => false)
+        }, HEARTBEAT_TICK_MS)
     }
   })
+  // Stops when uploadPart settles (finally below).
+  let heartbeat: ReturnType<typeof setInterval> | undefined
   const fixed = new FixedLengthStream(length)
   const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
   try {
@@ -108,9 +145,15 @@ export const streamPartInto = async (upload: R2MultipartUpload, part: number, re
     return count === length ? uploaded : null
   } catch {
     await fixed.readable.cancel().catch(() => undefined)
-    return null
+    await piped
+    return refused ? null : "unavailable"
+  } finally {
+    if (heartbeat !== undefined) clearInterval(heartbeat)
   }
 }
+
+/** How often a part's heartbeat looks at its claim's age (it renews only once PART_RENEW_MS passed). */
+const HEARTBEAT_TICK_MS = 1_000
 
 /**
  * One verified PUT through the Worker into R2 (home-attachments.ts: a stream slot's file and a
@@ -148,4 +191,40 @@ export const streamInto = async (bucket: R2Bucket, key: string, request: Request
     return { ok: false, code: "attachment.hash_mismatch" }
   }
   return { ok: true, etag }
+}
+
+/** Reads all of `body` onto `sha` (a direct slot's verification step); answers the bytes read. */
+export const hashInto = async (body: ReadableStream<Uint8Array>, sha: ResumableSha256): Promise<number> => {
+  const reader = body.getReader()
+  let count = 0
+  for (let next = await reader.read(); !next.done; next = await reader.read()) {
+    count += next.value.byteLength
+    sha.update(next.value)
+  }
+  return count
+}
+
+/**
+ * Error codes of a multipart completion that no retry can fix: the parts cannot form the file.
+ * R2's numeric codes (InvalidPart 10025, EntityTooSmall 10011, BadDigest 10037, BadUpload 10048)
+ * and the self-hosted bucket's FsBucketError codes. NoSuchUpload (10024) means the upload is
+ * closed: completed (its answer lost) or aborted. Any other error is transient.
+ */
+const INTEGRITY_CODES: ReadonlySet<number | string> = new Set([10011, 10025, 10037, 10048, "InvalidPart", "InvalidPartOrder", "EntityTooSmall", "BadDigest", "BadUpload"])
+const CLOSED_CODES: ReadonlySet<number | string> = new Set([10024, "NoSuchUpload"])
+/**
+ * The error's code: `code` where the runtime sets it (R2Error.code, FsBucketError.code); else the
+ * R2 v4 code the binding appends to every R2 error as "(<code>)" (workerd's local binding throws a
+ * plain Error that carries only that). Never the message's words.
+ */
+const errorCode = (error: unknown): number | string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const code = (error as { code?: unknown }).code
+  if (typeof code === "number" || typeof code === "string") return code
+  const v4 = /\((\d{5,6})\)$/.exec(String((error as { message?: unknown }).message ?? ""))
+  return v4 ? Number(v4[1]) : undefined
+}
+export const completionFailure = (error: unknown): "integrity" | "closed" | "transient" => {
+  const code = errorCode(error)
+  return code === undefined ? "transient" : INTEGRITY_CODES.has(code) ? "integrity" : CLOSED_CODES.has(code) ? "closed" : "transient"
 }
