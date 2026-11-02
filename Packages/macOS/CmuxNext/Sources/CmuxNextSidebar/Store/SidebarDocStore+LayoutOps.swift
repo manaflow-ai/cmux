@@ -56,16 +56,22 @@ extension SidebarDocStore {
 
     /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
     /// stored space follows, so it stays in `room` once no workspace of it lists there (an empty group lists only in its
-    /// own space), and so does each group under it that stored the old space (`groupSpaceOps`).
-    public func moveGroup(_ group: String, toSpace room: String) {
-        let ops = Self.groupSpaceOps(item(group: GroupID(group)), toSpace: room, records: records)
+    /// own space), and so does each group under it that stored the old space (`groupSpaceOps`). `from`: the space the
+    /// group stored before the move began (`groupRoom`), for a caller that changes it first (a personal group's own
+    /// update, which syncs into the document): nil reads it now.
+    public func moveGroup(_ group: String, toSpace room: String, from: String? = nil) {
+        let id = item(group: GroupID(group))
+        let ops = Self.groupSpaceOps(id, toSpace: room, stored: from ?? records.items[id]?.room, records: records)
         if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
     }
 
+    /// The space group `group` stores now (nil: none, or not a document group).
+    public func groupRoom(_ group: String) -> String? { records.items[item(group: GroupID(group))]?.room }
+
     /// The ops of `moveGroup` for document group `id`: it and the groups nested under it that stored its old space
-    /// take `room`. A nested group lists with its parent anyway (`Group.followsParent`); this keeps what it stores
-    /// right for when it leaves the parent. One storing another space, or none, keeps it.
-    static func groupSpaceOps(_ id: String, toSpace room: String, records: SidebarDocRecords) -> [[String: Any]] {
+    /// `old` take `room`. A nested group lists with its parent anyway (`Group.followsParent`); this keeps what it
+    /// stores right for when it leaves the parent. One storing another space, or none, keeps it.
+    static func groupSpaceOps(_ id: String, toSpace room: String, stored old: String?, records: SidebarDocRecords) -> [[String: Any]] {
         guard let group = records.items[id], case .group = group.body else { return [] }
         var children: [String: [SidebarDocItem]] = [:]
         for item in records.items.values { if let parent = item.parent { children[parent, default: []].append(item) } }
@@ -76,7 +82,7 @@ extension SidebarDocStore {
             for child in children[at] ?? [] where seen.insert(child.id).inserted {
                 guard case .group = child.body else { continue }
                 queue.append(child.id)
-                if let old = group.room, child.room == old, old != room { moving.append(child.id) }
+                if let old, child.room == old, old != room { moving.append(child.id) }
             }
         }
         return moving.sorted().map { ["op": "group.update", "id": $0, "patch": ["profile": room]] }
