@@ -115,9 +115,10 @@ final class TerminalLaunchFrameKeeper {
     func check(_ key: String) async { // perf-hot: 1ms launch-first-frame (one terminal's frame keep check)
         guard !stopped, var entry = kept[key] else { return }
         checks += 1
-        // Not on screen (hidden, its workspace away, closed): its file goes at once, with no interval.
+        // Not on screen (hidden, its workspace away, closed): its file goes at once, with no interval. No read of the
+        // changes: output while hidden only counts (the model), with no hop or timer here; the next visibility change
+        // (``TerminalFrameChanges/wake()``: shown, drawn, closed) wakes the keeper again (SWITCH FRAMES SF-5).
         guard let session = entry.session, Self.isOnScreen(session) else {
-            _ = entry.changes.take()
             remove(key)
             // Closed: nothing visits it again. One only out of a window for now (a move) stays: its next window wakes it.
             if entry.session?.isClosed ?? true {
