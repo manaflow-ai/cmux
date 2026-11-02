@@ -3953,59 +3953,7 @@ jobs:
         env:
           APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] }}
           PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.profile_channel }}_PROVISIONING_PROFILE_BASE64
-        run: |
-          if [ -z "$APP_PROVISIONING_PROFILE_BASE64" ]; then
-            echo "Missing $PROFILE_SECRET_NAME secret" >&2
-            exit 1
-          fi
-
-          APP_PATH="$CHANNEL_APP_PATH"
-          PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
-          TMP_PROFILE="$(mktemp /tmp/cmux-channel-profile.XXXXXX)"
-          TMP_PLIST="$(mktemp /tmp/cmux-channel-profile.XXXXXX.plist)"
-          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
-
-          echo "$APP_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
-          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
-
-          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
-          if [ "$APP_ID" != "7WLXT3NR37.${CHANNEL_BUNDLE_ID}" ]; then
-            echo "$CHANNEL provisioning profile targets unexpected app ID: $APP_ID" >&2
-            exit 1
-          fi
-
-          # The WebAuthn browser entitlement is an Apple-approved capability
-          # request. Nightly has it; the RC App ID's request has been pending
-          # since 2026-07-10, so cmux.rc.entitlements does not ask for it and
-          # RC ships without passkey sign-in in the embedded browser until Apple
-          # approves. The check follows the channel's entitlements file so the
-          # profile can never silently lag behind what the app requests.
-          if /usr/libexec/PlistBuddy -c "Print :com.apple.developer.web-browser.public-key-credential" "$CHANNEL_ENTITLEMENTS" >/dev/null 2>&1; then
-            WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
-            if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
-              echo "$CHANNEL provisioning profile is missing WebAuthn browser entitlement" >&2
-              exit 1
-            fi
-          else
-            echo "$CHANNEL entitlements do not request the WebAuthn browser entitlement; skipping the profile check"
-          fi
-
-          # Refuse an expired profile (an unparsable date is only reported).
-          EXPIRES="$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$TMP_PLIST" 2>/dev/null || true)"
-          EXPIRES_EPOCH="$(date -j -f '%a %b %d %T %Z %Y' "$EXPIRES" +%s 2>/dev/null || true)"
-          echo "$PROFILE_SECRET_NAME expires: ${EXPIRES:-unknown}"
-          if [ -n "$EXPIRES_EPOCH" ] && [ "$EXPIRES_EPOCH" -le "$(date +%s)" ]; then
-            echo "$CHANNEL provisioning profile expired: $EXPIRES" >&2
-            exit 1
-          fi
-
-          PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
-          if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
-            echo "$CHANNEL provisioning profile is not a Developer ID all-devices profile" >&2
-            exit 1
-          fi
-
-          cp "$TMP_PROFILE" "$PROFILE_PATH"
+        run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
       # The Computer Use helper has its own notarization ticket (a copy outside
@@ -7868,73 +7816,7 @@ jobs:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
           # --pr-media: each highlight's picture from its pull request's body (read only).
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The previous published commit. publish-nightly has already moved the
-          # nightly-next tag to HEAD_SHA when this job runs, so the tag gave an
-          # empty span and every build shipped "changes": [] (cx-lntk); the tag
-          # is only the fallback when decide recorded no published commit.
-          since="${SPAN_SINCE:-${PUBLISHED_SHA:-}}"
-          if [ -z "$since" ]; then
-            since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
-          fi
-          if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
-          python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-            --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
-          # Extend the published index only when its signature verifies.
-          previous=""
-          # The first cmux NEXT build carries the history over from the old feed.
-          for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do
-            if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "$base/notes/index.json" \
-               && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "$base/notes/index.json.sig" \
-               && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
-              previous=notes/previous-index.json
-              break
-            fi
-          done
-          python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
-            ${previous:+--previous "$previous"} --out notes/index.json
-          rm -f notes/previous-index.json notes/previous-index.json.sig
-          # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
-          signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
-          # Older published notes without summary lines or structured items get them (cx-urd.61.6):
-          # fetched from either feed, verified, filled from their commit subjects, re-signed below and
-          # uploaded with this build's notes. Builds already carrying both are left alone.
-          # The files are written apart and join notes/ only when the whole backfill succeeded, so a
-          # crash can never upload rewritten notes without their new signatures.
-          backfill_dir="$(mktemp -d)"
-          if listed="$(python3 scripts/cmux-next/release-notes.py backfill --index notes/index.json \
-               --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_LEGACY_FEED_BASE" \
-               --public-key "$CONTENT_PUBLIC_KEY" --out "$backfill_dir" --existing notes)"; then
-            while IFS= read -r file; do
-              [ -n "$file" ] || continue
-              mv "$file" "notes/$(basename "$file")"
-              signed+=("notes/$(basename "$file")")
-            done <<< "$listed"
-          else
-            echo "::warning::release notes backfill failed; this build's notes publish without it"
-          fi
-          rm -rf "$backfill_dir"
-          if [ -f release-notes/next/announcements.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
-            cp release-notes/next/announcements.json notes/announcements.json
-            signed+=(notes/announcements.json)
-          fi
-          # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
-          # release-notes/next/flags.json, signed with the same content-signing key.
-          if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert type(d.get("version")) is int and d["version"]==1 and isinstance(d.get("default"),dict) and isinstance(d.get("cohorts"),dict) and all(isinstance(v,dict) and isinstance(v.get("DisabledFeatures",[]),list) for v in [d["default"], *d["cohorts"].values()])' release-notes/next/flags.json
-            cp release-notes/next/flags.json notes/flags.json
-            signed+=(notes/flags.json)
-          fi
-          key="$(mktemp)"
-          trap 'rm -f "$key"' EXIT
-          printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
-          python3 scripts/cmux-next/release-notes.py sign --key "$key" "${signed[@]}"
-          for f in "${signed[@]}"; do
-            python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$f"
-          done
+        run: bash scripts/ci/nightly-steps/release-notes-build-sign.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-notes
