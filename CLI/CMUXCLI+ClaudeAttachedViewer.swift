@@ -10,6 +10,16 @@ extension ClaudeHookSessionStore {
             record.claudeAttachedViewers = ClaudeViewerSubscriptions(record.claudeAttachedViewers ?? [])
                 .adding(viewer).viewers
             state.sessions[sessionID] = record
+            // The launcher can have a different native session ID. Resolving
+            // its viewer pane is not enough: Stop's existing staleness guard
+            // must see the acknowledged conversation as that pane's owner.
+            // Keep lease registration and this ownership boundary atomic.
+            let active = ClaudeHookActiveSessionRecord(
+                sessionId: sessionID, turnId: nil,
+                allowsNewSessionReplacement: nil, updatedAt: viewer.attachedAt
+            )
+            state.activeSessionsBySurface[viewer.surfaceID] = active
+            state.activeSessionsByWorkspace[viewer.workspaceID] = active
             return true
         }
     }
@@ -55,7 +65,7 @@ extension CMUXCLI {
               target.isAuthoritative else { return false }
         _ = try store.upsert(
             sessionId: sessionID, workspaceId: target.workspaceId, surfaceId: target.surfaceId,
-            cwd: nil
+            cwd: nil, pid: viewerPID
         )
         return try store.addClaudeViewer(sessionID: sessionID, viewer: ClaudeAttachedViewer(
             attachmentID: attachmentID, worker: worker, viewer: viewerIdentity,
