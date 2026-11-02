@@ -81,8 +81,7 @@ extension SessionTransferService {
     func openChat(_ session: String, title: String) async throws -> String {
         guard let services else { throw Failure.unavailable }
         let store = services.daemon.store
-        if let key = services.agentTabs.tab(showing: session), let tab = store.tab(id: key),
-           let pane = store.pane(containing: tab.surface), let workspace = store.workspace(containing: pane.handle)?.key {
+        if let key = services.agentTabs.tab(showing: session), let workspace = store.workspace(holdingTab: key)?.key {
             return workspace.rawValue
         }
         let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)

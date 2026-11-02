@@ -198,8 +198,8 @@ jobs:
       checks: read # Read authenticated controller receipts; no App or secret expansion.
       contents: read
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # Explicit nightly-only reservation; unset keeps the existing bootstrap and retry routes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    # Routing bootstrap: nothing can admit it on the fleet first, so attempt 1 takes hosted Ubuntu (run 41481821056).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     outputs:
       early_admission_ready: ${{ steps.place-early.outputs.admission_ready }}
       early_build_nightly_inputs_runner: ${{ steps.place-early.outputs.build_nightly_inputs_runner }}
@@ -208,8 +208,8 @@ jobs:
       early_resolve_nightly_ghostty_cli_helper_runner: ${{ steps.place-early.outputs.resolve_nightly_ghostty_cli_helper_runner }}
       early_linux_runner: ${{ steps.place-early-mac.outputs.linux_runner }}
       early_linux_jobs: ${{ steps.place-early-mac.outputs.linux_jobs }}
-      early_mini_runner: ${{ steps.place-early-mac.outputs.mini_runner }}
-      early_mini_jobs: ${{ steps.place-early-mac.outputs.mini_jobs }}
+      early_mini_runner: ${{ steps.place-early-mac.outputs.mini_runner || steps.place-reserved.outputs.mini_runner }}
+      early_mini_jobs: ${{ steps.place-early-mac.outputs.mini_jobs || steps.place-reserved.outputs.mini_jobs }}
       early_attempt: ${{ github.run_attempt }}
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -799,7 +799,7 @@ jobs:
 
       - name: Mint the routing token for early nightly controls
         id: early-route-token
-        if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
+        if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -835,6 +835,26 @@ jobs:
               python3 scripts/ci/nightly_linux_admission.py > "$state.log" 2>&1
             echo $? > "$state.rc" ) > /dev/null 2>&1 &
           echo $! > "$state.pid"
+
+      # Reservation route (no admission above): the reservation only while it has an idle runner per job, else
+      # at most 3 min of re-reads, then the runs-on tail (hosted Ubuntu on attempt 1). Run 41481821056: 555 s.
+      - name: Place the light jobs on the all-nightly reservation while it has idle runners
+        id: place-reserved
+        if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          JOBS: resolve-nightly-cmux-tui-client find-nightly-next-recovery pick-nightly-build-runner resolve-nightly-ghostty-cli-helper
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          REQUIRE_LIVE_CAPACITY: "1"
+          NIGHTLY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
+          FLEET_LINUX: ""
+          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.early-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
 
       # The Mac-build picker uses the routing App key. It keeps the existing
       # owned-Mac/Blacksmith trust path and never enters the secret-free JIT pool.
@@ -1389,7 +1409,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_ghostty_cli_helper_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_ghostty_cli_helper_runner) || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-ghostty-cli-helper ') && needs.decide.outputs.early_mini_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1685,7 +1705,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_linux_runner || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_linux_runner || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     environment: ci-routing-agent
     timeout-minutes: 13
     permissions:
@@ -1813,6 +1833,7 @@ jobs:
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
       light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
       light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
+      light_linux_runner: ${{ steps.place-fleet.outputs.linux_runner }}
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
       # The cx-f58x scan of the archived app passed here; prepare skips its own.
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
@@ -2588,6 +2609,23 @@ jobs:
         timeout-minutes: 5
         run: bash scripts/ci/nightly-steps/light-placement.sh finish
 
+      # prepare-nightly-variant-primary takes fleet Linux only while an idle runner waits there now (it starts at
+      # once), else the light placement's Mac; no read waits. Median 45 s on Linux, 202 s on a nightly Mac.
+      - name: Offer fleet Linux to the primary preparation
+        id: place-fleet
+        if: success() && steps.light-route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          JOBS: prepare-nightly-variant-primary
+          LINUX_ONLY: prepare-nightly-variant-primary
+          FLEET_LINUX: cmux-fleet-linux-x64
+          REQUIRE_LIVE_CAPACITY: "1"
+          ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
       - name: Stop the helper builds still running
         if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
@@ -2709,7 +2747,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_tui_client_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_resolve_nightly_tui_client_runner) || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-cmux-tui-client ') && needs.decide.outputs.early_mini_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     permissions:
       contents: read
       actions: read
@@ -2877,11 +2915,10 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Linux: only moves and reads files (llvm-lipo thins, giving Apple lipo's
-    # bytes); Mach-O checks run in verify-signed-nightly. Like every Linux
-    # nightly job it takes a runner-set member (16 vCPU when LINUX_RUNNER
-    # names it, else 32), never LINUX_RUNNER as-is.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    # Only moves and reads files (llvm-lipo thins on Linux); Mach-O checks run in verify-signed-nightly.
+    # Fleet Linux when build-nightly-app's place-fleet saw an idle runner, else its light placement's
+    # mini, else a runner-set member (16 vCPU when LINUX_RUNNER names it, else 32).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && needs.build-nightly-app.outputs.light_linux_runner || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -2946,37 +2983,10 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
-      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
-      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
-      # -archs prints a trailing space that the exact comparisons refuse, so a
-      # shim trims it.
       - &put-llvm-lipo-on-path-as-lipo
         name: Put llvm-lipo on PATH as lipo
         if: runner.os == 'Linux' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')
-        run: |
-          set -euo pipefail
-          llvm_lipo="$(ls /usr/lib/llvm-18/bin/llvm-lipo 2>/dev/null || command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo 2>/dev/null | sort -V | tail -n 1 || true)"
-          if [ -z "$llvm_lipo" ]; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq llvm >/dev/null
-            llvm_lipo="$(command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo | sort -V | tail -n 1)"
-          fi
-          bin="$RUNNER_TEMP/lipo-bin"
-          mkdir -p "$bin"
-          {
-            echo '#!/usr/bin/env bash'
-            echo 'set -uo pipefail'
-            echo 'for arg in "$@"; do'
-            echo '  if [ "$arg" = -archs ]; then'
-            echo "    out=\"\$('$llvm_lipo' \"\$@\")\" || exit \$?"
-            echo "    printf '%s\\n' \"\$out\" | sed 's/[[:space:]]*\$//'"
-            echo '    exit 0'
-            echo '  fi'
-            echo 'done'
-            echo "exec '$llvm_lipo' \"\$@\""
-          } > "$bin/lipo"
-          chmod +x "$bin/lipo"
-          echo "$bin" >> "$GITHUB_PATH"
-          "$llvm_lipo" --version | head -n 2
+        run: bash scripts/ci/nightly-steps/put-llvm-lipo-on-path.sh
 
 
       # download-artifact reads each blob over one connection. Fetch all three
@@ -3231,9 +3241,12 @@ jobs:
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
             # Only files with a Mach-O or fat magic reach `file` (one process
-            # each); the per-file scan of the whole bundle took 90 s.
+            # each); the per-file scan of the whole bundle took 90 s. A missing or failing
+            # `file` fails the check rather than reading as "no fat file".
+            command -v file >/dev/null || { [ "$RUNNER_OS" = Linux ] && sudo apt-get install -y -qq file >/dev/null; } || true
+            command -v file >/dev/null || { echo "file(1) is missing; cannot check for fat Mach-O" >&2; exit 1; }
             fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
-              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
+              | xargs -0 sh -c 'for f do k="$(file -b "$f")" || exit 255; case "$k" in *"Mach-O universal"*) echo "$f";; esac; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
@@ -3343,10 +3356,7 @@ jobs:
       - *init-cmux-next-notices-submodu
 
 
-      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
-      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
-      # -archs prints a trailing space that the exact comparisons refuse, so a
-      # shim trims it.
+      # llvm-lipo as lipo: put-llvm-lipo-on-path.sh says why.
       - *put-llvm-lipo-on-path-as-lipo
 
 
@@ -3953,59 +3963,7 @@ jobs:
         env:
           APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] }}
           PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.profile_channel }}_PROVISIONING_PROFILE_BASE64
-        run: |
-          if [ -z "$APP_PROVISIONING_PROFILE_BASE64" ]; then
-            echo "Missing $PROFILE_SECRET_NAME secret" >&2
-            exit 1
-          fi
-
-          APP_PATH="$CHANNEL_APP_PATH"
-          PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
-          TMP_PROFILE="$(mktemp /tmp/cmux-channel-profile.XXXXXX)"
-          TMP_PLIST="$(mktemp /tmp/cmux-channel-profile.XXXXXX.plist)"
-          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
-
-          echo "$APP_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
-          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
-
-          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
-          if [ "$APP_ID" != "7WLXT3NR37.${CHANNEL_BUNDLE_ID}" ]; then
-            echo "$CHANNEL provisioning profile targets unexpected app ID: $APP_ID" >&2
-            exit 1
-          fi
-
-          # The WebAuthn browser entitlement is an Apple-approved capability
-          # request. Nightly has it; the RC App ID's request has been pending
-          # since 2026-07-10, so cmux.rc.entitlements does not ask for it and
-          # RC ships without passkey sign-in in the embedded browser until Apple
-          # approves. The check follows the channel's entitlements file so the
-          # profile can never silently lag behind what the app requests.
-          if /usr/libexec/PlistBuddy -c "Print :com.apple.developer.web-browser.public-key-credential" "$CHANNEL_ENTITLEMENTS" >/dev/null 2>&1; then
-            WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
-            if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
-              echo "$CHANNEL provisioning profile is missing WebAuthn browser entitlement" >&2
-              exit 1
-            fi
-          else
-            echo "$CHANNEL entitlements do not request the WebAuthn browser entitlement; skipping the profile check"
-          fi
-
-          # Refuse an expired profile (an unparsable date is only reported).
-          EXPIRES="$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$TMP_PLIST" 2>/dev/null || true)"
-          EXPIRES_EPOCH="$(date -j -f '%a %b %d %T %Z %Y' "$EXPIRES" +%s 2>/dev/null || true)"
-          echo "$PROFILE_SECRET_NAME expires: ${EXPIRES:-unknown}"
-          if [ -n "$EXPIRES_EPOCH" ] && [ "$EXPIRES_EPOCH" -le "$(date +%s)" ]; then
-            echo "$CHANNEL provisioning profile expired: $EXPIRES" >&2
-            exit 1
-          fi
-
-          PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
-          if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
-            echo "$CHANNEL provisioning profile is not a Developer ID all-devices profile" >&2
-            exit 1
-          fi
-
-          cp "$TMP_PROFILE" "$PROFILE_PATH"
+        run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
       # The Computer Use helper has its own notarization ticket (a copy outside
@@ -5159,7 +5117,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && (github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_find_nightly_next_recovery_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_find_nightly_next_recovery_runner) || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' find-nightly-next-recovery ') && needs.decide.outputs.early_mini_runner) || needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 70
     permissions:
       actions: read
@@ -6448,10 +6406,12 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true'
     continue-on-error: true
+    # The environment build-nightly-app gives its own in-job Sentry upload.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - *checkout-publication-tooling-a
@@ -7868,73 +7828,7 @@ jobs:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
           # --pr-media: each highlight's picture from its pull request's body (read only).
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The previous published commit. publish-nightly has already moved the
-          # nightly-next tag to HEAD_SHA when this job runs, so the tag gave an
-          # empty span and every build shipped "changes": [] (cx-lntk); the tag
-          # is only the fallback when decide recorded no published commit.
-          since="${SPAN_SINCE:-${PUBLISHED_SHA:-}}"
-          if [ -z "$since" ]; then
-            since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
-          fi
-          if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
-          python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-            --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
-          # Extend the published index only when its signature verifies.
-          previous=""
-          # The first cmux NEXT build carries the history over from the old feed.
-          for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do
-            if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "$base/notes/index.json" \
-               && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "$base/notes/index.json.sig" \
-               && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
-              previous=notes/previous-index.json
-              break
-            fi
-          done
-          python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
-            ${previous:+--previous "$previous"} --out notes/index.json
-          rm -f notes/previous-index.json notes/previous-index.json.sig
-          # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
-          signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
-          # Older published notes without summary lines or structured items get them (cx-urd.61.6):
-          # fetched from either feed, verified, filled from their commit subjects, re-signed below and
-          # uploaded with this build's notes. Builds already carrying both are left alone.
-          # The files are written apart and join notes/ only when the whole backfill succeeded, so a
-          # crash can never upload rewritten notes without their new signatures.
-          backfill_dir="$(mktemp -d)"
-          if listed="$(python3 scripts/cmux-next/release-notes.py backfill --index notes/index.json \
-               --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_LEGACY_FEED_BASE" \
-               --public-key "$CONTENT_PUBLIC_KEY" --out "$backfill_dir" --existing notes)"; then
-            while IFS= read -r file; do
-              [ -n "$file" ] || continue
-              mv "$file" "notes/$(basename "$file")"
-              signed+=("notes/$(basename "$file")")
-            done <<< "$listed"
-          else
-            echo "::warning::release notes backfill failed; this build's notes publish without it"
-          fi
-          rm -rf "$backfill_dir"
-          if [ -f release-notes/next/announcements.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
-            cp release-notes/next/announcements.json notes/announcements.json
-            signed+=(notes/announcements.json)
-          fi
-          # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
-          # release-notes/next/flags.json, signed with the same content-signing key.
-          if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert type(d.get("version")) is int and d["version"]==1 and isinstance(d.get("default"),dict) and isinstance(d.get("cohorts"),dict) and all(isinstance(v,dict) and isinstance(v.get("DisabledFeatures",[]),list) for v in [d["default"], *d["cohorts"].values()])' release-notes/next/flags.json
-            cp release-notes/next/flags.json notes/flags.json
-            signed+=(notes/flags.json)
-          fi
-          key="$(mktemp)"
-          trap 'rm -f "$key"' EXIT
-          printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
-          python3 scripts/cmux-next/release-notes.py sign --key "$key" "${signed[@]}"
-          for f in "${signed[@]}"; do
-            python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$f"
-          done
+        run: bash scripts/ci/nightly-steps/release-notes-sign.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-notes
