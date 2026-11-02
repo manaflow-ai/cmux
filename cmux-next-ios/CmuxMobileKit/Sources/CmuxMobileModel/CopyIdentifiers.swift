@@ -34,11 +34,11 @@ extension WorkspaceTab {
     /// Copy Pane Link: `cmux://pane/pane_…`.
     public var copyPaneLinkText: String? { Self.linkID(linkIDs?.pane, prefix: "pane_").map { "cmux://pane/\($0)" } }
 
-    /// Copy Tab Link: `cmux://tab/tab_…`; an agent tab's is its chat's, `cmux://session/<id>`
-    /// (`agentSession`), as on the Mac.
-    public func copyLinkText(agentSession: String? = nil) -> String? {
+    /// Copy Tab Link: `cmux://tab/tab_…`; an agent tab's is its chat's acpmux session,
+    /// `cmux://session/<id>` (nil while the chat has none), as on the Mac.
+    public var copyLinkText: String? {
         if kind == .agent {
-            guard let session = agentSession, !session.isEmpty,
+            guard let session = linkIDs?.agentSession, !session.isEmpty,
                   session.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "-" || $0 == "_" })
             else { return nil }
             return "cmux://session/\(session)"

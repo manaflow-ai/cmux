@@ -473,7 +473,6 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
         try await run(client, "rename-surface", ["surface": surface, "name": ""])
-        _ = try? await sync.listNow()
     }
 
     /// The Mac's New Tab rows (`newTabOfPaneKind`): a tab of the pane's kind, `new-tab {pane}`
@@ -505,7 +504,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             var tree = try await sync.listNow()
             if let created = tree.tabPlaces[id], created.pane == place.pane, let anchor = tree.tabPlaces[tab.id],
                let slots = tree.paneSlots[place.pane],
-               let index = position.moveIndex(from: created.index, anchor: anchor.index, pinned: slots.map(\.pinned)) {
+               let index = position.moveIndex(from: created.index, anchor: anchor.index, pinned: slots.map(\.pinned),
+                                              groups: slots.map(\.group)) {
                 // The tab stays where the Mac put it when the move is refused: it was made.
                 if (try? WorkspaceSync.check(await client.request("move-tab", params: ["surface": surface, "pane": place.pane, "index": index]))) != nil {
                     tree = try await sync.listNow()

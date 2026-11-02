@@ -126,7 +126,13 @@ extension LiveWorkspaceCreationBackend {
     func buildDuplicate(_ blueprint: DuplicateBlueprint, name: String, color: String?, icon: String?,
                         on client: DaemonClient) async throws -> Workspace {
         let first = try Self.surface(await client.request("new-workspace", params: ["name": name]))
-        let listed = try await sync.listNow()
+        let listed: DaemonTree
+        do {
+            listed = try await sync.listNow()
+        } catch {
+            _ = try? await client.request("close-surface", params: ["surface": first])
+            throw error
+        }
         let firstID = DaemonTree.tabID(surface: first)
         guard let pane = listed.tabPlaces[firstID]?.pane,
               let created = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } }) else {

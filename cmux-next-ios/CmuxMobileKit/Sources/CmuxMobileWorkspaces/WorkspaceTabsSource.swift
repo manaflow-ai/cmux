@@ -1803,9 +1803,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The Mac's Copy rows on a tab: Copy Tab Link, Copy Tab ID, Copy Pane Link, Copy Pane ID
     /// and Copy IDs, each only when the Mac sent the id it writes.
     private func copyItems(_ tab: WorkspaceTab, in workspace: Workspace) -> [TabsKitMenuItem] {
-        let session = tab.kind == .agent ? chatStore(tab, workspace).summary.id : nil
         let rows: [(title: String, symbol: String, text: String?)] = [
-            ("Copy Tab Link", "link", tab.copyLinkText(agentSession: session)),
+            ("Copy Tab Link", "link", tab.copyLinkText),
             ("Copy Tab ID", "number", tab.copyIDText),
             ("Copy Pane Link", "link.circle", tab.copyPaneLinkText),
             ("Copy Pane ID", "number.square", tab.copyPaneIDText),
@@ -1932,8 +1931,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Agent Edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
                     TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
-                    TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
-                ],
+                ] + (tab.linkIDs?.agentSession.map { session in
+                    // The chat's acpmux session (the phone's store id is its tab's).
+                    [TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = session }]
+                } ?? []),
                 [
                     TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",
                                     systemImage: "person.2.wave.2") { surface.parityRoute = .subagents },

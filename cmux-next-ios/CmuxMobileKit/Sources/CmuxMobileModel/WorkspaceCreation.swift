@@ -1035,20 +1035,31 @@ public enum NewTabPosition: String, Hashable, Sendable, CaseIterable {
     }
 
     /// The `move-tab` insertion index that puts a tab now at `from` in a pane whose places
-    /// are `pinned` (one flag per tab, in order) at this position, beside the tab at `anchor`.
-    /// Nil when it is in place already (or for New Tab of the Same Kind). The daemon reads
-    /// the index as an insertion point in the current list, one past for a forward move.
-    public func moveIndex(from: Int, anchor: Int, pinned: [Bool]) -> Int? {
+    /// are `pinned` (one flag per tab, in order) and `groups` (each tab's group id, nil for
+    /// none; empty for no groups) at this position, beside the tab at `anchor`. Nil when it is
+    /// in place already. As the Mac's `NewTabSlot`: after the anchor goes past the anchor's
+    /// whole tab group and never among pinned tabs (New Tab of the Same Kind too, the Mac's
+    /// default `tabs.newTabPosition`); at start is the first place after the pinned tabs. The
+    /// daemon reads the index as an insertion point in the current list, one past for a
+    /// forward move.
+    public func moveIndex(from: Int, anchor: Int, pinned: [Bool], groups: [String?] = []) -> Int? {
         let count = pinned.count
-        guard count > 0, pinned.indices.contains(from) else { return nil }
-        let target: Int
+        guard count > 1, pinned.indices.contains(from), pinned.indices.contains(anchor), anchor != from else { return nil }
+        // The places without the new tab, where the final index is counted.
+        let others = pinned.indices.filter { $0 != from }
+        let pinnedCount = others.prefix { pinned[$0] }.count
+        let final: Int
         switch self {
-        case .sameKind: return nil
-        case .afterCurrent: target = anchor < from ? anchor + 1 : anchor
-        case .start: target = pinned.prefix(while: { $0 }).count
-        case .end: target = count - 1
+        case .sameKind, .afterCurrent:
+            guard var at = others.firstIndex(of: anchor) else { return nil }
+            if groups.indices.contains(anchor), let group = groups[anchor] {
+                while at + 1 < others.count, groups.indices.contains(others[at + 1]), groups[others[at + 1]] == group { at += 1 }
+            }
+            final = max(at + 1, pinnedCount)
+        case .start: final = pinnedCount
+        case .end: final = count - 1
         }
-        let clamped = min(max(target, 0), count - 1)
+        let clamped = min(max(final, 0), count - 1)
         guard clamped != from else { return nil }
         return clamped > from ? clamped + 1 : clamped
     }

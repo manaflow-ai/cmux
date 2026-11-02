@@ -163,12 +163,17 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         /// The harness's own session id of the agent running in it (`list-agents`
         /// `agent_session_id`), which an `agent/<harness>/<session>` link names.
         public var harnessSession: String?
+        /// An agent chat tab's acpmux session (`agent_session.session`): what the Mac's Copy
+        /// Tab Link writes (`cmux://session/<id>`) and Copy Session ID copies.
+        public var agentSession: String?
 
-        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil) {
+        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil,
+                    agentSession: String? = nil) {
             self.tab = tab
             self.pane = pane
             self.isPaneSelected = isPaneSelected
             self.harnessSession = harnessSession
+            self.agentSession = agentSession
         }
     }
 

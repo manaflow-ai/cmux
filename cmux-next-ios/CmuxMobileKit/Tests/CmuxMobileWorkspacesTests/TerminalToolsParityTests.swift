@@ -55,8 +55,13 @@ import Testing
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source, _) = make(backend)
         let terminal = try #require(source.tabs.first { source.workspaceTab($0.id)?.kind == .terminal })
-        #expect(!source.pageMenu(for: terminal).flatMap { $0 }.contains { $0.title == "Copy Tab Link" })
         let ws = try #require(store.workspaces.firstIndex { $0.id == "ws-cmux" })
+        let index0 = try #require(store.workspaces[ws].tabs.firstIndex { $0.id == terminal.id })
+        // No ids from the Mac: no Copy rows (never a row that copies nothing).
+        store.workspaces[ws].tabs[index0].linkIDs = nil
+        store.workspaces[ws].resourceID = nil
+        source.refreshTabs()
+        #expect(!source.pageMenu(for: terminal).flatMap { $0 }.contains { $0.title == "Copy Tab Link" })
         store.workspaces[ws].resourceID = "ws_0123456789abcdef0123456789abcdef"
         let index = try #require(store.workspaces[ws].tabs.firstIndex { $0.id == terminal.id })
         store.workspaces[ws].tabs[index].linkIDs = WorkspaceTab.LinkIDs(tab: "tab_ffeeddccbbaa99887766554433221100",

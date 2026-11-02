@@ -208,7 +208,8 @@ public struct DaemonTree: Sendable {
                         mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(
                             tab: tab["tab_resource_id"] as? String, pane: pane["resource_id"] as? String,
-                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
+                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession,
+                            agentSession: agentTabs[id]?.session)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                         screenTabs.append(id)

@@ -14,8 +14,6 @@ final class TerminalCopyModeController {
     var columns: () -> Int = { 80 }
     /// A row's text, one character per cell ("" when Ghostty cannot read it).
     var rowText: (Int) -> String = { _ in "" }
-    /// Where the cursor starts: the shell's cursor row, else the last row with text on screen.
-    var startCursor: () -> TerminalCellPoint? = { nil }
     /// Scrolls the page so `row` shows.
     var reveal: (Int) -> Void = { _ in }
     /// Draws the selection (nil clears it).
@@ -90,8 +88,8 @@ final class TerminalCopyModeController {
         guard !isActive, isAvailable() else { return }
         let rows = documentRows()
         guard !rows.isEmpty else { return }
-        var cursor = startCursor() ?? TerminalCellPoint(row: rows.upperBound - 1, column: 0)
-        cursor.row = min(max(cursor.row, rows.lowerBound), rows.upperBound - 1)
+        // The document ends at the shell's cursor row (`TerminalDocumentLayout`): the prompt.
+        let cursor = TerminalCellPoint(row: rows.upperBound - 1, column: 0)
         var mode = TerminalCopyMode(cursor: cursor)
         if selectLine {
             let last = max(0, TerminalCopyMode.lastCharacter(in: rowText(cursor.row)))
@@ -153,13 +151,23 @@ final class TerminalCopyModeController {
         drawn = selection
     }
 
-    /// The rows moved in the document (a prune): the touch selection shifted already.
+    /// The rows moved in the document (a prune): called before the touch selection shifts,
+    /// so its shifted selection matches `drawn` and is not read as a finger's change.
     func shiftRows(by delta: Int) {
         guard var current = mode, delta != 0 else { return }
         current.cursor.row += delta
         current.mark?.row += delta
-        guard current.cursor.row >= 0 else { return exit() }
+        guard current.cursor.row >= 0, (current.mark?.row ?? 0) >= 0 else { return exit() }
         mode = current
+        drawn = current.selection
+    }
+
+    /// The key view lost the keyboard (the composer, another page, the app going away):
+    /// Copy Mode ends, leaving the focus where it went.
+    fileprivate func keyboardLeft() {
+        guard isActive else { return }
+        terminalHadFocus = false
+        exit()
     }
 
     private func redraw() {
@@ -176,6 +184,35 @@ private final class CopyModeKeyView: UIView {
     weak var controller: TerminalCopyModeController?
 
     override var canBecomeFirstResponder: Bool { true }
+
+    @discardableResult
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { controller?.keyboardLeft() }
+        return resigned
+    }
+
+    /// The motion keys as repeatable key commands: UIKit repeats a held key for key
+    /// commands, never for `pressesBegan`.
+    private static let motions: [(input: String, key: TerminalCopyMode.Key)] = [
+        ("h", .left), ("j", .down), ("k", .up), ("l", .right), ("w", .wordForward), ("b", .wordBackward),
+        (UIKeyCommand.inputLeftArrow, .left), (UIKeyCommand.inputDownArrow, .down),
+        (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputRightArrow, .right),
+    ]
+
+    override var keyCommands: [UIKeyCommand]? {
+        Self.motions.map { entry in
+            let command = UIKeyCommand(input: entry.input, modifierFlags: [], action: #selector(motion(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            command.repeatBehavior = .repeatable
+            return command
+        }
+    }
+
+    @objc private func motion(_ command: UIKeyCommand) {
+        guard let key = Self.motions.first(where: { $0.input == command.input })?.key else { return }
+        controller?.handle(key)
+    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var unhandled = Set<UIPress>()

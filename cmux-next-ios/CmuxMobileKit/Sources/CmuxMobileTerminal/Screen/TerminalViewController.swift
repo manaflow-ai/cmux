@@ -1188,9 +1188,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         setContentHeight(next.contentHeight(cellHeight: cell.height))
         settingOffset = false
         place(atRow: presentedTop)
+        // Copy Mode first: the selection it drew moves with it, so the selection's shift
+        // below reads as its own drawing, not a finger's change.
+        copyMode.shiftRows(by: -rows)
         selection.shiftRows(by: -rows)
         finder.shiftRows(by: -rows)
-        copyMode.shiftRows(by: -rows)
         copyModeRows = nil
     }
 
