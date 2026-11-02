@@ -156,7 +156,8 @@ fn a_failed_write_keeps_the_bytes_for_the_next_flush() {
     let log = pending_log(b"abcd");
     let policy = PersistencePolicy::resolve(Some("full"), None, None);
     let failed =
-        flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+        flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false)
+            .failed;
     assert!(failed, "the caller schedules another pass");
     {
         let state = log.state.lock().unwrap();
@@ -280,7 +281,7 @@ fn one_read_returns_the_stored_bytes_and_the_unflushed_ones_after_them() {
     let log = store.logs.lock().unwrap().get(&terminal()).unwrap().clone();
     let policy = PersistencePolicy::resolve(Some("full"), None, None);
     let directory = store.directory().unwrap().to_path_buf();
-    assert!(!flush_logs(&store.full, &directory, &[(log, Some(1))], policy, false));
+    assert!(!flush_logs(&store.full, &directory, &[(log, Some(1))], policy, false).failed);
     // New output after the flush: in memory only.
     store.append(&terminal(), &generation, b"efgh", None);
     let window = store.read_after(&terminal(), 0, 1024).unwrap();
@@ -381,7 +382,10 @@ fn a_failing_write_keeps_at_most_the_unwritten_bound_and_a_read_reports_the_gap(
     let bytes = (0..MAX_UNWRITTEN_BYTES + extra).map(|at| (at % 251) as u8).collect::<Vec<_>>();
     let log = pending_log(&bytes);
     let policy = PersistencePolicy::resolve(Some("full"), None, None);
-    assert!(flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false));
+    assert!(
+        flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false)
+            .failed
+    );
     {
         let state = log.state.lock().unwrap();
         // The bound is deliberate: a busy terminal on a full disk must not

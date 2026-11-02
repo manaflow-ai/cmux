@@ -263,8 +263,15 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         let captured = loop {
             attempt += 1;
             let captured = surface.try_with_terminal(|terminal| {
-                let digest = content_digest(terminal)?;
                 let size = (terminal.cols(), terminal.rows());
+                let Some(digest) = content_digest(terminal) else {
+                    // No digest: the screen cannot be read now. It names no
+                    // stored byte (not settled), and the tail takes the bytes.
+                    let end =
+                        log.state.lock().unwrap_or_else(PoisonError::into_inner).next_offset();
+                    let seen = Seen { digest: 0, settled: false, end, size: Some(size) };
+                    return Some((seen, size, Capture::Failed));
+                };
                 // A chunk the reader parsed but has not handed to the store
                 // yet (an odd journal capture epoch; the reader flips it under
                 // this lock) puts the screen ahead of the stream end: the
@@ -284,7 +291,12 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     return Some((seen, size, Capture::Busy));
                 }
                 let budget = replay_budget(size.0, size.1, policy.max_bytes_per_terminal);
-                let replay = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
+                // A screen that cannot be replayed now (an unfinished Kitty
+                // upload larger than the budget) cannot be a snapshot.
+                let Ok(replay) = terminal.vt_replay_bounded(budget) else {
+                    return Some((seen, size, Capture::Failed));
+                };
+                let replay = replay.into_self_contained_bytes();
                 Some((seen, size, Capture::Snapshot { replay, generation, stream_end: end }))
             });
             // The reader hands its chunk over right after it releases the
@@ -336,6 +348,18 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     }
                 }
             }
+            Capture::Failed => {
+                if !tail {
+                    // As before: the next output asks again.
+                    digests.push((log, None));
+                    continue;
+                }
+                // Snapshot mode: the tail still takes the bytes, after the
+                // stored snapshot it continues, and the snapshot is tried
+                // again after a backoff step (it can stay unreplayable).
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).store_failed();
+                flush_tail_now(store, directory, &log, seen, quitting);
+            }
             Capture::Busy => {
                 store.mark_log_dirty(&log);
                 if tail {
@@ -356,8 +380,15 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     }
     // A failed segment write tries again at the next flush, output or not
     // (a terminal gone idle still gets its bytes stored).
-    if full && super::segments::flush_logs(&store.full, directory, &digests, policy, quitting) {
-        store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
+    if full {
+        let outcome =
+            super::segments::flush_logs(&store.full, directory, &digests, policy, quitting);
+        if outcome.flooded {
+            // A flood: the next frame goes at once.
+            store.writer.mark_dirty(Duration::ZERO);
+        } else if outcome.failed {
+            store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
+        }
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
@@ -458,6 +489,8 @@ impl Plan {
 
 /// The result of one log's capture under its parser lock.
 enum Capture {
+    /// A snapshot is due, but the screen cannot be read or replayed now.
+    Failed,
     /// No snapshot is due.
     None,
     /// A snapshot is due, but a parsed chunk is not in the store yet.
@@ -505,6 +538,20 @@ fn snapshot_written(
     state.tail_bytes = 0;
     state.tail_digest = Some(digest);
     state.tail_unsynced = false;
+}
+
+/// [`flush_tail`] without the redraw hold: the snapshot that would replace
+/// held bytes cannot be taken, so the tail takes them now.
+fn flush_tail_now(
+    store: &OutputStore,
+    directory: &Path,
+    log: &TerminalLog,
+    seen: Seen,
+    quitting: bool,
+) {
+    // A digest no stored byte has: nothing is held as a redraw.
+    log.state.lock().unwrap_or_else(PoisonError::into_inner).tail_digest = None;
+    flush_tail(store, directory, log, Seen { settled: false, ..seen }, quitting);
 }
 
 /// Snapshot mode: append the terminal's unwritten bytes to its tail, unless
@@ -700,6 +747,9 @@ fn write(
         file.sync_all()?;
     }
     fs::rename(&staged, &target)?;
+    // The rename is durable before the caller removes the tail it covers:
+    // an OS crash must not bring back the old snapshot without its tail.
+    fs::File::open(directory)?.sync_all()?;
     Ok(())
 }
 
