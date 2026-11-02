@@ -14,13 +14,16 @@ extension Dictionary where Key == SurfaceID, Value == String? {
     /// `answers` as programs: a terminal of `tabs` that gave no answer counts as running what `unanswered` says (nil:
     /// running none).
     @MainActor public init(_ answers: [SurfaceID: ProcessAnswer], of tabs: [TabModel], unanswered: (@MainActor (TabModel) -> String)?) {
-        let tabs = Dictionary(tabs.map { ($0.surface, $0) }, uniquingKeysWith: { first, _ in first })
-        self = answers.reduce(into: [:]) { programs, answer in
-            switch answer.value {
-            case .program(let program): programs[answer.key] = .some(program)
-            case .noAnswer: programs[answer.key] = .some(tabs[answer.key].flatMap { tab in unanswered?(tab) })
+        var bySurface: [SurfaceID: TabModel] = [:]
+        for tab in tabs where bySurface[tab.surface] == nil { bySurface[tab.surface] = tab }
+        var programs: [SurfaceID: String?] = [:]
+        for (surface, answer) in answers {
+            switch answer {
+            case .program(let program): programs[surface] = .some(program)
+            case .noAnswer: programs[surface] = .some(bySurface[surface].flatMap { tab in unanswered?(tab) })
             }
         }
+        self = programs
     }
 }
 
@@ -62,7 +65,9 @@ extension DaemonService {
     @MainActor public func processAnswers(of tabs: [TabModel]) async -> [SurfaceID: ProcessAnswer] {
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead && !ProvisionalTab.isProvisional(surface: $0.surface) }
         guard let connection, !terminals.isEmpty else {
-            return Dictionary(terminals.map { ($0.surface, ProcessAnswer.noAnswer) }, uniquingKeysWith: { first, _ in first })
+            var none: [SurfaceID: ProcessAnswer] = [:]
+            for tab in terminals { none[tab.surface] = .noAnswer }
+            return none
         }
         await closeReadStarts() // a test may hold the read here (debug.close.hold, DEBUG and bench builds)
         return await withTaskGroup(of: (SurfaceID, ProcessAnswer).self) { group in
