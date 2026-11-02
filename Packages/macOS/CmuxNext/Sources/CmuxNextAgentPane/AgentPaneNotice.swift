@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Foundation
 
 /// A notice the pane's native side raises about the chat's agent service: another cmux install's
