@@ -38,6 +38,10 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         try {
           const trace = await page.evaluate(async (engine) => {
             const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            // The glide runs on the clock, so a loaded runner painting a frame every ~76 ms fit the
+            // ~190 ms move into two frames (#27710's base replay). A 1 s move spans several painted
+            // frames however slowly they come; a jump still lands in one.
+            node.style.setProperty("--agent-motion-move", "1s");
             const values = [node.scrollTop];
             const times = [performance.now()];
             const prevented: boolean[] = [];
@@ -54,7 +58,10 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
               const current = node.scrollTop;
               values.push(current);
               times.push(performance.now());
-              if (sawMotion && Math.abs(current - previous) <= 0.5) steady += 1;
+              // The eased tail writes whole pixels and may rest a few frames short of the notch, so
+              // the glide has settled only once it has also covered the notch's 100 px.
+              const arrived = Math.abs(current - values[0]!) >= 99.5;
+              if (sawMotion && arrived && Math.abs(current - previous) <= 0.5) steady += 1;
               else steady = 0;
               previous = current;
               if (steady >= 3) {
