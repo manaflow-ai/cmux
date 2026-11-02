@@ -266,7 +266,14 @@ public final class LayoutRootView: NSView {
 
     /// A keyboard resize press (`resizePane*`) is about to change `pane`'s screen: its pane contents follow it as
     /// they follow a divider drag (``PaneResizeGestureFollowing``, RESIZE KEYS K3).
-    public func keyboardResizeWillChange(screenContaining pane: PaneID) {}
+    /// The follow starts now (a page keeps its size, a terminal holds its surface) and ends once the press's
+    /// spring landed (`resizeGestureModelSynced`, `finishResizeGestureIfLanded`); a press during the motion extends it,
+    /// so a held key or fast presses resize a page once. A hidden or unsized screen follows nothing.
+    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return }
+        view.resizeGestureMoved()
+        view.resizeGestureReleased()
+    }
 
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
     /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),

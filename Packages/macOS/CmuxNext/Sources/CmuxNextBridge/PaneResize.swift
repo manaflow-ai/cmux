@@ -55,6 +55,26 @@ public nonisolated enum PaneResize {
         return abs(next - current) < 1e-9 ? nil : next
     }
 
+    /// One keyboard resize press on `pane` (`resizePane*`): the change ``change(for:direction:in:shown:step:)`` makes,
+    /// inside what `view` shows, written to `model`. The pane contents follow it as they follow a divider drag
+    /// (`LayoutRootView.keyboardResizeWillChange`): a page keeps its size and lays out once, when the spring landed.
+    /// False when nothing can move that way (the caller refuses quietly); true for a pane on no screen (nothing to say).
+    @MainActor
+    public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
+        guard let screen = model.screen(containing: pane) else { return true }
+        switch change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) {
+        case .splitRatio(let split, let ratio):
+            view.keyboardResizeWillChange(screenContaining: pane)
+            model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+        case .columnWidth(let column, let width):
+            view.keyboardResizeWillChange(screenContaining: pane)
+            model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+        case nil:
+            return false
+        }
+        return true
+    }
+
     /// The column before (`forward == false`) or after the pane's column.
     public static func adjacentColumn(of pane: LayoutPaneID, forward: Bool, in layout: ScreenLayout) -> LayoutColumn? {
         // Visual order: a docked column sits at its edge whatever its daemon index.
