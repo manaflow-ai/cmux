@@ -15,7 +15,7 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "journeys" / "video"
 HEAD = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_remember_workspaces"}, {"do": "smoke_make_key"}]
-FINALLY = [{"do": "smoke_close_all"}]
+FINALLY = [{"do": "video_close_open", "title": "stop a recording a failed step left open"}, {"do": "smoke_close_all"}]
 KEYS = {"count": 60, "seed": 1, "gap_ms": [90, 210], "charset": "abcdefghijklmnopqrstuvwxyz"}
 
 
@@ -74,7 +74,7 @@ def cases():
         journey("typing-terminal-idle", "Typing: 60 real keys into a terminal at its prompt (idle app), filmed",
                 terminal_setup(), "terminal", prime="x"),
         journey("typing-address-bar-idle", "Typing: 60 real keys into the browser address bar (idle app), filmed",
-                address_bar_setup(), "address_bar", count=40),
+                address_bar_setup(), "address_bar", prime="x", count=40),
         journey("typing-composer-idle", "Typing: 60 real keys into a New Agent Chat composer (idle app), filmed",
                 composer_setup(), "composer", prime="x"),
     ]

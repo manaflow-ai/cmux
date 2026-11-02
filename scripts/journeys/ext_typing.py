@@ -11,6 +11,9 @@ and just after the post, on the same clock (time.monotonic, mach_absolute_time o
 `t_post` to the first frame that shows the character.
 
 Steps (`do`):
+  video_close_open {tail?: 0.3}
+                `finally` clean-up: stops a recording (ext_video) that a failed or not-run step left open, so the
+                movie of a red attempt is written with its trace, events and meta.
   typing_keys   {count?: 60, seed?: 1, gap_ms?: [90, 210], charset?: "abcdefghijklmnopqrstuvwxyz", label?, target?,
                  prime?: "", prime_pause_ms?: 600}
                 COUNT printable keys, each after a random gap in GAP_MS (a person's pace; fixed SEED), into whatever
@@ -119,5 +122,16 @@ def step_typing_keys(j, step):
             "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t)"}
 
 
-STEPS = {"typing_keys": step_typing_keys, "typing_rect": step_typing_rect}
+def step_video_close_open(j, step):
+    """Clean-up for `finally`: stops the recording a failed or not-run step left open (ext_video video_stop with a
+    short tail), so a red attempt keeps its movie, trace, events and meta (review must-fix 3 at 042d49a86b4)."""
+    rec = getattr(j, "video", None)
+    if not rec:
+        return {"open": None}
+    import ext_video
+    return dict(ext_video.step_video_stop(j, {"name": rec["name"], "tail": float(step.get("tail", 0.3))}) or {},
+                closed=rec["name"])
+
+
+STEPS = {"typing_keys": step_typing_keys, "typing_rect": step_typing_rect, "video_close_open": step_video_close_open}
 CONDITIONS = {}

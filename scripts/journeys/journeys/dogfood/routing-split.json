@@ -11,6 +11,10 @@
   "continue_not_judged": true,
   "finally": [
     {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
       "do": "rpc",
       "method": "debug.focus",
       "title": "the focus and key-hold state at the end (records only)"

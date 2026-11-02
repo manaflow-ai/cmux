@@ -11,6 +11,10 @@
   "continue_not_judged": true,
   "finally": [
     {
+      "do": "video_close_open",
+      "title": "stop a recording a failed step left open"
+    },
+    {
       "do": "smoke_close_all"
     }
   ],
