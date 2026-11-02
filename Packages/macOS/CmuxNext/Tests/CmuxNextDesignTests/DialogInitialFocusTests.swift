@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// QA chrome-parity-v2-1 (multi-line paste confirm): the dialog opened with the keyboard on its
@@ -7,7 +8,7 @@ import Testing
 /// lost. A dialog opening never puts the keyboard on a button the person did not choose: Space
 /// presses nothing until Tab (or a click) moves to a button, while Return still presses the
 /// default button and Escape the cancel one.
-@MainActor @Suite(.serialized) struct DialogInitialFocusTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DialogInitialFocusTests {
     /// The paste confirm's shape: Deny (Escape), then Allow (Return).
     nonisolated static let paste = CmuxDialogSpec(title: "Paste into the terminal?", buttons: [
         CmuxDialogButton(id: "deny", title: "Deny", role: .cancel),
