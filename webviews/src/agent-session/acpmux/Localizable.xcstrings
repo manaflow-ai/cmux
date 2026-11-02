@@ -1,6 +1,18 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
+    "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
+    "needsYou.context": {"comment":"Agent pane Needs you: button that shows the last turns of the chat before an ask","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار السياق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži kontekst"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis kontekst"}},"de":{"stringUnit":{"state":"needs_review","value":"Kontext anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show context"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar contexto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher le contexte"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra contesto"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンテキストを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបរិបទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"맥락 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis kontekst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż kontekst"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar contexto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать контекст"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงบริบท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlamı göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати контекст"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện ngữ cảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示上下文"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示上下文"}}}},
+    "needsYou.contextHide": {"comment":"Agent pane Needs you: button that hides the chat turns shown before an ask","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء السياق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij kontekst"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul kontekst"}},"de":{"stringUnit":{"state":"needs_review","value":"Kontext ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide context"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar contexto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le contexte"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi contesto"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンテキストを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់បរិបទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"맥락 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul kontekst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj kontekst"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar contexto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть контекст"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนบริบท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlamı gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати контекст"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn ngữ cảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏上下文"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏上下文"}}}},
+    "needsYou.contextYou": {"comment":"Agent pane Needs you: who said a turn shown as an ask's context, when it was the person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أنت"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vi"}},"da":{"stringUnit":{"state":"needs_review","value":"Dig"}},"de":{"stringUnit":{"state":"needs_review","value":"Du"}},"en":{"stringUnit":{"state":"translated","value":"You"}},"es":{"stringUnit":{"state":"needs_review","value":"Tú"}},"fr":{"stringUnit":{"state":"needs_review","value":"Vous"}},"it":{"stringUnit":{"state":"needs_review","value":"Tu"}},"ja":{"stringUnit":{"state":"needs_review","value":"あなた"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"나"}},"nb":{"stringUnit":{"state":"needs_review","value":"Du"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Você"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вы"}},"th":{"stringUnit":{"state":"needs_review","value":"คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ви"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你"}}}},
+    "needsYou.contextEmpty": {"comment":"Agent pane Needs you: an ask's context when the chat said nothing before it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يُكتب شيء قبل هذا الطلب."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ništa nije rečeno prije ovog pitanja."}},"da":{"stringUnit":{"state":"needs_review","value":"Intet blev sagt før denne forespørgsel."}},"de":{"stringUnit":{"state":"needs_review","value":"Vor dieser Anfrage wurde nichts gesagt."}},"en":{"stringUnit":{"state":"translated","value":"Nothing was said before this ask."}},"es":{"stringUnit":{"state":"needs_review","value":"No se dijo nada antes de esta solicitud."}},"fr":{"stringUnit":{"state":"needs_review","value":"Rien n’a été dit avant cette demande."}},"it":{"stringUnit":{"state":"needs_review","value":"Nulla è stato detto prima di questa richiesta."}},"ja":{"stringUnit":{"state":"needs_review","value":"この依頼の前のやり取りはありません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនមានអ្វីត្រូវបាននិយាយមុនសំណើនេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 요청 전에 오간 대화가 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingenting ble sagt før denne forespørselen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przed tą prośbą nic nie powiedziano."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nada foi dito antes desta solicitação."}},"ru":{"stringUnit":{"state":"needs_review","value":"До этого запроса ничего не было сказано."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีข้อความก่อนคำขอนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu istekten önce bir şey söylenmedi."}},"uk":{"stringUnit":{"state":"needs_review","value":"До цього запиту нічого не було сказано."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có trao đổi nào trước yêu cầu này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此请求之前没有对话。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此請求之前沒有對話。"}}}},
+    "needsYou.contextPartial": {"comment":"Agent pane Needs you: note under another chat's context, which shows only its latest message","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تظهر هنا آخر رسالة من هذه المحادثة فقط. افتح المحادثة لرؤيتها كاملة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovdje se prikazuje samo posljednja poruka ovog chata. Otvorite chat za cijeli razgovor."}},"da":{"stringUnit":{"state":"needs_review","value":"Kun chattens seneste besked vises her. Åbn chatten for hele samtalen."}},"de":{"stringUnit":{"state":"needs_review","value":"Hier steht nur die letzte Nachricht dieses Chats. Öffne den Chat für das ganze Gespräch."}},"en":{"stringUnit":{"state":"translated","value":"Only this chat's latest message shows here. Open the chat for the whole conversation."}},"es":{"stringUnit":{"state":"needs_review","value":"Aquí solo se muestra el último mensaje de este chat. Abre el chat para ver la conversación completa."}},"fr":{"stringUnit":{"state":"needs_review","value":"Seul le dernier message de ce chat s’affiche ici. Ouvrez le chat pour toute la conversation."}},"it":{"stringUnit":{"state":"needs_review","value":"Qui appare solo l’ultimo messaggio di questa chat. Apri la chat per l’intera conversazione."}},"ja":{"stringUnit":{"state":"needs_review","value":"ここにはこのチャットの最新メッセージだけが表示されます。会話全体はチャットを開いて確認してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មានតែសារចុងក្រោយនៃការជជែកនេះប៉ុណ្ណោះដែលបង្ហាញនៅទីនេះ។ បើកការជជែកដើម្បីមើលការសន្ទនាទាំងមូល។"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기에는 이 채팅의 최신 메시지만 표시됩니다. 전체 대화는 채팅을 열어 확인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bare chattens siste melding vises her. Åpne chatten for hele samtalen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Tutaj widać tylko ostatnią wiadomość z tego czatu. Otwórz czat, aby zobaczyć całą rozmowę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aqui aparece só a última mensagem deste chat. Abra o chat para ver a conversa inteira."}},"ru":{"stringUnit":{"state":"needs_review","value":"Здесь показано только последнее сообщение этого чата. Откройте чат, чтобы увидеть весь разговор."}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเฉพาะข้อความล่าสุดของแชตนี้ เปิดแชตเพื่อดูบทสนทนาทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada yalnızca bu sohbetin son mesajı görünür. Konuşmanın tamamı için sohbeti açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Тут показано лише останнє повідомлення цього чату. Відкрийте чат, щоб побачити всю розмову."}},"vi":{"stringUnit":{"state":"needs_review","value":"Ở đây chỉ hiện tin nhắn mới nhất của cuộc trò chuyện này. Mở cuộc trò chuyện để xem toàn bộ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此处仅显示该聊天的最新消息。打开聊天查看完整对话。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此處僅顯示該聊天的最新訊息。開啟聊天查看完整對話。"}}}},
+    "needsYou.otherAnswer": {"comment":"Agent pane Needs you: placeholder of the field where the person types an answer that is not one of a question's options","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إجابة أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Drugi odgovor"}},"da":{"stringUnit":{"state":"needs_review","value":"Andet svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Andere Antwort"}},"en":{"stringUnit":{"state":"translated","value":"Other answer"}},"es":{"stringUnit":{"state":"needs_review","value":"Otra respuesta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Autre réponse"}},"it":{"stringUnit":{"state":"needs_review","value":"Altra risposta"}},"ja":{"stringUnit":{"state":"needs_review","value":"その他の回答"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លើយផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 답변"}},"nb":{"stringUnit":{"state":"needs_review","value":"Annet svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Inna odpowiedź"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Outra resposta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другой ответ"}},"th":{"stringUnit":{"state":"needs_review","value":"คำตอบอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir yanıt"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інша відповідь"}},"vi":{"stringUnit":{"state":"needs_review","value":"Câu trả lời khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"其他回答"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"其他回答"}}}},
+    "needsYou.submit": {"comment":"Agent pane Needs you: button that sends an expanded question's answer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إرسال"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Send"}},"de":{"stringUnit":{"state":"needs_review","value":"Senden"}},"en":{"stringUnit":{"state":"translated","value":"Submit"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyer"}},"it":{"stringUnit":{"state":"needs_review","value":"Invia"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信"}},"km":{"stringUnit":{"state":"needs_review","value":"ដាក់ស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제출"}},"nb":{"stringUnit":{"state":"needs_review","value":"Send"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyślij"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправить"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönder"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"送出"}}}},
+    "needsYou.openRight": {"comment":"Agent pane Needs you: opens the chat an ask is in on the right of this chat (the default)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح على اليمين"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori desno"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn til højre"}},"de":{"stringUnit":{"state":"needs_review","value":"Rechts öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open on right"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir a la derecha"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir à droite"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri a destra"}},"ja":{"stringUnit":{"state":"needs_review","value":"右側で開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកនៅខាងស្ដាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"오른쪽에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne til høyre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz po prawej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir à direita"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть справа"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดทางขวา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sağda aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити праворуч"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở bên phải"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在右侧打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在右側開啟"}}}},
+    "needsYou.jumpToWorkspace": {"comment":"Agent pane Needs you: switches to the workspace whose tab already shows the chat an ask is in","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الانتقال إلى مساحة العمل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Idi na radni prostor"}},"da":{"stringUnit":{"state":"needs_review","value":"Gå til arbejdsområde"}},"de":{"stringUnit":{"state":"needs_review","value":"Zum Workspace wechseln"}},"en":{"stringUnit":{"state":"translated","value":"Jump to workspace"}},"es":{"stringUnit":{"state":"needs_review","value":"Ir al espacio de trabajo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aller à l’espace de travail"}},"it":{"stringUnit":{"state":"needs_review","value":"Vai allo spazio di lavoro"}},"ja":{"stringUnit":{"state":"needs_review","value":"ワークスペースへ移動"}},"km":{"stringUnit":{"state":"needs_review","value":"លោតទៅកន្លែងធ្វើការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"작업 공간으로 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gå til arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejdź do obszaru roboczego"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ir para o espaço de trabalho"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перейти в рабочее пространство"}},"th":{"stringUnit":{"state":"needs_review","value":"ไปที่พื้นที่ทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çalışma alanına git"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перейти до робочого простору"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển đến không gian làm việc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"跳转到工作区"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"跳至工作區"}}}},
+    "needsYou.openNewWorkspace": {"comment":"Agent pane Needs you: opens the chat an ask is in, in a new workspace","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح في مساحة عمل جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori u novom radnom prostoru"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn i nyt arbejdsområde"}},"de":{"stringUnit":{"state":"needs_review","value":"In neuem Workspace öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open in new workspace"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir en un espacio de trabajo nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir dans un nouvel espace de travail"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri in un nuovo spazio di lavoro"}},"ja":{"stringUnit":{"state":"needs_review","value":"新しいワークスペースで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកក្នុងកន្លែងធ្វើការថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 작업 공간에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne i nytt arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz w nowym obszarze roboczym"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir em um novo espaço de trabalho"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть в новом рабочем пространстве"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดในพื้นที่ทำงานใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni çalışma alanında aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити в новому робочому просторі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở trong không gian làm việc mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在新工作区中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在新工作區中開啟"}}}},
     "picker.addAccount": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add account"}},"ar":{"stringUnit":{"state":"translated","value":"إضافة حساب"}},"bs":{"stringUnit":{"state":"translated","value":"Dodaj račun"}},"da":{"stringUnit":{"state":"translated","value":"Tilføj konto"}},"de":{"stringUnit":{"state":"translated","value":"Konto hinzufügen"}},"es":{"stringUnit":{"state":"translated","value":"Añadir cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Ajouter un compte"}},"it":{"stringUnit":{"state":"translated","value":"Aggiungi account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントを追加"}},"km":{"stringUnit":{"state":"translated","value":"បន្ថែមគណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 추가"}},"nb":{"stringUnit":{"state":"translated","value":"Legg til konto"}},"pl":{"stringUnit":{"state":"translated","value":"Dodaj konto"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Adicionar conta"}},"ru":{"stringUnit":{"state":"translated","value":"Добавить аккаунт"}},"th":{"stringUnit":{"state":"translated","value":"เพิ่มบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap ekle"}},"uk":{"stringUnit":{"state":"translated","value":"Додати обліковий запис"}},"vi":{"stringUnit":{"state":"translated","value":"Thêm tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"添加账户"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"新增帳戶"}}}},
     "picker.accountId": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Account ID"}},"ar":{"stringUnit":{"state":"translated","value":"معرّف الحساب"}},"bs":{"stringUnit":{"state":"translated","value":"ID računa"}},"da":{"stringUnit":{"state":"translated","value":"Konto-id"}},"de":{"stringUnit":{"state":"translated","value":"Konto-ID"}},"es":{"stringUnit":{"state":"translated","value":"ID de cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Identifiant du compte"}},"it":{"stringUnit":{"state":"translated","value":"ID account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントID"}},"km":{"stringUnit":{"state":"translated","value":"លេខសម្គាល់គណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 ID"}},"nb":{"stringUnit":{"state":"translated","value":"Konto-ID"}},"pl":{"stringUnit":{"state":"translated","value":"Identyfikator konta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"ID da conta"}},"ru":{"stringUnit":{"state":"translated","value":"Идентификатор аккаунта"}},"th":{"stringUnit":{"state":"translated","value":"รหัสบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap kimliği"}},"uk":{"stringUnit":{"state":"translated","value":"Ідентифікатор облікового запису"}},"vi":{"stringUnit":{"state":"translated","value":"Mã tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"账户 ID"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"帳戶 ID"}}}},
     "picker.accountKind": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Account type"}},"ar":{"stringUnit":{"state":"translated","value":"نوع الحساب"}},"bs":{"stringUnit":{"state":"translated","value":"Vrsta računa"}},"da":{"stringUnit":{"state":"translated","value":"Kontotype"}},"de":{"stringUnit":{"state":"translated","value":"Kontotyp"}},"es":{"stringUnit":{"state":"translated","value":"Tipo de cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Type de compte"}},"it":{"stringUnit":{"state":"translated","value":"Tipo di account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントの種類"}},"km":{"stringUnit":{"state":"translated","value":"ប្រភេទគណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 유형"}},"nb":{"stringUnit":{"state":"translated","value":"Kontotype"}},"pl":{"stringUnit":{"state":"translated","value":"Typ konta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Tipo de conta"}},"ru":{"stringUnit":{"state":"translated","value":"Тип аккаунта"}},"th":{"stringUnit":{"state":"translated","value":"ประเภทบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap türü"}},"uk":{"stringUnit":{"state":"translated","value":"Тип облікового запису"}},"vi":{"stringUnit":{"state":"translated","value":"Loại tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"账户类型"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"帳戶類型"}}}},
@@ -71354,6 +71366,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "排隊中的提示詞"
+          }
+        }
+      }
+    },
+    "composer.heldForTrust": {
+      "comment": "Agent pane: heads the prompts sent while the folder trust question is open; they wait in the composer's queue and go after Trust",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار الثقة بالمجلد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka povjerenje u fasciklu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på tillid til mappen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf Vertrauen in den Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for folder trust"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando confianza en la carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de confiance dans le dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa di fiducia nella cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの信頼待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំការទុកចិត្តថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 신뢰 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på tillit til mappen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na zaufanie do folderu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando confiança na pasta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт доверия к папке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอการเชื่อถือโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör güveni bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає довіри до папки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ tin cậy thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待信任此文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待信任此資料夾"
           }
         }
       }
