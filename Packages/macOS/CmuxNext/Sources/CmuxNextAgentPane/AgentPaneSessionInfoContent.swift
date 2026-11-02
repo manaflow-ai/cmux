@@ -113,8 +113,8 @@ extension AgentPaneSessionInfoModel {
                     spins: row.tone == .running, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
-                    menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, reorderable: section.bare == true && index == 0 && section.reorderable == true, marks: row.marks,
-                    hover: row.hover, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
+                    menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, reorderable: section.bare == true && index == 0 && section.reorderable == true,
+                    hover: row.hover, marks: row.marks, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
             }
             if let more = section.more {
                 items.append(.line(SessionInfoLine(id: "more:\(section.id)", kind: .more, title: more.label, titleInk: .secondary, action: more.action)))
