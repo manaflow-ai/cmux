@@ -30,6 +30,10 @@ struct Daemon {
 
 impl Daemon {
     fn start(tag: &str) -> Self {
+        Self::start_with_env(tag, &[])
+    }
+
+    fn start_with_env(tag: &str, env: &[(&str, &str)]) -> Self {
         // Short: the socket path must stay under the macOS limit.
         let root = std::env::temp_dir().join(format!("eph-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -46,6 +50,7 @@ impl Daemon {
         // `--memory`: no store on disk, so no agent host outlives the test.
         let mut child = daemon
             .cmd()
+            .envs(env.iter().copied())
             .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -214,4 +219,25 @@ fn a_probe_from_an_agents_shell_is_not_its_subagent() {
     let child = find(&child).unwrap_or_else(|| panic!("{child} is not listed: {listed:?}"));
     assert_eq!(child["spawnedBy"], json!(parent), "a real task from the agent is its subagent");
     assert!(find(&probe).is_none(), "the probe left its chat: {listed:?}");
+}
+
+/// Hooks in a one-shot agent must know that their session is disposable, while
+/// a daemon or caller started in that context must not mark ordinary sessions.
+#[test]
+fn ephemeral_run_exports_its_own_hook_marker_only() {
+    const MARKER: &str = "ACPMUX_SESSION_EPHEMERAL";
+    let daemon = Daemon::start_with_env("hook-marker", &[(MARKER, "1")]);
+    for (args, expected) in [
+        (vec!["exec", "--timeout", "60"], "1"),
+        (vec!["run", "--ephemeral", "--timeout", "60"], "1"),
+        (vec!["run", "--timeout", "60"], ""),
+    ] {
+        let out = daemon.cmd().env(MARKER, "1").arg("--json").args(&args)
+            .arg(format!("envs: {MARKER}")).output().expect("run");
+        assert!(out.status.success(), "{args:?}: {}", text(&out));
+        let reply: Value = serde_json::from_slice(&out.stdout).expect("CLI reply");
+        let env: Value = serde_json::from_str(reply["reply"].as_str().expect("reply"))
+            .expect("agent environment");
+        assert_eq!(env[MARKER], expected, "{args:?}: wrong hook context");
+    }
 }
