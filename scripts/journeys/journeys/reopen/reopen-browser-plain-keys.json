@@ -2,7 +2,7 @@
  "id": "reopen-browser-plain-keys",
  "priority": "P1",
  "title": "After Cmd-Q (Keep) and reopen with a browser page (focused text field) focused: plain keys typed after the restored page loaded reach it (cycle A); plain keys typed as soon as the main window is listed reach it, in order (cycle B)",
- "why": "Diagnostic for reopen-f4 (lead STATUS 6493, review of #32207): reopen-browser-first-key cycle 4 loses every plain key typed at once after the reopen. Cycle A tells whether plain keys reach the restored page at all; cycle B is the same check as cycle 4. Set-up clicks the field first: in a fresh app (no quit yet) real plain keys did not reach a page just loaded from the address bar (exploratory 9f0c6ff56af, both builds; journal: responder windowOrNone suppressed).",
+ "why": "Diagnostic for reopen-f4 (lead STATUS 6493, review of #32207): reopen-browser-first-key cycle 4 loses every plain key typed at once after the reopen. Cycle A tells whether plain keys reach the restored page at all; cycle B is the same check as cycle 4. Set-up clicks the field first: in a fresh app (no quit yet) real plain keys did not reach a page just loaded from the address bar (exploratory 9f0c6ff56af, both builds; journal: responder windowOrNone suppressed). Keys are CuaDriver desktop keys: on the minis this driver may not post events (CGPreflightPostEventAccess false in every reopen record), so CGEventPost keys and clicks were dropped with no error at e694efa.",
  "source": "REOPEN VIDEO for reopen-f4",
  "budget_seconds": 200,
  "steps": [
@@ -236,9 +236,11 @@
    "do": "hid_line",
    "text": "fieldkeysok",
    "enter": false,
-   "path": "hid",
    "mark": "su4a",
    "title": "set-up: a set-up word with real HID keys (CGEventPost at the HID tap)"
+  },
+  {
+   "do": "focus_probe"
   },
   {
    "do": "expect",
@@ -265,8 +267,10 @@
    "do": "reopen_browser_keys",
    "cmd_l": false,
    "mark": "reopenedA",
-   "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded",
-   "path": "hid"
+   "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded"
+  },
+  {
+   "do": "focus_probe"
   },
   {
    "do": "expect",
@@ -291,8 +295,10 @@
    "text": "latekeysca",
    "enter": false,
    "mark": "lateA",
-   "title": "cycle A: then plain keys only (a marker, no modifier) with real keys",
-   "path": "hid"
+   "title": "cycle A: then plain keys only (a marker, no modifier) with real keys"
+  },
+  {
+   "do": "focus_probe"
   },
   {
    "do": "expect",
@@ -320,8 +326,10 @@
    "text": "earlykeyscb",
    "cmd_l": false,
    "mark": "reopenedB",
-   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a marker, no modifier)",
-   "path": "hid"
+   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a marker, no modifier)"
+  },
+  {
+   "do": "focus_probe"
   },
   {
    "do": "expect",

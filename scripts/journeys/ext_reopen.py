@@ -350,6 +350,9 @@ def post_text(text, gap=0.011):
     fast typist; CuaDriver's desktop keys take about 11 ms each). Returns each key's wall times around its down."""
     if not re.fullmatch(r"[a-z0-9]+", text):
         raise D.StepError(f"post_text: only lowercase letters and digits, not {text!r}")
+    if not can_post_events():
+        # CGEventPost without the post-event permission drops the events with no error: refuse, never type nothing.
+        raise D.StepError("post_text: this process may not post events (CGPreflightPostEventAccess false)")
     times = []
     for index, ch in enumerate(text):
         if index:
@@ -1326,8 +1329,40 @@ def step_hid_click(j, step):
         raise D.StepError(f"hid_click: ({x}, {y}) is outside the window ({win['w']} x {win['h']})")
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
-    post_click(win["x"] + x, win["y"] + y)
-    return {"window": {k: win[k] for k in ("x", "y", "w", "h")}, "point": [x, y]}
+    sx, sy = win["x"] + x, win["y"] + y
+    if can_post_events():
+        post_click(sx, sy)
+        path = "CGEventPost HID"
+    else:
+        # This process may not post events (CGEventPost would drop the click with no error): CuaDriver's desktop click.
+        scale = float((_jxa_json(SCREEN_JXA, {}) or {}).get("scale") or 1)
+        cua = Cua()
+        try:
+            cua.tool("click", {"scope": "desktop", "x": sx * scale, "y": sy * scale}, check=False)
+        finally:
+            cua.close()
+        path = "cua click, desktop scope"
+    time.sleep(0.3)
+    return {"window": {k: win[k] for k in ("x", "y", "w", "h")}, "point": [x, y], "path": path,
+            "after": focus_probe(j)}
+
+
+def focus_probe(j):
+    """What has the keyboard: the front app, the app's key window (debug.focus key_window: a Chromium page with the
+    keyboard makes its CefNSWindow child the key window) and the focus model's resolved target of each window."""
+    try:
+        report = j.app.rpc("debug.focus", timeout=10) or {}
+    except (D.StepError, OSError, ValueError) as error:
+        return {"error": str(error)[:200]}
+    wins = [w for w in report.get("windows") or [] if isinstance(w, dict)]
+    return {"front_is_app": front_pid() == j.app.pid, "key_window": report.get("key_window"),
+            "windows": [{"id": w.get("id"), "is_key": w.get("is_key"), "resolved": (w.get("model") or {}).get("resolved")}
+                        for w in wins]}
+
+
+def step_focus_probe(j, step):
+    """Records focus_probe (no check): evidence for a key check that follows."""
+    return focus_probe(j)
 
 
 def step_reopen_browser_keys(j, step):
@@ -1429,7 +1464,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
