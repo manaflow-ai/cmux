@@ -832,29 +832,68 @@ fn public_workspace_values(
 /// terminals, notifications, agents or live state, and holds only the
 /// registry lock, not state.
 pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
-    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    // One connection hold for the whole read, as the snapshot's pin: no
-    // late writer commit lands between the rows, the frame and the
-    // decorations. The registry methods below re-enter it.
-    let _connection = registry.connection.get();
-    (|| -> anyhow::Result<Vec<Value>> {
-        let registry_snapshot = registry.snapshot()?;
-        let frame = registry.resource_topology_frame()?;
+    read_committed_registry(mux, |connection, ids| {
+        let registry_snapshot = crate::workspace_registry::registry_snapshot_in(
+            connection,
+            &ids.registry_id,
+            &ids.generation,
+            &ids.session_id,
+        )?;
+        let frame = crate::workspace_registry::load_topology_frame(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )?;
         anyhow::ensure!(
             registry_snapshot.generation == frame.generation
                 && registry_snapshot.resource_revision == frame.revision,
             "resource projection changed while listing workspaces"
         );
         let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
-        registry.read_state(|connection| {
-            for workspace in &mut workspaces {
-                crate::state::values::decorate_value(connection, "workspace", workspace)?;
-            }
-            Ok(())
-        })?;
+        for workspace in &mut workspaces {
+            crate::state::values::decorate_value(connection, "workspace", workspace)?;
+        }
         Ok(workspaces)
-    })()
+    })
     .map_err(operation_failed)
+}
+
+/// What a committed registry read needs besides its connection.
+pub(crate) struct RegistryReadIds {
+    registry_id: String,
+    generation: String,
+    session_id: SessionPublicId,
+}
+
+/// Run `read` on committed registry rows, in one read transaction (one
+/// consistent cut: no writer commit lands between its statements). On a
+/// file registry it reads the read-only WAL connection and takes no
+/// registry lock, so a writer that holds the lock across its commit (a
+/// state mutation: 281 ms max under the L1 storm, STATUS 6838) never
+/// delays a list or a ping. An in-memory registry has no reader: the read
+/// runs on the registry's own connection under its lock, as before.
+pub(crate) fn read_committed_registry<T>(
+    mux: &Mux,
+    read: impl FnOnce(&rusqlite::Connection, &RegistryReadIds) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let (registry_id, generation) = mux.registry_identity();
+    let ids =
+        RegistryReadIds { registry_id, generation, session_id: mux.session_public_id.clone() };
+    let mut read = Some(read);
+    let committed = mux.registry_connection.read_committed(|connection| {
+        let Some(read) = read.take() else { anyhow::bail!("committed registry read ran twice") };
+        let transaction = connection.unchecked_transaction()?;
+        let value = read(&transaction, &ids)?;
+        transaction.finish()?;
+        Ok(value)
+    });
+    if let Some(result) = committed {
+        return result;
+    }
+    let Some(read) = read.take() else { anyhow::bail!("committed registry read ran twice") };
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let connection = registry.connection.get();
+    read(&connection, &ids)
 }
 
 /// The public panes and tabs of `topology`, in its order: one builder for
@@ -908,11 +947,13 @@ pub(crate) fn public_workspace_topology(
     mux: &Mux,
     workspace: &WorkspacePublicId,
 ) -> Result<Value, ResourceError> {
-    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    // One connection hold for the whole read, as `public_workspaces`.
-    let _connection = registry.connection.get();
-    (|| -> anyhow::Result<Value> {
-        let mut topology = registry.resource_topology_scoped(std::slice::from_ref(workspace))?;
+    read_committed_registry(mux, |connection, ids| {
+        let mut topology = crate::workspace_registry::load_resource_topology_scoped(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+            std::slice::from_ref(workspace),
+        )?;
         // The full load's order (topology_load.rs): panes by screen id, then
         // creation; tabs by pane id, then position. The scoped load walks
         // screens by position, so sort to match.
@@ -935,27 +976,30 @@ pub(crate) fn public_workspace_topology(
             topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
         let (panes, mut tabs) =
             public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
-        registry.read_state(|connection| {
-            for tab in &mut tabs {
-                crate::state::values::decorate_value(connection, "tab", tab)?;
-            }
-            Ok(())
-        })?;
+        for tab in &mut tabs {
+            crate::state::values::decorate_value(connection, "tab", tab)?;
+        }
         let screens = topology
             .screens
             .iter()
             .map(|screen| json!({"id": screen.public_id, "workspace_id": screen.workspace_id}))
             .collect::<Vec<_>>();
         Ok(json!({"screens": screens, "panes": panes, "tabs": tabs}))
-    })()
+    })
     .map_err(operation_failed)
 }
 
 /// The session snapshot's `cursor` alone (`session.ping`): the topology
 /// generation and resource revision, from the topology frame.
 pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
-    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let frame = registry.resource_topology_frame().map_err(operation_failed)?;
+    let frame = read_committed_registry(mux, |connection, ids| {
+        crate::workspace_registry::load_topology_frame(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )
+    })
+    .map_err(operation_failed)?;
     Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
 }
 
