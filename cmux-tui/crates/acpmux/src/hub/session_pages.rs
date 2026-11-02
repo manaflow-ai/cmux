@@ -36,7 +36,14 @@ pub(crate) fn sort_session_summaries(list: &mut [Value]) {
 
 /// The session list reply for `params`: `{sessions}` without `limit`,
 /// `{sessions, nextCursor}` with it.
+#[cfg(test)]
 pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<Value, RpcError> {
+    session_list_reply_borrowed(&sorted, params)
+}
+
+/// Pick rows by reference from the shared session-list snapshot, then clone only rows
+/// actually returned. A list page of one must not copy all 3,000 session keys first.
+pub(crate) fn session_list_reply_borrowed(sorted: &[Value], params: &Value) -> Result<Value, RpcError> {
     let limit = match params.get("limit") {
         None | Some(Value::Null) => None,
         Some(v) => Some(
@@ -67,29 +74,22 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
         return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
     }
     let excluded = status_filter(params, "excludeStatus")?;
-    let sorted: Vec<Value> =
-        if peer.is_none() && status.is_none() && !local_only && excluded.is_empty() {
-            sorted
-        } else {
-            sorted
-                .into_iter()
-                .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
-                .filter(|s| {
-                    status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st))
-                })
-                .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
-                .filter(|s| {
-                    s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st))
-                })
-                .collect()
-        };
+    let selected: Vec<&Value> = sorted
+        .iter()
+        .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
+        .filter(|s| status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st)))
+        .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
+        .filter(|s| {
+            s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st))
+        })
+        .collect();
     if order.is_some() {
-        return session_id_page(sorted, params, limit);
+        return session_id_page(selected, params, limit);
     }
-    let start = cursor.map_or(0, |c| c.start(&sorted));
-    let mut sessions: Vec<Value> = sorted.into_iter().skip(start).collect();
+    let start = cursor.map_or(0, |c| c.start(&selected));
+    let mut sessions: Vec<&Value> = selected.into_iter().skip(start).collect();
     let Some(limit) = limit else {
-        return Ok(page(sessions, None));
+        return Ok(page(sessions.into_iter().cloned().collect(), None));
     };
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let next = if sessions.len() > limit {
@@ -98,7 +98,7 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     } else {
         None
     };
-    Ok(page(sessions, Some(next.map_or(Value::Null, Value::String))))
+    Ok(page(sessions.into_iter().cloned().collect(), Some(next.map_or(Value::Null, Value::String))))
 }
 
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
@@ -157,7 +157,7 @@ pub(crate) fn byte_page<R>(
 
 /// IDs are immutable: an unread session updating between pages cannot be lost.
 fn session_id_page(
-    mut rows: Vec<Value>,
+    mut rows: Vec<&Value>,
     params: &Value,
     limit: Option<u64>,
 ) -> Result<Value, RpcError> {
@@ -173,7 +173,7 @@ fn session_id_page(
     rows.retain(|row| after.is_none_or(|id| session_id(row) > id));
     rows.sort_by(|a, b| session_id(a).cmp(session_id(b)));
     let Some(limit) = limit else {
-        return Ok(page(rows, None));
+        return Ok(page(rows.into_iter().cloned().collect(), None));
     };
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let next = if rows.len() > limit {
@@ -182,7 +182,7 @@ fn session_id_page(
     } else {
         None
     };
-    Ok(page(rows, Some(next.unwrap_or(Value::Null))))
+    Ok(page(rows.into_iter().cloned().collect(), Some(next.unwrap_or(Value::Null))))
 }
 
 /// `{sessions, nextCursor?}`, moving the sessions in: `json!` would deep-copy the whole list.
@@ -295,7 +295,7 @@ impl SessionCursor {
     /// Where the page starts in `sorted`. The named session gone or moved, the
     /// page starts at the first session no newer than it was: one updated in
     /// that same millisecond may repeat, none is skipped.
-    fn start(self, sorted: &[Value]) -> usize {
+    fn start(self, sorted: &[&Value]) -> usize {
         sorted
             .iter()
             .position(|s| stamp(s) == self.updated_ms && row_key(s) == self.key)
