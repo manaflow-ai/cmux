@@ -66,7 +66,8 @@ class HeadlessDebugDaemon(unittest.TestCase):
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
         # must be the one conformance picks for a same-repository pull request.
         trusted = ("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-                   + blacksmith_route("cmux-tui-sdks.yml", "conformance") + " }}")
+                   "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
+                   "fromJSON(vars.RUNNER_POOLS).linux_8 }}")
         # The two jobs share one Blacksmith size (.github/runners.json linux_sizes).
         self.assertEqual(blacksmith_route("cmux-tui-sdks.yml", "conformance"),
                          blacksmith_route("cmux-tui-headless-debug.yml", "build"))

@@ -43,6 +43,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
+    /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+    /// field's draft, to edit and send or delete; nothing sends it. A page takes it once
+    /// (``AgentUnsentDrafts/takeLeftover(inWindow:)``); nil for none.
+    public var draft: String?
     /// What the location bar suggests besides the typed text.
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.

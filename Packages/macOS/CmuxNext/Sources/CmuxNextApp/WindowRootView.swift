@@ -262,8 +262,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -281,6 +284,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

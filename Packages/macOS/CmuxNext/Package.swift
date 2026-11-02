@@ -174,8 +174,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-17b75935f08e6ab30b996a3724b92e882c866c6f/CCmuxAppFFI.xcframework.zip",
-    checksum: "883643bb1ddebcdb736e9e618b8dcad924ec4e95577479093a5b4c6ba01b95b5"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-bbb2b89006beea85f8a368b7b11e9dd97bd5b134/CCmuxAppFFI.xcframework.zip",
+    checksum: "8b615965bdcf5cb5a787189a69e2392093b3174692bfd38bb47b2f7deefcbfe4"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -220,7 +220,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextAppCore",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextLayout", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -464,12 +464,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
                 // BillingStrings (table Billing): moved from the App with Billing/ in B1.
                 .process("Resources/Billing.xcstrings"),
+                .process("Resources/GitHubConnection.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
         ),

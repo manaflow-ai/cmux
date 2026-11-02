@@ -877,6 +877,14 @@ pub(super) fn handle(
                 shares.end(directory, &p)
             })
         }
+        // The room new links go to and the API their owner token must come from: the app mints from
+        // this API, so a room and a token never come from two environments (cmux#31372).
+        "agent-session-share-room" => {
+            let room = shares.bridge.room();
+            let url = room.as_ref().map(|room| room.url());
+            let api = url.and_then(crate::cloud_conversations::platform::share_owner_api);
+            Ok(json!({"room": url, "owner_api": api}))
+        }
         "agent-session-share-redeem" => {
             parse(params).and_then(|p: Redeem| shares.redeem(directory, p))
         }
