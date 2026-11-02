@@ -1,13 +1,5 @@
-// The gaps under a reply in the capture-shaped fixture are the grid's stack gaps (leo-workspace
-// design/grid.md 5.5): a reply to the status row under it takes `--grid-gap-block` (24) and a reply
-// to the next prompt `--grid-gap-turn` (32), measured between the two rows' boxes, as grid.md
-// measures every gap. Nothing adds room of its own under a reply.
-//
-// History: #30865 (2026-11-01) gave a reply that something follows the room its action row took on
-// 2026-10-30 (`--cv-reply-room`, 36px), and this test held two ink-to-ink gaps to that build: reply
-// -> status row 43.75px and reply -> prompt 49.75px. #27580 (044769ae, transcript columns and block
-// spacing) moved every vertical gap onto the stack and set `--cv-reply-room` to 0: "the stack's block
-// gap is the room under a reply". The 2026-10-30 values are now logged beside the measured ones only.
+// A reply that something follows keeps the room its action row took on 2026-10-30, though it draws
+// no row there now (model.ts `keepsReplyRoom`, conversation.css `--cv-reply-room`).
 //
 // Leo, 2026-11-01, on a capture he took of a NEXT build from about two days earlier: "i like this
 // spacing kinda i prefer it to what we have now tho it's just minor differences".
@@ -15,7 +7,19 @@
 // In gallery entry agent-pane.transcript-spacing-reference (one running turn in the capture's shape: a
 // reply and a harness notice; a steer, a sent message and three paragraphs; a steer, a run of
 // commands, a one-line reply, a run, an answered question and its answer), measured in Chromium in
-// light and dark. Every ink-to-ink gap is logged beside its 2026-10-30 value and the capture's.
+// light and dark from one block's last drawn text line to the next block's first, each gap equals what
+// feat-cmux-next 8f5dfe06ee58 (2026-10-30) drew for the same fixture. Two of them moved
+// with the per-reply action row's removal on 2026-10-31 and come back here: a reply to the status row
+// under it (17.75px before, 43.75px after) and a reply to the next prompt (21.75 before, 49.75 after).
+// Those two are asserted to 0.5px; the rest are logged beside their 2026-10-30 values, since later
+// settled designs own them (the one-line row pitch, #29965). No per-reply action row comes back.
+//
+// The second of them is now the grid's: #27580 (044769ae, transcript columns and block spacing) put
+// every vertical gap on the stack (leo-workspace design/grid.md 5.5 Vertical rhythm: block 24, turn
+// 32; "the boundary between a user message and another transcript element takes 32") and set
+// `--cv-reply-room` to 0. So a reply to the next prompt is one turn gap between the two rows' boxes,
+// read from `--grid-gap-turn` (45.75px ink to ink here), and is asserted that way in its own case.
+// The reply to the status row under it is still held to its 2026-10-30 value here.
 //
 // CAPTURE keeps the capture's own gaps, read from its pixels, for reference only: they are not the
 // 2026-10-30 build's, and a follow-up decides whether they become the target
@@ -63,12 +67,7 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
     await vite?.close();
   });
 
-  type Measured = Record<string, number | null> & {
-    /** The stack gaps under a reply, row box to row box. */
-    rowGaps: Record<string, number | null>;
-    /** The grid token each of them is, as drawn. */
-    wants: Record<string, number>;
-  };
+  type Measured = Record<string, number | null>;
 
   /**
    * Every gap the capture shows, in CSS px, ink to ink: from one block's last drawn text line to the
@@ -77,8 +76,6 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
    */
   const measure = (page: Page): Promise<Measured> =>
     page.evaluate(() => {
-      let rowGaps: Record<string, number | null> = {};
-      let wants: Record<string, number> = {};
       const shown = (element: Element) => {
         const box = element.getBoundingClientRect();
         if (box.width === 0 || box.height === 0) return false;
@@ -137,29 +134,22 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
 
       const gap = (above: Box | null, below: Box | null) =>
         above && below ? Math.round((below.top - above.bottom) * 100) / 100 : null;
-      /** A row's own box, which the grid's stack gaps are measured between (grid.md 5.5). */
+      /** A row's own box: grid.md 5.5 measures its gaps between the boxes of adjacent elements. */
       const rowBox = (row: HTMLElement | null | undefined): Box | null => {
         if (!row) return null;
         const rect = row.getBoundingClientRect();
         return { top: rect.top, bottom: rect.bottom };
       };
-      /** A grid token's drawn length, resolved where the transcript draws (it scales with Interface Size). */
-      const token = (name: string) => {
-        const probe = document.createElement("div");
-        probe.style.cssText = `position:absolute;visibility:hidden;height:var(${name})`;
-        (document.querySelector(".acpmux-thread") ?? document.body).append(probe);
-        const value = probe.getBoundingClientRect().height;
-        probe.remove();
-        return value;
-      };
-      const replyRow = holding("docs half of the release page")?.closest<HTMLElement>(".acpmux-row");
+      /** The turn gap as the transcript draws it (the token scales with Interface Size). */
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-gap-turn)";
+      (document.querySelector(".acpmux-thread") ?? document.body).append(probe);
+      const turnGap = probe.getBoundingClientRect().height;
+      probe.remove();
       const thirdRow = holding("The other lanes may have stopped")?.closest<HTMLElement>(".acpmux-row");
-      rowGaps = {
-        "reply -> notice": gap(rowBox(replyRow), rowBox(rowOf("Fixed the stale release cache"))),
-        "paragraph -> prompt": gap(rowBox(thirdRow), rowBox(rowOf("we should regroup"))),
-      };
-      wants = { "reply -> notice": token("--grid-gap-block"), "paragraph -> prompt": token("--grid-gap-turn") };
       return {
+        "paragraph -> prompt (rows)": gap(rowBox(thirdRow), rowBox(rowOf("we should regroup"))),
+        "turn gap": turnGap,
         "reply -> notice": gap(reply, notice),
         "notice -> prompt": gap(notice, there),
         "prompt -> sent message": gap(there, sent),
@@ -169,8 +159,6 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
         "paragraph -> prompt": gap(third, regroup),
         "prompt -> run summary": gap(regroup, runFive),
         "card -> prompt": gap(card, ship),
-        rowGaps,
-        wants,
       };
     });
 
@@ -201,10 +189,11 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
     "card -> prompt": 28,
   };
   /**
-   * The gaps this test holds to the grid: the two under a reply, which #30865's reply room set until
-   * #27580 put them on the stack (block and turn gap). The others are logged.
+   * The gap this test holds to OCT_30: the one under a reply over its status row. (A reply to the
+   * next prompt is the grid's turn gap since #27580: its own case below.) The
+   * others are logged beside them; later settled designs own them (the one-line row pitch, #29965).
    */
-  const UNDER_REPLY = ["reply -> notice", "paragraph -> prompt"] as const;
+  const MOVED = ["reply -> notice"] as const;
   const TOLERANCE = 0.5;
 
   /**
@@ -224,19 +213,31 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
   };
 
   for (const theme of THEMES)
-    test(`a reply is one stack gap from the row under it (${theme.name})`, async () => {
+    test(`a reply keeps its 2026-10-30 room (${theme.name})`, async () => {
       const page = await open(theme.name);
       try {
         const measured = await measure(page);
-        console.log(
-          `TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} oct30 ${JSON.stringify(OCT_30)} capture ${JSON.stringify(CAPTURE)}`,
-        );
+        console.log(`TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} capture ${JSON.stringify(CAPTURE)}`);
         if (LOG_ONLY) return;
-        const { rowGaps, wants } = measured;
-        const off = UNDER_REPLY.map((name) => [name, wants[name]!] as const)
-          .filter(([name, want]) => rowGaps[name] == null || Math.abs(rowGaps[name]! - want) > TOLERANCE)
-          .map(([name, want]) => `${name}: ${rowGaps[name]}px between the rows, not ${want}px`);
+        const off = MOVED.map((name) => [name, OCT_30[name]!] as const)
+          .filter(([name, want]) => measured[name] === null || Math.abs(measured[name]! - want) > TOLERANCE)
+          .map(([name, want]) => `${name}: ${measured[name]}px, not ${want}px`);
         expect(off).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
+
+  for (const theme of THEMES)
+    test(`a reply is one turn gap from the next prompt (${theme.name})`, async () => {
+      const page = await open(theme.name);
+      try {
+        const measured = await measure(page);
+        if (LOG_ONLY) return;
+        const want = measured["turn gap"]!;
+        expect(want).toBeGreaterThan(0);
+        expect(measured["paragraph -> prompt (rows)"]).not.toBeNull();
+        expect(Math.abs(measured["paragraph -> prompt (rows)"]! - want)).toBeLessThanOrEqual(TOLERANCE);
       } finally {
         await page.close();
       }
