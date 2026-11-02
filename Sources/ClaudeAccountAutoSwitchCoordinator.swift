@@ -27,14 +27,13 @@ final class ClaudeAccountAutoSwitchCoordinator {
     private let foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck
     private let exhaustionStore: ClaudeAccountExhaustionStore
     private var ledger = ClaudeAccountAutoSwitchLedger()
-    /// Panes whose report is being handled. A report arriving meanwhile is dropped: the pane is
-    /// already moving, and its new account reports its own limit later.
-    private var inFlightPanelIds = Set<UUID>()
+    /// The reports being handled, one stored task per pane, which the pane's close cancels. A
+    /// report arriving meanwhile is dropped: the pane is already moving, and its new account
+    /// reports its own limit later. The pane's Claude events seen while its switch runs are
+    /// replayed into its gate, so a `SessionStart` that lands before the switch returns counts.
+    private let runs = ClaudeAccountAutoSwitchRuns()
     /// The last report handled per pane, so one report switches at most once.
     private var handledEventIds: [UUID: String] = [:]
-    /// The pane's Claude events seen while its switch runs, replayed into its gate, so a
-    /// `SessionStart` that lands before the switch returns still counts.
-    private var eventsDuringSwitch: [UUID: [(kind: AgentJournalEventKind, sessionId: String?, occurredAtMs: Int64)]] = [:]
     /// Panes waiting for the resumed Claude's idle prompt to be typed `continue` into.
     private var pendingContinues: [UUID: PendingContinue] = [:]
     /// When each pane got its auto-switch status row; its Claude session ending after that
@@ -76,7 +75,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
 
     /// Observes one live journal event. Cheap for everything but a usage-limit report.
     func observe(_ draft: AgentJournalEventDraft) {
-        if !pendingContinues.isEmpty || !announcedAtMs.isEmpty || !inFlightPanelIds.isEmpty || ledger.tracksSwitches {
+        if !pendingContinues.isEmpty || !announcedAtMs.isEmpty || !runs.isEmpty || ledger.tracksSwitches {
             followSession(draft)
         }
         guard let request = ClaudeAccountAutoSwitchRequest(draft: draft, isEnabled: isEnabled) else { return }
@@ -89,16 +88,18 @@ final class ClaudeAccountAutoSwitchCoordinator {
             log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) skip=paneNotFound")
             return
         }
-        guard inFlightPanelIds.insert(panelId).inserted else {
+        guard runs.start(panelId: panelId, { [weak self] in await self?.handle(request, workspace: workspace) }) != nil else {
             log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) skip=inFlight")
             return
         }
         handledEventIds[panelId] = request.eventId
-        Task { [weak self] in
-            await self?.handle(request, workspace: workspace)
-            self?.inFlightPanelIds.remove(panelId)
-            self?.eventsDuringSwitch[panelId] = nil
-        }
+    }
+
+    /// The pane closed for good. A switch still deciding about it stops there; one already
+    /// restarting it ends its waits at once, which the switch treats as a timeout: it types
+    /// nothing and reports the resume command.
+    func paneClosed(panelId: UUID) {
+        runs.cancel(panelId: panelId)
     }
 
     /// Input reached the pane, from the user or a client. Called synchronously from the pane's
@@ -114,9 +115,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     private func followSession(_ draft: AgentJournalEventDraft) {
         guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
-        if inFlightPanelIds.contains(panelId) {
-            eventsDuringSwitch[panelId, default: []].append((draft.kind, draft.sessionId, draft.occurredAtMs))
-        }
+        runs.record(.init(kind: draft.kind, sessionId: draft.sessionId, occurredAtMs: draft.occurredAtMs), panelId: panelId)
         pendingContinues[panelId]?.gate.observe(kind: draft.kind, sessionId: draft.sessionId, occurredAtMs: draft.occurredAtMs)
         if draft.kind == .turnCompleted {
             ledger.noteTurnCompleted(panelId: panelId)
@@ -136,6 +135,8 @@ final class ClaudeAccountAutoSwitchCoordinator {
         let candidates = await Self.candidateFacts(pane: pane, homeDirectory: home)
         let now = Date()
         let storedExhaustion = await exhaustionStore.exhaustedUntil(now: now)
+        // A pane closed meanwhile is left alone: nothing is decided, recorded or posted.
+        guard !Task.isCancelled else { return }
         var action = request.action(
             policy: policy,
             usageLimitReset: usageLimitReset,
@@ -160,6 +161,8 @@ final class ClaudeAccountAutoSwitchCoordinator {
             action = action.recording(succeeded: await writeExhaustion(exhaustion))
         }
         log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action)")
+        // The limit stays recorded; a pane closed while it was written gets no notice or switch.
+        guard !Task.isCancelled else { return }
         switch action {
         case .ignore, .markExhaustedOnly:
             return
@@ -337,7 +340,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         switchStartedAt: Date
     ) {
         var gate = gate
-        for event in eventsDuringSwitch[panelId] ?? [] {
+        for event in runs.events(panelId: panelId) {
             gate.observe(kind: event.kind, sessionId: event.sessionId, occurredAtMs: event.occurredAtMs)
         }
         pendingContinues[panelId] = PendingContinue(
