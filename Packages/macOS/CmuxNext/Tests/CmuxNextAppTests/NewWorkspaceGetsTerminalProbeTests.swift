@@ -30,8 +30,9 @@ struct NewWorkspaceGetsTerminalProbeTests {
                 let panes = (controller.content?.panes.values.map { pane in
                     "\(pane.paneKey):" + (pane.selectedTab.map { "\($0.kind)" } ?? "none") + "/\(pane.pane.tabs.count)"
                 } ?? []).sorted().joined(separator: ",")
-                let store = services.machines.local.store.workspaces.first { $0.id.rawValue == workspace || "\($0.key?.rawValue ?? "")" == workspace }
-                let tabs = store.map { ws in ws.screens.flatMap { $0.panes.flatMap { $0.tabs.map { "\($0.kind)" } } }.joined(separator: ",") } ?? "no store workspace"
+                let model: WorkspaceModel? = services.workspace(id: workspace)
+                let kinds: [String] = model?.screens.flatMap { screen in screen.panes.flatMap { pane in pane.tabs.map { tab in "\(tab.kind)" } } } ?? []
+                let tabs = model == nil ? "no store workspace" : kinds.joined(separator: ",")
                 return "shows \(controller.state.workspaceID ?? "nil"); panes [\(panes)]; store tabs [\(tabs)]"
             }
             var log: [String] = []
