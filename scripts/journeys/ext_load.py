@@ -152,14 +152,30 @@ def step_load_stop(j, step):
         except subprocess.TimeoutExpired:
             proc.kill()
     j.load = None
-    manifest = load["out"] / load["profile"] / "manifest.json"
-    focus_changed = None
-    try:
-        focus_changed = json.loads(manifest.read_text()).get("focus_changed")
-    except (OSError, ValueError):
-        pass
-    return {"profile": load["profile"], "exit": proc.returncode, "alive_at_stop": alive, "focus_changed": focus_changed,
-            "manifest": str(manifest)}
+    # Every profile that ran (L6: its five children) must have kept the focus and been stopped by this step, not by its
+    # own timer (review must-fix 1 and 2 at e19d42d215a); the tool runs with --duration 0, so only SIGTERM ends it.
+    top = load["out"] / load["profile"]
+    names = [load["profile"]] if load["profile"] != "L6" else ["L1", "L2", "L3", "L4", "L5"]
+    parts, focus_changed, stopped_ok = {}, False, True
+    for name in names:
+        path = top / "manifest.json" if name == load["profile"] else top / name / "manifest.json"
+        try:
+            m = json.loads(path.read_text())
+        except (OSError, ValueError) as error:
+            m = {"missing": str(error)[:120]}
+        parts[name] = {k: m.get(k) for k in ("focus_changed", "stopped_by", "missing")}
+        if m.get("focus_changed") is not False:
+            focus_changed = None if m.get("focus_changed") is None and focus_changed is False else True
+        if m.get("stopped_by") in (None, "duration"):
+            stopped_ok = False
+    all_ready = True
+    if load["profile"] == "L6":
+        try:
+            all_ready = json.loads((top / "manifest.json").read_text()).get("all_ready") is True
+        except (OSError, ValueError):
+            all_ready = False
+    return {"profile": load["profile"], "exit": proc.returncode, "alive_at_stop": alive and stopped_ok and all_ready,
+            "focus_changed": focus_changed, "stopped_by_step": stopped_ok, "all_ready": all_ready, "parts": parts}
 
 
 def step_typist_play(j, step):

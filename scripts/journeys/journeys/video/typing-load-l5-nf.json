@@ -122,7 +122,7 @@
       "do": "load_start",
       "profile": "L5",
       "seed": 7,
-      "duration": 240,
+      "duration": 0,
       "keep": "typing",
       "ready_timeout": 120,
       "args": []
