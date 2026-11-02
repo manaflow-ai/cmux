@@ -26,6 +26,7 @@ struct ColdFocusedTerminalTypeAheadTests {
         var selectedContentIsAlive: Bool { false }
         var isFocusedInWorkspace: Bool { false }
         func showSelected() {}
+        func showWhileWaiting() {}
     }
 
     @Test func aLineTypedAsAColdWorkspaceShowsReachesItsFocusedTerminalInOrder() async throws {

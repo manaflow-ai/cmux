@@ -18,6 +18,7 @@ struct FocusedPanePresentedFirstTests {
             (self.name, isFocusedInWorkspace, self.record) = (name, focused, record)
         }
         func showSelected() { record(name) }
+        func showWhileWaiting() {}
     }
 
     /// Display frames the test runs: `fire()` runs the frame asked for so far.
