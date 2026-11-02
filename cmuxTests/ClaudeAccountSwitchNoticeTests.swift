@@ -139,9 +139,9 @@ struct ClaudeAccountSwitchNoticeTests {
         #expect(notice.title.contains(ClaudeAccountRegistry.defaultAccountName))
         #expect(notice.message.contains(built.command))
         #expect(notice.message != resumeManuallyNotice.message)
-        // A notification has no Type Resume Command button, so its text differs from the alert's.
-        #expect(notice.notificationMessage.contains(built.command))
-        #expect(notice.notificationMessage != notice.message)
+        // The alert drops Type Resume Command when the pane closed during the exit wait, so its
+        // text names no button, like a notification's.
+        #expect(notice.notificationMessage == notice.message)
     }
 
     @Test

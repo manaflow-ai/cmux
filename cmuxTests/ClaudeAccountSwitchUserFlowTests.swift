@@ -104,6 +104,37 @@ struct ClaudeAccountSwitchUserFlowTests {
         #expect(recorder.typedInputs.isEmpty)
     }
 
+    /// The pane closed while the switch waited for the old Claude to exit, so the notice for a
+    /// failed transcript re-sync comes without the Type Resume Command action, and its text must
+    /// not send the user to that button.
+    @Test
+    func paneClosedDuringTheExitWaitGetsATextThatNamesNoTypeAction() throws {
+        let workspace = Workspace()
+        let closedPanelId = UUID()
+        #expect(workspace.terminalPanel(for: closedPanelId) == nil)
+        let built = makeManualResume(paneWasReplaced: false)
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: built.command,
+            typedInput: built.typedInput,
+            reason: .transcriptResyncFailed
+        )
+        let recorder = FlowRecorder(confirms: false)
+
+        recorder.flow.report(
+            .switchedWithoutResume(try makePlan(), .copied, manualResume),
+            accountName: "work",
+            workspace: workspace,
+            panelId: closedPanelId
+        )
+
+        #expect(recorder.actions.count == 1)
+        #expect(recorder.actions.first.flatMap { $0 } == nil)
+        let notice = try #require(recorder.notices.first)
+        let buttonTitle = String(localized: "dialog.claudeAccountSwitch.typeResumeCommand", defaultValue: "Type Resume Command")
+        #expect(notice.message.contains(manualResume.command))
+        #expect(!notice.message.contains(buttonTitle))
+    }
+
     @Test
     func resumeInputIsNotTypedIntoAPaneThatNoLongerHoldsThePanel() throws {
         let workspace = Workspace()
