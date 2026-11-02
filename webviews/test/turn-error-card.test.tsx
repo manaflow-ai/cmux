@@ -457,7 +457,9 @@ test("CodeRouter is offered on key, sign-in and capacity failures, never to a ch
     expect([kind, offersOwnRoute(kind, claude)]).toEqual([kind, false]);
   expect(offersOwnRoute("invalid-key", { name: "Claude (CodeRouter)", harness: "claude-cr" })).toBe(false);
   // A Cloud machine's chat signs in from the Mac: no CodeRouter offer on it.
-  expect(offersOwnRoute("subscription-login", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(false);
+  expect(offersOwnRoute("subscription-login", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(
+    false,
+  );
   expect(offersOwnRoute("auth", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(false);
 });
 
