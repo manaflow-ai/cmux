@@ -29,6 +29,20 @@ pub const KIND_VISIBLE: u32 = 0;
 pub const KIND_HIDDEN: u32 = 1;
 pub const KIND_NOT_DRAWN: u32 = 2;
 
+pub const ANCHOR_TAB_CHIP: u32 = 0;
+pub const ANCHOR_TAB_STRIP: u32 = 1;
+pub const ANCHOR_COLUMN_EDGE_LEADING: u32 = 2;
+pub const ANCHOR_COLUMN_EDGE_TRAILING: u32 = 3;
+pub const ANCHOR_COLUMN_EDGE_TOP: u32 = 4;
+pub const ANCHOR_COLUMN_EDGE_BOTTOM: u32 = 5;
+pub const ANCHOR_WORKSPACE_ROW: u32 = 6;
+pub const ANCHOR_WINDOW_EDGE: u32 = 7;
+
+pub const REASON_TAB_CLOSED: u32 = 0;
+pub const REASON_NOT_IN_ANY_WINDOW: u32 = 1;
+pub const REASON_MINIMIZED: u32 = 2;
+pub const REASON_OTHER_SPACE: u32 = 3;
+
 /// A rect keyed by an id: a sidebar row (key: its workspace) or a tab chip (key: its tab).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -111,9 +125,9 @@ pub struct CmuxCursorVisibility {
     pub kind: u32,
     /// The window's id (`CmuxCursorWindow.id`).
     pub window: u32,
-    /// 0 tabChip, 1 tabStrip, 2..5 columnEdge leading, trailing, top, bottom, 6 workspaceRow, 7 windowEdge.
+    /// `ANCHOR_*`.
     pub anchor: u32,
-    /// 0 tabClosed, 1 notInAnyWindow, 2 minimized, 3 otherSpace.
+    /// `REASON_*`.
     pub reason: u32,
     pub viewport: Rect,
     pub clip: Rect,
@@ -261,24 +275,24 @@ impl SnapshotView for Typed<'_> {
 /// The anchor's wire number (the header's list).
 pub fn anchor_number(anchor: Anchor) -> u32 {
     match anchor {
-        Anchor::TabChip => 0,
-        Anchor::TabStrip => 1,
-        Anchor::ColumnEdge(Edge::Leading) => 2,
-        Anchor::ColumnEdge(Edge::Trailing) => 3,
-        Anchor::ColumnEdge(Edge::Top) => 4,
-        Anchor::ColumnEdge(Edge::Bottom) => 5,
-        Anchor::WorkspaceRow => 6,
-        Anchor::WindowEdge => 7,
+        Anchor::TabChip => ANCHOR_TAB_CHIP,
+        Anchor::TabStrip => ANCHOR_TAB_STRIP,
+        Anchor::ColumnEdge(Edge::Leading) => ANCHOR_COLUMN_EDGE_LEADING,
+        Anchor::ColumnEdge(Edge::Trailing) => ANCHOR_COLUMN_EDGE_TRAILING,
+        Anchor::ColumnEdge(Edge::Top) => ANCHOR_COLUMN_EDGE_TOP,
+        Anchor::ColumnEdge(Edge::Bottom) => ANCHOR_COLUMN_EDGE_BOTTOM,
+        Anchor::WorkspaceRow => ANCHOR_WORKSPACE_ROW,
+        Anchor::WindowEdge => ANCHOR_WINDOW_EDGE,
     }
 }
 
 /// The reason's wire number (the header's list).
 pub fn reason_number(reason: NotDrawnReason) -> u32 {
     match reason {
-        NotDrawnReason::TabClosed => 0,
-        NotDrawnReason::NotInAnyWindow => 1,
-        NotDrawnReason::Minimized => 2,
-        NotDrawnReason::OtherSpace => 3,
+        NotDrawnReason::TabClosed => REASON_TAB_CLOSED,
+        NotDrawnReason::NotInAnyWindow => REASON_NOT_IN_ANY_WINDOW,
+        NotDrawnReason::Minimized => REASON_MINIMIZED,
+        NotDrawnReason::OtherSpace => REASON_OTHER_SPACE,
     }
 }
 

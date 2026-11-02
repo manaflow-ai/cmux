@@ -303,3 +303,86 @@ fn agent_cursor_typed_refuses_bad_input() {
     assert_eq!(unsafe { cmux_agent_cursor_visibility(&outside, &mut kept) }, ERR_INVALID);
     assert_eq!(kept, before, "a refused call leaves out as it was");
 }
+
+const HEADER: &str = include_str!("../include/cmux_layout_reducer_ffi.h");
+
+/// Every `CMUX_CURSOR_*` number of the C header is the Rust constant of the
+/// same name, and every anchor and reason maps to its header constant: the
+/// numbers are written by hand on both sides, so a mismatch fails here.
+#[test]
+fn agent_cursor_typed_numbers_are_the_header_constants() {
+    let mut header = HashMap::new();
+    for line in HEADER.lines() {
+        let Some(rest) = line.strip_prefix("#define CMUX_CURSOR_") else { continue };
+        let mut words = rest.split_whitespace();
+        let (Some(name), Some(value)) = (words.next(), words.next()) else { continue };
+        let value: u32 = value.trim_end_matches('u').parse().unwrap();
+        header.insert(name.to_owned(), value);
+    }
+    let rust = [
+        ("WINDOW_MINIMIZED", WINDOW_MINIMIZED),
+        ("WINDOW_ON_ACTIVE_SPACE", WINDOW_ON_ACTIVE_SPACE),
+        ("WINDOW_SIDEBAR_HIDDEN", WINDOW_SIDEBAR_HIDDEN),
+        ("PANE_HAS_FRAME", PANE_HAS_FRAME),
+        ("PANE_HAS_CLIP", PANE_HAS_CLIP),
+        ("PANE_HAS_STRIP", PANE_HAS_STRIP),
+        ("PANE_HAS_PAGE", PANE_HAS_PAGE),
+        ("PANE_HAS_SCALE", PANE_HAS_SCALE),
+        ("VISIBLE", KIND_VISIBLE),
+        ("HIDDEN", KIND_HIDDEN),
+        ("NOT_DRAWN", KIND_NOT_DRAWN),
+        ("ANCHOR_TAB_CHIP", ANCHOR_TAB_CHIP),
+        ("ANCHOR_TAB_STRIP", ANCHOR_TAB_STRIP),
+        ("ANCHOR_COLUMN_EDGE_LEADING", ANCHOR_COLUMN_EDGE_LEADING),
+        ("ANCHOR_COLUMN_EDGE_TRAILING", ANCHOR_COLUMN_EDGE_TRAILING),
+        ("ANCHOR_COLUMN_EDGE_TOP", ANCHOR_COLUMN_EDGE_TOP),
+        ("ANCHOR_COLUMN_EDGE_BOTTOM", ANCHOR_COLUMN_EDGE_BOTTOM),
+        ("ANCHOR_WORKSPACE_ROW", ANCHOR_WORKSPACE_ROW),
+        ("ANCHOR_WINDOW_EDGE", ANCHOR_WINDOW_EDGE),
+        ("REASON_TAB_CLOSED", REASON_TAB_CLOSED),
+        ("REASON_NOT_IN_ANY_WINDOW", REASON_NOT_IN_ANY_WINDOW),
+        ("REASON_MINIMIZED", REASON_MINIMIZED),
+        ("REASON_OTHER_SPACE", REASON_OTHER_SPACE),
+    ];
+    assert_eq!(header.len(), rust.len(), "header constants {header:?}");
+    for (name, value) in rust {
+        assert_eq!(header.get(name), Some(&value), "CMUX_CURSOR_{name}");
+    }
+    let anchors = [
+        (Anchor::parse("tabChip"), "ANCHOR_TAB_CHIP"),
+        (Anchor::parse("tabStrip"), "ANCHOR_TAB_STRIP"),
+        (Anchor::parse("columnEdge.leading"), "ANCHOR_COLUMN_EDGE_LEADING"),
+        (Anchor::parse("columnEdge.trailing"), "ANCHOR_COLUMN_EDGE_TRAILING"),
+        (Anchor::parse("columnEdge.top"), "ANCHOR_COLUMN_EDGE_TOP"),
+        (Anchor::parse("columnEdge.bottom"), "ANCHOR_COLUMN_EDGE_BOTTOM"),
+        (Anchor::parse("workspaceRow"), "ANCHOR_WORKSPACE_ROW"),
+        (Anchor::parse("windowEdge"), "ANCHOR_WINDOW_EDGE"),
+    ];
+    for (anchor, name) in anchors {
+        assert_eq!(Some(anchor_number(anchor.unwrap())), header.get(name).copied(), "{name}");
+    }
+    let reasons = [
+        (NotDrawnReason::TabClosed, "REASON_TAB_CLOSED"),
+        (NotDrawnReason::NotInAnyWindow, "REASON_NOT_IN_ANY_WINDOW"),
+        (NotDrawnReason::Minimized, "REASON_MINIMIZED"),
+        (NotDrawnReason::OtherSpace, "REASON_OTHER_SPACE"),
+    ];
+    for (reason, name) in reasons {
+        assert_eq!(Some(reason_number(reason)), header.get(name).copied(), "{name}");
+    }
+}
+
+/// The vectors reach every anchor: a mapping no vector produces is only read, not tested.
+#[test]
+fn agent_cursor_typed_vectors_produce_every_anchor() {
+    let mut seen = std::collections::BTreeSet::new();
+    for (_, target, snapshot, _) in cases() {
+        let (flat, target, workspace, pane) = Flat::build(&target, &snapshot);
+        let (code, out) = call(&flat.snapshot(target, workspace, pane));
+        assert_eq!(code, OK);
+        if out.kind == KIND_HIDDEN {
+            seen.insert(out.anchor);
+        }
+    }
+    assert_eq!(seen.into_iter().collect::<Vec<_>>(), (0..=7).collect::<Vec<u32>>());
+}
