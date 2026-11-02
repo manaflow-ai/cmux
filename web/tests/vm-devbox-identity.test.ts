@@ -130,6 +130,8 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     expect(bake).toContain("${devboxJournalResetCommand}; sync; true");
     const verify = readScript("verify-devbox-image.ts");
     expect(verify).toContain("devboxIdentityCheckCommand()");
+    expect(verify).toContain("devboxSudoPasswordKeepsDaemonCommand()");
+    expect(verify).toContain("idleOk && cloneIdentityOk && sudoPasswordOk");
     expect(verify).toContain("...IDENTITY_CHECKS");
     expect(verify).toContain("root-prompt-names-${DEVBOX_HOSTNAME}");
     // The pty probes synchronize on the shell's own readiness signal, not a fixed delay.
