@@ -306,4 +306,25 @@ mod scroll {
         assert_eq!(bytes(status.focused_pane, status.focused_pane_len), b"p399");
         unsafe { cmux_scroll_free(scroll) };
     }
+
+    /// A clone is independent: events on one leave the other where it was.
+    #[test]
+    fn a_clone_is_an_independent_copy() {
+        let scroll = cmux_scroll_new(0);
+        let mut spring = CmuxScrollSpring::default();
+        sync_four(scroll, &mut spring, "p0");
+        let copy = unsafe { cmux_scroll_clone(scroll) };
+        assert!(!copy.is_null());
+        let mut copy_spring = spring;
+        unsafe { cmux_scroll_wheel(copy, &mut copy_spring, 1, 0) };
+        let original = unsafe { cmux_scroll_status(scroll) };
+        assert_eq!(bytes(original.focused_pane, original.focused_pane_len), b"p0");
+        let copied = unsafe { cmux_scroll_status(copy) };
+        assert_eq!(bytes(copied.focused_pane, copied.focused_pane_len), b"p2");
+        assert!(unsafe { cmux_scroll_clone(std::ptr::null()) }.is_null());
+        unsafe {
+            cmux_scroll_free(copy);
+            cmux_scroll_free(scroll);
+        }
+    }
 }

@@ -148,7 +148,7 @@ pub struct CmuxScrollStatus {
 }
 
 /// The ids a handle has seen, as numbers. Numbers are never reused.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Ids {
     by_name: HashMap<Box<[u8]>, u64>,
     names: HashMap<u64, Box<[u8]>>,
@@ -182,6 +182,7 @@ impl Ids {
     }
 }
 
+#[derive(Clone)]
 enum Inner {
     Columns(ColumnScrollState),
     Rows(RowScroll),
@@ -189,6 +190,7 @@ enum Inner {
 }
 
 /// One scrolling strip's reducer and its id table.
+#[derive(Clone)]
 pub struct Scroll {
     inner: Inner,
     ids: Ids,
@@ -508,9 +510,26 @@ pub extern "C" fn cmux_scroll_new(kind: u8) -> *mut Scroll {
     Scroll::new(kind).map_or(std::ptr::null_mut(), |scroll| Box::into_raw(Box::new(scroll)))
 }
 
+/// An independent copy of a handle (the app's copy-on-write of a value that
+/// owns one). Null for a null handle.
+///
 /// # Safety
 ///
-/// `scroll` is null or a live handle from `cmux_scroll_new`, freed once.
+/// `scroll` is null or a live handle used by one thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_scroll_clone(scroll: *const Scroll) -> *mut Scroll {
+    // SAFETY: the caller's contract.
+    match unsafe { scroll.as_ref() } {
+        Some(scroll) => catch_unwind(AssertUnwindSafe(|| Box::into_raw(Box::new(scroll.clone()))))
+            .unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// # Safety
+///
+/// `scroll` is null or a live handle from `cmux_scroll_new` or
+/// `cmux_scroll_clone`, freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_scroll_free(scroll: *mut Scroll) {
     if !scroll.is_null() {
