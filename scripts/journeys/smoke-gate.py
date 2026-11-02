@@ -19,7 +19,9 @@ Verdict:
   - FAIL when any round failed: the summary names each failing round, its step and the reason.
   - NOT JUDGED when no round failed but some did not run (no lease, a known gap, no memory pressure): no .pass
     file. A round whose type-at-once step could not make the window key (`known gap: ...`) is never a pass, and
-    a passed journey counts only when the round's hog log shows memory pressure (pressure() below).
+    a passed journey counts only when the round's hog log shows memory pressure (pressure() below). Such a round
+    is run again in its slot (at most --rounds replacements per run; see the note at PRESSURE_SAMPLES), so the verdict
+    stands on --rounds rounds under pressure; the summary names the replaced rounds.
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
   - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
@@ -103,6 +105,12 @@ def key_paths(out):
 PRESSURE_HELD_GB = 4.0
 PRESSURE_LEVEL = 20
 PRESSURE_SAMPLES = 30
+# A round that passed but whose hog log shows no pressure judges nothing (above). It is run again, at most this
+# many times per gate run in total (one per gate round), so a build is judged on GATE_ROUNDS rounds under pressure.
+# The level the hog reaches varies by round: on cmux17, 12 of 40 rounds (2026-11-01/02, four builds) held 14.25 GB
+# and grew swap by 7+ GB like the others, but their lowest level was 21-32, not <= PRESSURE_LEVEL. Without a
+# replacement, a build with no fault had about a 3% chance (0.7^10) of a .pass. A replacement round keeps its slot:
+# a real-key slot is typed with real keys again. A failed round is never replaced.
 
 
 def git(*args):
@@ -468,7 +476,9 @@ def main(argv=None):
         if state != "done":
             ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
                      "the GO's window and take its lease after the GO ends)")
-    for n in range(1, opts.rounds + 1):
+    slot, n, replaced = 1, 0, 0
+    while slot <= opts.rounds:
+        n += 1
         round_out = out / f"round-{n:02d}"
         go = None
         if opts.go_spec:
@@ -478,8 +488,10 @@ def main(argv=None):
                 rounds.append({"round": n, "steps": [], "status": "not run", "reason": why, "host": None, "seconds": 0,
                                "failing_step": None, "frames": [], "hog_logs": [], "pressure": {}, "hosts_offered": "",
                                "exclusive": None, "required_checks": {}, "required_missing": [], "known_gap": False,
-                               "key_gaps": [], "leases": [], "go": None})
+                               "key_gaps": [], "leases": [], "go": None, "slot": slot,
+                               "key_path": "real_hid" if slot in real_rounds else "debug.key"})
                 print(f"round {n}: not run ({why})", flush=True)
+                slot += 1
                 continue
             go_used.add(go["go"])
             print(f"round {n}: GO on {go['host']} until {time.strftime('%H:%M:%SZ', time.gmtime(go['until']))}", flush=True)
@@ -501,15 +513,13 @@ def main(argv=None):
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", hosts,
                                "--out", str(round_out), *(["--journey-option", "smoke_mode=diagnostic"] if opts.diagnostic else []),
-                               *(["--journey-option", "key_path=real"] if n in real_rounds else []),
+                               *(["--journey-option", "key_path=real"] if slot in real_rounds else []),
                                *(["--whole-host"] if opts.whole_host else [])],
                               capture_output=True, text=True, env=env)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
         row = round_result(round_out, opts.build, done.returncode, started)
         hog = pressure(round_out, opts.swap_gb)
-        if row.get("status") == "pass" and not hog["ok"]:
-            row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
         checks = required_checks(round_out)
         missing = missing_checks(checks)
         if row.get("status") == "pass" and missing:
@@ -523,12 +533,17 @@ def main(argv=None):
         if row.get("status") == "pass" and gaps:
             row = dict(row, status="not run", reason=gaps[0] + f" ({len(gaps)} key-window checks not judged)")
         paths, not_real = key_paths(round_out)
-        if n in real_rounds and row.get("status") == "pass" and (not_real or not paths.get("real_hid")):
+        if slot in real_rounds and row.get("status") == "pass" and (not_real or not paths.get("real_hid")):
             row = dict(row, status="not run", reason="a real-key round whose basic keys did not all take the real HID "
                                                      f"path: {not_real[:4] or 'no real_hid step'}")
         exclusive = exclusive_line(round_out)
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
+        # The pressure rule comes LAST: every check above can turn the round into a FAIL or a not run first, so
+        # only a round whose sole fault is the missing pressure gets no_pressure (and may be run again below).
+        no_pressure = row.get("status") == "pass" and not hog["ok"]
+        if no_pressure:
+            row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
         # run.py logs "leased <lease>": a slot lease (slot-<host>-<token>) or a whole-host lease (the host alias).
         leases = sorted(set(re.findall(r"\bleased (\S+)", done.stdout + done.stderr)))
         record = {"round": n, "steps": step_results(round_out), "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
@@ -538,7 +553,16 @@ def main(argv=None):
                   "known_gap": "known gap" in str(row.get("reason") or ""),
                   "key_gaps": gaps, "leases": leases,
                   "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None,
-                  "key_path": "real_hid" if n in real_rounds else "debug.key", "key_paths": paths}
+                  "key_path": "real_hid" if slot in real_rounds else "debug.key", "key_paths": paths, "slot": slot}
+        # Only a round whose sole fault is the hog's missing pressure is run again (a fail or another not-run
+        # reason stays). Diagnostic runs judge nothing, so they are never lengthened.
+        again = no_pressure and not opts.diagnostic and replaced < opts.rounds
+        if again:
+            replaced += 1
+            record["replaced"] = True
+            record["reason"] += f" (round run again for slot {slot}: replacement {replaced} of at most {opts.rounds})"
+        else:
+            slot += 1
         rounds.append(record)
         if go:
             took = bool(leases) or record["status"] in ("pass", "fail")
@@ -549,7 +573,8 @@ def main(argv=None):
 
     passed = sum(1 for r in rounds if r["status"] == "pass")
     failed = [r for r in rounds if r["status"] == "fail"]
-    not_run = [r for r in rounds if r["status"] not in ("pass", "fail")]
+    not_run = [r for r in rounds if r["status"] not in ("pass", "fail") and not r.get("replaced")]
+    replaced_rounds = [r["round"] for r in rounds if r.get("replaced")]
     verdict = ("PASS" if gate_run else "TRIAL PASS") if passed == opts.rounds else ("FAIL" if failed else "NOT JUDGED")
     if opts.diagnostic:
         # Diagnostic rounds judge nothing: their findings are in the per-step report.
@@ -559,7 +584,7 @@ def main(argv=None):
                "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "diagnostic": opts.diagnostic,
                "whole_host": opts.whole_host, "go_spec": opts.go_spec, "real_key_rounds": real_rounds,
                "real_key_passed": sum(1 for r in rounds if r.get("key_path") == "real_hid" and r["status"] == "pass"),
-               "expects": expect_table(rounds), "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
+               "expects": expect_table(rounds), "replaced_rounds": replaced_rounds, "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     ran = ("journeys completed" if opts.diagnostic else "rounds passed")
@@ -569,7 +594,8 @@ def main(argv=None):
              + ("; diagnostic rounds judge nothing, so no .pass file" if opts.diagnostic else
                 "" if gate_run else f"; a trial: the gate needs {GATE_ROUNDS} rounds at +{GATE_SWAP_GB:g} GB with at least "
                 f"{GATE_REAL_KEY_ROUNDS} real-key rounds, so no .pass file")
-             + f"; real HID keys in rounds {real_rounds}"]
+             + f"; real HID keys in rounds {real_rounds}"
+             + (f"; rounds {replaced_rounds} showed no memory pressure and were run again" if replaced_rounds else "")]
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture lease could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")
@@ -582,7 +608,8 @@ def main(argv=None):
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
         hog = r["pressure"]
-        lines.append(f"  round {r['round']:2d} on {r['host']} ({r.get('key_path')}): {r['status']}" + (f" -- {detail}" if detail else "")
+        lines.append(f"  round {r['round']:2d} (slot {r.get('slot')}) on {r['host']} ({r.get('key_path')}): "
+                     + ("replaced" if r.get("replaced") else r["status"]) + (f" -- {detail}" if detail else "")
                      + f" [hog held {hog.get('held_gb_max')} GB, swap +{hog.get('swap_growth_gb')} GB, level min {hog.get('level_min')}]"
                      + (f" -- {(r['reason'] or '')[:200]}" if r["status"] != "pass" and not detail else ""))
     text = "\n".join(lines)

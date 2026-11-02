@@ -1,0 +1,175 @@
+{
+ "id": "video-col-drag",
+ "priority": "P0",
+ "title": "Video: drag a column divider slow, fast and as a fling (real HID mouse), recorded every frame",
+ "why": "Lawrence: resizing columns does not animate pixel perfect. Three recordings of the real app with a real HID drag of the first column divider: slow (3 s), fast (250 ms) and a fling (80 ms). The judge reads the movie, the scanlines and the trace.",
+ "source": "handoff/resize-videos (RESIZE VIDEOS P0, Lawrence 2026-11-02 on f350103: 'resizing columns is still not animating pixel perfect')",
+ "budget_seconds": 240,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rv"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'line %g of the column drag video, wrapping text to show reflow' 1 400",
+   "enter": true
+  },
+  {
+   "do": "key",
+   "title": "set-up: New Column (Ctrl-Cmd-D through debug.key; the drag is under test)",
+   "key": "d",
+   "modifiers": [
+    "control",
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'pane text %g, a long line that wraps when the column narrows' 1 400",
+   "enter": true
+  },
+  {
+   "do": "key",
+   "title": "set-up: New Column (Ctrl-Cmd-D through debug.key; the drag is under test)",
+   "key": "d",
+   "modifiers": [
+    "control",
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'pane text %g, a long line that wraps when the column narrows' 1 400",
+   "enter": true
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "col-drag-slow",
+   "require_hz": 120
+  },
+  {
+   "do": "layout_note",
+   "as": "before"
+  },
+  {
+   "do": "hid_drag",
+   "target": {
+    "divider": 0
+   },
+   "by": [
+    -320,
+    0
+   ],
+   "duration_ms": 3000,
+   "mark": "col-drag-slow"
+  },
+  {
+   "do": "video_stop",
+   "name": "col-drag-slow",
+   "tail": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "col-drag-fast",
+   "require_hz": 120
+  },
+  {
+   "do": "layout_note",
+   "as": "before"
+  },
+  {
+   "do": "hid_drag",
+   "target": {
+    "divider": 0
+   },
+   "by": [
+    320,
+    0
+   ],
+   "duration_ms": 250,
+   "mark": "col-drag-fast"
+  },
+  {
+   "do": "video_stop",
+   "name": "col-drag-fast",
+   "tail": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "col-drag-fling",
+   "require_hz": 120
+  },
+  {
+   "do": "layout_note",
+   "as": "before"
+  },
+  {
+   "do": "hid_drag",
+   "target": {
+    "divider": 0
+   },
+   "by": [
+    -420,
+    0
+   ],
+   "duration_ms": 80,
+   "mark": "col-drag-fling",
+   "steps": 10
+  },
+  {
+   "do": "video_stop",
+   "name": "col-drag-fling",
+   "tail": 0.8
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the drags the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
