@@ -830,23 +830,36 @@ fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
     assert_eq!(acpmux.reads(), before + 1, "the activity push read nothing");
 
     // While the index restarts or chats are off, nothing is imported: an
-    // empty list there is not every harness losing its folders.
-    for idle in [
+    // empty list there is not every harness losing its folders. Each idle
+    // read is followed by a list with a new marker folder; the import runs
+    // the reads in order, so once the marker shows, the idle read was handled.
+    // A codex source dropped and imported again would get a new first_seen_ms.
+    let first_seen = find(&projects, &app)["sources"]["codex"]["first_seen_ms"].clone();
+    for (index, idle) in [
         json!({"ready": false, "enabled": true, "projects": []}),
         json!({"ready": true, "enabled": false, "projects": []}),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let marker = format!("{root}/marker-{index}");
         let before = acpmux.reads();
         acpmux.set(idle.clone());
         acpmux.changed("removed");
+        // The fake counts a read after it took its answer: from here the idle
+        // list is on its way, and the next list cannot replace it.
         let deadline = Instant::now() + Duration::from_secs(20);
         while acpmux.reads() == before {
             assert!(Instant::now() < deadline, "no read after {idle}");
             std::thread::sleep(Duration::from_millis(25));
         }
-        // The read is answered before the import would commit; one list
-        // after it shows what that read left.
-        std::thread::sleep(Duration::from_millis(200));
-        let projects = daemon.list(json!({"include_hidden": true}));
-        assert_eq!(find(&projects, &app)["sources"]["codex"]["last_used_ms"], "30", "{idle}");
+        acpmux.set(answer(vec![row("codex", "app", 30), row("pi", &format!("marker-{index}"), 1)]));
+        acpmux.changed("upsert");
+        let projects = wait_for("the marker after the idle read", &|projects| {
+            projects.iter().any(|project| project["path"] == marker.as_str())
+        });
+        let codex = &find(&projects, &app)["sources"]["codex"];
+        assert_eq!(codex["first_seen_ms"], first_seen, "{idle}: codex left and came back");
+        assert_eq!(codex["last_used_ms"], "30", "{idle}");
     }
 }
