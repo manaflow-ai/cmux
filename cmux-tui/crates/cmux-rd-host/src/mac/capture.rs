@@ -101,6 +101,28 @@ fn wake_pipe() -> Res<(Fd, Fd)> {
     Ok((read, write))
 }
 
+/// Every display's streamed size (native pixels fitted to the decoder, as a session
+/// captures it), left to right, and the index of the main (menu bar) display.
+pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+    let content = SCShareableContent::get()
+        .map_err(|e| format!("screen capture is not allowed or failed: {e:?}"))?;
+    let mut displays = content.displays();
+    displays.sort_by(|a, b| a.frame().origin.x.total_cmp(&b.frame().origin.x));
+    let main = CGDisplay::main().id;
+    let current = displays.iter().position(|d| d.display_id() == main).unwrap_or(0);
+    let sizes = displays
+        .iter()
+        .map(|display| {
+            let native = match CGDisplay::new(display.display_id()).display_mode() {
+                Some(mode) => (mode.pixel_width() as u32, mode.pixel_height() as u32),
+                None => (display.width(), display.height()),
+            };
+            fit(native.0, native.1, None)
+        })
+        .collect();
+    Ok((sizes, current))
+}
+
 /// `main` (the menu bar display) or a display's index counted left to right.
 fn pick(displays: &[SCDisplay], which: &str) -> Res<SCDisplay> {
     if which == "main" {

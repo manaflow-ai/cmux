@@ -3,7 +3,7 @@
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
 
-mod capture;
+pub(crate) mod capture;
 mod input;
 mod keys;
 

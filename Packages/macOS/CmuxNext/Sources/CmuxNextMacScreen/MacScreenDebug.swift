@@ -112,7 +112,7 @@ extension MacScreenPages {
         return .object(row)
     }
 
-    private static func phaseName(_ phase: ScreenSession.Phase) -> String {
+    private static func phaseName(_ phase: MacScreenSession.Phase) -> String {
         switch phase {
         case .connecting: "connecting"
         case .connected: "connected"

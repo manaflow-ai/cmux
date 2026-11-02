@@ -189,6 +189,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         .iter()
         .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
         .collect();
+    // The displays first, so the viewer can offer a display picker; then the session key.
+    #[cfg(target_os = "macos")]
+    match crate::mac::capture::displays() {
+        Ok((sizes, current)) => say(json!({"displays": sizes, "current": current})),
+        Err(e) => say(json!({"displays": [], "current": 0, "error": e.to_string()})),
+    }
     let keys = KeyPair::generate()?;
     say(json!({"key": hex(&keys.public)}));
     let net = Net::start(NetConfig {
