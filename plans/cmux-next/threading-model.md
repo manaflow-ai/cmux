@@ -158,7 +158,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`, `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
+  `debug.window_record`, `debug.motion.record` (a `debug.motion` `record_*` movie in DEBUG and bench builds: its
+  ScreenCaptureKit frames, the encoder appends and the scanline and frame-list file writes; user-initiated, serial;
+  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
   process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the

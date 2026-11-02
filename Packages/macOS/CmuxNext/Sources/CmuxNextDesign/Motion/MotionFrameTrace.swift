@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextWakeups
 
@@ -13,7 +13,7 @@ import CmuxNextWakeups
 /// `read`. Each sample has `t` (ms since the first tick), `window` (`[width, height]`) and
 /// the keys the samplers give for the views they know: `tabs` (`[id, x, width, opacity]` per tab cell),
 /// `strip` (each tab strip's width: the pane content follows it in a live resize) and
-/// `sidebar` (`[width, presented width]`). `stop` also lists `looping`: animations in the
+/// `sidebar` (`[width, presented width]`). Every report has `t0_s`, the first tick's host time. `stop` also lists `looping`: animations in the
 /// window's own layer tree that repeat (Reduce Motion should leave none). A run ends by
 /// itself after ``maximumRun``, so a client that never stops leaves no display link running.
 final class MotionFrameTrace {
@@ -22,6 +22,8 @@ final class MotionFrameTrace {
     typealias Sampler = @MainActor (NSView) -> [String: [Any]]?
 
     static let shared = MotionFrameTrace()
+    /// `debug.motion` `record_*`'s recorder, kept beside the trace so a run can record and trace one window.
+    let recorder = MotionScreenRecord()
     static let maximumRun: Duration = .seconds(30)
     static let capacity = 6_000
 
@@ -95,7 +97,10 @@ final class MotionFrameTrace {
     }
 
     private func report(looping: Bool) -> [String: Any] {
-        var report: [String: Any] = ["running": client?.isActive == true, "refresh_ms": Self.round(refresh * 1_000), "samples": samples]
+        // `t0_s`: the first tick's host time (CACurrentMediaTime's clock, seconds), so a sample's `t` lines up
+        // with other clocks of this host (`debug.screen_record`'s frame display times, the input journal).
+        var report: [String: Any] = ["running": client?.isActive == true, "refresh_ms": Self.round(refresh * 1_000), "samples": samples,
+                                     "t0_s": first]
         if looping, let root = window?.contentView?.superview?.layer ?? window?.contentView?.layer {
             report["looping"] = Self.repeatingAnimations(under: root)
         }
