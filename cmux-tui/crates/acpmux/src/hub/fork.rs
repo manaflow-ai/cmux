@@ -557,8 +557,8 @@ impl Hub {
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
         if let Some((_, b)) = &before {
-            forked["beforePromptId"] = json!(b.prompt_id);
-            forked["promptSeq"] = json!(b.prompt_seq);
+            forked.set("beforePromptId", json!(b.prompt_id));
+            forked.set("promptSeq", json!(b.prompt_seq));
         }
         if running.is_some() {
             forked.set("midTurn", json!(true));

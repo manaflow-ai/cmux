@@ -97,7 +97,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         let mut mux = json!({"beforePromptId": prompt, "requestId": request});
         for key in ["via", "requireFullAccess"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
-                mux[key] = value.clone();
+                mux.set(key, value.clone());
             }
         }
         // Only this canonical operation may mint the internal boundary. All guards still run.
