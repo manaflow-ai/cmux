@@ -85,6 +85,9 @@ export function contextSection(
     },
   ];
   const breakdown = contextBreakdown(input.breakdown);
+  const free = breakdown?.rows.some((row) => row.kind === "buffer")
+    ? breakdown.rows.find((row) => row.kind === "free")
+    : undefined;
   let segments: { share: number; color: string }[] | undefined;
   if (breakdown) {
     segments = breakdown.rows
@@ -102,6 +105,9 @@ export function contextSection(
         trailing: `${tokens.format(row.tokens)} · ${row.share === undefined ? "—" : share.format(row.share)}`,
         tone: row.kind === "used" ? undefined : "muted",
         symbolColor: row.kind === "used" ? `context${row.tone ?? 0}` : row.kind === "buffer" ? "buffer" : "free",
+        ...(row.kind === "free" && free && input.onCompact
+          ? { subtitle: t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) }) }
+          : {}),
         ...(drawn ? { meter: row.share } : {}),
       });
     });
