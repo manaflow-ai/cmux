@@ -167,12 +167,13 @@ fn stage_key(send_id: &str, terminal: &str, stage: &str) -> String {
 
 /// The daemon's write key is an implementation detail. Return the caller's
 /// identity and the uncertain phase, so the *entire send* can be retried.
-fn stage_failure(mut failure: SendFailure, send_id: &str, phase: &str) -> SendFailure {
+fn stage_failure(mut failure: SendFailure, send_id: &str, terminal: &str, phase: &str) -> SendFailure {
     if !failure.failure.error.get("details").is_some_and(Value::is_object) {
         failure.failure.error.set("details", json!({}));
     }
     failure.failure.error.set_path(&["details", "send_id"], json!(send_id));
     failure.failure.error.set_path(&["details", "phase"], json!(phase));
+    failure.failure.error.set_path(&["details", "terminal"], json!(terminal));
     if failure.failure.kind == FailureKind::InProgress {
         let original = failure
             .failure
@@ -184,7 +185,7 @@ fn stage_failure(mut failure: SendFailure, send_id: &str, phase: &str) -> SendFa
         failure.failure.error.set(
             "message",
             json!(format!(
-                "{original}; {phase} may have applied; retry with --idempotency-key {send_id}"
+                "{original}; {phase} may have applied in {terminal}; retry that exact terminal id with --idempotency-key {send_id}"
             )),
         );
         failure.failure.error.set("retryable", json!(true));
@@ -360,6 +361,20 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let snapshot = snapshot(backend, session)?;
     let terminal = find_terminal(&snapshot, &request.target)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    // A send's durable child keys include this resolved terminal identity.
+    // Replaying a title, tab, prefix or "current" after it moves can instead
+    // create new keys and apply the prompt to another terminal. Require the
+    // exact resource ID whenever the caller supplies a replayable send key.
+    if request.idempotency_key.is_some() && request.target != id {
+        return Err(SendFailure::local(
+            "terminal.send_stable_target_required",
+            format!(
+                "a keyed send requires the full terminal ID {id}; use that ID on retry"
+            ),
+            json!({"terminal": id, "target": request.target}),
+            2,
+        ));
+    }
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
     let agent = roster::agent_of_terminal(terminal, agents);
     if !request.force
@@ -402,7 +417,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         )?;
         backend
             .request(session, plan)
-            .map_err(|error| stage_failure(error.into(), &send_id, stage))?;
+            .map_err(|error| stage_failure(error.into(), &send_id, &id, stage))?;
         Ok(())
     };
     let sent_ms = super::now_ms();
