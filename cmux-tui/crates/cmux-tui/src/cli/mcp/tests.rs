@@ -2106,7 +2106,7 @@ fn open_splits_and_opens_in_one_call() {
     assert!(
         result["structuredContent"]["recovery"]
             .as_str()
-            .is_some_and(|s| s.to_ascii_lowercase().contains("inspect")),
+            .is_some_and(|s| s.contains("Inspect created_pane")),
         "the pending open needs a usable recovery hint: {result}"
     );
     let sent = uncertain.backend.sent.borrow();
@@ -2114,6 +2114,46 @@ fn open_splits_and_opens_in_one_call() {
     assert!(
         !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
         "a lost acknowledgement must never close a possibly successful viewer: {sent:?}"
+    );
+    drop(sent);
+
+    // The same composite ID replays a split and app action under the same
+    // stage keys even if the app drops its acknowledgement twice.
+    uncertain.backend.sent.borrow_mut().clear();
+    let args = json!({"name": "open",
+        "arguments": {"kind": "file", "path": "/work/docs/notes.md", "where": "below",
+                      "idempotency_key": "same-open-request"}});
+    for _ in 0..2 {
+        let result = uncertain.call(&args).expect("open tool result");
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+        assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+        assert_eq!(
+            result["structuredContent"]["open_idempotency_key"], "same-open-request",
+            "{result}"
+        );
+    }
+    let sent = uncertain.backend.sent.borrow();
+    let keys = |operation: &str| {
+        sent.iter()
+            .filter(|s| s["request"]["operation"] == operation)
+            .filter_map(|s| s["request"]["idempotency_key"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let splits = keys("pane.split");
+    assert_eq!(splits.len(), 2, "{sent:?}");
+    assert_eq!(splits[0], splits[1], "same split key must be replayed");
+    let actions = sent.iter().filter(|s| s["method"] == "action.run").collect::<Vec<_>>();
+    assert_eq!(actions.len(), 2, "{sent:?}");
+    assert_eq!(actions[0]["key"], actions[1]["key"], "same app run key must be replayed");
+    assert!(
+        actions[0]["key"].as_str().is_some_and(|key| !key.is_empty()),
+        "a composite open must send a stable app action key"
+    );
+    assert!(splits[0] != actions[0]["key"].as_str().unwrap_or_default());
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "an uncertain open never rolls back its stage: {sent:?}"
     );
     drop(sent);
 
