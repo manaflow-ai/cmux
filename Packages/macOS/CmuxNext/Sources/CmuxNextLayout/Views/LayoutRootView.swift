@@ -593,9 +593,11 @@ public final class LayoutRootView: NSView {
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
-                let target = id == model.activeScreenID ? bounds : bounds.offsetBy(dx: 0, dy: 0)
-                frame.setTarget(target)
-                frame.x.snap(); frame.y.snap(); frame.width.snap(); frame.height.snap()
+                // Only the size follows the root at once. A screen switch in flight (its x and alpha springs)
+                // goes on from where it shows: snapping x and y here ended the slide in whatever frame a layout
+                // pass came, both screens jumping to the middle (`switchScreens` sets the slide's targets).
+                frame.width.snap(to: bounds.width)
+                frame.height.snap(to: bounds.height)
                 screenFrames[id] = frame
             }
         }

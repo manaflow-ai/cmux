@@ -44,7 +44,13 @@ export const VIDEO_INFO_DEADLINE_MS = 5_000;
 /// Whether `attachment` is a video that goes as its path: a link chip (a dropped, pasted or chosen
 /// file, or a saved copy) whose name is a movie's. The + menu's chooser gives no type, so the name decides.
 export function isVideoAttachment(attachment: ComposerAttachment): attachment is ComposerAttachment & { path: string } {
-  return attachment.kind === "link" && typeof attachment.path === "string" && VIDEO_PATH.test(attachment.path);
+  return attachment.kind === "link" && typeof attachment.path === "string" && isVideoName(attachment.path);
+}
+
+/// Whether a file named `name` is a movie the host reads: a chip still loading (or failed) takes
+/// the video tile's square shape by it, never a file chip's long name strip.
+export function isVideoName(name: string): boolean {
+  return VIDEO_PATH.test(name);
 }
 
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
