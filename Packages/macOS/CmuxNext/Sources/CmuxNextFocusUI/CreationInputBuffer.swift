@@ -1,4 +1,5 @@
 public import AppKit
+import os
 
 /// The keys of one window's pending creations or awaited surface, in typing order.
 @MainActor
@@ -23,6 +24,13 @@ public final class CreationInputBuffer {
     private var earlyTabs: [Int: String] = [:]
     /// Pending creations' provisional tabs, by ticket.
     private var tabs: [Int: String] = [:]
+    /// Creations that make a new workspace with its terminal (`open(…, newWorkspace: true)`), by ticket, until they
+    /// fail. The keys typed for one are that terminal's: they never go to anything else (an agent's message box).
+    private var workspaceTickets: Set<Int> = []
+    /// The workspace each of them made, once its reply came.
+    private var madeWorkspaces: [Int: String] = [:]
+    /// The focus generation (the person's newest intent) the newest creation of this hold was asked under.
+    public private(set) var newestGeneration: UInt64?
     private var nextID = 0
     /// When the hold began.
     public let began: ContinuousClock.Instant
@@ -44,9 +52,14 @@ public final class CreationInputBuffer {
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
     /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone).
-    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> Ticket {
+    /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
+    /// shows that workspace (``awaitedWorkspace``) and are dropped when it fails or never shows
+    /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``).
+    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false) -> Ticket {
         nextID += 1
         pending[nextID] = generation
+        newestGeneration = generation
+        if newWorkspace { workspaceTickets.insert(nextID) }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
@@ -143,19 +156,58 @@ public final class CreationInputBuffer {
 
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
-    public func resolve(_ ticket: Ticket, awaitsFocus: Bool) {
+    /// `workspace`: the workspace a new-workspace creation made (nil: it made none). A new-workspace creation that failed
+    /// takes the keys typed for its terminal with it: they never go to whatever has the focus instead.
+    public func resolve(_ ticket: Ticket, awaitsFocus: Bool, workspace: String? = nil) {
         guard ticket.owner == ObjectIdentifier(self) else { return }
         earlyTabs[ticket.id] = nil
         tabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }
         if pending.isEmpty { repliedAt = ContinuousClock.now }
         if awaitsFocus { awaited.insert(generation) }
+        guard workspaceTickets.contains(ticket.id) else { return }
+        if awaitsFocus, let workspace {
+            madeWorkspaces[ticket.id] = workspace
+        } else {
+            workspaceTickets.remove(ticket.id)
+            let before = events.count
+            events.removeAll { $0.creation == ticket.id }
+            Self.logDropped(before - events.count, why: "its create failed")
+        }
+    }
+
+    /// The workspace the newest new-workspace creation of this hold made: the window shows it before the keys go on.
+    /// Nil when the hold has none, or its reply has not come (``hasPendingCreation`` holds the keys then).
+    public var awaitedWorkspace: String? { workspaceTickets.max().flatMap { madeWorkspaces[$0] } }
+
+    /// Drops the held keys typed for a new workspace's terminal that the window does not show (`shown`: the workspace it
+    /// shows now): still on its way, or never shown. They are never run into what has the focus instead (Home's Chief
+    /// message box: dogfood v2.2.3, terminal input must never reach an agent). True when it dropped a creation's keys.
+    public func dropKeys(ofWorkspacesOtherThan shown: String?) -> Bool {
+        let unshown = workspaceTickets.filter { madeWorkspaces[$0] == nil || madeWorkspaces[$0] != shown }
+        guard !unshown.isEmpty else { return false }
+        let before = events.count
+        events.removeAll { $0.creation.map(unshown.contains) ?? false }
+        Self.logDropped(before - events.count, why: "the window never showed its workspace")
+        workspaceTickets.subtract(unshown)
+        return true
+    }
+
+    /// Held keys of a new workspace's terminal that never run: the log says how many and why.
+    private static func logDropped(_ count: Int, why: String) {
+        guard count > 0 else { return }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
+            .notice("\(count, privacy: .public) key(s) typed for a new workspace's terminal dropped: \(why, privacy: .public)")
     }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
-    /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``).
-    public func capture(_ event: NSEvent, focusedTab: String?) { events.append((event, lane(focusedTab: focusedTab))) }
+    /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``). A key typed for no creation's tab
+    /// while a new workspace's terminal is on its way and the person has not moved on (`forNewWorkspace`) is that
+    /// terminal's: its keys wait for the window to show it.
+    public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
+        events.append((event, lane(focusedTab: focusedTab) ?? (forNewWorkspace ? workspaceTickets.max() : nil)))
+    }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the
     /// keys held now. Each keeps the terminal it was typed for, also when it came from another hold: only the keys of

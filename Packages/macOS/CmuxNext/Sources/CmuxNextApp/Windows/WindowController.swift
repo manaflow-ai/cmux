@@ -129,6 +129,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        services.keyRouter.creationInputCoordinator.windowClosed(window) // a new terminal's keyboard claim goes with it
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()

@@ -434,7 +434,7 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
