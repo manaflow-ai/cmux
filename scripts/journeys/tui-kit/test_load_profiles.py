@@ -358,6 +358,33 @@ class Safety(Base):
         self.assertEqual(load_profiles.l6_exit({}), 2)
 
 
+class HeavyStop(Base):
+    def test_sigterm_stops_heavy_build_between_steps(self):
+        app = self.app()
+        out = os.path.join(self.tmp, "heavy")
+        proc = subprocess.Popen([PY, os.path.join(HERE, "heavy_profile.py"), "build", "--seed", "3", "--workspaces", "20",
+                                 "--tabs", "80", "--visible", "4", "--duration", "5", "--python", PY, "--app-socket",
+                                 app.path, "--socket", "/x/d.sock", "--cli", self.cli, "--app",
+                                 os.path.join(self.tmp, "X.app"), "--home", self.tmp, "--out", out, "--no-focus"],
+                                stdout=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and len(app.read_state()["workspaces"]) < 4:
+            time.sleep(0.02)
+        proc.terminate()
+        stdout, _ = proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 3, stdout)
+        with open(os.path.join(out, "heavy.json")) as f:
+            data = json.load(f)
+        made = {w["workspace_id"] for w in data["made"]["hidden"]}
+        live = {w["id"] for w in app.read_state()["workspaces"]} - {"ws_person"}
+        self.assertEqual(live, made, "every workspace the stand-in has is in heavy.json")
+        done = subprocess.run([PY, os.path.join(HERE, "heavy_profile.py"), "teardown", "--manifest",
+                               os.path.join(out, "heavy.json"), "--home", self.tmp], capture_output=True, text=True,
+                              timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assert_torn_down(app)
+
+
 class McpL2(Base):
     def test_clients_tools_and_no_cross_pane_move(self):
         done, out, app = self.run_tool("L2", "--duration", "2")
@@ -421,6 +448,8 @@ class AgentsL4(Base):
         self.assertEqual(len(m["agents"]), 6)
         self.assertTrue(all(a["mode"] == "terminal" and a["why"] for a in m["agents"]))
         self.assertEqual(m["agent_modes"], ["terminal"])
+        self.assert_no_focus_verbs()
+        self.assert_torn_down(app)
 
     def test_acp_falls_back_once_not_per_pane(self):
         start = time.monotonic()
@@ -433,7 +462,6 @@ class AgentsL4(Base):
         self.assertLess(time.monotonic() - start, 120)
         self.assertLessEqual(sum(1 for meth, p in app.methods if meth == "action.run"), 1)
         self.assertEqual(len([a for a in m["agents"] if a.get("why") == "the first pane's agent chat did not stream"]), 5)
-        self.assert_torn_down(app)
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 

@@ -240,6 +240,28 @@
       "title" : "Agent Chat Zoom",
       "type" : "number"
     },
+    "agents.autoRetry.attempts" : {
+      "default" : 4,
+      "description" : "How many times the chat tries again before it stops and waits for you.",
+      "maximum" : 12,
+      "minimum" : 1,
+      "title" : "Retries per Error",
+      "type" : "number"
+    },
+    "agents.autoRetry.enabled" : {
+      "default" : true,
+      "description" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+      "title" : "Retry Automatically",
+      "type" : "boolean"
+    },
+    "agents.autoRetry.intervalSeconds" : {
+      "default" : 0,
+      "description" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Seconds Between Retries",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
