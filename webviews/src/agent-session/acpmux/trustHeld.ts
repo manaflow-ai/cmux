@@ -58,7 +58,7 @@ export function whereHeldGoes(
   for (const entry of entries) {
     if (entry.chat !== undefined && (entry.chat !== shownChat || !composerShows))
       drafts.set(entry.chat, [...(drafts.get(entry.chat) ?? []), entry]);
-    else if (composerShows && shownChat === undefined) composer.push(entry);
+    else if (composerShows && entry.chat === shownChat) composer.push(entry);
     else later.push(entry);
   }
   return { composer, drafts, later };
