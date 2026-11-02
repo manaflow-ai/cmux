@@ -197,15 +197,28 @@ def bundle_path(tag):
 
 
 def front_app(launch):
-    """Whether the launched app is the frontmost app now (`lsappinfo front`), with both pids."""
+    """Whether the launched app is the frontmost app now: LaunchServices' front app (`lsappinfo front`, its pid) and
+    the app's own `NSApp.isActive` (`debug.focus` app_active). The raw lsappinfo output is kept for a failed parse."""
+    row = {"app_pid": launch.pid}
     try:
-        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
-        info = subprocess.run(["lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True, timeout=5).stdout
-        match = re.search(r'"pid"\s*=\s*(\d+)', info)
-        front = int(match.group(1)) if match else None
-    except (OSError, subprocess.SubprocessError):
-        front = None
-    return {"front_pid": front, "app_pid": launch.pid, "front": front is not None and front == launch.pid}
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5)
+        info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn.stdout.strip()],
+                              capture_output=True, text=True, timeout=5)
+        match = re.search(r'"?pid"?\s*=\s*(\d+)', info.stdout)
+        row["front_pid"] = int(match.group(1)) if match else None
+        if row["front_pid"] is None:
+            row["lsappinfo"] = {"front": (asn.stdout + asn.stderr)[:200], "info": (info.stdout + info.stderr)[:200]}
+    except (OSError, subprocess.SubprocessError) as error:
+        row["front_pid"] = None
+        row["lsappinfo"] = {"error": str(error)[:200]}
+    try:
+        focus = app_client(launch.tag, timeout=5).call("debug.focus").get("result") or {}
+        row["app_active"] = focus.get("app_active")
+    except (OSError, ValueError, SystemExit) as error:
+        row["app_active"] = None
+        row["focus_error"] = str(error)[:200]
+    row["front"] = row["front_pid"] is not None and row["front_pid"] == launch.pid
+    return row
 
 
 def pgrep(pattern):
