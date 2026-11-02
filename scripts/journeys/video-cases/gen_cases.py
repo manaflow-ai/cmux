@@ -17,22 +17,39 @@ import os
 import sys
 
 # -- the HARNESS kit's steps (KIT.md). One place to change. --------------------------------------------
-def kit_record_start(name, seconds):
-    return {"do": "video_start", "name": name, "seconds": seconds, "trace": True,
-            "title": f"start the 120 Hz recording and the geometry trace ({name})"}
+def kit_record_start(name, seconds, require_hz=None):
+    step = {"do": "video_start", "name": name, "seconds": seconds,
+            "title": f"start the movie and the geometry trace ({name})"}
+    if require_hz:
+        step["require_hz"] = require_hz
+    return step
 
 
-def kit_record_stop(name):
-    return {"do": "video_stop", "name": name, "title": f"stop the recording ({name}); its files go to the result"}
+def kit_record_stop(name, tail=1.0):
+    return {"do": "video_stop", "name": name, "tail": tail, "title": f"the motion ends; stop the recording ({name})"}
 
 
 def kit_key(key, mods, mark, title):
-    # A real HID key through CuaDriver (ext_realkey real_key), as a person presses it.
-    return {"do": "real_key", "key": key, "modifiers": mods, "mark": mark, "title": title}
+    # A real HID key through CuaDriver (ext_video hid_key), as a person presses it.
+    return {"do": "hid_key", "key": key, "modifiers": mods, "mark": mark, "title": title}
+
+
+def kit_drag(target, by, duration_ms, mark, title=None):
+    # A real HID drag (ext_video hid_drag, one move per 8 ms) from the target's center.
+    return {"do": "hid_drag", "target": target, "by": by, "duration_ms": duration_ms, "mark": mark,
+            "title": title or f"real drag of {target} by {by} in {duration_ms} ms"}
 
 
 # The TUI kit (owner 3): where its programs are on the mini, and one program per pane.
-TUIKIT = "${tuikit}"
+TUIKIT = "/tmp/jr-tuikit.py"
+TUIKIT_REF = "3d744f43626c"  # TUI kit PR #31507 head (scripts/journeys/tui-kit/tuikit.py), written to TUIKIT by a file step
+
+
+def tuikit_file():
+    import subprocess
+    text = subprocess.run(["git", "show", f"{TUIKIT_REF}:scripts/journeys/tui-kit/tuikit.py"], capture_output=True,
+                          text=True, check=True, cwd=os.path.dirname(os.path.abspath(__file__))).stdout
+    return {"do": "file", "path": TUIKIT, "text": text, "title": f"set-up: the TUI kit's tuikit.py at {TUIKIT_REF}"}
 LOAD_PROGRAMS = ("gradient", "sigwinch", "top", "flood", "gradient", "mouse",
                  "agent-stream", "gradient", "vim-scroll", "top", "gradient", "flood")
 
@@ -47,11 +64,12 @@ def load_cmd(index, heavy):
 
 # -- layout building blocks ---------------------------------------------------------------------------
 def first_pane(case_id, heavy):
-    steps = [{"do": "new_terminal", "name": case_id},
+    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
+             {"do": "new_terminal", "via": "key", "name": case_id},
              {"do": "neutral_prompt"},
              {"do": "name_pane", "as": "p0"},
              {"do": "window_place", "title": "set-up: the window at 90% x 90% of the screen", "fraction": [0.05, 0.05, 0.9, 0.9]}]
-    return steps + start_load(0, heavy)
+    return steps + ([tuikit_file()] if heavy else []) + start_load(0, heavy)
 
 
 def start_load(index, heavy):
@@ -125,7 +143,7 @@ def close(pane, mark, title=None):
 CASES = []
 
 
-def case(cid, title, build, play, seconds=4, variants=(("heavy", "dark"),)):
+def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2):
     for load, look in variants:
         heavy, dark = load == "heavy", look == "dark"
         jid = f"rv-{cid}-{load}-{look}"
@@ -134,12 +152,12 @@ def case(cid, title, build, play, seconds=4, variants=(("heavy", "dark"),)):
         while lead < len(play) and play[lead]["do"] == "use_pane":
             lead += 1
         steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5), kit_record_start(jid, seconds)]
-        steps += play[lead:] + [settle(seconds - 0.5), kit_record_stop(jid)] + after_check()
+        steps += play[lead:] + [kit_record_stop(jid, tail)] + after_check()
         CASES.append({"id": jid, "priority": "P1", "title": f"{title} ({load} load, {look})",
                       "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. "
                              "The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
                       "source": "RESIZE VIDEOS suite (handoff/resize-videos/FINDINGS.md)",
-                      "budget_seconds": 240, "steps": steps})
+                      "budget_seconds": 240, "options": {"key_path": "real"}, "steps": steps})
 
 
 ALL = (("heavy", "dark"), ("heavy", "light"), ("idle", "dark"))
@@ -157,12 +175,11 @@ case("close-in-row", "Close the middle of 3 split panes in a row: the neighbours
      lambda h: splits_in_row(3, h), close("p1", "close"), variants=ALL)
 # 4. The last pane of a column: middle column has 2 panes, close both (the column goes, neighbours fill).
 case("close-last-of-column", "Close both panes of the middle column one after the other: the column goes, neighbours fill",
-     lambda h: columns(3, h, rows=2), close("p3", "close1") + [settle(0.9)] + close("p2", "close2"), seconds=5)
+     lambda h: columns(3, h, rows=2), close("p3", "close1") + [settle(0.9)] + close("p2", "close2"))
 # 5. Several closes fast: each interrupts the last motion, which must go on from where it is.
 case("close-rapid", "Four Cmd-W 60 ms apart on a 3x2 grid of columns: each motion goes on from the current frame",
      lambda h: columns(3, h, rows=2),
-     [{"do": "use_pane", "pane": "p5", "click": True}] + [kit_key("w", ["cmd"], f"close{i}", f"Cmd-W {i}") for i in range(4)],
-     seconds=5)
+     [{"do": "use_pane", "pane": "p5", "click": True}] + [kit_key("w", ["cmd"], f"close{i}", f"Cmd-W {i}") for i in range(4)])
 # 6. Split during a running motion.
 case("split-during-close", "Cmd-W, then Cmd-D 80 ms later while the close still moves",
      lambda h: splits_in_row(3, h),
@@ -175,39 +192,35 @@ case("split-during-split", "Cmd-D, then Shift-Cmd-D 80 ms later while the first 
 case("zoom-12", "Zoom one of 12 panes (Shift-Cmd-Return), then unzoom",
      lambda h: columns(4, h, rows=3),
      [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
-      {"do": "wait", "seconds": 1.0}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out")], seconds=4, variants=ALL)
+      {"do": "wait", "seconds": 1.0}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out")], variants=ALL)
 case("zoom-interrupted", "Zoom in, then zoom out 100 ms later while the zoom still moves (12 panes)",
      lambda h: columns(4, h, rows=3),
      [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
       {"do": "wait", "seconds": 0.1}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out mid-motion")])
 # 8. Row divider drag: slow, fast, to the minimum and maximum clamp.
-for speed, events in (("slow", 90), ("fast", 8)):
-    case(f"row-drag-{speed}", f"Drag the divider between 2 stacked panes 200 points down, {speed} ({events} events at 120 Hz)",
+for speed, ms in (("slow", 1500), ("fast", 120)):
+    case(f"row-drag-{speed}", f"Drag the divider between 2 stacked panes 200 points down, {speed} (real HID, {ms} ms)",
          lambda h: splits_in_column(2, h),
-         [{"do": "divider_drag", "between": ["p0", "p1"], "by": 200, "events": events, "hz": 120, "mark": "drag"}])
+         [kit_drag({"row_divider": 0}, [0, 200], ms, "drag")])
 case("row-drag-clamp", "Drag the row divider past the minimum pane height, then past the maximum",
      lambda h: splits_in_column(2, h),
-     [{"do": "divider_drag", "between": ["p0", "p1"], "by": -2000, "events": 40, "hz": 120, "mark": "min"},
-      {"do": "wait", "seconds": 0.5},
-      {"do": "divider_drag", "between": ["p0", "p1"], "by": 4000, "events": 40, "hz": 120, "mark": "max"}], seconds=5)
+     [kit_drag({"row_divider": 0}, [0, -900], 400, "min", "past the minimum height"), {"do": "wait", "seconds": 0.5},
+      kit_drag({"row_divider": 0}, [0, 1800], 400, "max", "past the maximum height")])
 # 9. Split-divider drag in a row with 2, 3 and 6 panes (the strip column edge drags are the HARNESS owner's 3 cases).
 for n in (2, 3, 6):
     case(f"col-drag-{n}", f"Drag a vertical divider of {n} panes in a row 150 points right, then back, at 120 Hz",
          (lambda n: lambda h: splits_in_row(n, h))(n),
-         [{"do": "divider_drag", "between": ["p0", "p1"], "by": 150 if n < 6 else 60, "events": 40, "hz": 120, "mark": "drag"},
-          {"do": "divider_drag", "between": ["p0", "p1"], "by": -150 if n < 6 else -60, "events": 8, "hz": 120, "mark": "back"}],
-         seconds=4)
+         [kit_drag({"divider": 0}, [150 if n < 6 else 60, 0], 1000, "drag", "slow, right"), {"do": "wait", "seconds": 0.4},
+          kit_drag({"divider": 0}, [-150 if n < 6 else -60, 0], 100, "back", "fast, back")])
 case("col-drag-clamp", "Drag a vertical divider of 3 panes past the minimum width, then past the maximum",
      lambda h: splits_in_row(3, h),
-     [{"do": "divider_drag", "between": ["p0", "p1"], "by": -2000, "events": 40, "hz": 120, "mark": "min"},
-      {"do": "wait", "seconds": 0.5},
-      {"do": "divider_drag", "between": ["p0", "p1"], "by": 4000, "events": 40, "hz": 120, "mark": "max"}], seconds=5)
+     [kit_drag({"divider": 0}, [-1500, 0], 400, "min", "past the minimum width"), {"do": "wait", "seconds": 0.5},
+      kit_drag({"divider": 0}, [3000, 0], 400, "max", "past the maximum width")])
 # 10. Window resize with 12 panes (bottom-right corner, out and back).
 case("window-resize-12", "Live-resize the window with 12 panes: the corner 300 x 150 points in and back at 120 Hz",
      lambda h: columns(4, h, rows=3),
-     [{"do": "window_drag", "edge": "bottom-right", "by": [-300, -150], "events": 60, "hz": 120, "release": False, "mark": "in"},
-      {"do": "window_drag", "edge": "bottom-right", "by": [300, 150], "events": 60, "hz": 120, "press": False, "mark": "out"}],
-     seconds=4)
+     [kit_drag({"window_edge": "bottom-right"}, [-300, -150], 600, "in", "window corner in"), {"do": "wait", "seconds": 0.3},
+      kit_drag({"window_edge": "bottom-right"}, [300, 150], 600, "out", "window corner out")])
 # 11. 1 pane against 12 panes: the same split in a 1-pane and in a 12-pane layout.
 case("split-1pane", "Cmd-D in a single pane", lambda h: [], [kit_key("d", ["cmd"], "split", "Cmd-D")], variants=ALL)
 case("split-12pane", "Cmd-D in one of 12 panes", lambda h: columns(4, h, rows=3),
