@@ -853,6 +853,4 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
-
-/// The iPhone host is Computer Use approvals' phone collector (docs/computer-use-approvals.md, "Phone wire").
-extension IPhoneHostService: @retroactive ComputerUsePhoneHost {}
+extension IPhoneHostService: @retroactive ComputerUsePhoneHost {} // Computer Use approvals' phone (docs/computer-use-approvals.md)
