@@ -160,6 +160,25 @@ import Testing
         #expect(failing.pageReady && failed() == 1, "an error page takes keys: the hold must not wait for its bound")
     }
 
+    /// Lead on STATUS 7828: the second ready-for-keys in the journal (about 430 ms after the first) was another page's
+    /// (an app page with no key hold). One browser reports once, whatever loads after; a browser attached again (a
+    /// renderer restart) is a new page and reports once when it is ready again, never before.
+    @Test func aTabReportsReadyOncePerBrowserAndAgainOnlyAfterItIsReadyAgain() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 19)
+        Self.load(runtime, 19, "https://example.com/")
+        Self.load(runtime, 19, "https://example.com/again")
+        runtime.handle(.loadingState(browser: 19, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: 19, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://nowhere.invalid/", chromiumInterstitial: false))
+        runtime.handle(.loadingState(browser: 19, loading: false, canGoBack: false, canGoForward: false))
+        #expect(reported() == 1, "one browser reported ready \(reported()) times")
+        tab.attach(browser: 19)
+        #expect(!tab.pageReady && reported() == 1, "a browser attached again was ready before its page loaded")
+        Self.load(runtime, 19, "https://example.com/")
+        #expect(tab.pageReady && reported() == 2)
+    }
+
     /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports.
     private static func readyTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, () -> Int) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
