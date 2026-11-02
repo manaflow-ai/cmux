@@ -276,9 +276,14 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 // replay that chunk twice with the tail.
                 let settled =
                     surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0);
-                let (generation, end, size_settled) = {
+                let (generation, end, size_settled, gaps) = {
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                    (state.generation.clone(), state.next_offset(), state.note_size(size))
+                    (
+                        state.generation.clone(),
+                        state.next_offset(),
+                        state.note_size(size),
+                        state.gaps,
+                    )
                 };
                 let seen = Seen { digest, settled, end, size: Some(size) };
                 if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
@@ -294,7 +299,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     return Some((seen, size, Capture::Failed));
                 };
                 let replay = replay.into_self_contained_bytes();
-                Some((seen, size, Capture::Snapshot { replay, generation, stream_end: end }))
+                Some((seen, size, Capture::Snapshot { replay, generation, stream_end: end, gaps }))
             });
             // The reader hands its chunk over right after it releases the
             // parser lock: a short wait usually finds the terminal settled.
@@ -311,7 +316,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         let digest = seen.digest;
         let changed = plan.snapshot_digest != Some(digest);
         match capture {
-            Capture::Snapshot { replay, generation, stream_end } => {
+            Capture::Snapshot { replay, generation, stream_end, gaps } => {
                 match write(
                     directory,
                     &log.terminal_id,
@@ -332,6 +337,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                             size,
                             &generation,
                             stream_end,
+                            gaps,
                         );
                     }
                     Err(error) => {
@@ -516,6 +522,8 @@ enum Capture {
         replay: Vec<u8>,
         generation: Arc<str>,
         stream_end: u64,
+        /// The log's stream-gap count at the capture.
+        gaps: u64,
     },
 }
 
@@ -529,6 +537,7 @@ fn snapshot_written(
     size: (u16, u16),
     generation: &Arc<str>,
     stream_end: u64,
+    gaps: u64,
 ) {
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     state.snapshot_digest = Some(digest);
@@ -542,7 +551,9 @@ fn snapshot_written(
     state.snapshot_size = Some(size);
     // Bytes after the snapshot's end that `append` dropped while it was
     // written are in neither file: the next pass writes another snapshot.
-    state.force_snapshot = tail && state.pending_start > stream_end;
+    // So are a stream gap's (a host reconnect replaced the screen after the
+    // capture; the offset does not move for it).
+    state.force_snapshot = tail && (state.pending_start > stream_end || state.gaps != gaps);
     if !tail {
         drop(state);
         // The snapshot covers a tail file left from snapshot mode. Off the
@@ -560,7 +571,7 @@ fn snapshot_written(
     state.tail_bytes = 0;
     // The digest names the stored content only when nothing was dropped
     // after the snapshot's end.
-    state.tail_digest = (state.pending_start == stream_end).then_some(digest);
+    state.tail_digest = (state.pending_start == stream_end && state.gaps == gaps).then_some(digest);
     state.tail_unsynced = false;
     drop(state);
     // The snapshot covers the tail file. Off the log's lock (the reader

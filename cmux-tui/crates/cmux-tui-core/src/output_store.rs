@@ -284,6 +284,10 @@ struct LogState {
     /// (a full disk must not cost a whole replay per terminal every pass).
     retry_at: Option<Instant>,
     retry_delay: Duration,
+    /// Snapshot mode: counts the stream gaps (`OutputStore::stream_gap`). A
+    /// snapshot whose capture saw an older count does not hold the screen
+    /// after the gap, so it does not clear the request for one.
+    gaps: u64,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -320,6 +324,7 @@ impl LogState {
             store_error: false,
             retry_at: None,
             retry_delay: Duration::ZERO,
+            gaps: 0,
             size_seen: None,
         }
     }
@@ -852,8 +857,9 @@ impl OutputStore {
     /// came through [`Self::append`]. Snapshot mode: the tail must not
     /// continue across that gap; its unwritten bytes fall back to a snapshot
     /// of the replaced terminal, asked for at the next pass. (Full mode's
-    /// segment reads report the missing bytes as a gap by offset; its
-    /// restore is unchanged here.)
+    /// segment files never had the gap's bytes either, and their offsets stay
+    /// contiguous, so a full-mode rebuild after a reconnect lacks them: not
+    /// changed here.)
     pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
         if !self.tail_enabled() {
             return;
@@ -865,6 +871,7 @@ impl OutputStore {
         };
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.fall_back_to_snapshot();
+        state.gaps += 1;
         let wait = state.retry_wait();
         drop(state);
         match wait {
