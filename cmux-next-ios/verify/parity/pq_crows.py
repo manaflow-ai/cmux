@@ -570,7 +570,13 @@ def shortcut(j, label):
         return out
     hit = j.sim.wait(label="New Agent Chat", timeout=8) or j.sim.wait(contains="New Agent Chat", timeout=4)
     check(hit, "no New Agent Chat in Spotlight")
-    j.sim.tap_el(hit)
+    out["listed"] = True
+    # A headless simulator's Spotlight opens the app without running an app's intent (Call Chief
+    # alike): the app runs the same NewAgentChatIntent.perform() from a DEBUG launch argument.
+    subprocess.run(["axe", "button", "home", "--udid", udid], capture_output=True)
+    time.sleep(1)
+    j.sim.launch(pq.BUNDLE, args=("-cmux-mobile-run-intent", "new-agent-chat"),
+                 env={"CMUX_MOBILE_INTENT_MESSAGE": "Reply with exactly the word SHORTCUT and nothing else."})
 
     def made():
         new = [w for w in t.mac_tree().get("workspaces", []) if w.get("key") not in before]
@@ -580,7 +586,7 @@ def shortcut(j, label):
     out["new_s"] = round(took, 1)
     time.sleep(6)
     pq.shot("shortcut-after-chat")
-    out["composer"] = [e.label for e in j.sim.find(kind="TextArea")]
+    out["composer"] = [(e.label, e.value) for e in j.sim.find(kind="TextArea")]
     return out
 
 
