@@ -95,7 +95,12 @@ impl<B: Backend> Server<B> {
                 with_place.insert("pane".into(), json!(pane));
             }
             crate::cli::beside::Placement::NewColumn { workspace, chat_pane } => {
-                return Err(self.new_column(&unplaced, &workspace, &chat_pane));
+                let split = crate::cli::beside::split_params(&unplaced, &workspace, &chat_pane);
+                return Err(self.split_for(&unplaced, &workspace, split));
+            }
+            crate::cli::beside::Placement::SplitBelow { workspace, pane } => {
+                let split = crate::cli::beside::split_below_params(&unplaced, &workspace, &pane);
+                return Err(self.split_for(&unplaced, &workspace, split));
             }
         }
         Ok(Cow::Owned(with_place))
@@ -120,16 +125,16 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    /// The terminal a `tab_create_terminal` asked for, opened as a new
-    /// column right of the chat, then given its name.
-    fn new_column(
+    /// The terminal a `tab_create_terminal` asked for, opened by `split` (a
+    /// new column right of the chat, or a pane below the column's lone pane
+    /// of another kind), then given its name.
+    fn split_for(
         &self,
         arguments: &Map<String, Value>,
         workspace: &str,
-        chat_pane: &str,
+        mut split: Map<String, Value>,
     ) -> Value {
         let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut split = crate::cli::beside::split_params(arguments, workspace, chat_pane);
         if let Some(key) = key {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
@@ -171,6 +176,17 @@ impl<B: Backend> Server<B> {
         if call.session.is_some() {
             return Ok(());
         }
+        // A `current` browser is the one nearest the caller (#26648). A bare
+        // `browser: current` that the app cannot place keeps the daemon's chain,
+        // as before; a `current` level still needs the caller.
+        let browser = crate::cli::caller_browser::wants(params);
+        if browser
+            && !caller_scope::wants_caller(params)
+            && let Ok(Some(identity)) = self.backend.identity()
+            && identity.get("caller").is_some_and(caller_scope::is_placed)
+        {
+            crate::cli::caller_browser::apply(params, &identity)?;
+        }
         let caller = if caller_scope::wants_caller(params) {
             match self.backend.identity() {
                 // The app answers an agent session it has no chat for
@@ -179,6 +195,9 @@ impl<B: Backend> Server<B> {
                     let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
                     if !caller_scope::is_placed(&caller) {
                         return Err(caller_scope::unresolved("the app does not know this chat"));
+                    }
+                    if browser {
+                        crate::cli::caller_browser::apply(params, &identity)?;
                     }
                     Some(caller)
                 }
@@ -228,7 +247,28 @@ impl<B: Backend> Server<B> {
         let mut filled = arguments.clone();
         filled.entry("index").or_insert(json!(u32::MAX));
         if !filled.contains_key("destination_pane") {
-            if filled.contains_key("destination_workspace") {
+            if let Some(workspace) = filled.get("destination_workspace").cloned() {
+                // A workspace made with no content has no pane to take the tab: say so,
+                // where the daemon answered "no current screen" (tests/tool-evals r14a:
+                // GPT 6 Astra spent 3 steps after it).
+                let mut list = Map::new();
+                if let Some(session) = arguments.get("session") {
+                    list.insert("session".into(), session.clone());
+                }
+                list.insert("workspace".into(), workspace);
+                list.insert("limit".into(), json!(1));
+                let panes = self.read(v2_tools::find("pane_list"), &list)?;
+                if panes.get("items").and_then(Value::as_array).is_some_and(Vec::is_empty) {
+                    return Err(tool_error(envelope(
+                        v2_tools::invalid(
+                            "tab_move: that workspace has no pane to take the tab (it was \
+                             made empty); pane_create {workspace} makes one, then pass its \
+                             destination_pane",
+                        ),
+                        "not_run",
+                        None,
+                    )));
+                }
                 filled.entry("destination_screen").or_insert(json!("current"));
                 filled.insert("destination_pane".into(), json!("current"));
             }
@@ -274,7 +314,7 @@ impl<B: Backend> Server<B> {
 
     /// One read through the same path as a direct call (`current`, prefixes and the
     /// `<session>:` qualifier resolve as there): its record, or the failed call's answer.
-    fn read(
+    pub(super) fn read(
         &self,
         tool: Option<&v2_tools::V2Tool>,
         arguments: &Map<String, Value>,

@@ -46,8 +46,8 @@ job and never prints an empty `runner`:
         SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> signing_runner.py
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
-`signing_runner.py owned` prints only `owned` (pick-nightly-sign-runner already
-prints the Blacksmith pair).
+`signing_runner.py owned` prints `owned` and its shared `owned_pool` label
+(pick-nightly-sign-runner already prints the Blacksmith pair).
 """
 
 from __future__ import annotations
@@ -72,7 +72,9 @@ ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
 SIGNING_JOBS = {
-    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy"),
+    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
+                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github",
+                    "publish-nightly-next-github-names"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
@@ -111,8 +113,6 @@ DRAIN_SNAPSHOT_MAX_MINUTES = 15.0
 ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
 # A GitHub 5xx is retried this many times before the count gives up (run 40899583793's pick gave up on one 502).
 READ_RETRIES = 2
-
-
 def member(name: str) -> str:
     """The mini a glaeda runner runs on: its name before `-glaeda` (pool, gui, fast and dedicated runners alike)."""
     head, found, _ = (name or "").partition("-glaeda")
@@ -271,8 +271,11 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 jobs = every_page(read, f"/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
+                    labels = {str(label) for label in job.get("labels") or []}
+                    owned_route = any(label.startswith(pool.RUNNER_LABEL_PREFIX) or owned_label(label)
+                                      for label in labels)
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
-                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
+                            and owned_route):
                         count += 1
     return count
 
@@ -340,6 +343,17 @@ def owned_pick(env: Mapping[str, str],
                           drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE)
 
 
+def owned_pool_label(owned: str) -> str:
+    """Return the shared pool label from an owned pick, never its per-runner label."""
+    if not owned:
+        return ""
+    try:
+        labels = json.loads(owned)
+    except (TypeError, ValueError):
+        return ""
+    return labels[0] if isinstance(labels, list) and labels and isinstance(labels[0], str) else ""
+
+
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_jobs: Callable[[str], Any] | None = None,
@@ -357,8 +371,14 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
         return kept[0]
 
     owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded)
+    # A shared pool label is only safe once the controller can prove every eligible listener has the
+    # exclusive-capable hook. That aggregate does not exist yet, so publication controls use their
+    # trusted Blacksmith fallback while the runner-specific signing pick remains unchanged.
+    owned_pool = ""
+    owned_pool_why = "shared owned-pool publication route withheld until the controller supplies hook evidence"
     if list(argv[:1]) == ["owned"]:
-        write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
+        write_output(env, {"owned": owned, "owned_pool": owned_pool},
+                     [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})"])
         return 0
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
@@ -373,9 +393,10 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     label, other, why, verified = blacksmith_picker.place(variable, snapshot, now, attempt, problem)
     if not verified:
         print(f"::warning title=signing runner::{why}")
-    write_output(env, {"owned": owned, "runner": label, "alternate": other,
+    write_output(env, {"owned": owned, "owned_pool": owned_pool, "runner": label, "alternate": other,
                        "placement": "verified" if verified else "unverified"},
-                 [f"owned: {owned or 'none'} ({owned_why})", f"blacksmith: {why}; a re-run takes `{other}`"])
+                 [f"owned: {owned or 'none'} ({owned_why})", f"owned_pool: none ({owned_pool_why})",
+                  f"blacksmith: {why}; a re-run takes `{other}`"])
     return 0
 
 

@@ -134,13 +134,22 @@ import WebKit
 
     /// The person's raw capture of the window once the window server shows the page's red.
     private func rawCapture(_ fixture: Fixture) async throws -> CGImage {
-        let deadline = ContinuousClock.now + .seconds(5)
         let center = CGPoint(x: fixture.pageRect.midX, y: fixture.pageRect.midY)
-        while true {
-            let image = try await fixture.window.screenshotImage(includeChild: { _ in false })
-            if Self.isRed(Pixels(image).at(center, size: fixture.window.frame.size)) || ContinuousClock.now > deadline { return image }
+        return try await Self.settledCapture(fixture.window) { Self.isRed(Pixels($0).at(center, size: fixture.window.frame.size)) }
+    }
+
+    /// `window`'s raw capture once `shows` holds for it, bounded. Until the window server composites a new window
+    /// the capture can be all transparent, which `screenshotImage` throws as `.blank`: in a test process with no
+    /// window before this one (#26809's heavy step on a CI mini) every test here threw it 0.2-0.6 s in. The last
+    /// capture runs outside the loop, so a window that never shows still fails with that capture's own error or
+    /// in the caller's checks.
+    static func settledCapture(_ window: NSWindow, until shows: (CGImage) -> Bool) async throws -> CGImage {
+        let deadline = ContinuousClock.now + .seconds(5)
+        repeat {
+            if let image = try? await window.screenshotImage(includeChild: { _ in false }), shows(image) { return image }
             try await Task.sleep(for: .milliseconds(50))
-        }
+        } while ContinuousClock.now < deadline
+        return try await window.screenshotImage(includeChild: { _ in false })
     }
 
     @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
@@ -226,7 +235,10 @@ import WebKit
         #expect(stripRect.width > 0 && stripRect.height > 0)
         #expect(launchRect.width > 0 && launchRect.height > 0)
         await ScreenshotMask.waitToSettle()
-        let raw = try await window.screenshotImage(includeChild: { _ in false })
+        let raw = try await Self.settledCapture(window) {
+            Self.isRed(Pixels($0).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size))
+                && Self.isRed(Pixels($0).at(CGPoint(x: launchRect.midX, y: launchRect.midY), size: window.frame.size))
+        }
         #expect(Self.isRed(Pixels(raw).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size)),
                 "the unmasked strip actually renders the sentinel over its secret title")
         #expect(Self.isRed(Pixels(raw).at(CGPoint(x: launchRect.midX, y: launchRect.midY), size: window.frame.size)),
@@ -413,19 +425,19 @@ import WebKit
     @Test func onlyAPersonsRunInTheAppIsRaw() {
         var claimed = ActionInvocation(origin: .user)
         claimed.viaControlSocket = true
-        #expect(!ScreenshotHandlers.isPersonsRun(claimed))
-        #expect(ScreenshotHandlers.isPersonsRun(ActionInvocation()))
+        #expect(!claimed.isPersonsOwnRun)
+        #expect(ActionInvocation().isPersonsOwnRun)
         for origin in ActionOrigin.allCases where origin != .user {
-            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)), "\(origin)")
+            #expect(!ActionInvocation(origin: origin).isPersonsOwnRun, "\(origin)")
         }
         var app = ActionInvocation(origin: .user)
         app.callerApp = "com.example.sidebar-app"
-        #expect(!ScreenshotHandlers.isPersonsRun(app))
+        #expect(!app.isPersonsOwnRun)
         var chat = ActionInvocation(origin: .user)
         chat.callerAgentSession = "agent-1"
-        #expect(!ScreenshotHandlers.isPersonsRun(chat))
+        #expect(!chat.isPersonsOwnRun)
         var terminal = ActionInvocation(origin: .user)
         terminal.callerTerminal = "term_1"
-        #expect(!ScreenshotHandlers.isPersonsRun(terminal))
+        #expect(!terminal.isPersonsOwnRun)
     }
 }

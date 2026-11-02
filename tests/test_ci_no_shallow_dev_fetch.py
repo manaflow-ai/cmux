@@ -54,6 +54,7 @@ OWN_REPOSITORY = {
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
+    "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "fetches each dependency pin into its own temporary `git init` directory",
 }
 
 

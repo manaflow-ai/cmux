@@ -265,7 +265,7 @@ async fn move_steps(
     let watch = json!({"socket": remote.socket, "ssh": target.ssh, "host": target.name});
     let begun = super::transfer::begin_move(src, &id, Some(watch), args.interrupt).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, o).await;
-    let (record, forward, dst) = match prepared {
+    let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
@@ -273,7 +273,9 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved = super::transfer::finish_move(src, &dst, &id, &begun, there, None, record).await?;
+    let moved =
+        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record)
+            .await?;
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
@@ -296,7 +298,8 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target, and a client of the target's daemon: the
 /// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, and the client.
+/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
+/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -304,7 +307,7 @@ async fn prepare(
     remote: &RemoteDaemon,
     args: &MoveArgs,
     o: &mut Outcome,
-) -> Result<(Value, Forward, std::sync::Arc<Client>)> {
+) -> Result<(Value, Forward, std::sync::Arc<Client>, Value)> {
     let checkout = checkout_unless_named(cwd, args).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -337,12 +340,13 @@ async fn prepare(
     record.set("cwd", json!(there));
     let forward = Forward::open(&target.ssh, &remote.socket).await?;
     let dst = Client::connect(&forward.local).await?;
-    dst.request(
-        method::INITIALIZE,
-        json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-    )
-    .await?;
-    Ok((record, forward, dst))
+    let dst_init = dst
+        .request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
+        )
+        .await?;
+    Ok((record, forward, dst, dst_init))
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).

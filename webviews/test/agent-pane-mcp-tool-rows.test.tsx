@@ -143,6 +143,43 @@ for (const [harness, call] of [
     expect(host.textContent).not.toContain("ambient UI state");
   });
 
+  for (const reason of ["Read the file before changing it.", ""]) {
+    test(`${harness}: an opened hook-blocked MCP call shows its reason without the envelope (${reason || "no reason"})`, async () => {
+      const item = call(
+        "blocked",
+        "read_thread",
+        { threadId: THREAD },
+        `PreToolUse:read_thread hook error: [guard.sh]: Blocked: ${reason}`,
+      );
+      item.tool!.status = "failed";
+      await render([item]);
+      expect(host.textContent).toContain("blocked by hook");
+      expect(host.textContent).not.toContain("PreToolUse");
+      if (reason) expect(host.textContent).not.toContain(reason);
+      await click(toggles()[0]!);
+      const details = host.querySelector(".cv-mcp-call")!;
+      expect(details.textContent).toContain("blocked by hook");
+      expect(details.textContent).toContain(THREAD);
+      expect(details.textContent).not.toContain("PreToolUse");
+      expect(details.textContent).not.toContain("guard.sh");
+      expect(details.textContent).not.toContain("Blocked:");
+      if (reason) expect(details.textContent).toContain(reason);
+      else expect(details.querySelector(".cv-tool-output")).toBeNull();
+      const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+      expect(activityText(item)).not.toContain("PreToolUse");
+      expect(activityText(item)).not.toContain("guard.sh");
+      if (reason) expect(activityText(item)).toContain(reason);
+    });
+  }
+
+  test(`${harness}: a successful MCP response quoting a hook block stays intact`, async () => {
+    const output = "PreToolUse:read_thread hook error: Blocked: example from documentation";
+    await render([call("quoted", "read_thread", { threadId: THREAD }, output)]);
+    await click(toggles()[0]!);
+    expect(host.querySelector(".cv-mcp-call")!.textContent).toContain(output);
+    expect(host.textContent).not.toContain("blocked by hook");
+  });
+
   test(`${harness}: a Markdown MCP result shares full-read expansion, Raw, and Find formatting`, async () => {
     const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
     const text = `${"## Sample section\n\nRead every line.\n\n".repeat(15)}The **service** is healthy.`;
@@ -246,4 +283,37 @@ test("only id-named arguments resolve to titles, and a message names its recipie
   expect(mcpTarget({ server: "s", tool: "read_thread", args: { thread_id: "x1" } }, names)).toBe("Coordination hub");
   expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch", to: "Sam" } }, names)).toBe("Sam");
   expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch" } }, names)).toBeUndefined();
+});
+
+test("a hook-blocked cmux_exec call uses the same clean MCP details", async () => {
+  const item = claudeCall(
+    "blocked-exec",
+    "cmux_exec",
+    { code: "return 1;" },
+    "PreToolUse:cmux_exec hook error: Blocked: Run the checks first.",
+  );
+  item.tool!.title = "mcp__cmux__cmux_exec";
+  item.tool!.status = "failed";
+  await render([item]);
+  await click(toggles()[0]!);
+  expect(host.querySelector(".cv-mcp-call")!.textContent).toContain("blocked by hook");
+  expect(host.textContent).toContain("Run the checks first.");
+  expect(host.textContent).not.toContain("PreToolUse");
+  const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  expect(activityText(item)).toContain("Run the checks first.");
+  expect(activityText(item)).not.toContain("PreToolUse");
+});
+test("three running MCP calls keep activity only in their group header", async () => {
+  const items = [1, 2, 3].map((n) => {
+    const item = claudeCall(`spinner-mcp-${n}`, "read_thread", { threadId: THREAD });
+    return { ...item, tool: { ...item.tool!, status: "in_progress" } };
+  });
+  await render(items);
+  expect(toggles()).toHaveLength(1);
+  await click(toggles()[0]!);
+  expect(host.querySelectorAll(".cv-tool-group button.cv-tool")).toHaveLength(3);
+  expect(host.querySelectorAll(".cv-tool-group .cv-spinner")).toHaveLength(0);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
+  await render([items[0]!]);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
 });

@@ -54,26 +54,26 @@ struct ClickedLinkFocusTests {
         }
     }
 
-    /// The link's tab opens in the pane right of the source (the default for every link, Home's dock):
-    /// that pane takes the focus and Cmd-W closes the link's tab there. The pane still has a tab, so
-    /// the focus stays in it, on that tab: a second Cmd-W must close in the same pane, never the
-    /// source (Leo 2026-10-21, ``CloseTabKeepsPaneTests``). Only a close that empties the pane gives
+    /// The link's tab opens in the browser pane right of the source (the default for every link, Home's
+    /// dock; ``splitRightHoldingABrowser(_:_:_:)``): that pane takes the focus and Cmd-W closes the
+    /// link's tab there. The pane still has a tab, so the focus stays in it, on that tab: a second
+    /// Cmd-W must close in the same pane, never the source (Leo 2026-10-21, ``CloseTabKeepsPaneTests``). Only a close that empties the pane gives
     /// the focus back (``theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack``).
     @Test func aLinksTabInAnotherPaneTakesTheFocusAndItsCloseKeepsItInThatPane() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
             let source = try #require(model.tabs.first?.id)
-            let right = try await Self.splitRight(services, content)
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
 
             let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ store.tab(id: opened).map { _ in right.pane.tabs.contains { $0.id == opened } } == true },
-                                            report: { "the link's tab is not in the pane on the right" })
+                                            report: { "the link's tab is not in the pane on the right: " + Self.describe(content, opened) })
             // The pane on the right by what it holds: the focus may have moved to another pane by now.
             try await PinnedPageTests.until({
                 content.focusedPane !== pane && content.focusedPane?.pane.tabs.contains { $0.id == opened } == true
@@ -99,14 +99,14 @@ struct ClickedLinkFocusTests {
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
-            let right = try await Self.splitRight(services, content)
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
 
             let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ right.pane.tabs.contains { $0.id == opened } && Self.shownURL(services, opened) != nil },
-                                            report: { "the link's tab is not on the right with its page" })
+                                            report: { "the link's tab is not on the right with its page: " + Self.describe(content, opened) })
             // Another tab is selected there, and the focus is back in the chat.
             let other = try await connection.newFrontendBrowserTab(url: "https://example.com/other", engine: .webkit,
                                                                    in: right.pane.handle, activate: false)
@@ -129,12 +129,12 @@ struct ClickedLinkFocusTests {
     /// the card's Open: clicked again, it too selects the tab the pane on the right has for the page.
     /// The dogfood of the first fix found this path still opening a tab per click.
     @Test func aChatChipClickedAgainSelectsItsTabOnTheRight() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
-            let right = try await Self.splitRight(services, content)
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
             try await PinnedPageTests.until({ Self.page(in: pane.view) != nil }, report: { "the source pane shows no agent page" })
             let chat = try #require(pane.currentTabKey)
             #expect(services.agentTabs.isAgentTab(chat), "the source tab is not an agent chat")
@@ -147,7 +147,7 @@ struct ClickedLinkFocusTests {
             LinkRouter.shared.openInCmux(Self.link, false, chat)
             let opened = { tabs().subtracting(before).first { !ProvisionalTab.isProvisional($0) } }
             try await PinnedPageTests.until({ opened().map { id in right.pane.tabs.contains { $0.id == id } && Self.shownURL(services, id) != nil } == true },
-                                            report: { "the chip's tab is not on the right with its page" })
+                                            report: { "the chip's tab is not on the right with its page: " + Self.describe(content, opened() ?? "none") })
             let first = try #require(opened())
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
@@ -241,6 +241,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ pane.pane.tabs.contains { $0.surface == chat.surface } })
             try await connection.closeTab(terminal)
             try await PinnedPageTests.until({ pane.pane.tabs.count == 1 && pane.pane.tabs.first?.surface == chat.surface })
+            let chatID = try #require(pane.pane.tabs.first?.id)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             let asked = content.focus.state.generation
@@ -253,15 +254,22 @@ struct ClickedLinkFocusTests {
                                                                     in: model.handle, activate: false)
             placed(agents.surface)
             @MainActor func dock() -> PaneModel? { store.workspaces.flatMap(\.screens).flatMap(\.panes).first { $0.tabs.contains { $0.surface == chat.surface } } }
-            try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() },
-                                            report: { "the chat did not dock with the focus: " + Self.describe(content, chat.surface.description) })
+            try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() }, report: {
+                let docked = dock().map { $0 !== model ? "docked in \($0.id)" : "still in its pane \($0.id)" } ?? "gone"
+                return "the chat did not dock with the focus: the chat \(chatID) is \(docked), focus generation \(content.focus.state.generation) (asked \(asked)); "
+                    + Self.describe(content, chatID)
+            })
             #expect(content.focus.state.generation == asked, "the app's refocus of the chat counted as the person acting")
         }
     }
 
     /// The chat header's Preview (Changes and Files take the same path): a person's click, so the
-    /// tab that opens in a new column right of the page takes the focus, unlike an agent's own
+    /// tab that opens in a new split right of the page takes the focus, unlike an agent's own
     /// beside_caller open, and its close gives the focus back to the page it was clicked in.
+    /// Since #29682 the open is placed by ``RightColumnPlacement``: a split right only when both
+    /// halves keep ``RightColumnPlacement/minimumChatWidth``, else a tab in the page's own pane
+    /// (Leo, design/pane-placement.md). The restored test window's one pane is narrower than that,
+    /// so the window is made wide enough for the split this test is about.
     @Test func theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
@@ -269,6 +277,10 @@ struct ClickedLinkFocusTests {
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
             let source = try #require(model.tabs.first?.id)
+            try #require(services.windows.active?.window).setFrame(NSRect(x: 0, y: 0, width: 1500, height: 800), display: true)
+            let splits = 2 * RightColumnPlacement.minimumChatWidth
+            try await PinnedPageTests.until({ (LinkOpener.width(of: pane) ?? 0) >= splits },
+                                            report: { "the page's pane is not \(Int(splits)) pt wide: " + Self.describe(content, source) })
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
@@ -364,6 +376,27 @@ struct ClickedLinkFocusTests {
         return try #require(confirmed())
     }
 
+    /// ``splitRight(_:_:)`` whose new pane holds one browser tab and no terminal: the pane on the right
+    /// a clicked web link opens a tab in. A browser open goes to a right-column pane that already holds
+    /// a browser whatever the panes' widths (``RightColumnPlacement``, Leo 2026-10-31). Beside a pane
+    /// that holds only a terminal it splits below that pane when the source is 480 pt wide or more and
+    /// the pane on the right 420 pt, and is a tab there only below that, so where it landed was the
+    /// test host's window, not the rule: red on cmux13s-Mac-mini at 79e9919c5c5, b6eb84916c1 and
+    /// 40c945f9ec2, green on cmuxs-Mac-mini (serial job 54e4c583d660).
+    private static func splitRightHoldingABrowser(_ services: AppServices, _ content: WorkspaceContentController,
+                                                  _ connection: DaemonConnection) async throws -> PaneController {
+        let right = try await splitRight(services, content)
+        let terminals = right.pane.tabs.map(\.surface).filter { !ProvisionalTab.isProvisional(surface: $0) }
+        // A closed loopback port: the page never loads, and nothing leaves the machine.
+        let browser = try await connection.newFrontendBrowserTab(url: "http://127.0.0.1:9/right", engine: .webkit, in: right.pane.handle, activate: true)
+        try await PinnedPageTests.until({ right.pane.tabs.contains { $0.surface == browser.surface } },
+                                        report: { "the pane on the right did not list its browser tab" })
+        for terminal in terminals { try await connection.closeTab(terminal) }
+        try await PinnedPageTests.until({ right.pane.tabs.map(\.surface) == [browser.surface] && content.panes[right.layoutPaneID] === right },
+                                        report: { "the pane on the right does not hold its browser tab alone: " + describe(content, "none") })
+        return right
+    }
+
     /// The page browser tab `id` shows: its live page, else the daemon's record.
     private static func shownURL(_ services: AppServices, _ id: String) -> URL? {
         services.cache.existingBrowser(id)?.tab.state.url ?? services.daemon.store.tab(id: id)?.url.flatMap(URL.init(string:))
@@ -380,7 +413,7 @@ struct ClickedLinkFocusTests {
     private static func describe(_ content: WorkspaceContentController, _ tab: String) -> String {
         let focused = content.focusedPane
         let panes = content.panes.values.map { pane in
-            "\(pane.layoutPaneID)\(pane === focused ? " (focused)" : ""): \(pane.stripModel.selectedID?.rawValue ?? "none") of \(pane.pane.tabs.map(\.id))"
+            "\(pane.layoutPaneID)\(pane === focused ? " (focused)" : "") \(Int(pane.view.bounds.width)) pt wide: \(pane.stripModel.selectedID?.rawValue ?? "none") of \(pane.pane.tabs.map(\.id))"
         }
         return "focused pane \(String(describing: focused?.layoutPaneID)) selects \(String(describing: focused?.stripModel.selectedID?.rawValue)), wanted \(tab); "
             + panes.sorted().joined(separator: "; ")

@@ -268,7 +268,9 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return ageWithDate(
     updatedAt,
     now,
-    (minutes, translate) => {
+    (_, translate, elapsedMs) => {
+      // Rounded, as this card's age always was; the date switch is ageWithDate's.
+      const minutes = Math.round(elapsedMs / 60_000);
       if (minutes < 1) return translate("age.now");
       if (minutes < 60) return translate("age.minutes", { n: minutes });
       const hours = Math.round(minutes / 60);
@@ -327,6 +329,12 @@ type Props = NewTabCommandActions & {
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// The page goes with an unsent Agent draft (a typed prompt, staged attachments): handed over so
+  /// the chat view that replaces it keeps it (newtab/NewTabScreen.tsx `onLeaveDraft`).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   now?: number;
 };
 
@@ -359,13 +367,17 @@ export function NewTabPage({
   onBrowseProject,
   inputToken,
   onInputReady,
+  onLeaveDraft,
+  takeDraft,
 }: Props) {
   const t = useT();
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
-  const [kind, setKind] = useState<TabKind>(initialKind);
+  const [carried] = useState(() => takeDraft?.());
+  // A draft the chat view's composer held is a prompt: the page comes back on Agent with it.
+  const [kind, setKind] = useState<TabKind>(carried ? "agent" : initialKind);
   // The field is reused when the kind changes. A short directional handoff gives the new
   // placeholder and context a visible swipe without moving the composer or stealing its focus.
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
@@ -426,7 +438,7 @@ export function NewTabPage({
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
-  const [text, setText] = useState(location ?? "");
+  const [text, setText] = useState(carried?.text || (location ?? ""));
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -444,7 +456,7 @@ export function NewTabPage({
       });
   };
   // The location stays a suggestion until edited: the rows are the empty bar's.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   const query = touched ? text : "";
   const [selected, setSelected] = useState(-1);
   // The field was wholly selected before this edit, so a typed prefix starts it over.
@@ -494,6 +506,22 @@ export function NewTabPage({
     },
   );
   attachmentRef.current = attachments;
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
+  // The Agent draft as it is now, for `onLeaveDraft` when the page goes (a terminal command or an
+  // address has no chat composer to go to).
+  const leaving = useRef({ text, attachments, typed: false, kind, onLeaveDraft });
+  leaving.current = { text, attachments, typed: text !== (location ?? ""), kind, onLeaveDraft };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if (draft.kind !== "agent") return;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
@@ -692,8 +720,8 @@ export function NewTabPage({
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
-  // lays the row under the field out as Codex's (composerLook.css).
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
+  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
   const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
   useRowFit(foot, `${kind}:${plainFooter}:${look}`);

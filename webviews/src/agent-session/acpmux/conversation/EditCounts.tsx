@@ -27,11 +27,23 @@ export function editTotals(tools: readonly Tool[]): EditTotals | undefined {
   return { additions, deletions };
 }
 
-/// The last count per group, under its first and last edits' snapshots: a folded run and an edits
-/// group inside it end on the same edit but start on different ones, so each keeps its own entry
-/// (Codex review of #29183). An entry lives as long as those snapshots (WeakMaps, no cleanup).
+/// The groups' last counts, under each group's first edit snapshot. A folded run and an edits
+/// group inside it can start or end on one edit, so a first edit holds a few entries (one per
+/// group drawn from it), matched by their whole edit list (Codex review of #29183). A group that
+/// grows replaces its own shorter entry, and a first edit holds at most `ENTRIES`, so a long run
+/// keeps its latest count only, never every earlier prefix (Codex review of #29183: 1,000 appended
+/// edits had kept 1,000 arrays). Entries live as long as their first edit (a WeakMap, no cleanup).
 type Entry = { edits: Tool[]; totals: EditTotals | undefined };
-const totalsCache = new WeakMap<Tool, WeakMap<Tool, Entry>>();
+const ENTRIES = 4;
+const totalsCache = new WeakMap<Tool, Entry[]>();
+
+const sameEdits = (a: readonly Tool[], b: readonly Tool[]) =>
+  a.length === b.length && a.every((tool, at) => tool === b[at]);
+/// `shorter` is where `longer` came from: the same edits, with more after them (a group that grew),
+/// or with its last one replaced by a newer snapshot of that call (an edit that changed).
+const grewFrom = (shorter: readonly Tool[], longer: readonly Tool[]) =>
+  shorter.length <= longer.length &&
+  shorter.every((tool, at) => tool === longer[at] || (at === shorter.length - 1 && tool.id === longer[at]!.id));
 
 /// A group's totals, counted again only when one of its edits changes. Items are immutable
 /// snapshots (direct.ts replaces only the call a chunk changed), so a call streaming its output, a
@@ -42,18 +54,19 @@ export function useEditTotals(items: readonly AcpmuxActivity[]): EditTotals | un
   const edits: Tool[] = [];
   for (const item of items) if (item.tool?.diffs?.length) edits.push(item.tool);
   const first = edits[0];
-  const last = edits[edits.length - 1];
-  if (!first || !last) return undefined;
-  let byLast = totalsCache.get(first);
-  const prior = byLast?.get(last);
-  if (prior && prior.edits.length === edits.length && edits.every((tool, at) => tool === prior.edits[at]))
-    return prior.totals;
+  if (!first) return undefined;
+  const entries = totalsCache.get(first) ?? [];
+  const prior = entries.find((entry) => sameEdits(entry.edits, edits));
+  if (prior) return prior.totals;
   editTotalsProbe.count?.();
   const totals = editTotals(edits);
-  if (!byLast) totalsCache.set(first, (byLast = new WeakMap()));
-  byLast.set(last, { edits, totals });
+  const kept = entries.filter((entry) => !grewFrom(entry.edits, edits));
+  totalsCache.set(first, [{ edits, totals }, ...kept].slice(0, ENTRIES));
   return totals;
 }
+
+/// Test probe: how many edit lists the cache holds under one first edit.
+export const editTotalsEntries = (first: Tool): number => totalsCache.get(first)?.length ?? 0;
 
 /// "+53", or "+12 -3": the removed count only when the edits removed lines. An edits group keeps
 /// "-0" (`zero`), as its file rows and the edited-files card read ("Edited App.tsx +12 -0").

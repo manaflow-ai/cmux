@@ -679,7 +679,7 @@ pub(super) fn is_wait_transient(error: &Value) -> bool {
 }
 
 /// A create error after which the run may exist: no answer, or a server failure. Anything else
-/// (signed out, Labs off, a refused image, agent or task, no app to ask) proves nothing started.
+/// (signed out, an older app's Labs flag, a refused image, agent or task, no app to ask) proves nothing started.
 pub(super) fn create_may_have_committed(error: &Value) -> bool {
     matches!(
         error.get("code").and_then(Value::as_str),

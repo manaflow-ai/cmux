@@ -6,7 +6,7 @@ extension AgentPaneView {
     /// Keep this synchronous: a later task no longer has the selection's current event.
     func invokeTabRowTool(_ id: String, menuItemID: String?, event: NSEvent? = NSApp.currentEvent) {
         guard model.tabRow.nativeToolsEnabled, let pageEvents else { return }
-        AgentPanePersonInput.record(model.transport.gestures, event: event)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, event: event)
         pageEvents.publish(.tabRowToolInvoked(id: id, menuItemId: menuItemID))
     }
 }

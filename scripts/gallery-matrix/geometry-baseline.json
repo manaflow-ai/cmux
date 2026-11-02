@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "revision": {
     "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
-    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+    "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
   },
   "required": [
     {
@@ -145,7 +145,7 @@
         "colorScheme": "light",
         "width": 420,
         "height": 900,
-        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+        "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
       }
     },
     {
@@ -160,7 +160,7 @@
         "colorScheme": "dark",
         "width": 420,
         "height": 900,
-        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+        "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
       }
     },
     {
@@ -288,13 +288,13 @@
     "session-info-light": [
       {
         "group": "top-block-label",
-        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+        "selector": "[data-section=environment] .acpmux-session-info-row__name, .acpmux-session-info-section[data-section=context] .acpmux-session-info-section__title, .acpmux-session-info-section[data-section=connectors] .acpmux-session-info-section__title"
       }
     ],
     "session-info-dark": [
       {
         "group": "top-block-label",
-        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+        "selector": "[data-section=environment] .acpmux-session-info-row__name, .acpmux-session-info-section[data-section=context] .acpmux-session-info-section__title, .acpmux-session-info-section[data-section=connectors] .acpmux-session-info-section__title"
       }
     ],
     "session-status-claude-light": [

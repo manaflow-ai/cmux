@@ -442,6 +442,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$COMMIT"
+          # An owned Mac keeps its workspace between jobs while RUNNER_TEMP is emptied:
+          # drop an earlier job's build-src registration whose folder is gone.
+          git worktree prune
           git worktree add --detach "$RUNNER_TEMP/build-src" "$COMMIT"
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
           bash scripts/ci/init-submodule.sh ghostty-next

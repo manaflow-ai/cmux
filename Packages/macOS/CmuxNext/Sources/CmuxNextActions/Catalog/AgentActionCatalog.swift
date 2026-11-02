@@ -109,6 +109,39 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-side-tabs",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
+            // The composer's and Session Info's controls (AgentPageCommand): unavailable where the chat has none.
+            ActionDescriptor(
+                id: "agentPane.runInBackground",
+                title: String(localized: "action.agentPane.runInBackground", defaultValue: "Run in Background", bundle: .module),
+                keywords: ["agent", "chat", "background", "ctrl-b", "detach", "command", "subagent", "move"],
+                category: .agents, symbol: "arrow.down.to.line", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent run-in-background",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.toggleQueueing",
+                title: String(localized: "action.agentPane.toggleQueueing", defaultValue: "Toggle Prompt Queueing", bundle: .module),
+                keywords: ["agent", "chat", "queue", "queueing", "steer", "send", "prompt", "turn"],
+                category: .agents, symbol: "tray.full", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-queueing",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showSubagents",
+                title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                category: .agents, symbol: "person.2", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showBackgroundTasks",
+                title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                category: .agents, symbol: "gearshape", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module),
@@ -347,8 +380,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTo",
-                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork to…", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork To…", bundle: .module),
+                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.turn.up.right",
                 surfaces: [.contextMenu]
             ),
             ActionDescriptor(
@@ -392,7 +425,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewColumnLeft",
                 title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
-                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.split.3x1",
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.leftthird.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-column-left"
             ),
@@ -469,6 +502,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",

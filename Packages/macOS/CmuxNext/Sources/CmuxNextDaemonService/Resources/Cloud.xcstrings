@@ -1971,6 +1971,138 @@
         }
       }
     },
+    "cloud.signIn.toContinue": {
+      "comment": "Under a signed-out Cloud action in the command palette: choosing the row signs in to cmux Cloud, then runs that action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud machines: choose it to sign in, then it runs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを使うにはサインインが必要です。選ぶとサインインし、そのあと実行します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول لاستخدام أجهزة Cloud: اختره لتسجيل الدخول، ثم يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se za korištenje Cloud mašina: odaberite ga da se prijavite, a zatim se pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind for at bruge Cloud-maskiner: vælg den for at logge ind, så kører den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich an, um Cloud-Maschinen zu nutzen: Wähle es aus, um dich anzumelden, danach wird es ausgeführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión para usar máquinas de Cloud: elígelo para iniciar sesión y después se ejecuta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous pour utiliser les machines Cloud : choisissez-la pour vous connecter, puis elle s’exécute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi per usare le macchine Cloud: sceglila per accedere, poi viene eseguita."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនីដើម្បីប្រើម៉ាស៊ីន Cloud៖ ជ្រើសវាដើម្បីចូលគណនី បន្ទាប់មកវាដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 머신을 사용하려면 로그인하세요. 선택하면 로그인한 뒤 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på for å bruke Cloud-maskiner: velg den for å logge på, så kjører den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się, aby używać maszyn Cloud: wybierz to, aby się zalogować, a potem zostanie uruchomione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre para usar máquinas do Cloud: escolha para entrar e depois a ação é executada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите, чтобы пользоваться машинами Cloud: выберите это, чтобы войти, после чего оно выполнится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้เพื่อใช้เครื่อง Cloud: เลือกเพื่อลงชื่อเข้าใช้ แล้วคำสั่งจะทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinelerini kullanmak için oturum açın: oturum açmak için seçin, ardından çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть, щоб користуватися машинами Cloud: виберіть це, щоб увійти, після чого воно виконається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập để dùng máy Cloud: chọn mục này để đăng nhập, sau đó nó sẽ chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录后才能使用 Cloud 机器：选择它即可登录，随后自动执行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入後才能使用 Cloud 機器：選擇它即可登入，隨後自動執行。"
+          }
+        }
+      }
+    },
     "cloud.failed.sizeMustBeOneOf": {
       "extractionState": "manual",
       "localizations": {
@@ -9056,7 +9188,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month."
+            "value": "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month."
           }
         },
         "ja": {
@@ -9701,6 +9833,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ គម្រោងរបស់អ្នកត្រូវដំឡើងកំរិត។ មើល cmux.com/pricing។"
+          }
+        }
+      }
+    },
+    "cloud.newWorkspace.openedHere": {
+      "comment": "A toast after New Workspace when “Run New Workspaces in Cloud” is on but the workspace opened on this Mac. %@ is the reason, a full sentence.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace opened on this Mac, not in Cloud. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースは Cloud ではなくこの Mac で開きました。%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فُتحت مساحة العمل هذه على جهاز Mac هذا، وليس في Cloud. %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj radni prostor otvoren je na ovom Macu, a ne u Cloudu. %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbejdsområde blev åbnet på denne Mac, ikke i Cloud. %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Arbeitsbereich wurde auf diesem Mac geöffnet, nicht in Cloud. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espacio de trabajo se abrió en este Mac, no en Cloud. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet espace de travail s’est ouvert sur ce Mac, pas dans Cloud. %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo spazio di lavoro si è aperto su questo Mac, non in Cloud. %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការនេះបានបើកនៅលើ Mac នេះ មិនមែននៅក្នុង Cloud ទេ។ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간은 Cloud가 아닌 이 Mac에서 열렸습니다. %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbeidsområdet ble åpnet på denne Macen, ikke i Cloud. %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten obszar roboczy otworzył się na tym Macu, a nie w Cloud. %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espaço de trabalho foi aberto neste Mac, não no Cloud. %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это рабочее пространство открылось на этом Mac, а не в Cloud. %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานนี้เปิดบน Mac เครื่องนี้ ไม่ใช่ใน Cloud %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanı Cloud'da değil, bu Mac'te açıldı. %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей робочий простір відкрився на цьому Mac, а не в Cloud. %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc này đã mở trên máy Mac này, không phải trong Cloud. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区已在这台 Mac 上打开，而不是在 Cloud 中。%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區已在這台 Mac 上開啟，而非在 Cloud 中。%@"
+          }
+        }
+      }
+    },
+    "cloud.newWorkspace.noWindow": {
+      "comment": "Why a New Workspace opened on this Mac although “Run New Workspaces in Cloud” is on: no window was open to show the new Cloud machine's progress.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces start in Cloud from an open window, where the new machine's progress shows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースは、新しいマシンの進行状況が表示される開いたウインドウから Cloud で開始されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ مساحات العمل الجديدة في Cloud من نافذة مفتوحة، حيث يظهر تقدّم الجهاز الجديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostori pokreću se u Cloudu iz otvorenog prozora, gdje se prikazuje napredak nove mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye arbejdsområder starter i Cloud fra et åbent vindue, hvor den nye maskines fremskridt vises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Arbeitsbereiche starten in Cloud aus einem geöffneten Fenster, in dem der Fortschritt der neuen Maschine angezeigt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los nuevos espacios de trabajo se inician en Cloud desde una ventana abierta, donde se muestra el progreso de la nueva máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les nouveaux espaces de travail démarrent dans Cloud depuis une fenêtre ouverte, où s’affiche la progression de la nouvelle machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I nuovi spazi di lavoro partono in Cloud da una finestra aperta, dove si vede l’avanzamento della nuova macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីចាប់ផ្តើមក្នុង Cloud ពីបង្អួចដែលបើក ដែលបង្ហាញវឌ្ឍនភាពរបស់ម៉ាស៊ីនថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간은 새 기기의 진행 상황이 표시되는 열린 창에서 Cloud로 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye arbeidsområder starter i Cloud fra et åpent vindu, der fremdriften til den nye maskinen vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe obszary robocze uruchamiają się w Cloud z otwartego okna, w którym widać postęp nowej maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novos espaços de trabalho começam no Cloud a partir de uma janela aberta, onde o progresso da nova máquina aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые рабочие пространства запускаются в Cloud из открытого окна, где виден ход создания новой машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่จะเริ่มใน Cloud จากหน้าต่างที่เปิดอยู่ ซึ่งแสดงความคืบหน้าของเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanları, yeni makinenin ilerlemesinin gösterildiği açık bir pencereden Cloud'da başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові робочі простори запускаються в Cloud з відкритого вікна, де видно поступ нової машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc mới bắt đầu trong Cloud từ một cửa sổ đang mở, nơi hiển thị tiến trình của máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区会从打开的窗口在 Cloud 中启动，并在该窗口显示新机器的进度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區會從開啟的視窗在 Cloud 中啟動，並在該視窗顯示新機器的進度。"
           }
         }
       }
@@ -11417,6 +11813,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 發布"
+          }
+        }
+      }
+    },
+    "cloud.failed.resizeNeedsSizeOrDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@)、--disk (GiB 単位の整数。4 GiB 刻み、最大 256、拡張のみ)、またはその両方を指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر ‎--size‎ ‏(%@)‏ أو ‎--disk‎ بعدد صحيح من GiB (بخطوات 4 GiB، حتى 256، للزيادة فقط)، أو كليهما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite --size (%@), --disk s cijelim brojem GiB (koraci od 4 GiB, do 256, samo povećanje) ili oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv --size (%@), --disk med et helt antal GiB (trin på 4 GiB, op til 256, kun forøgelse) eller begge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib --size (%@), --disk mit einer ganzen Zahl GiB (in 4-GiB-Schritten, bis 256, nur vergrößern) oder beides an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica --size (%@), --disk con un número entero de GiB (pasos de 4 GiB, hasta 256, solo para aumentar) o ambos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez --size (%@), --disk avec un nombre entier de Gio (par pas de 4 Gio, jusqu’à 256, agrandissement uniquement), ou les deux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specifica --size (%@), --disk con un numero intero di GiB (passi di 4 GiB, fino a 256, solo in aumento) o entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន --size (%@), --disk ជាចំនួនគត់នៃ GiB (ជំហាន 4 GiB រហូតដល់ 256 បង្កើនតែប៉ុណ្ណោះ) ឬទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), --disk(GiB 단위 정수, 4 GiB 단위, 최대 256, 늘리기만 가능) 또는 둘 다 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi --size (%@), --disk med et helt antall GiB (trinn på 4 GiB, opptil 256, kun økning) eller begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj --size (%@), --disk z całkowitą liczbą GiB (co 4 GiB, do 256, tylko zwiększanie) lub oba."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe --size (%@), --disk com um número inteiro de GiB (passos de 4 GiB, até 256, só aumenta) ou ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите --size (%@), --disk с целым числом ГиБ (шаг 4 ГиБ, до 256, только увеличение) или оба."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุ --size (%@), --disk เป็นจำนวนเต็มของ GiB (ทีละ 4 GiB สูงสุด 256 ขยายได้อย่างเดียว) หรือทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), tam sayı GiB değeriyle --disk (4 GiB adımlarla, en fazla 256, yalnızca büyütme) ya da ikisini birden verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть --size (%@), --disk із цілим числом ГіБ (крок 4 ГіБ, до 256, лише збільшення) або обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền --size (%@), --disk với số GiB nguyên (bước 4 GiB, tối đa 256, chỉ tăng), hoặc cả hai."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入 --size（%@）、--disk（GiB 整数，以 4 GiB 为步长，最大 256，只能增大），或两者都传。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入 --size（%@）、--disk（GiB 整數，以 4 GiB 為級距，最大 256，只能增加），或兩者都傳。"
           }
         }
       }

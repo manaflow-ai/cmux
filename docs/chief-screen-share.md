@@ -20,11 +20,13 @@ share screen with chief and have it incorporated into memories".
 ```
 ChiefScreenShare (@MainActor @Observable, CmuxNextChiefScreenShare)
   DemandTimer, one shot per 5 s while sharing (no repeating timer, nothing while off)
-    -> ChiefScreenCapturing.capture(changedSince:)        off main (@concurrent)
-         ScreenCaptureKit still of the main display, 1440 px wide, cursor hidden,
-         cmux and password managers excluded (SCContentFilter excludingApplications)
-         32x20 grey signature; unchanged (< 2% mean difference) -> nil, no OCR, no JPEG
-         changed -> Vision text recognition (.fast, on device) + JPEG (q 0.6)
+    -> ChiefScreenHelperCapture.capture(changedSince:)    off main (@concurrent)
+         host socket -> cmux Computer Use helper, host-only `display_still`
+           (scripts/cmux-cua-display-still.patch): a WindowServer still of the main
+           display, 1440 px wide, cmux and password managers' windows left out (by pid)
+           32x20 grey signature; unchanged (< 2% mean difference) -> no JPEG in the reply
+           changed -> JPEG (q 60) in the reply
+         changed -> Vision text recognition (.fast, on device) in cmux
     -> ChiefScreenJournal (actor)                         files only, nothing leaves the Mac
          latest.jpg + latest.json      the current screen, for "look now"
          frames/<day>/<time>.jpg       the source frame of each memory entry
@@ -60,12 +62,18 @@ Why this shape:
 - Only the person starts it: Share and Toggle are person-only actions (the control socket refuses
   them, so neither `cmux chief share-screen` from a terminal agent nor MCP can start capture).
   Stop and Look Now are open to the CLI and MCP while sharing is on.
-- Screen Recording not granted: the first start asks macOS; when that is refused the share stays
-  off, the action says why and opens System Settings > Privacy & Security > Screen Recording.
+- Screen Recording belongs to the cmux Computer Use helper, never cmux.app: cmux never captures
+  the screen or asks macOS for it (a test scans the Share Screen sources for capture calls). The
+  first start asks macOS for the helper; while it is not allowed the share stays on but reads
+  nothing (`needsPermission`), the action says why and opens System Settings > Privacy & Security >
+  Screen & System Audio Recording. Granting it makes macOS "Quit & Reopen" only the helper; its
+  owner (`ComputerUseHelperDaemon`) starts it again, sharing waits (`waitingForHelper`) and starts
+  by itself on the next check (every 5 s), with no second click and no relaunch of cmux.
+- The helper runs while Computer Use is on (legacy driver). With it off, sharing waits and says so.
 
 ## First slice (this change)
 
-- `CmuxNextChiefScreenShare`: the model, the ScreenCaptureKit capturer, the journal, exclusions.
+- `CmuxNextChiefScreenShare`: the model, the helper-backed capturer, the journal, exclusions.
 - App: the four actions, the header toggle (shown on the local Chief's chat even while the other
   header toggles are off), the menu bar indicator with Stop Sharing.
 - optchat-chief: the inbox becomes a note at each turn start.

@@ -236,8 +236,8 @@ impl<'a> StateGuard<'a> {
         waited_from: Instant,
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> StateGuard<'a> {
-        // A request thread may hold state while it waits for a writer
-        // receipt: the writer must never take state (counted in release).
+        // The journal writer must never take state (counted in release):
+        // the lock order puts it after the writer's rank.
         let on_writer = crate::workspace_registry::registry_connection::in_journal_writer_commit();
         if on_writer {
             crate::diagnostics::writer_took_registry_lock();
@@ -327,21 +327,13 @@ impl StateMutex {
 }
 
 /// The state lock plus a hold of the registry connection taken before it.
-/// Fields drop in order: state first, then the connection.
+/// Fields drop in order: state first, then the connection. A flow never
+/// waits for a journal writer receipt while it holds one: it drops it first
+/// (the writer needs the connection, and state readers must not queue
+/// behind the disk).
 pub(crate) struct PinnedState<'a> {
     state: StateGuard<'a>,
-    /// `None` after [`PinnedState::unpin`].
-    _connection: Option<RegistryConnectionPin>,
-}
-
-impl PinnedState<'_> {
-    /// Release the connection pin and keep state: the flow is about to wait
-    /// for a journal writer receipt, and the writer needs the connection
-    /// (the writer takes neither the registry nor state). After this the
-    /// flow must not touch the connection while it holds state.
-    pub(crate) fn unpin(&mut self) {
-        self._connection = None;
-    }
+    _connection: RegistryConnectionPin,
 }
 
 impl Deref for PinnedState<'_> {
@@ -371,16 +363,23 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        let connection = Some(registry.connection.pin());
+        // Wait for the answers of earlier indeterminate commits before the
+        // pin: the writer needs the connection to commit and answer, so a
+        // wait under the pin could only run out. The caller holds the
+        // registry, so no new indeterminate commit appears after this. A
+        // commit still unanswered stays; the flow's own prepare refuses to
+        // build on it (`drain_unsettled` without waiting).
+        let _ = registry.connection.drain_unsettled();
+        let connection = registry.connection.pin();
         let (mut pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: with the pin held the writer cannot commit, so an
-        // unanswered one stays for a later holder; the prepare paths wait
-        // for it (drain_unsettled) before they build on it.
+        // Non-blocking: the answers that can arrive were taken before the
+        // pin; one still unanswered stays for a later holder, and the
+        // prepare paths refuse to build on it (drain_unsettled).
         self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }

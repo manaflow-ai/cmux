@@ -1,4 +1,7 @@
-/// No icon draws smaller than this many pixels.
+/// The icon scale (leo-workspace design/grid.md, "Icon sizes"): 12 for status marks, chevrons,
+/// spinners and close marks; 14 for menu rows and marks inline with text; 16 for buttons and
+/// compact rows; 20 for primary rows. Artwork (avatars, empty states) is 24 or larger. The
+/// composer's own glyph set draws at 18 (ComposerPickers.tsx). No icon draws smaller than this.
 export const ICON_FLOOR = 12;
 
 /// A row icon crops the grid's 2.5-unit margin so its strokes line up with the label's cap height;

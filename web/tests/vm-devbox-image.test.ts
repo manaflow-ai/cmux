@@ -27,6 +27,11 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxAgentDesktopInstallCommand,
+  devboxAgentDesktopSha256,
+  devboxAgentDesktopUrl,
+  devboxAgentDesktopVersion,
+  DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE,
   devboxBubblewrapInstallCommand,
   devboxBubblewrapSha256,
   devboxBubblewrapUrl,
@@ -742,6 +747,32 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
+  test("the image bakes acpmux's durable user service before the daemon", () => {
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    const vmBake = readScript("cmux-vm-image/bake.ts");
+    for (const bake of [freestyleScript, vmBake]) {
+      expect(bake).toContain("cmuxTuiServiceInstallCommand");
+    }
+    const service = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiDaemon.ts"), "utf8");
+    expect(service).toContain('loginctl enable-linger');
+    expect(service).toContain('systemctl --user enable --now acpmux.service');
+    expect(service).toContain('systemctl --user is-active --quiet acpmux.service');
+    // The image contract stays explicit: the work user has the tools needed
+    // by agent turns and the locale/shims are preserved by the base recipe.
+    const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");
+    expect(dockerfile).toContain("build-essential");
+    expect(dockerfile).toContain("pkg-config");
+    expect(dockerfile).toContain("locales");
+    expect(dockerfile).toContain("LANG=C.UTF-8");
+    expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
+    expect(freestyleScript).toContain("pkg-config locales");
+    expect(freestyleScript).toContain("locale-gen C.UTF-8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
+    expect(workUser).toContain("91-cmux-work-user");
+    expect(workUser).toContain("NOPASSWD:ALL");
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
+  });
+
   test("the cmux-tui units never give up after repeated failed starts", () => {
     // Like acpmux.service: no start limit, retries back off to 60 s.
     for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
@@ -887,6 +918,33 @@ test "$daemon_pid" = fixture
     expect(promote).toContain('argValue("--replay")');
     expect(promote).toContain("appendImageManifestEntries(manifest, rows)");
     expect(promote).toContain("entries: added,");
+  });
+
+  test("agent-desktop is the pinned release in both recipes and the verifier snapshots the desktop with it", () => {
+    // Lawrence (2026-10-31): pre-bundle vercel-labs/agent-desktop into every
+    // cmux Cloud snapshot. One pinned archive, one install command.
+    const url = devboxAgentDesktopUrl(dockerfile);
+    const sha256 = devboxAgentDesktopSha256(dockerfile);
+    const version = devboxAgentDesktopVersion(dockerfile);
+    expect(url).toBe(`https://github.com/vercel-labs/agent-desktop/releases/download/v${version}/agent-desktop-v${version}-x86_64-unknown-linux-gnu.tar.gz`);
+    expect(sha256).toMatch(/^[0-9a-f]{64}$/);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/agent-desktop.tar.gz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_AGENT_DESKTOP_URL", url).replaceAll("$CMUX_IMAGE_AGENT_DESKTOP_SHA256", sha256)).toBe(devboxAgentDesktopInstallCommand(url, sha256, version));
+    // The archive is checked before it is unpacked, and the version printed is the pin.
+    const command = devboxAgentDesktopInstallCommand(url, sha256, version);
+    expect(command.indexOf("sha256sum -c -")).toBeLessThan(command.indexOf("tar -xzf"));
+    expect(command).toContain(`test "$(agent-desktop --version)" = "agent-desktop ${version}"`);
+    expect(readScript("build-devbox-freestyle.ts")).toContain("devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion())");
+    // The verifier runs the probe in the desktop user's login shell, which
+    // wraps it in single quotes, so the probe carries none.
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).not.toContain("'");
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).toContain("agent-desktop snapshot --app thunar");
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).toContain("agent-desktop close-app thunar");
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE)");
+    expect(verify).toContain("agent-desktop-pinned");
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
