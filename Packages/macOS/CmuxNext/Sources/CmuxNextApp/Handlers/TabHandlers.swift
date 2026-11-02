@@ -160,8 +160,7 @@ enum TabHandlers {
     }
 
     /// pane.focus: the pane's workspace and screen shown, the pane focused.
-    /// On the invocation's machine (Go to Workspace passes the row's); an id two machines share
-    /// without one is refused, never the first machine's pane (cmux#30755).
+    /// On the invocation's machine; a bare id two machines share is refused (cmux#30755).
     static func revealPane(paneID: String, invocation: ActionInvocation, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         guard let pane = ctx.targetPane(paneID, invocation) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)),

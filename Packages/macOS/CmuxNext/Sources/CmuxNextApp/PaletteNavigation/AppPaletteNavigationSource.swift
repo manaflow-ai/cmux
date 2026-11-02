@@ -39,10 +39,8 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
                 return services.registry.refuse(RefusalStrings.noWorkspaceGroup(entry.id))
             }
         case .pane:
-            // On the row's own machine: forks keep pane ids, and a bare id two machines share is refused (cmux#30755).
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user)
-            invocation.targetMachineID = entry.machineID ?? MachineRegistry.localID
-            _ = services.registry.perform("pane.focus", invocation: invocation)
+            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user)
+                .onMachine(entry.machineID ?? MachineRegistry.localID)) // forks keep pane ids (cmux#30755)
         case .tab:
             guard services.revealTab(entry.id) else { return services.registry.refuse(TabSearchAppStrings.tabGone) }
         }

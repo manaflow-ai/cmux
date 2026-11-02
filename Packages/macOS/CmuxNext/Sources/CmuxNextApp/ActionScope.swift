@@ -25,13 +25,7 @@ struct ActionScope {
                 }
                 return controller
             case .pane:
-                // On the invocation's machine; an id two machines share without one is refused (cmux#30755).
-                guard let model = AppActionContext(services: services).targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
-                guard let controller = services.paneController(for: model) else {
-                    services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
-                    return nil
-                }
-                return controller
+                return AppActionContext(services: services).paneController(invocation) // on its machine (cmux#30755)
             default: break
             }
         }
