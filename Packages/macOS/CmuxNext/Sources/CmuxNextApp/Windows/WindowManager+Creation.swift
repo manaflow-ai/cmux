@@ -78,7 +78,7 @@ extension WindowManager {
     /// The launch window took its saved window's id (`adoptLaunchWindow`): what was asked for under the old id goes with it.
     func launchWindowAdopted(from old: String, as new: String) {
         guard old != new else { return }
-        for (id, window) in pendingClaims where window == old { pendingClaims[id] = new }
+        for (id, window) in claims.pending where window == old { claims.pending[id] = new }
         for (id, placement) in pendingPlacements where placement.window == old { pendingPlacements[id]?.window = new }
         if let frame = pendingFrames.removeValue(forKey: old) { pendingFrames[new] = frame }
         if behindWindows.remove(old) != nil { behindWindows.insert(new) }
@@ -95,23 +95,30 @@ extension WindowManager {
     /// A claim for the launch window before the restore stays pending even when mirrored (`awaitsRestore`).
     func claimNew(workspaceID: String, window windowID: String, frame: CGRect? = nil) {
         guard services.machines.workspace(id: workspaceID) != nil, !awaitsRestore(windowID) else {
-            pendingClaims[workspaceID] = windowID
+            claims.pending[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
             if !ActionRunScope.viewChangeAllowed() {
-                backgroundClaims.insert(workspaceID)
+                claims.background.insert(workspaceID)
                 let open = registry.value.window(windowID)?.isOpen == true || awaitsRestore(windowID) // the launch window is on screen
-                if open { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
+                if open { claims.quiet.insert(workspaceID) } else { behindWindows.insert(windowID) }
             }
             return
         }
         // A background create on a Cloud machine nobody opened here waits with its machine (#28609).
         if !ActionRunScope.viewChangeAllowed(), isHeldCloudWorkspace(workspaceID) { return }
         // Already mirrored (the claim came after the delta): place it now.
-        pendingClaims[workspaceID] = nil
+        claims.pending[workspaceID] = nil
         if let state = states[windowID], registry.value.window(windowID)?.isOpen == true {
             claim(workspaceID: workspaceID, in: state)
         } else {
             openWindow(id: windowID, workspaces: [workspaceID], frame: frame)
         }
+    }
+
+    /// A create into a window failed or a close cancelled it: its row goes, and its claim unless it listed (#31502).
+    func createFailed(_ id: String, _ error: any Error) -> any Error {
+        PendingWorkspaceRows.shared.remove(id)
+        if claims.release(failed: id, listed: services.machines.workspace(id: id) != nil) { repairSelections(previous: membersByWindow) }
+        return error
     }
 }

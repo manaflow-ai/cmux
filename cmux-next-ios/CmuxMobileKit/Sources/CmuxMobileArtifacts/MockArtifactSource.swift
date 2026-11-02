@@ -9,6 +9,10 @@ import UIKit
 /// Artifact contents for the mock session: a few text files, a generated
 /// screenshot and recording, directory listings and links.
 public struct MockArtifactSource: ArtifactSource {
+    /// Demo content has one deterministic owner, separate from every real Mac
+    /// or account. Keep the sample grid's thumbnail warm cache.
+    public let thumbnailCacheScope: String? = "mock-demo-artifacts-v1"
+
     public init() {}
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {

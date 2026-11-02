@@ -116,7 +116,13 @@ test("bounded list follows an empty first page that has a continuation cursor", 
   expect(first).toBeDefined();
   if (!first) return;
   const held = first.sessions.slice();
-  expect(await pager.rest(first, () => held, (fresh) => held.push(...fresh))).toBe(true);
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => held.push(...fresh),
+    ),
+  ).toBe(true);
   expect(held.map((row) => row.sessionId)).toEqual(["a"]);
   expect(calls.map((call) => [call.method, call.params.cursor])).toEqual([
     ["_acpmux/watch", undefined],
@@ -134,7 +140,13 @@ test("bounded list follows an empty middle page that has a continuation cursor",
   expect(first).toBeDefined();
   if (!first) return;
   const held = first.sessions.slice();
-  expect(await pager.rest(first, () => held, (fresh) => held.push(...fresh))).toBe(true);
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => held.push(...fresh),
+    ),
+  ).toBe(true);
   expect(held.map((row) => row.sessionId)).toEqual(["a", "b"]);
   expect(calls.map((call) => call.params.cursor)).toEqual([undefined, "c1", "c2"]);
 });

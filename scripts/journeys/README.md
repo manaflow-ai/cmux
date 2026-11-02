@@ -443,6 +443,8 @@ kit has its own `top`). Every program takes `--seed N` (the same seed draws the 
 ```bash
 K=scripts/journeys/tui-kit/tuikit.py
 python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
+python3 $K gradient --pace spin ...                             # pacing: sleep (default), hybrid (--spin-ms), spin
+python3 scripts/journeys/tui-kit/pace_probe.py --seconds 30      # frame intervals per pacing variant on this host
 python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
 python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged
 python3 $K mouse --seed 7 --duration 60 --log /tmp/m.jsonl      # curses, SGR 1006 mouse, cursor at (rows//2, cols//2)
