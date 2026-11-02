@@ -3659,7 +3659,7 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge, the actions after the time. */
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
@@ -3674,8 +3674,9 @@ a.cv-sha:focus-visible {
 }
 /* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
    (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
-   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
-   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. The
+   buttons always lead the row; "Worked for 5s" and Continue come after them (Leo, 2026-11-02:
+   "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
 .cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
