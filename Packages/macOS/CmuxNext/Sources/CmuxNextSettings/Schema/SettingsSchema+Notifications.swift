@@ -225,6 +225,13 @@ nonisolated enum NotificationSettingsSchema {
                 kind: .toggle, default: .bool(attention.movesToTop), keywords: ["reorder", "sort", "bump"]
             ),
             SettingDescriptor(
+                ["notifications", "attention", "moveToTopOnAgentFinish"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish", "Move the Workspace to the Top When Its Agent Finishes"),
+                help: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish.help",
+                                        "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
+                kind: .toggle, default: .bool(attention.movesToTopOnAgentFinish), keywords: ["reorder", "sort", "bump", "agent", "done", "finished"]
+            ),
+            SettingDescriptor(
                 ["notifications", "mutedWorkspaces"], section: .notifications, group: banners,
                 title: SettingsText.keyed("settings.notifications.mutedWorkspaces", "Muted Workspaces"),
                 help: SettingsText.keyed("settings.notifications.mutedWorkspaces.help",
