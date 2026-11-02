@@ -155,13 +155,13 @@ impl Mux {
                     }
                 };
                 crate::debug_spans::mark("creation.effect_done");
-                return Ok(StagedCreationOutcome::Staged(StagedCreation {
+                return Ok(StagedCreationOutcome::Staged(Box::new(StagedCreation {
                     idempotency_key,
                     operation_name,
                     fingerprint: fingerprint.clone(),
                     result,
                     recovery,
-                }));
+                })));
             }
         };
         Ok(StagedCreationOutcome::Answered(self.activated_creation(replayed)))

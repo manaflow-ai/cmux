@@ -300,7 +300,7 @@ pub(super) enum StagedCreationOutcome {
     /// Its answer: a replay, a failure or a settlement.
     Answered(anyhow::Result<ResourcePatchCommit>),
     /// An executed creation that waits for its group's projection commit.
-    Staged(StagedCreation),
+    Staged(Box<StagedCreation>),
 }
 
 /// Whether creations of `operation` may share a group commit: a split or a
@@ -338,7 +338,7 @@ impl Mux {
                 Some(answer)
             }
             StagedCreationOutcome::Staged(staged) => {
-                seat.end_turn(Some(staged));
+                seat.end_turn(Some(*staged));
                 None
             }
         };
