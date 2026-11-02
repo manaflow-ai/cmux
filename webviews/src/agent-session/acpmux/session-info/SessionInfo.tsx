@@ -821,7 +821,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     [drawn, scopedAgent, snapshot.summary, rows],
   );
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],
@@ -1359,7 +1359,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;

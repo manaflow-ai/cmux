@@ -345,6 +345,104 @@ uint32_t cmux_close_focus_workspace(uint32_t shown, const uint32_t *old, size_t 
 int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *parents, size_t count,
                                       const uint32_t *order, size_t order_count, uint32_t *parent_out);
 
+/*
+ * Agent cursor visibility (cmux-focus-core agent_cursor_visibility), typed:
+ * one call per agent input event and per frame of pane motion while a target
+ * is tracked, no JSON, no handle, no allocation. Ids are the caller's own
+ * uint32_t numbering (workspaces, panes, tabs, windows); CMUX_FOCUS_NONE is
+ * none. Variable parts are ranges (offset, count) into the snapshot's flat
+ * arrays. The answer equals the JSON operation agent_cursor_visibility's.
+ * Returns CMUX_LAYOUT_REDUCER_OK and writes *out; ERR_NULL (a null pointer,
+ * or a null array with a nonzero count), ERR_INVALID (a range outside its
+ * array) or ERR_PANIC leave *out as it was.
+ */
+#define CMUX_CURSOR_WINDOW_MINIMIZED 1u
+#define CMUX_CURSOR_WINDOW_ON_ACTIVE_SPACE 2u
+#define CMUX_CURSOR_WINDOW_SIDEBAR_HIDDEN 4u
+#define CMUX_CURSOR_PANE_HAS_FRAME 1u
+#define CMUX_CURSOR_PANE_HAS_CLIP 2u
+#define CMUX_CURSOR_PANE_HAS_STRIP 4u
+#define CMUX_CURSOR_PANE_HAS_PAGE 8u
+#define CMUX_CURSOR_PANE_HAS_SCALE 16u
+#define CMUX_CURSOR_VISIBLE 0u
+#define CMUX_CURSOR_HIDDEN 1u
+#define CMUX_CURSOR_NOT_DRAWN 2u
+/* CmuxCursorVisibility.anchor */
+#define CMUX_CURSOR_ANCHOR_TAB_CHIP 0u
+#define CMUX_CURSOR_ANCHOR_TAB_STRIP 1u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_LEADING 2u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TRAILING 3u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TOP 4u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_BOTTOM 5u
+#define CMUX_CURSOR_ANCHOR_WORKSPACE_ROW 6u
+#define CMUX_CURSOR_ANCHOR_WINDOW_EDGE 7u
+/* CmuxCursorVisibility.reason */
+#define CMUX_CURSOR_REASON_TAB_CLOSED 0u
+#define CMUX_CURSOR_REASON_NOT_IN_ANY_WINDOW 1u
+#define CMUX_CURSOR_REASON_MINIMIZED 2u
+#define CMUX_CURSOR_REASON_OTHER_SPACE 3u
+
+typedef struct {
+    double x, y, w, h;
+} CmuxCursorRect;
+
+/* a sidebar row (key: its workspace) or a tab chip (key: its tab) */
+typedef struct {
+    uint32_t key;
+    uint32_t reserved;
+    CmuxCursorRect rect;
+} CmuxCursorKeyedRect;
+
+typedef struct {
+    uint32_t id;
+    uint32_t shown_workspace; /* CMUX_FOCUS_NONE: shows none */
+    uint32_t flags;           /* CMUX_CURSOR_WINDOW_* */
+    uint32_t listed_offset, listed_count; /* range of ids */
+    uint32_t rows_offset, rows_count;     /* range of rows */
+    uint32_t panes_offset, panes_count;   /* range of panes */
+    uint32_t reserved;
+    CmuxCursorRect overlay;
+} CmuxCursorWindow;
+
+typedef struct {
+    uint32_t id;
+    uint32_t selected_tab; /* CMUX_FOCUS_NONE: none */
+    uint32_t flags;        /* CMUX_CURSOR_PANE_* */
+    uint32_t chips_offset, chips_count; /* range of chips */
+    uint32_t reserved;
+    CmuxCursorRect frame, clip, strip, viewport;
+    double zoom;
+    double scale; /* without CMUX_CURSOR_PANE_HAS_SCALE: 1 */
+} CmuxCursorPane;
+
+typedef struct {
+    uint32_t target;
+    uint32_t tab_workspace; /* CMUX_FOCUS_NONE: no tab has the target id */
+    uint32_t tab_pane;
+    uint32_t reserved;
+    const CmuxCursorWindow *windows; size_t windows_count; /* front to back */
+    const uint32_t *ids; size_t ids_count;
+    const CmuxCursorKeyedRect *rows; size_t rows_count;
+    const CmuxCursorPane *panes; size_t panes_count;
+    const CmuxCursorKeyedRect *chips; size_t chips_count;
+} CmuxCursorSnapshot;
+
+/* kind CMUX_CURSOR_VISIBLE: window, viewport, clip, zoom, scale.
+ * CMUX_CURSOR_HIDDEN: window, anchor (CMUX_CURSOR_ANCHOR_*), rect.
+ * CMUX_CURSOR_NOT_DRAWN: reason (CMUX_CURSOR_REASON_*). Non-finite rect
+ * numbers pass through as they are. */
+typedef struct {
+    uint32_t kind;
+    uint32_t window;
+    uint32_t anchor;
+    uint32_t reason;
+    CmuxCursorRect viewport, clip, rect;
+    double zoom;
+    double scale;
+} CmuxCursorVisibility;
+
+int32_t cmux_agent_cursor_visibility(const CmuxCursorSnapshot *snapshot, CmuxCursorVisibility *out);
+
 /* Column scroll reducer (cmux-layout-reducer scroll, src/scroll.rs): one
  * handle per scrolling strip (kind 0 a columns screen, 1 a column's rows,
  * 2 a scroll area). The spring stays in the caller's memory: every event

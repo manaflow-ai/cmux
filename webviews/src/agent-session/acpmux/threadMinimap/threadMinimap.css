@@ -274,17 +274,10 @@
 .acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
-/* Another session's message (model.ts promptSender): it keeps its row, but its tick is set in from the
-   rail's edge and shorter, as the full-height map sets a reply in, so the person's own prompts stand out
-   (Leo 2026-10-27: "shouldn't they be designated as like a special sort of thing?"). Its tones are
-   the person's ticks'. */
-.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar,
-.acpmux-minimap__tick[data-incoming] .acpmux-minimap__dot {
-  left: 6px;
-}
-.acpmux-minimap__tick[data-incoming] .acpmux-minimap__bar {
-  width: min(20px, calc(100% - 6px));
-}
+/* Another session's message (model.ts promptSender) keeps the person's tick: at rest every tick
+   shares one column, one x and one width, so the rail never reads jagged; its preview card names the
+   sender (PreviewCard.tsx). #31681 set these ticks in and shorter; Leo 2026-11-02, on that rail:
+   "WTF ARE THESE" (leo-workspace design/session-rail.md). */
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
    remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {

@@ -1017,6 +1017,17 @@ export default componentEntry<Props>({
       props: breakdownProps,
       play: openMcpTools,
     },
+    "context-autocompact-window": {
+      note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
+      props: {
+        ...breakdownProps,
+        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
+        if (/\/\s*1M/.test(text(ctx))) throw new Error("Context still reads the model's 1M window");
+      },
+    },
     "context-breakdown-hues": {
       note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
       props: {

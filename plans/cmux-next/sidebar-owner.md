@@ -1,5 +1,21 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a row's fill keeps an even gap from both sidebar edges and has a rounder corner. Leo, comparing
+  ChatGPT's selected sidebar row with ours: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T" / "JUST ADD A SLIGHT GAP (PADDING)
+  AND SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES". `SidebarStyle.rowEdgeGap` (the fill to the
+  sidebar's trailing edge) and `rowToPaneGap` (the fill to the curved main-pane card) are now the leading inset (6 pt
+  compact, 8 comfortable), replacing Leo 2026-10-27's 1.5 pt / 2.5 pt; `SidebarDensityTokens.rowCornerRadius` is the
+  item corner plus `space1` (8 compact, 9 comfortable, continuous). ChatGPT keeps 8 pt beside its 30 pt row, corner
+  about 9 to 10 pt. Trailing marks stay on the grid's 24 pt column; row height, icons, text and colours are unchanged.
+  Regression: `SidebarRowGutterTests`, `SidebarGridAlignmentTests`; surface spec: leo-workspace `design/sidebar.md`.
+  The trailing clearance is measured from where the fill used to end (`trailingClearanceEdge`, 1.5 pt in), so the
+  gap moves the fill and never the trailing column or a slot's resize-band clamp (`trailingColumnFrame`), at every
+  density and text size.
+
+- 2026-11-02: pinned-section header text uses the shared optical midline (`SidebarStyle.textY`), as machine
+  headers already do. Centering its full line box left the visible capitals off the chevron's center line.
+  Regression: `SidebarIconColumnTests.aBandHeaderTitleAndChevronShareTheMidLine`, across sidebar densities and text sizes.
+
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
   Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
   New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours
