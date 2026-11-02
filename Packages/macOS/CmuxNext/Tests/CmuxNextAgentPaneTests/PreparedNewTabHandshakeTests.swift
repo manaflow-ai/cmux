@@ -21,6 +21,7 @@ struct PreparedNewTabHandshakeTests {
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["cwd"] as? String != "/other/tabs/project")
         #expect(model.handshakeCwd != "/other/tabs/project")
+        #expect(!model.roots().contains("/other/tabs/project"), "a prepared folder is no root of the parked page")
     }
 
     /// A tab's own context (Cmd-T adopted the page) still names the chat's folder.
