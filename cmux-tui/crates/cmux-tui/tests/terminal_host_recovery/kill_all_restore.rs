@@ -573,3 +573,80 @@ fn kill_all_restore_time_of_12_terminals() {
         serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
     );
 }
+
+/// SCRATCH measurement (never merge): Cmd-D four times, as fast as a person
+/// presses it (each split on the new pane, sent once the previous answered),
+/// then four splits sent at once. Prints each split's answer time and each
+/// Kitty reservation's wait.
+#[test]
+fn scratch_cmd_d_four_times() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("cmd-d-four");
+    let trace_path = harness.dir.join("kitty-trace.log");
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness
+        .extra_env
+        .push(("CMUX_TUI_SCRATCH_RESPAWN_TRACE".into(), trace_path.display().to_string()));
+    harness.restart();
+    let home = harness.dir.clone();
+    let (_, _, first) = start_shell_in(&harness, "cmdd", &home);
+    std::thread::sleep(Duration::from_secs(1));
+    let pane_of = |surface: u64| -> u64 {
+        let placed = request(&harness.socket, serde_json::json!({"cmd":"list-workspaces"}));
+        placed["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|w| w["screens"].as_array().into_iter().flatten())
+            .flat_map(|s| s["panes"].as_array().into_iter().flatten())
+            .find(|p| {
+                p["tabs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|t| t["surface"].as_u64() == Some(surface))
+            })
+            .and_then(|p| p["id"].as_u64().or_else(|| p["pane"].as_u64()))
+            .unwrap_or_else(|| panic!("no pane for {surface}: {placed}"))
+    };
+    let mut pane = pane_of(first);
+    let mut sequential_ms = Vec::new();
+    let mut answers = Vec::new();
+    for n in 0..4 {
+        let started = Instant::now();
+        let answer = request(
+            &harness.socket,
+            serde_json::json!({"id": format!("d{n}"), "cmd": "split", "pane": pane, "dir": "right", "cols": 80, "rows": 24}),
+        );
+        sequential_ms.push(started.elapsed().as_micros() as f64 / 1000.0);
+        if let Some(next) = answer["pane"].as_u64().or_else(|| answer["new_pane"].as_u64()) {
+            pane = next;
+        }
+        answers.push(answer.to_string());
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let started = Instant::now();
+    let socket = harness.socket.clone();
+    let threads = (0..4)
+        .map(|n| {
+            let socket = socket.clone();
+            std::thread::spawn(move || {
+                let t = Instant::now();
+                request(
+                    &socket,
+                    serde_json::json!({"id": format!("p{n}"), "cmd": "split", "pane": pane, "dir": "down", "cols": 80, "rows": 24}),
+                );
+                t.elapsed().as_micros() as f64 / 1000.0
+            })
+        })
+        .collect::<Vec<_>>();
+    let parallel_ms = threads.into_iter().map(|t| t.join().unwrap()).collect::<Vec<_>>();
+    let total_parallel = started.elapsed().as_micros() as f64 / 1000.0;
+    std::thread::sleep(Duration::from_millis(500));
+    let trace = fs::read_to_string(&trace_path).unwrap_or_default();
+    panic!(
+        "cmd-d-four: {} TRACE-BEGIN\n{}TRACE-END",
+        serde_json::json!({"sequential_ms": sequential_ms, "parallel_ms": parallel_ms, "parallel_total_ms": total_parallel, "first_answer": answers.first()}),
+        trace
+    );
+}

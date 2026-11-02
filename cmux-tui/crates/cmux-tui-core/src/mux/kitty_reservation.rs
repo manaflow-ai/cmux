@@ -104,6 +104,7 @@ impl Mux {
             }
         }
         self.start_kitty_image_budget_worker();
+        let scratch_started = Instant::now();
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
         let initial_limits =
             loop {
@@ -162,6 +163,18 @@ impl Mux {
                     self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
                 drop(next);
             };
+        if let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") {
+            use std::io::Write as _;
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(
+                    file,
+                    "KITTY-WAIT {} {} images={}",
+                    std::thread::current().name().unwrap_or(""),
+                    scratch_started.elapsed().as_micros(),
+                    initial_limits.images
+                );
+            }
+        }
         Ok(KittyImageBudgetReservation {
             mux: Arc::downgrade(self),
             surface,
