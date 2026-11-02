@@ -18,6 +18,11 @@ final class CEFDevToolsController {
     var devToolsBrowserID: Int32?
     /// Between `DEVTOOLS_WILL_OPEN` and `OPENED`: the layout keeps room.
     var opening = false
+    /// From the open key's turn until Chromium's `DEVTOOLS_WILL_OPEN`: the docked layout shows with the pane's
+    /// ground in the DevTools area while Chromium has not been asked yet (`openWithStandIn`).
+    private(set) var standIn = false
+    /// Which stand-in the pending next-turn ask belongs to: a cancel or a newer stand-in makes an older ask stale.
+    private var standInGeneration = 0
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
@@ -41,21 +46,72 @@ final class CEFDevToolsController {
         guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         switch command {
         case .toggle:
-            perform(tab.devTools.isOpen ? .close : .show)
+            perform(tab.devTools.isOpen || standIn ? .close : .show)
         case .show:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.show, 0, 0)
+            openWithStandIn(CEFShimLibrary.DevToolsCommand.show)
         case .console:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.console, 0, 0)
+            openWithStandIn(CEFShimLibrary.DevToolsCommand.console)
         case .inspectElement:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.inspect, 0, 0)
+            openWithStandIn(CEFShimLibrary.DevToolsCommand.inspect)
         case .close:
             afterClose = nil
+            if standIn { return cancelStandIn() }
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
         case .panel(let panel):
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
+    }
+
+    /// Opens DevTools as every create in cmux opens (PATTERNS.md P4, instant create). Chromium creates DevTools inside
+    /// the command, on this thread, before `DEVTOOLS_WILL_OPEN` gives it its place; asked in the key's turn, the turn
+    /// and its frame waited for that creation (BROWSER VIDEO F3: the first changed frame 5-9 refreshes after the key).
+    /// So the key's turn lays out the stand-in (the page at its docked frame, the DevTools area on the pane's themed
+    /// ground: the view Chromium's DevTools window goes over) and commits that frame; Chromium is asked in the next
+    /// turn. `willOpen` takes the stand-in's views; when Chromium opens nothing, the stand-in rolls back. DevTools
+    /// open, opening, undocked, or not in a window: the command goes at once, as before.
+    private func openWithStandIn(_ command: Int32) {
+        guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim, !standIn else { return }
+        // A parked tab (hidden in its pane) has no frame to show early: its open goes at once, to its own browser.
+        guard !tab.devTools.isOpen, !opening, layout.dock.isDocked, tab.container.window != nil,
+              tab.host.visibleTab === tab, !tab.container.isHiddenOrHasHiddenAncestor,
+              tab.runtime.supportsEmbeddedDevTools else {
+            _ = shim.devToolsCommand(browserID, command, 0, 0)
+            return
+        }
+        if views == nil { _ = makeViews(in: tab) }
+        opening = true
+        standIn = true
+        standInGeneration &+= 1
+        let generation = standInGeneration
+        tab.container.layoutContent()
+        // perf-gate-ok: one commit per DevTools open, so the stand-in frame reaches the screen before Chromium's creation.
+        CATransaction.flush()
+        Task { @MainActor [weak self] in self?.askChromium(command, generation: generation) }
+    }
+
+    /// The stand-in's next turn: Chromium creates DevTools (`willOpen` ends the stand-in) or opens nothing.
+    /// Only the stand-in's own ask runs (`generation`), and only while its tab is still the one shown in a window:
+    /// console and inspect act on the pane's active Chromium tab (`ExecuteChromeCommand`), so after a tab switch
+    /// between the two turns they would open DevTools on another page. Otherwise the stand-in rolls back.
+    private func askChromium(_ command: Int32, generation: Int) {
+        guard standIn, generation == standInGeneration else { return }
+        guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim,
+              tab.host.visibleTab === tab, tab.container.window != nil, !tab.container.isHiddenOrHasHiddenAncestor else {
+            return cancelStandIn()
+        }
+        _ = shim.devToolsCommand(browserID, command, 0, 0)
+        if standIn { cancelStandIn() }
+    }
+
+    /// The page gets its whole frame back and the stand-in's views go.
+    private func cancelStandIn() {
+        guard standIn else { return }
+        standIn = false
+        opening = false
+        removeViews()
+        tab?.container.layoutContent()
     }
 
     func setFocused(_ focused: Bool) {
@@ -149,6 +205,7 @@ final class CEFDevToolsController {
     /// now; the shim reads it when this returns.
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        standIn = false
         opening = true
         let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
         // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
@@ -325,6 +382,7 @@ final class CEFDevToolsController {
     }
 
     func removeViews() {
+        standIn = false
         closeWindow()
         guard let views else { return }
         self.views = nil

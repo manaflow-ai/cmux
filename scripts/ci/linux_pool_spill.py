@@ -13,7 +13,8 @@ Each pass it
 
 - runs main's runner_pools.main() unchanged, with a switch that records its writes instead of making them, so the
   dead-member rule, the probe and janitor evidence and the --check schema stay main's;
-- samples the Linux queue itself (sample_load()): the newest MAX_RUNS queued and in-progress runs' jobs, read with
+- samples the Linux queue itself (sample_load()): the newest MAX_RUNS queued and in-progress runs at least
+  WAITED_MINUTES old (a younger run's jobs cannot have waited), their jobs read with
   the job's own GITHUB_TOKEN (actions: read), counted per Blacksmith Linux label as queued, running and `waited`
   (queued WAITED_MINUTES or more, the stall-aware failover's bound). The counts are a lower bound;
 - applies spill_choice() to the linux pool: when SPILL_WAITED or more sampled jobs on the pool's live member have
@@ -92,8 +93,12 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
     except Exception as error:  # noqa: BLE001 - an unread listing is no evidence
         print(f"::warning title=Linux pool spill::could not list runs ({error}); no queue sample")
         return None
+    # Only runs at least WAITED_MINUTES old: a younger run's jobs cannot have waited yet. The first live pass
+    # (2026-11-02 07:13Z) sampled the 60 newest runs, all minutes old, and read 84 queued 4 vCPU jobs and 0 waited
+    # while the oldest 4 vCPU job had waited about 40 minutes.
     recent = [run for run in listed.values()
-              if (created := parse_time(run.get("created_at"))) is not None and now - created <= RUN_WINDOW]
+              if (created := parse_time(run.get("created_at"))) is not None
+              and dt.timedelta(minutes=WAITED_MINUTES) <= now - created <= RUN_WINDOW]
     recent.sort(key=lambda run: (str(run.get("created_at")), run["id"]), reverse=True)
     # A listing page holds 100 runs; a full page may have hidden more.
     complete = len(recent) <= max_runs and len(listed) < 100
