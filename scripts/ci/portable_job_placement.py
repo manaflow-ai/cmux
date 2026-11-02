@@ -240,7 +240,7 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
-def read(env: Mapping[str, str], now: dt.datetime
+def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
          ) -> tuple[Sequence[Mapping[str, Any]] | None, Mapping[str, Any] | None]:
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
@@ -253,7 +253,8 @@ def read(env: Mapping[str, str], now: dt.datetime
         if not token:
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
+            runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
@@ -310,7 +311,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 break
             time.sleep(min(30, remaining))
             now = dt.datetime.now(dt.timezone.utc)
-            runners, snapshot = read(env, now)
+            runners, snapshot = read(env, now, use_state=False)
             placed = decide(env, runners, snapshot, now)
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)

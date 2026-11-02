@@ -55,6 +55,7 @@ import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { compactingUsage } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -1242,7 +1243,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = summary?.usage;
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
