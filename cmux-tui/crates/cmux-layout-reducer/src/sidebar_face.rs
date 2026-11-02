@@ -219,6 +219,9 @@ pub struct Face<'a> {
     /// The tab whose name and icon the row and the window titlebar read
     /// (`faceTab`).
     pub face: Option<usize>,
+    /// The work a browser front tab yields its name to (`workTab`); the app
+    /// hands it to the page face of a browser tab.
+    pub work: Option<usize>,
     /// The agent chat whose last message the row shows (`chatTab`).
     pub chat: Option<usize>,
     /// The tab whose folder and branch the row shows (`folderTab`).
@@ -563,6 +566,7 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
         front,
         label,
         face,
+        work: workspace.work_tab(),
         chat: workspace.chat_tab(label),
         folder_tab,
         bucket_tab,

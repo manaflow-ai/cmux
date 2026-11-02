@@ -148,6 +148,7 @@ fn one_call_maps_every_changed_row() {
     };
     let chat = rows[0];
     assert_eq!((chat.front, chat.label, chat.face, chat.agent), (0, 1, 1, 1));
+    assert_eq!(chat.work, 0, "the shell is the newest work");
     assert_eq!(chat.kind, 2, "harness");
     assert_eq!(chat.row_kind, 3, "mixed");
     assert_eq!(read(reply, chat.directory), None, "the idle shell's ~ does not label the row");
@@ -208,6 +209,39 @@ fn a_request_that_does_not_decode_answers_no_faces() {
         unsafe { cmux_sidebar_face_rows(std::ptr::null_mut(), &bad, std::ptr::null(), 0) }
             .is_null()
     );
+    // SAFETY: freed once.
+    unsafe { cmux_sidebar_face_free(faces) };
+}
+
+#[test]
+fn abbreviate_shortens_this_macs_home() {
+    let mut strings = Strings::default();
+    let home = strings.add("/Users/me");
+    let inside = strings.add("/Users/me/src");
+    let outside = strings.add("/Users/meow");
+    let faces = cmux_sidebar_face_new();
+    for (path, expected) in
+        [(inside, &b"~/src"[..]), (outside, &b"/Users/meow"[..]), (home, &b"~"[..])]
+    {
+        // SAFETY: a live handle and a buffer that holds its length.
+        let text = unsafe {
+            &*cmux_sidebar_face_abbreviate(faces, path, home, strings.0.as_ptr(), strings.0.len())
+        };
+        assert_eq!(text.ok, 1);
+        // SAFETY: the reply holds `len` bytes.
+        assert_eq!(unsafe { std::slice::from_raw_parts(text.bytes, text.len as usize) }, expected);
+    }
+    // SAFETY: as above; a range out of bounds does not decode.
+    let text = unsafe {
+        &*cmux_sidebar_face_abbreviate(
+            faces,
+            CRange { offset: 99, len: 1 },
+            home,
+            strings.0.as_ptr(),
+            strings.0.len(),
+        )
+    };
+    assert_eq!(text.ok, 0);
     // SAFETY: freed once.
     unsafe { cmux_sidebar_face_free(faces) };
 }

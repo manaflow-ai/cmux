@@ -278,6 +278,9 @@ fn a_page_in_a_split_yields_to_the_last_focused_work() {
     assert_eq!(later_b.front_tab(), Some(2));
     assert_eq!(later_b.work_tab(), Some(1));
     assert_eq!(work_split(2, 1, 3).work_tab(), Some(0));
+    // The row hands the work tab to the page face, and the face is the work's.
+    let row = face(&later_b, &context());
+    assert_eq!((row.front, row.work, row.face), (Some(2), Some(1), Some(1)));
 }
 
 // SidebarWorkTabTests.aPageTabIsNotWork
