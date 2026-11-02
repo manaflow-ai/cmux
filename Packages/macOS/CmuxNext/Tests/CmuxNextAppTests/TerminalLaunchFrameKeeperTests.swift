@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
@@ -61,7 +62,7 @@ import Testing
         return condition()
     }
 
-    @Test(arguments: 0..<24) func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt(trial: Int) async throws {
+    @Test(arguments: 0..<96) func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt(trial: Int) async throws {
         let shown = try await Shown()
         defer { shown.close() }
         let state = FileManager.default.temporaryDirectory.appending(path: "keeper-\(UUID().uuidString)")
@@ -72,7 +73,14 @@ import Testing
         frames.keep("tab_kept", session: shown.session, work: Self.work)
         let written = try await Self.eventually { !Self.files("tab_kept", in: directory).isEmpty }
         #expect(written, "no frame on disk while the app runs: a kill now leaves the next launch nothing to show")
-        let seenAtRead = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+        let seenAtRead = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted().map { name -> String in
+            let url = directory.appending(path: name)
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? -1
+            let decodes = (try? Data(contentsOf: url)).flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
+                .flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }.map { "\($0.width)x\($0.height)" } ?? "no"
+            return "\(name) \(size)B decodes \(decodes)"
+        }
+        let readAt = Date()
 
         // The next launch reads it like a quit's frame and shows it over the new session.
         let next = TerminalLaunchFrames(directory: directory)
@@ -88,7 +96,13 @@ import Testing
         window.contentView = content
         reveal.hold(content, until: .pane)
         let shownAhead = next.showAhead("tab_kept", in: content, reveal: reveal)
-        let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted().map { name -> String in
+            let url = directory.appending(path: name)
+            let modified = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+            let decodes = (try? Data(contentsOf: url)).flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
+                .flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }.map { "\($0.width)x\($0.height)" } ?? "no"
+            return "\(name) modified \(Int(modified.timeIntervalSince(readAt) * 1000)) ms after the read, decodes \(decodes)"
+        }
         #expect(shownAhead, """
             the kept frame did not show at the next launch: \(next.launchPanes["tab_kept"]?.missed ?? "nil"); files \(files); at read \(seenAtRead); \
             content \(content.bounds.size), surface \(shown.session.surfaceView.bounds.size), kept size \(String(describing: frames.keepSavedSize("tab_kept"))), \
