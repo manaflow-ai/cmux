@@ -4364,6 +4364,16 @@ export function VirtualTranscript({
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
         setSeeking(false);
+      } else if (folding) {
+        // A disclosure the reader clicked in a tail that fit made it overflow: the chat opens where
+        // the reader is, the clicked line held (above), not at the latest row. Jumping there put the
+        // rows a frame up before the hold brought them back, or, past the hold, moved the whole
+        // thread up under the line just clicked (#27650, an edit's diff opened in a short chat).
+        followTrace.set(node.scrollTop);
+        follow(node.scrollTop >= latest - 1);
+        didOpenAtLatest.current = true;
+        endSeek();
+        setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
         clearScrollOrigin(node);
