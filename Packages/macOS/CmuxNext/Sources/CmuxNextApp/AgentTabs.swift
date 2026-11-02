@@ -22,8 +22,8 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
-    /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
-    private let openPanel: MadeAheadOpenPanel?
+    /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
+    private let paneShared: AgentPaneShared
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
@@ -88,6 +88,10 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
+    /// Reads the Mac-local repository catalog through the local cmux daemon frame protocol.
+    var cloudRepositoryLocal: @MainActor () async throws -> Data = {
+        throw DaemonError.notConnected
+    }
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
@@ -134,6 +138,18 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
+    /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
+    var takeConnectedSpare: (() -> AgentPaneView?)?
+    /// Whether this Mac's Chief home keeps session `session` (an older subagent tab recorded with
+    /// this Mac's host attaches there, ``AcpmuxChiefSessionRouter``): the spare is connected to
+    /// this Mac's acpmux, so such a chat gets its own page.
+    var chiefKeepsSession: @MainActor (String) -> Bool = { _ in false }
+    /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
+    /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
+    var onPageBuilt: ((String) -> Void)?
+    /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
+    var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -234,8 +250,13 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// What every chat holds for the next launch (the quit's window step).
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+    /// What every chat holds for the next launch (the quit's window step). Pages that froze while
+    /// hidden thaw first and stay awake until it is collected: a frozen page answers nothing.
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
+        onCollectingPages?(true)
+        defer { onCollectingPages?(false) }
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+    }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -262,14 +283,14 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard,
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, paneShared: AgentPaneShared = AgentPaneShared(), defaults: UserDefaults = .standard,
          daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
         }
-        self.openPanel = openPanel
+        self.paneShared = paneShared
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
@@ -411,6 +432,18 @@ final class AgentTabStore {
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
+            onPageBuilt?(key)
+            return spare
+        }
+        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
+        // spare too: it is loaded and connected, and switches to the chat in place.
+        if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[key] ?? record.session,
+                                                newTabPage: newTabPages[key] != nil, seeded: seed != nil,
+                                                wake: wakeStates[key] != nil || relaunchWake.mayHold(key))
+            .adopted(chiefKeeps: chiefKeepsSession),
+           let spare = takeConnectedSpare?(), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
+            track(key, in: store)
+            onPageBuilt?(key)
             return spare
         }
         let model = AgentPaneModel(
@@ -424,6 +457,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
+        model.onCloudRepositoryLocal = cloudRepositoryLocal
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -449,6 +483,7 @@ final class AgentTabStore {
         }
         views[key] = view
         track(key, in: store)
+        onPageBuilt?(key)
         return view
     }
 
@@ -575,7 +610,7 @@ final class AgentTabStore {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

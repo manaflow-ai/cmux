@@ -43,6 +43,9 @@ const chiefOf = (provenance: Record<string, unknown>): string | undefined =>
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
   name: string;
+  /// A person's own words (a guest's held or declined prompt), never an agent's: nothing reads it
+  /// as a lane notice or rewrites it (laneReport.ts `laneNotice`), so every row shows it as sent.
+  fromPerson?: true;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
   /// Who the sender is to this chat, for a sub-session family's message.

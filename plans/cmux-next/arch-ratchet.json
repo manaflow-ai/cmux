@@ -771,6 +771,36 @@
       "owner": "aid-68ba07270dde07b96ff4",
       "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
       "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 34,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AgentChatCopyHandlers.swift (+34 lines, Leo's ask ask-70ded0db7b): the five Cmd+Shift+P session-file copy binds (paths, transcript, harness config, harness settings, acpmux session.json), their refusal strings and a filesReader beside the existing infoReader. The reads, labels and stale-clipboard logic live outside the App (CmuxNextAgentPane AgentChatCopyOperations, AgentChatCopyText, AgentPaneSessionCopySocket); the binds use App-only AppActionContext, AgentPaneView and focus checks, so they move with the Handlers folder's destination-map row.",
+      "author": "aid-cd1f8adf631e85594229",
+      "owner": "aid-cd1f8adf631e85594229",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 7c12f1e51b1540c3940e7c8452119fd7c73762b5",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 29,
+      "why": "HomeService+ChiefRoster.swift observeFeedRows and its stored task in HomeService.swift (+29 lines, Leo's ask ask-b9334a120b): the observation that maps the Feed's open notices to the default Chief's transcript rows. The rows, their merge and the store setter live in CmuxHomeCore (HomeFeedRow, HomeStore+FeedRows) and the drawing in MessagesLabHome; the wiring reads App-only AppServices.feed and HomeService.defaultChiefConversation, so it moves with the Home folder's destination-map row.",
+      "author": "aid-a260e311693a0346346f",
+      "owner": "aid-a260e311693a0346346f",
+      "receipt": "Review (subagent claude-opus-5-5 medium): SHIP at 0925c487ce3c270211f6752319dca8432d31dc1a",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 13,
+      "why": "Cloud refresh coalescing (#13325): 13 App lines retain the account snapshot/result fence, service stop forwarding, and the call into CloudRefreshGate. MachineRegistry and auth reconciliation remain App-owned; all new batch coordination lives in CmuxNextCloud. Moving those unrelated app dependencies would broaden this correctness fix.",
+      "author": "cloud refresh implementation",
+      "owner": "cloud refresh implementation",
+      "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
+      "expiry": "2026-11-30"
     }
   ],
   "escape_reviews": [

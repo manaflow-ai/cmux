@@ -17,9 +17,11 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-host",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server",
@@ -1213,7 +1215,10 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1226,6 +1231,9 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1259,11 +1267,14 @@ name = "cmux-link"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "cmux-unix-socket",
  "libc",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1508,7 +1519,9 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server-core",
  "flate2",
  "futures-util",

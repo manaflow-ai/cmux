@@ -62,6 +62,16 @@ public struct PalettePageSpec {
     /// stream of the query before it, and the rows on screen stay until the
     /// new query's first answer lands.
     public var queryResults: (@MainActor (String) -> AsyncStream<[PaletteItem]>)?
+    /// Contributed pages that answer their own queries, shown with this page's ranked rows
+    /// (Search and the Chats & agents scope: `PaletteController.contributed`).
+    var contributedAnswers: [PaletteContributedAnswers] = []
+    /// For a page that answers its own queries: the row Search shows when it cuts the page's answer to its share,
+    /// given how many of the answer's rows it leaves out and the query. It says how many more match and opens this
+    /// page with the query. Nil: Search shows no such row.
+    public var moreRow: (@MainActor (_ notShown: Int, _ query: String) -> PaletteItem)?
+    /// Subscribes to the page's source becoming able to answer (acpmux connected, or its index ready): the palette
+    /// asks the shown query again. Returns a token the page keeps while it is open. Nil: the source never changes.
+    public var onSourceChange: (@MainActor (@escaping @MainActor () -> Void) -> AnyObject)?
     /// False: the query never filters the providers' rows (a save picker's
     /// folders stay listed while the name is typed).
     public var filtersByQuery: Bool

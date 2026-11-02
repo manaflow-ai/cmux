@@ -32,6 +32,14 @@
   --glass-rim: 1;
   /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */
   --glass-dispersion: 0;
+  /* The lens's specular light along the rim, 0 to 1 (lens.ts): the rim facing the light (above, a
+     little left) catches a bright line, the opposite rim a fainter one. Lens and Spectrum only;
+     plain glass keeps its hairline. On in both (below): it costs a few shader ops per rim pixel and
+     no texture reads (design/glass.md in leo-workspace has the numbers). */
+  --glass-gloss: 0;
+  /* How much the lens's center zooms the wallpaper, 0 to 0.2: a thick lens. Off by default; the
+     gallery's liquid-thick variant shows it. */
+  --glass-magnify: 0;
   /* The lines of the rim. --cmux-card-rim is the host's card rim (transparent with borders off). */
   --glass-edge: var(--cmux-card-rim, color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent));
   --glass-fringe-red: transparent;
@@ -73,6 +81,9 @@
 
 :root[data-glass="spectrum"] {
   --glass-dispersion: 0.35;
+}
+:root:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --glass-gloss: 0.7;
 }
 :root[data-glass="spectrum"],
 :root[data-glass="spectrum"] .ui-glass {
@@ -117,6 +128,7 @@
 :root[data-borders="none"] {
   --glass-edge: transparent;
   --glass-rim: 0;
+  --glass-gloss: 0;
 }
 
 .ui-glass {
@@ -131,6 +143,15 @@
   background: var(--glass-tint);
 }
 
+/* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
+   shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-glass-refract="svg"]:not([data-reduce-transparency]) .ui-glass {
+    -webkit-backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
+    backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
+  }
+}
+
 /* CHROMIUM OVER THE WINDOW GLASS (Leo 2026-10-22: "we can't be having unstyled main chat panes").
    Chromium draws a backdrop-filter's blurred copy over the page's own pixels, not in their place.
    The window glass is not in a see-through page, so that copy is mostly clear and the text under a
@@ -142,7 +163,8 @@
    page's flow (a user's bubble, a settings card) has nothing under it and keeps its tint, as in
    WebKit. WebKit (which keeps -webkit-backdrop-filter), an opaque window and the lens (whose canvas
    is under the glass) keep the tint alone. The strength is the experiment chromium-glass-underlay
-   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). */
+   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). A surface whose page blurs
+   itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
   --glass-underlay: 70%;
 }
@@ -162,6 +184,18 @@
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+    /* THE PAGE BLURS ITSELF UNDER THE GLASS (Leo 2026-10-30, on the Summary popover: "I don't like
+       the non-glassness"). A surface that uses seeThroughBlur.ts (data-glass-over) makes what it
+       covers blur its own pixels inside the surface's rounded rect: each covered element
+       (data-glass-under) draws through its own SVG filter. The text under the glass is then
+       blurred in place, as WebKit's backdrop draws it, so the surface needs no underlay to hide it:
+       its tint and that blur carry the legibility (design/overlay-surfaces.md). */
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under] {
+      filter: var(--glass-under-filter);
+    }
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
+      --glass-underlay: 0%;
     }
   }
 }
@@ -242,7 +276,7 @@
 :root {
   --surface-near-opaque: 90%;
   --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
-  --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 22%));
+  --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 42%));
   --surface-card-rim-top: light-dark(rgb(255 255 255 / 80%), rgb(255 255 255 / 22%));
   --surface-card-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
