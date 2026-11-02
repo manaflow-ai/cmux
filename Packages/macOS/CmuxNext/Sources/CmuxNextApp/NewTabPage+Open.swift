@@ -61,6 +61,9 @@ extension NewTabPage {
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
+        // What a new chat of this window left when its tab opened another chat (cmux#32276): this
+        // page's field shows it as a draft, and the slot gives it up once the page reports it showed it.
+        page.draft = services.windowController(showing: pane).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
