@@ -955,6 +955,22 @@ impl StartCopy {
         })
     }
 
+    /// Durable copy identity, redacted as a digest in the local ledger.
+    fn copy_source(&self) -> String {
+        use sha2::Digest as _;
+        let selection = json!([
+            "cloud.chat-copy.v1",
+            self.local,
+            self.subpath,
+            folder_repo(&self.local),
+            self.environment,
+        ]);
+        sha2::Sha256::digest(selection.to_string().as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
     /// A new folder for one copy of the send, under its [`Keys::place`].
     pub(super) fn fresh_place(&self) -> String {
         // The first 8 hex digits of a random id (all ASCII, so 8 chars are 8 bytes).
@@ -1045,6 +1061,21 @@ impl StartCopy {
                 "The previous Cloud chat folder is missing or no longer a directory; start a new chat to copy this project again.",
             ),
             Err((code, message)) => refused(&code, message),
+        }
+    }
+
+    fn source_refusal(previous: Option<Option<String>>, source: &str) -> Option<Value> {
+        match previous {
+            None => None,
+            Some(Some(was)) if was == source => None,
+            Some(Some(_)) => Some(refused(
+                "checkout.source_changed",
+                "This send was prepared for another project, subfolder or Cloud environment; start a new chat for the new selection.",
+            )),
+            Some(None) => Some(refused(
+                "checkout.source_unknown",
+                "This older Cloud chat has no recorded project selection; start a new chat to copy the chosen project safely.",
+            )),
         }
     }
 
