@@ -570,8 +570,9 @@ def step_switch_adopt_shown(j, step):
     focused = next((p for p in panes if p.get("focused")), None) or (panes[0] if panes else None)
     if not focused:
         raise D.StepError("switch_adopt_shown: debug.surfaces lists no pane")
-    ws = next((w for w in _workspaces(j) if w.get("id") == focused.get("workspace")), None)
-    term = next((t for pid, t in _terminals_of(ws or {}) if pid == focused.get("pane")), None)
+    # debug.surfaces names a workspace by its app id (a UUID), the topology by its daemon id (ws_...): the pane id
+    # is the same in both, so the pane finds the terminal.
+    term = next((t for w in _workspaces(j) for pid, t in _terminals_of(w) if pid == focused.get("pane")), None)
     if not term:
         raise D.StepError("switch_adopt_shown: no daemon terminal for pane %s" % focused.get("pane"))
     return j.adopt(term, focused.get("pane"))
