@@ -95,7 +95,8 @@
       "window": "w1",
       "home": true,
       "mark": "home-1",
-      "title": "click Home in window 1's sidebar"
+      "title": "click Home in window 1's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -129,7 +130,8 @@
       "window": "w1",
       "workspace": "mw-hm-a-${nonce}",
       "mark": "row-1",
-      "title": "click workspace a's row in window 1's sidebar (back from Home)"
+      "title": "click workspace a's row in window 1's sidebar (back from Home)",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -211,7 +213,8 @@
       "window": "w2",
       "home": true,
       "mark": "home-2",
-      "title": "click Home in window 2's sidebar"
+      "title": "click Home in window 2's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -245,7 +248,8 @@
       "window": "w2",
       "workspace": "mw-hm-b-${nonce}",
       "mark": "row-2",
-      "title": "click workspace b's row in window 2's sidebar (back from Home)"
+      "title": "click workspace b's row in window 2's sidebar (back from Home)",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -327,7 +331,8 @@
       "window": "w3",
       "home": true,
       "mark": "home-3",
-      "title": "click Home in window 3's sidebar"
+      "title": "click Home in window 3's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -361,7 +366,8 @@
       "window": "w3",
       "workspace": "mw-hm-c-${nonce}",
       "mark": "row-3",
-      "title": "click workspace c's row in window 3's sidebar (back from Home)"
+      "title": "click workspace c's row in window 3's sidebar (back from Home)",
+      "focus_first": true
     },
     {
       "do": "expect",

@@ -158,7 +158,8 @@
       "window": "w1",
       "workspace": "mw-rc-a1-${nonce}",
       "mark": "c10",
-      "title": "click workspace a1's row in window 1's sidebar"
+      "title": "click workspace a1's row in window 1's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -193,7 +194,8 @@
       "window": "w1",
       "workspace": "mw-rc-a2-${nonce}",
       "mark": "c11",
-      "title": "click workspace a2's row in window 1's sidebar"
+      "title": "click workspace a2's row in window 1's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -228,7 +230,8 @@
       "window": "w1",
       "workspace": "mw-rc-a1-${nonce}",
       "mark": "c12",
-      "title": "click workspace a1's row in window 1's sidebar"
+      "title": "click workspace a1's row in window 1's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -310,7 +313,8 @@
       "window": "w2",
       "workspace": "mw-rc-b1-${nonce}",
       "mark": "c20",
-      "title": "click workspace b1's row in window 2's sidebar"
+      "title": "click workspace b1's row in window 2's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -345,7 +349,8 @@
       "window": "w2",
       "workspace": "mw-rc-b2-${nonce}",
       "mark": "c21",
-      "title": "click workspace b2's row in window 2's sidebar"
+      "title": "click workspace b2's row in window 2's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -380,7 +385,8 @@
       "window": "w2",
       "workspace": "mw-rc-b1-${nonce}",
       "mark": "c22",
-      "title": "click workspace b1's row in window 2's sidebar"
+      "title": "click workspace b1's row in window 2's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -462,7 +468,8 @@
       "window": "w3",
       "workspace": "mw-rc-c1-${nonce}",
       "mark": "c30",
-      "title": "click workspace c1's row in window 3's sidebar"
+      "title": "click workspace c1's row in window 3's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -497,7 +504,8 @@
       "window": "w3",
       "workspace": "mw-rc-c2-${nonce}",
       "mark": "c31",
-      "title": "click workspace c2's row in window 3's sidebar"
+      "title": "click workspace c2's row in window 3's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",
@@ -532,7 +540,8 @@
       "window": "w3",
       "workspace": "mw-rc-c1-${nonce}",
       "mark": "c32",
-      "title": "click workspace c1's row in window 3's sidebar"
+      "title": "click workspace c1's row in window 3's sidebar",
+      "focus_first": true
     },
     {
       "do": "expect",

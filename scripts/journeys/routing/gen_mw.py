@@ -38,6 +38,12 @@ def variants(spec):
     out = []
     for film in (True, False):
         body = [dict(st) for st in steps]
+        for st in body:
+            if st.get("do") == "click_sidebar":
+                # MW-1c closed as not a defect (lead 2026-11-02 STATUS 6400): a first click on a background window
+                # only brings it to the front (the macOS rule Terminal and Ghostty follow), so the window is made key
+                # first, as a person's earlier click would.
+                st["focus_first"] = True
         if film:
             body = body[:start] + [{"do": "video_start", "name": name, "seconds": SECONDS,
                                     "title": "film the judged part (geometry and content, no pacing claim)"}] + \
