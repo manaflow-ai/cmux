@@ -24,7 +24,7 @@ import Testing
     @Test func anEquatableStreamAsksTheRuntimeNothing() async {
         let box = Box()
         let stream = ObservationStream({ box.count })
-        #expect(!stream.looksUpEqualityAtRunTime, "the stream looks up Equatable at run time for an element known to be Equatable")
+        #expect(stream.knownEquality != nil, "the stream looks up Equatable at run time for an element known to be Equatable")
         var values = stream.makeAsyncIterator()
         #expect(await values.next() == Count(value: 0))
     }
@@ -44,7 +44,7 @@ import Testing
     @Test func aStreamOfAnotherElementEmitsEveryValueAsBefore() async {
         let box = Box()
         let stream = ObservationStream({ box.opaque })
-        #expect(stream.looksUpEqualityAtRunTime)
+        #expect(stream.knownEquality == nil)
         var values = stream.makeAsyncIterator()
         #expect(await values.next()?.value == 0)
         Task { @MainActor in box.opaque = Opaque(value: 0) }

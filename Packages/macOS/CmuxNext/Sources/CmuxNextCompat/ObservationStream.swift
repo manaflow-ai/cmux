@@ -30,8 +30,9 @@ internal import os
 /// Unlike the system type, a stream whose `Element` is `Equatable` emits
 /// only values that differ from the last one it emitted (perf-speed-of-light.md
 /// I1): a re-evaluation that gives an equal value wakes no consumer. The
-/// check is made once per iterator (`Element.self is any Equatable.Type`),
-/// so it holds for every Equatable element, Optional and collections of
+/// `==` comes from the call site for an element with a nonisolated `Equatable` conformance (the
+/// `Element: Equatable` initializers); for any other element the check is made once per iterator
+/// (`Element.self is any Equatable.Type`), so it holds for every Equatable element, Optional and collections of
 /// Equatable values included, on both paths. A stream of a non-Equatable
 /// element (`Void`, tuples, classes) emits every re-evaluation: a consumer
 /// that needs a wakeup for a change its value does not show returns `Void`
@@ -75,7 +76,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     private let primed: Primed?
     /// `==` of an `Equatable` element, known where the stream is made (the `Element: Equatable` initializers);
     /// nil: looked up at run time when iteration starts (`equality()`).
-    private let knownEquality: (@Sendable (Element, Element) -> Bool)?
+    let knownEquality: (@Sendable (Element, Element) -> Bool)?
 
     fileprivate struct Primed: Sendable {
         let state: ChangeState
@@ -116,14 +117,17 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// `withObservationTracking` path (also with the native opt-in).
     @MainActor @_disfavoredOverload
     public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
-        let state = ChangeState()
-        let value = LegacyIterator.track(emit, state: state)
-        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: nil))
+        primedStream(emit, knownEquality: nil)
     }
 
-    /// Whether iteration asks the runtime if `Element` is `Equatable` (`equality()`); false when `==` came from
-    /// the call site.
-    var looksUpEqualityAtRunTime: Bool { knownEquality == nil }
+    /// Evaluates `emit` now with tracking and returns that value with the stream primed on that tracking.
+    @MainActor
+    fileprivate static func primedStream(_ emit: @escaping @MainActor @Sendable () -> Element,
+                                         knownEquality: (@Sendable (Element, Element) -> Bool)?) -> (value: Element, later: ObservationStream) {
+        let state = ChangeState()
+        let value = LegacyIterator.track(emit, state: state)
+        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: knownEquality))
+    }
 
     /// The tracking and the first value for ``Iterator``: the primed ones (`current(_:)`) for the first iterator.
     fileprivate func primedForIterator() -> Primed? {
@@ -343,9 +347,7 @@ extension ObservationStream where Element: Equatable {
     /// ``ObservationStream/current(_:)`` for an `Equatable` element.
     @MainActor
     public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
-        let state = ChangeState()
-        let value = LegacyIterator.track(emit, state: state)
-        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: { $0 == $1 }))
+        primedStream(emit, knownEquality: { $0 == $1 })
     }
 }
 
