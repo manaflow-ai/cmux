@@ -77,6 +77,7 @@ pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, Resourc
         },
         range: range(fields, false)?,
         limit: Some(limit),
+        untitled: cmux_history::UntitledTitles::default(),
     })
 }
 

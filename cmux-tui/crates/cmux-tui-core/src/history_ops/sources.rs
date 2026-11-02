@@ -220,13 +220,13 @@ mod tests {
         assert_eq!(entry.provider.as_deref(), Some("claude"));
     }
 
-    /// Port of the `AgentPaneModel.tabTitle` case of the Swift
-    /// `ClosedAgentIdentityTests.daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit`: an
-    /// untitled closed chat is found by its default title "Agent", which the row leaves empty
-    /// (the app shows it localized). A titled chat, an untitled terminal and a closed screen
-    /// that holds a chat are not.
+    /// The `AgentPaneModel.tabTitle` case of the Swift
+    /// `ClosedAgentIdentityTests.daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit`, end to
+    /// end from `closed.list` items: an untitled closed chat and an untitled closed terminal are
+    /// found by the localized titles the app shows (`untitled_titles`). A titled chat and a closed
+    /// screen that holds a chat keep their own words.
     #[test]
-    fn untitled_closed_chat_search_matches_its_default_title() {
+    fn untitled_closed_rows_are_found_by_the_shown_localized_titles() {
         let chat = serde_json::json!({"kind": "conversation", "url": "about:blank",
             "agent_session": {"session": "sess-1", "harness": "codex"}});
         let titled = serde_json::json!({"kind": "conversation", "name": "Fix the upload test",
@@ -242,14 +242,25 @@ mod tests {
         ];
         let entries = closed_entries(&items);
         let untitled = entries.iter().find(|entry| entry.id == "closed:daemon:closed_1").unwrap();
-        assert_eq!(untitled.title, "", "the app localizes the default title");
-        let query = cmux_history::HistoryQuery {
+        assert_eq!(untitled.title, "", "the app shows the localized default title");
+        let search = |text: &str| cmux_history::HistoryQuery {
             kinds: vec![HistoryKind::Closed],
-            text: "agent".to_owned(),
+            text: text.to_owned(),
+            untitled: cmux_history::UntitledTitles {
+                chat: Some("Assistent".to_owned()),
+                terminal: Some("Konsole".to_owned()),
+            },
             ..Default::default()
         };
-        let ids: Vec<String> =
-            query.apply(&entries, 100, 0, |_| false).into_iter().map(|entry| entry.id).collect();
-        assert_eq!(ids, vec!["closed:daemon:closed_1".to_owned()]);
+        let ids = |text: &str| -> Vec<String> {
+            search(text)
+                .apply(&entries, 100, 0, |_| false)
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect()
+        };
+        assert_eq!(ids("assistent"), vec!["closed:daemon:closed_1"]);
+        // The closed screen is no chat: it shows the terminal default.
+        assert_eq!(ids("konsole"), vec!["closed:daemon:closed_4", "closed:daemon:closed_3"]);
     }
 }

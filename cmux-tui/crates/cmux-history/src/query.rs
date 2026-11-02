@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::entry::{ClosedKind, HistoryEntry, HistoryKind};
+use crate::entry::{HistoryEntry, HistoryKind};
 use crate::fold::{fold, tokens};
 
 const HOUR_MS: i64 = 3_600_000;
@@ -60,6 +60,29 @@ pub struct HistoryQuery {
     pub range: HistoryRange,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// The titles the client shows for untitled rows, in the person's language
+    /// (`untitled_titles` of `history.entries.list`).
+    #[serde(default, skip_serializing_if = "UntitledTitles::is_empty")]
+    pub untitled: UntitledTitles,
+}
+
+/// The titles a client shows, in the person's language, for a closed row the
+/// daemon leaves untitled: a chat's (Swift `AgentPaneModel.tabTitle`) and every
+/// other closed row's (Swift `Strings.untitledTerminal`). The search matches the
+/// title the person sees; without them it matches no default title.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct UntitledTitles {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
+}
+
+impl UntitledTitles {
+    /// True when the client named no title.
+    pub fn is_empty(&self) -> bool {
+        self.chat.is_none() && self.terminal.is_none()
+    }
 }
 
 impl HistoryQuery {
@@ -123,7 +146,7 @@ pub fn matches(haystack: &str, tokens: &[String]) -> bool {
 
 /// The text the search matches: title, detail and machine, then the kind's
 /// own fields (Swift `HistoryEntry.searchText`; a closed chat adds its session
-/// id and harness, and an untitled one its default title), joined by spaces.
+/// id and harness), joined by spaces.
 pub fn search_text(entry: &HistoryEntry) -> String {
     let mut parts: Vec<&str> = vec![entry.title.as_str()];
     parts.extend(entry.detail.as_deref());
@@ -146,20 +169,8 @@ pub fn search_text(entry: &HistoryEntry) -> String {
         }
     };
     parts.extend(own.into_iter().flatten());
-    // An untitled closed chat: the row leaves its title empty and the client shows its localized
-    // default (Swift `AgentPaneModel.tabTitle`), so the search matches that default's English text.
-    if entry.kind == HistoryKind::Closed
-        && entry.title.is_empty()
-        && entry.closed_kind == Some(ClosedKind::ConversationTab)
-    {
-        parts.push(UNTITLED_CHAT_TITLE);
-    }
     parts.join(" ")
 }
-
-/// The default title of a chat tab before its session has a title (English; Swift
-/// `AgentPaneModel.tabTitle` is the localized form).
-const UNTITLED_CHAT_TITLE: &str = "Agent";
 
 /// False for navigation machinery that is not a destination: a page that is
 /// not http, https or file, a directory `file:` URL, a location on a `cmux:`
@@ -194,4 +205,72 @@ pub fn is_displayable(entry: &HistoryEntry, is_directory: impl Fn(&str) -> bool)
 
 fn is_directory_url(url: &Url, is_directory: &impl Fn(&str) -> bool) -> bool {
     url.to_file_path().is_ok_and(|path| is_directory(&path.to_string_lossy()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entry::ClosedKind;
+
+    fn closed(
+        id: &str,
+        title: &str,
+        closed_kind: ClosedKind,
+        session: Option<&str>,
+    ) -> HistoryEntry {
+        let mut entry = HistoryEntry::new(id, HistoryKind::Closed, 1, title);
+        entry.closed_kind = Some(closed_kind);
+        entry.session_id = session.map(str::to_owned);
+        entry.provider = session.map(|_| "codex".to_owned());
+        entry
+    }
+
+    fn ids(query: &HistoryQuery, entries: &[HistoryEntry]) -> Vec<String> {
+        query.apply(entries, 100, 0, |_| false).into_iter().map(|entry| entry.id).collect()
+    }
+
+    /// The deleted Swift enrichment searched an untitled closed row by the
+    /// title the app shows, in the person's language: "Agent" for a chat and
+    /// "Terminal" for every other row (ClosedAgentIdentityTests
+    /// `daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit`, its
+    /// `AgentPaneModel.tabTitle` case). The daemon search matches the words
+    /// the client sends; German words prove that no English word is built in.
+    #[test]
+    fn untitled_closed_rows_match_the_titles_the_client_shows() {
+        let entries = vec![
+            closed("closed:chat", "", ClosedKind::ConversationTab, Some("sess-1")),
+            closed(
+                "closed:titled-chat",
+                "Fix the upload test",
+                ClosedKind::ConversationTab,
+                Some("sess-2"),
+            ),
+            closed("closed:terminal", "", ClosedKind::TerminalTab, None),
+            // A conversation tab of a `conv_` conversation is no agent chat: the
+            // app titles it as a terminal.
+            closed("closed:conversation", "", ClosedKind::ConversationTab, None),
+            closed("closed:screen", "", ClosedKind::Screen, None),
+        ];
+        let localized = UntitledTitles {
+            chat: Some("Assistent".to_owned()),
+            terminal: Some("Konsole".to_owned()),
+        };
+        let search = |text: &str, untitled: &UntitledTitles| HistoryQuery {
+            text: text.to_owned(),
+            untitled: untitled.clone(),
+            ..Default::default()
+        };
+        assert_eq!(ids(&search("assistent", &localized), &entries), vec!["closed:chat"]);
+        assert_eq!(
+            ids(&search("konsole", &localized), &entries),
+            vec!["closed:terminal", "closed:screen", "closed:conversation"]
+        );
+        // The English defaults are not built in.
+        assert!(ids(&search("agent", &localized), &entries).is_empty());
+        assert!(ids(&search("terminal", &localized), &entries).is_empty());
+        // Without titles (the CLI, an older app), no default title matches, as before.
+        let none = UntitledTitles::default();
+        assert!(ids(&search("assistent", &none), &entries).is_empty());
+        assert!(ids(&search("konsole", &none), &entries).is_empty());
+    }
 }
