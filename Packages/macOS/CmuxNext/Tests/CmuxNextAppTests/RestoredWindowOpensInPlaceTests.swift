@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextLayout
 import Testing
 
 /// REOPEN-F2 (reopen film, cmux24, 2026-11-02): after Cmd-Q (keep sessions) and reopen, the window came in
