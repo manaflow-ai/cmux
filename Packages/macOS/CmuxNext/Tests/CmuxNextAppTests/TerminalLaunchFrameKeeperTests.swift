@@ -186,4 +186,38 @@ import Testing
         let atNewSize = try await Self.eventually(3) { frames.keepSavedSize("tab_busy_resized") == resized }
         #expect(atNewSize, "the save was not at the new size")
     }
+
+    /// SWITCH FRAMES SF-5 (busy gate on a 2x display, 2026-11-02: 8 hidden terminals printing 20 lines/s woke
+    /// `terminal.launch-frames.keep-frame` 12.6 times a second, about 2 per hidden terminal): a hidden terminal that
+    /// prints costs the keeper nothing. Its first check after the hide removes its file; later output only counts
+    /// (the model), with no main-actor hop and no timer, until it shows again, which saves it again.
+    @Test func aHiddenBusyTerminalCostsTheKeeperNoWakes() async throws {
+        let shown = try await Shown()
+        defer { shown.close() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-hidden-busy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = TerminalLaunchFrames(directory: directory)
+        frames.keep("tab_hidden_busy", session: shown.session, work: Self.work)
+        try #require(try await Self.eventually { !Self.files("tab_hidden_busy", in: directory).isEmpty }, "the shown frame was never kept")
+        shown.session.isRenderingSuspended = true
+        try #require(try await Self.eventually { Self.files("tab_hidden_busy", in: directory).isEmpty }, "the hidden frame was never removed")
+        try await Task.sleep(for: .milliseconds(700)) // test: the hide's own check ends
+        let checks = frames.keepChecks
+        // 3 s of a busy program while hidden: a line every 50 ms (20 lines/s, as the busy gate).
+        let end = ContinuousClock.now.advanced(by: .seconds(3))
+        var lines = 0
+        while ContinuousClock.now < end {
+            shown.io.send(.output(Data("busy line \(lines)\r\n".utf8)))
+            lines += 1
+            try await Task.sleep(for: .milliseconds(50)) // test: the busy program's line rate
+        }
+        try await Task.sleep(for: .milliseconds(700)) // test: a check the last line asked for would run by now
+        #expect(lines >= 20, "only \(lines) lines in 3 s: the test did not keep the terminal busy")
+        let extra = frames.keepChecks - checks
+        #expect(extra == 0, "\(extra) keeper checks (main-actor timer wakes) for \(lines) lines of a hidden terminal: hidden output must update the model only")
+        // Shown again: it is kept again (the show is a change that wakes the keeper).
+        shown.session.isRenderingSuspended = false
+        let rekept = try await Self.eventually { !Self.files("tab_hidden_busy", in: directory).isEmpty }
+        #expect(rekept, "a terminal shown again after hidden output was never kept again")
+    }
 }
