@@ -156,26 +156,8 @@ struct PageFactory {
         }
         let accounts = services.accounts.model
         let github = services.accounts.github
-        provider.accountsState = {
-            guard let encoded = try? JSONValue.parse(JSONEncoder().encode(accounts.pageState)), case .object(var state) = encoded else { return .null }
-            state["github"] = github.pageState
-            return .object(state)
-        }
-        provider.accountsRun = { params in
-            let gesture = params["action"]?.stringValue ?? ""
-            if gesture.hasPrefix("github") {
-                guard ["githubConnect", "githubDisconnect", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
-                if gesture == "githubConnect" { await github.connect() }
-                else { await github.perform(gesture, connection: params["account"]?.stringValue) }
-                return .object([:])
-            }
-            guard let action = AccountsPageAction(field: { params[$0]?.stringValue }) else {
-                throw PageError.invalidParams("unknown accounts action")
-            }
-            if let error = await accounts.perform(action) { return ["error": .string(error)] }
-            if ["refresh", "focus", "selectTeam"].contains(gesture) { await github.perform("githubRefresh") }
-            return .object([:])
-        }
+        provider.accountsState = { github.accountsPageState(accounts) }
+        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
