@@ -53,7 +53,7 @@ fn a_chunk_in_flight_at_the_capture_still_reaches_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_chunk, settled: false, end: 6 },
+        Seen { digest: screen_with_chunk, settled: false, end: 6, size: None },
         false,
     );
     push(&log, b"chunk");
@@ -62,7 +62,7 @@ fn a_chunk_in_flight_at_the_capture_still_reaches_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_chunk, settled: true, end: 11 },
+        Seen { digest: screen_with_chunk, settled: true, end: 11, size: None },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -83,7 +83,7 @@ fn bytes_after_the_capture_still_reach_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_one, settled: true, end: 4 },
+        Seen { digest: screen_with_one, settled: true, end: 4, size: None },
         false,
     );
     push(&log, b"three");
@@ -91,7 +91,7 @@ fn bytes_after_the_capture_still_reach_the_tail() {
         &store,
         &directory,
         &log,
-        Seen { digest: screen_with_one, settled: true, end: 13 },
+        Seen { digest: screen_with_one, settled: true, end: 13, size: None },
         false,
     );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
@@ -106,10 +106,22 @@ fn a_redraw_of_exactly_the_stored_bytes_waits_in_memory() {
     let directory = directory("redraw");
     let store = OutputStore::new(None);
     let log = log(b"screen");
-    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 6 }, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 6, size: None },
+        false,
+    );
     let redraw = b"\x1b[20;3H\x1b[?25h";
     push(&log, redraw);
-    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 15 }, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 15, size: None },
+        false,
+    );
     let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
     let pending = log.state.lock().unwrap().pending.len();
     let _ = std::fs::remove_dir_all(&directory);
@@ -128,7 +140,13 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
     std::fs::write(&not_a_folder, b"a file where the store folder goes").unwrap();
     let store = OutputStore::new(None);
     let log = log(b"output");
-    flush_tail(&store, &not_a_folder, &log, Seen { digest: 1, settled: true, end: 6 }, false);
+    flush_tail(
+        &store,
+        &not_a_folder,
+        &log,
+        Seen { digest: 1, settled: true, end: 6, size: None },
+        false,
+    );
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
         2,
         (80, 24),
@@ -155,15 +173,30 @@ fn held_redraw_bytes_stay_bounded() {
     let directory = directory("bounded");
     let store = OutputStore::new(None);
     let log = log(b"screen");
-    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 6 }, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 6, size: None },
+        false,
+    );
     let redraws = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1024];
     push(&log, &redraws);
-    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 0 }, false);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 0, size: None },
+        false,
+    );
     let state = log.state.lock().unwrap();
     let (pending, tail_end, force) = (state.pending.len(), state.tail_end, state.force_snapshot);
     drop(state);
     let _ = std::fs::remove_dir_all(&directory);
-    assert_eq!(pending, super::super::TAIL_MAX_UNWRITTEN_BYTES);
+    assert!(
+        pending <= super::super::TAIL_MAX_UNWRITTEN_BYTES,
+        "{pending} held bytes are over the cap"
+    );
     assert_eq!(tail_end, None, "the tail continued past dropped bytes");
     assert!(force);
 }

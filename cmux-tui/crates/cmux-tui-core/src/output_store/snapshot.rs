@@ -276,7 +276,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     (state.generation.clone(), state.next_offset())
                 };
-                let seen = Seen { digest, settled, end };
+                let seen = Seen { digest, settled, end, size: Some(size) };
                 if !plan.wants_snapshot(digest, size, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
@@ -328,6 +328,8 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     Err(error) => {
                         report_store_error(&log, "output snapshot", &error);
                         if tail {
+                            // One backoff step per pass: a failing append
+                            // in flush_tail does not double it again.
                             log.state.lock().unwrap_or_else(PoisonError::into_inner).store_failed();
                             flush_tail(store, directory, &log, seen, quitting);
                         }
@@ -374,6 +376,8 @@ struct Seen {
     digest: u64,
     settled: bool,
     end: u64,
+    /// The terminal's size at the capture (`None`: not read).
+    size: Option<(u16, u16)>,
 }
 
 /// Print a store write error once until the next success (a disk that keeps
@@ -436,8 +440,9 @@ impl Plan {
         // Snapshot mode: the tail continues only a snapshot of this
         // generation and size that this daemon wrote; it is compacted at the
         // interval, when it grows past its cap, when unchanged redraws pile
-        // up in memory, and at quit. Never during a write backoff (but at
-        // quit: the last chance).
+        // up in memory, and at quit. Never during a write backoff, except
+        // at quit and at a journal checkpoint (`write_now`, at most every
+        // checkpoint interval): the last or a rare chance.
         if self.retry_wait.is_some() && !quitting {
             return false;
         }
@@ -539,8 +544,13 @@ fn flush_tail(
             }
             return;
         }
+        // The tail continues a snapshot of this generation and size only (a
+        // resize while snapshots fail must not replay new output at the old
+        // size), up to the hard cap.
         let continues = state.snapshot_generation.as_deref() == Some(&*state.generation)
-            && state.tail_end == Some(state.pending_start);
+            && state.tail_end == Some(state.pending_start)
+            && seen.size.is_none_or(|size| state.snapshot_size == Some(size))
+            && state.tail_bytes < super::TAIL_HARD_MAX_BYTES;
         let Some(base) = state.snapshot_end.filter(|_| continues) else {
             // The bytes do not continue the stored snapshot: the next pass
             // writes one (it covers them). Bounded while snapshot writes
@@ -605,7 +615,8 @@ fn flush_tail(
             state.tail_digest = None;
             state.force_snapshot = true;
             state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
-            let wait = state.store_failed();
+            // One backoff step per pass (the snapshot write may have taken it).
+            let wait = state.retry_wait().unwrap_or_else(|| state.store_failed());
             drop(state);
             report_store_error(log, "output tail", &error);
             store.mark_log_dirty_after(log, wait);

@@ -77,8 +77,12 @@ pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 /// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
 pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 /// Snapshot mode: tail bytes past which the next pass writes a snapshot
-/// (the compaction), so a restore replays at most this much over it.
+/// (the compaction), so a restore replays about this much over it.
 const TAIL_MAX_BYTES: u64 = 1024 * 1024;
+/// Snapshot mode: the most raw bytes one tail file takes while snapshots
+/// fail; past it the bytes wait in memory (capped) for a snapshot. Below
+/// what a restore reads (`tail.rs` MAX_TAIL_FILE_BYTES, compressed).
+const TAIL_HARD_MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// Snapshot mode: bytes of unchanged content (cursor redraws) a terminal
 /// keeps in memory instead of the tail; past it a snapshot replaces them.
 const TAIL_IDLE_BYTES: usize = 1024 * 1024;
@@ -336,10 +340,12 @@ impl LogState {
     /// a gap: in snapshot mode the tail no longer continues and the next
     /// snapshot starts it again (full mode's segment reads report the gap).
     fn cap_pending(&mut self, max: usize) {
-        let excess = self.pending.len().saturating_sub(max);
-        if excess == 0 {
+        if self.pending.len() <= max {
             return;
         }
+        // Down to 3/4 of the cap: a flood does not move the whole buffer on
+        // every pass.
+        let excess = self.pending.len() - max / 4 * 3;
         self.pending.drain(..excess);
         self.pending_start += excess as u64;
         self.tail_end = None;
@@ -652,8 +658,16 @@ impl OutputStore {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }
+            let before = state.pending.len();
             state.pending.extend_from_slice(bytes);
-            if state.pending.len() >= FULL_PENDING_WAKE_BYTES {
+            // A flood wakes the writer once, when its unwritten bytes cross
+            // the threshold, not on every chunk after it; never while a
+            // snapshot-mode write backoff holds them (the writer's own
+            // retry time wakes it).
+            if before < FULL_PENDING_WAKE_BYTES
+                && state.pending.len() >= FULL_PENDING_WAKE_BYTES
+                && (self.full.enabled() || state.retry_wait().is_none())
+            {
                 state.dirty = true;
                 drop(state);
                 self.writer.mark_dirty(Duration::ZERO);
@@ -795,6 +809,9 @@ impl OutputStore {
         if let Some(directory) = self.directory.as_deref() {
             segments::remove(directory, terminal_id);
             tail::remove(directory, terminal_id);
+            // The cleared lines leave the disk now, not when the next
+            // snapshot is written (which a write backoff can delay).
+            snapshot::remove(directory, terminal_id);
         }
         self.writer.mark_dirty(Duration::ZERO);
     }
