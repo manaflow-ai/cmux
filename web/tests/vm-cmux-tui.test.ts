@@ -172,6 +172,36 @@ describe("cmux-tui install and daemon commands", () => {
     }
   });
 
+  test("settles a daemon from an image store after its executable was replaced", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-store-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    try {
+      mkdirSync(join(home, ".acpmux"));
+      mkdirSync(join(home, ".local", "bin"), { recursive: true });
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "1234\n");
+      writeFileSync(join(bin, "timeout"), "#!/bin/sh\nshift\nexec \"$@\"\n");
+      writeFileSync(join(bin, "acpmux"), "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      writeFileSync(join(bin, "flock"), "#!/bin/sh\nexit 1\n");
+      writeFileSync(join(bin, "readlink"), "#!/bin/sh\nprintf '%s\\n' '/opt/cmux/store/acpmux (deleted)'\n");
+      writeFileSync(join(bin, "tr"), "#!/bin/sh\nprintf '%s\\n' 'acpmux daemon run'\n");
+      writeFileSync(join(bin, "sleep"), "#!/bin/sh\n:");
+      writeFileSync(join(bin, "kill"), `#!/bin/sh
+if [ "$1" = -0 ]; then [ ! -e "$HOME/terminated" ]; exit $?; fi
+touch "$HOME/terminated"
+`);
+      for (const name of ["timeout", "acpmux", "flock", "readlink", "tr", "sleep", "kill"]) chmodSync(join(bin, name), 0o755);
+      writeFileSync(join(home, ".local", "bin", "acpmux"), readFileSync(join(bin, "acpmux")));
+      chmodSync(join(home, ".local", "bin", "acpmux"), 0o755);
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiDaemonSettleScript()], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
     const command = cmuxTuiServiceInstallCommand();
     const baked = command.match(/<<'ACPMUX_UNIT'\n([\s\S]*?)ACPMUX_UNIT/);
