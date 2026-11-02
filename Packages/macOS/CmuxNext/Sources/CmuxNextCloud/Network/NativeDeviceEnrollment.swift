@@ -258,7 +258,12 @@ public actor NativeDeviceEnrollment {
             throw NativeDeviceEnrollmentError.refused(response.status)
         }
         let decoded = try JSONDecoder().decode(NativeOwnerReply<T>.self, from: response.body)
-        guard decoded.ok, let value = decoded.value else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard decoded.ok, let value = decoded.value else {
+            // An owner refusal comes back as 200 with `ok: false` and its code under `error`.
+            let refused = try? JSONDecoder().decode(NativeOwnerRefusal.self, from: response.body)
+            NativeNetworkRefusal.log(op, status: response.status, code: refused?.error?.code, message: refused?.error?.message)
+            throw NativeDeviceEnrollmentError.invalidIdentity
+        }
         return value
     }
     private func readNative<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil, bearer: String? = nil) async throws -> T {

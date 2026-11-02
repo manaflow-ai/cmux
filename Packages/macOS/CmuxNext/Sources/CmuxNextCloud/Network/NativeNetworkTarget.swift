@@ -73,8 +73,15 @@ struct NativeNetworkRefusal: Decodable {
 
     static func log(_ step: String, status: Int, body: Data) {
         let refusal = try? JSONDecoder().decode(Self.self, from: body.prefix(4096))
-        let code = refusal?.code ?? "no code", message = String((refusal?.message ?? "").prefix(300))
+        log(step, status: status, code: refusal?.code, message: refusal?.message)
+    }
+
+    static func log(_ step: String, status: Int, code: String?, message: String?) {
+        let code = code ?? "no code", message = String((message ?? "").prefix(300))
         Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.native")
             .error("\(step, privacy: .public) refused \(status): \(code, privacy: .public): \(message, privacy: .public)")
     }
 }
+
+/// An owner op's refusal body: `{"ok": false, "error": {"code", "message"}}`.
+struct NativeOwnerRefusal: Decodable { let error: NativeNetworkRefusal? }
