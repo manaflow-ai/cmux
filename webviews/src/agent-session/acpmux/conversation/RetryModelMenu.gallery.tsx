@@ -73,8 +73,15 @@ export default componentEntry<Record<string, never>>({
     };
     return function GalleryRetryModelMenu() {
       return (
-        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable).
-        <div className="acpmux-row cv-user" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
+        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable). The
+        // prompt's action row is laid in the turn gap under the row (design/grid.md 5.5), so the row
+        // keeps layout containment alone, as the transcript's article rows do: paint containment
+        // (styles.css .acpmux-row) would clip the row away and leave Retry unclickable.
+        <div
+          className="acpmux-row cv-user"
+          data-retryable=""
+          style={{ position: "relative", padding: "16px 16px 0", contain: "layout" }}
+        >
           <TurnActionsContext.Provider value={actions}>
             <UserBubble row={prompt} text={prompt.text} />
           </TurnActionsContext.Provider>

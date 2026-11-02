@@ -2129,10 +2129,14 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   referenceScope,
+  gapBelow,
   children,
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
+  /// gap target spans it, so a drag from between two rows starts a selection.
+  gapBelow: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -2282,7 +2286,12 @@ const RowFrame = React.memo(function RowFrame({
       {/* The row's own trailing padding is the only row-local empty surface owned by transcript
           selection. Keeping it as a separate hit target means content controls (including native
           media) never need to be enumerated by the gap handler. */}
-      <span className="acpmux-row__gap" data-transcript-gap="row" aria-hidden="true" />
+      <span
+        className="acpmux-row__gap"
+        data-transcript-gap="row"
+        aria-hidden="true"
+        style={gapBelow > 0 ? { top: "100%", bottom: "auto", height: gapBelow, paddingBottom: 0 } : undefined}
+      />
     </article>
   );
 }, sameRowFrame);
@@ -5402,6 +5411,16 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
+                      gapBelow={
+                        absoluteIndex + 1 < rows.length
+                          ? Math.max(
+                              0,
+                              layout.tops[absoluteIndex + 1]! -
+                                layout.tops[absoluteIndex]! -
+                                layout.heights[absoluteIndex]!,
+                            )
+                          : 0
+                      }
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
