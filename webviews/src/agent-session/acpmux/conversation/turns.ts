@@ -29,7 +29,13 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
-import { backgroundTurnRowId, foldBackgroundTurns, foldedBackgroundIds, openBackgroundTurns } from "./backgroundTurns";
+import {
+  BACKGROUND_TURN,
+  backgroundTurnRowId,
+  foldBackgroundTurns,
+  foldsBackground,
+  openBackgroundTurns,
+} from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -167,8 +173,25 @@ export type TurnView = {
   firstVisible?: number;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
   ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
+  /// Each background turn's line in `source`, by index, and whether it hides its rows under
+  /// `expanded`: the next view rescans only the rows after its reused turns.
+  backgrounds: BackgroundLine[];
+  /// The ids of the background turns whose rows are hidden (`foldedKey`), from `backgrounds`.
+  foldedBackground: string;
   rows: AcpmuxRow[];
 };
+
+type BackgroundLine = { at: number; id: string; folds: boolean };
+
+/// The background turns whose line hides their rows. A later line for the same id wins.
+function foldedOf(lines: readonly BackgroundLine[]): Set<string> {
+  const folded = new Set<string>();
+  for (const line of lines)
+    if (line.folds) folded.add(line.id);
+    else folded.delete(line.id);
+  return folded;
+}
+const foldedKey = (folded: ReadonlySet<string>) => (folded.size ? [...folded].sort().join("\n") : "");
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
@@ -223,11 +246,6 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  // A subagent's done line may land after a *newer* prompt. Keep its original quiet
-  // background turn's ownership across prompt boundaries, even though each prompt is shaped
-  // independently below. One scan per changed transcript; the unchanged-view return above
-  // avoids the work altogether.
-  const foldedBackground = foldedBackgroundIds(rows, expanded);
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
@@ -250,6 +268,21 @@ export function turnViewFrom(
     }
     reuse = Math.max(0, reuse - 1);
   }
+  // A subagent's done line may land after a *newer* prompt, in a later turn than the quiet
+  // background line that owns it; that line still hides it (cmux#30535). The lines before the
+  // reused turns are the previous view's (same rows, same `expanded`): only the rows after them
+  // are scanned, so a streamed token does no work over the whole chat.
+  const scanFrom = reuse > 0 ? previous!.starts[reuse]! : 0;
+  const backgrounds = reuse > 0 ? previous!.backgrounds.filter((line) => line.at < scanFrom) : [];
+  for (let at = scanFrom; at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (row.kind === BACKGROUND_TURN && row.background)
+      backgrounds.push({ at, id: row.background.id, folds: foldsBackground(row) && !expanded.has(row.id) });
+  }
+  const foldedBackground = foldedOf(backgrounds);
+  const folded = foldedKey(foldedBackground);
+  // A reused turn's drawn rows were filtered by the previous folds: when they differ, draw all again.
+  if (reuse > 0 && previous!.foldedBackground !== folded) reuse = 0;
   // The first visible turn's line depends on `now`.
   if (reuse > 0 && !firstDateUnchanged(previous!, now)) reuse = 0;
   let reusedRows = 0;
@@ -374,6 +407,8 @@ export function turnViewFrom(
     dated,
     firstVisible,
     ends,
+    backgrounds,
+    foldedBackground: folded,
     rows: out,
   };
 }
