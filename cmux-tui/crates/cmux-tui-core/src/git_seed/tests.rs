@@ -436,6 +436,24 @@ fn bad_urls_shas_and_refs_are_bad_requests() {
 }
 
 #[test]
+fn a_full_seed_refuses_an_existing_unowned_clone_even_when_clean() {
+    let world = World::new("reseed-unowned-clone");
+    let folder = world.home.join("work/project");
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    git(
+        &world.home.path,
+        &["clone", "-q", world.remote.to_str().unwrap(), folder.to_str().unwrap()],
+    );
+    git(&folder, &["remote", "set-url", "origin", URL]);
+    let before = state(&folder);
+    let planned = world.snapshot("seed", &[&world.base]);
+    let status = seed(&world, &world.start_params(&folder, &planned));
+    assert_eq!(status["state"], "failed", "{status}");
+    assert_eq!(status["error_code"], "seed.folder_not_empty", "{status}");
+    assert_eq!(state(&folder), before, "a foreign checkout was modified");
+}
+
+#[test]
 fn a_retried_start_returns_the_same_job() {
     let world = World::new("retry");
     write(&world.mac.join("a"), "a\nedited\n");
