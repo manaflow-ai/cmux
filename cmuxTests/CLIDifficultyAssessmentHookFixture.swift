@@ -141,27 +141,31 @@ struct DifficultyHookFixture {
     }
 
     /// Runs the turn-end hook while the hook session store's lock is held, as the sync `Stop`
-    /// hook can hold it at turn end. `whileLocked` runs once the hook has had 2 s to start and
-    /// read its input; then the lock is released and the hook finishes.
+    /// hook can hold it at turn end. `whileLocked` runs once the hook process has the lock file
+    /// open and waits for the lock: it parses its input and notes the transcript's size before
+    /// its first store access. Then the lock is released and the hook finishes.
     func stopWhileStoreIsLocked(lastAssistantMessage: String, whileLocked: () throws -> Void) throws {
-        let lockFD = open(context.storeURL.path + ".lock", O_RDWR | O_CREAT, 0o600)
+        let lockPath = context.storeURL.path + ".lock"
+        let lockFD = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         try #require(lockFD >= 0)
         defer { close(lockFD) }
         try #require(flock(lockFD, LOCK_EX) == 0)
         let (environment, input) = hookInvocation(lastAssistantMessage: lastAssistantMessage)
         let context = context
         let box = ResultBox()
-        let finished = DispatchSemaphore(value: 0)
+        let finished = DispatchGroup()
+        finished.enter()
         DispatchQueue.global().async {
             box.result = Harness.runHookProcess(
                 context: context, arguments: ["hooks", "claude", "auto-name"], environment: environment, standardInput: input
             )
-            finished.signal()
+            finished.leave()
         }
-        Thread.sleep(forTimeInterval: 2)
+        let waiting = Self.waitForAnotherProcess(toOpen: lockPath, unlessDone: finished)
         let appended = Result { try whileLocked() }
         flock(lockFD, LOCK_UN)
         finished.wait()
+        #expect(waiting, "the hook must reach the session store's lock")
         try appended.get()
         let result = try #require(box.result)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -170,6 +174,30 @@ struct DifficultyHookFixture {
 
     private final class ResultBox: @unchecked Sendable {
         var result: Harness.ProcessRunResult?
+    }
+
+    /// Polls until a process other than this one has `path` open, or `done` finishes, or the
+    /// hook process's wall bound passes; returns whether one does.
+    private static func waitForAnotherProcess(toOpen path: String, unlessDone done: DispatchGroup) -> Bool {
+        let deadline = ContinuousClock.now + .seconds(Harness.processWallBound)
+        while ContinuousClock.now < deadline {
+            if anotherProcessHasOpen(path) { return true }
+            if done.wait(timeout: .now() + .milliseconds(20)) == .success { return anotherProcessHasOpen(path) }
+        }
+        return anotherProcessHasOpen(path)
+    }
+
+    private static func anotherProcessHasOpen(_ path: String) -> Bool {
+        var pids = [pid_t](repeating: 0, count: 64)
+        let bytes = pids.withUnsafeMutableBytes { buffer in
+            proc_listpidspath(
+                UInt32(PROC_ALL_PIDS), 0, path, UInt32(PROC_LISTPIDSPATH_EXCLUDE_EVTONLY),
+                buffer.baseAddress, Int32(buffer.count)
+            )
+        }
+        guard bytes > 0 else { return false }
+        let me = getpid()
+        return pids.prefix(Int(bytes) / MemoryLayout<pid_t>.stride).contains { $0 > 0 && $0 != me }
     }
 
     private func hookInvocation(lastAssistantMessage: String?) -> (environment: [String: String], input: String) {
