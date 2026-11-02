@@ -160,6 +160,61 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
       });
     }
 
+    // cmuxterm-hq#6137, Leo 2026-11-02: "THE FUCKING SESSION INFO NOT FUCKING PUSH THE LAYOUT LEFT". A new
+    // chat in a 370px agent pane opened with the panel at its 260px narrowest, the chat's "Not sent" line,
+    // Retry and composer under it. In a pane that narrow, or a 528px one, a saved open state leaves the
+    // chat alone; opened, the panel narrows (PUSH_PANEL_MIN) and sits right of the chat, which reflows
+    // beside it: no row and not the composer lies under it or is cut off. A 740px pane opens it unasked.
+    for (const width of [370, 528, 740]) {
+      test(`${name}: in a ${width}px pane it sits right of the chat, whose last row and composer show whole`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 900 });
+        try {
+          await page.evaluate(() =>
+            (
+              window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+            ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
+          );
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          await toggle.waitFor({ timeout: 10_000 });
+          // Session Info's saved state is open (the default): only a pane with room shows it unasked.
+          const unasked = (await page.locator("aside.acpmux-session-info").count()) > 0;
+          const { panel } = await openSessionInfo(page);
+          const box = await rect(page);
+          const main = await page.evaluate(() => {
+            const { left, right, top, bottom } = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const rows = await transcript(page);
+          const composer = await page.evaluate(() => {
+            const { left, right, top, bottom } = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const last = rows.reduce((a, b) => (b.bottom > a.bottom ? b : a), rows[0]!);
+          expect(rows.length).toBeGreaterThan(0);
+          expect({
+            unasked,
+            placement: await panel.getAttribute("data-placement"),
+            besideChat: box.left >= main.right - 0.5,
+            insidePane: box.right <= width,
+            covers: rows.filter((row) => meets(row, box)),
+            composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
+            lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
+          }).toEqual({
+            unasked: width >= 740 ? unasked : false,
+            placement: "push",
+            besideChat: true,
+            insidePane: true,
+            covers: [],
+            composerWhole: true,
+            lastRowWhole: true,
+          });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
     // Settings > Agent Chat > Session Info: Push always takes a column and never covers a row or the composer.
     test(`${name}: with Push always in a 700px pane it pushes the chat, and never covers a row or the composer`, async () => {
       current = browsers.get(name)!;

@@ -212,6 +212,32 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(overChat == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 120))
     }
 
+    /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
+    /// room beside the chat (SessionInfo.tsx pushedWidth, `.acpmux-session-info-room`). The App draws
+    /// the panel in exactly that room: its left edge is the chat's right edge, so nothing floats over it.
+    @Test func pushedPanelFillsThePagesRoomExactly() throws {
+        for (pane, pushed) in [(370.0, 200.0), (528.0, 200.0), (740.0, 292.0)] {
+            let page = CGRect(x: 0, y: 0, width: pane, height: 900)
+            let frame = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(width: pushed)),
+                                                       width: pushed, zoom: 1, flipped: true)
+            let chatRight = pane - pushed - 8
+            #expect(frame.minX == chatRight)
+            #expect(frame.width == pushed)
+            #expect(frame.maxX == pane - 8)
+        }
+    }
+
+    /// After a drag ends the page's answer is drawn even where it differs from the drag's width (the
+    /// pushed panel's narrow floor), so the native frame never stays wider than the page's room.
+    @Test func pageWidthReplacesTheDragOnceTheDragEnds() throws {
+        let store = AgentPaneSessionInfoStore()
+        store.update(try Self.model(Self.info(width: 200)))
+        store.drag(by: -100, ended: true)
+        #expect(store.width == 300)
+        store.update(try Self.model(Self.info(width: 200)))
+        #expect(store.width == 200)
+    }
+
     @Test func rowAnchorsUsePageCoordinatesAndTheActiveZoom() {
         let bounds = CGRect(x: 0, y: 0, width: 1200, height: 900)
         let topLeft = CGRect(x: 600, y: 120, width: 300, height: 30)
