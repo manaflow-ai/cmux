@@ -31,12 +31,18 @@ extension SidebarWorkspaceSnapshotFactory {
         return rows + [row]
     }
 
-    /// Unique non-default Claude account labels of the workspace's live
-    /// agents, in panel order. Claude agents only, from `CLAUDE_CONFIG_DIR`.
+    /// Unique non-default Claude account labels of the workspace's panes, in panel order, from
+    /// `CLAUDE_CONFIG_DIR`. A pane cmux switched to another account names that account (its
+    /// `claudeAccountEnvironment`): the label is the pane's account (spec D9), and the index
+    /// learns it only once the resumed Claude starts, or never when no resume ran. Every other
+    /// pane names the account of its live Claude agent in the index.
     func claudeAccountLabels(orderedPanelIds: [UUID]) -> [String] {
-        guard let index = SharedLiveAgentIndex.shared.index else { return [] }
+        let index = SharedLiveAgentIndex.shared.index
         let agents: [(kind: RestorableAgentKind, environment: [String: String]?)] = orderedPanelIds.compactMap { panelId in
-            index.entry(workspaceId: workspace.id, panelId: panelId).map {
+            if let account = workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment {
+                return (kind: .claude, environment: account.accountEnvironment)
+            }
+            return index?.entry(workspaceId: workspace.id, panelId: panelId).map {
                 (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
             }
         }
