@@ -21,6 +21,94 @@ const TEAMMATE: &str = "user-austin";
 /// The account a send began in, as the App spells it: the user and the team.
 const ACCOUNT: &str = "user-leo/team-a";
 
+#[test]
+fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspace_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other-vm")).expect("bind");
+    let retry = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other-vm", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], Value::Null);
+    assert_eq!(answer["new_name"], "cloud-chats");
+    assert_eq!(answer["create_team"], "billed-team");
+    assert_eq!(answer["create_sent"], true);
+    assert_eq!(answer["create_key"], Keys::of(&key).create);
+    assert_eq!(pin(&path, &key, ACCOUNT, "created-vm", None)["ok"], true);
+    assert_eq!(
+        plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
+        "created-vm"
+    );
+}
+
+#[test]
+fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let original = Keys::of(&key);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
+        true
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
+    let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
+        "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["machine"], Value::Null);
+    assert_eq!(fresh["new_name"], "cloud-chats-2");
+    assert_ne!(fresh["create_key"], original.create);
+    assert_eq!(fresh["tab_key"], original.tab);
+    let new_key = fresh["create_key"].as_str().expect("rotated key");
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", new_key)["ok"], true);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key)["ok"], false);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_key"], new_key);
+    assert_eq!(plan(&path, &request)["create_sent"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, new_key)["ok"], true);
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other")).expect("bind");
+    let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    assert_eq!(plan(&path, &request)["machine"], "other");
+}
+
+#[test]
+fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_durable")["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_reordered")["ok"], false);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-b", "pane_durable")["ok"], false);
+    let retry = json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], "vm-a");
+    assert_eq!(answer["target_pane"], "pane_durable");
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
+    assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
+
 fn send(key: &str) -> Send {
     Send::new(key, ACCOUNT)
 }
@@ -1167,6 +1255,49 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(kept.workspace_machine("ws-first", ACCOUNT), None);
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
+}
+
+/// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+/// sr2-tunnel-probe". Another machine picked for a send whose first try did not run there re-pins
+/// the send (`pin`): its retry plans the picked machine, copies afresh there, and the workspace takes
+/// the picked machine too.
+#[test]
+fn a_repick_moves_a_sends_retry_to_the_picked_machine() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send_key = key();
+    let machines = json!([
+        {"id": "vm-sr2", "title": "sr2-tunnel-probe", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+        {"id": "vm-zesty", "title": "zesty-indigo-lemur", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    ]);
+    let request = json!({"key": send_key, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": true, "machines": machines})
+        .to_string();
+    // A workspace's first send makes a machine of its own (pick.rs), which the App pins.
+    assert_eq!(plan(&path, &request)["machine"], Value::Null);
+    let (from, to) = ("vm-sr2", "vm-zesty");
+    assert_eq!(pin(&path, &send_key, ACCOUNT, from, Some("ws-a"))["ok"], json!(true));
+    // The first try's copy finished there.
+    let copy = StartCopy {
+        key: send_key.clone(),
+        machine: from.into(),
+        ..copy_of("/Users/me/src/paint", "")
+    };
+    let pushes = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *pushes.borrow_mut() += 1;
+        Ok(json!({}))
+    };
+    assert_eq!(copy.run(&path, &push)["copied"], json!(true));
+    // Without the repick, the retry stays where it was.
+    assert_eq!(plan(&path, &request)["machine"], json!(from));
+    // The person picks the other machine.
+    assert_eq!(pin(&path, &send_key, ACCOUNT, to, Some("ws-a"))["ok"], json!(true));
+    assert_eq!(plan(&path, &request)["machine"], json!(to));
+    let moved = StartCopy { machine: to.into(), ..copy }.run(&path, &push);
+    assert_eq!(moved["copied"], json!(true), "{moved}");
+    assert_eq!(*pushes.borrow(), 2);
+    let pins = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(pins.workspace_machine("ws-a", ACCOUNT).as_deref(), Some(to));
 }
 
 const ENV: &str = "env_0123456789abcdef01234567";

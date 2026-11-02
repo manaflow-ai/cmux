@@ -92,6 +92,26 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
                 line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft) - column.left,
             );
             return {
+              guide: (() => {
+                const group = document.querySelector(".cv-tool-group.is-flat.cv-steps")!;
+                const style = getComputedStyle(group, "::before");
+                const bounds = group.getBoundingClientRect();
+                const row = group.closest(".acpmux-row")!;
+                const clip = row.getBoundingClientRect();
+                const icon = group.querySelector(".cv-tool__icon")!.getBoundingClientRect();
+                const words = group.querySelector(".cv-command__text")!.getBoundingClientRect();
+                const left = bounds.left + parseFloat(style.left);
+                const right = left + parseFloat(style.width);
+                return {
+                  content: style.content,
+                  width: parseFloat(style.width),
+                  contain: getComputedStyle(row).contain,
+                  insidePaintBounds:
+                    left >= clip.left && right <= clip.right && bounds.top >= clip.top && bounds.bottom <= clip.bottom,
+                  insideColumnGap: left > icon.right && right < words.left,
+                  color: style.backgroundColor,
+                };
+              })(),
               rows,
               verbGaps,
               under,
@@ -100,6 +120,12 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           });
           console.log(`TOOL_ROW_COLUMN ${JSON.stringify({ theme, width, ...m })}`);
           expect(errors).toEqual([]);
+          expect(m.guide.content).toBe('""');
+          expect(m.guide.width).toBe(1);
+          expect(m.guide.contain).toContain("paint");
+          expect(m.guide.insidePaintBounds).toBe(true);
+          expect(m.guide.insideColumnGap).toBe(true);
+          expect(m.guide.color).not.toBe("rgba(0, 0, 0, 0)");
           // The lone read, the group line, its three steps, the lone failed command, the lone block.
           expect(m.rows.length).toBe(7);
           const icon = m.rows[0]!.iconLeft;
@@ -136,4 +162,45 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         }
       });
     }
+  test("the script gallery uses natural word spacing and aligns Raw with the tool icon column", async () => {
+    const page = await browser.newPage({ viewport: { width: 640, height: 820 }, deviceScaleFactor: 2 });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=script`);
+      await page.locator(".cv-cmux-exec__raw button").waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      const m = await page.evaluate(() => {
+        const row = document.querySelector(".cv-tool")!;
+        const words = row.querySelector(".cv-tool__text")!;
+        const wordBox = (word: string) => {
+          const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const at = node.textContent!.indexOf(word);
+            if (at < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + word.length);
+            return range.getBoundingClientRect();
+          }
+          throw new Error(`Missing word: ${word}`);
+        };
+        const raw = document.querySelector(".cv-cmux-exec__raw button")!;
+        const icon = raw.querySelector(".cv-tool__icon");
+        return {
+          gap: wordBox("workspaces").left - wordBox("Listed").right,
+          iconOffset: icon
+            ? icon.getBoundingClientRect().left - row.querySelector(".cv-tool__icon")!.getBoundingClientRect().left
+            : null,
+        };
+      });
+      expect(m.gap).toBeGreaterThan(0);
+      expect(m.gap).toBeLessThan(8);
+      expect(m.iconOffset).not.toBeNull();
+      expect(Math.abs(m.iconOffset!)).toBeLessThanOrEqual(0.5);
+      await page.locator(".cv-cmux-exec__raw button").click();
+      expect(await page.locator(".cv-cmux-exec__raw .cv-mcp-call__name").textContent()).toContain("cmux_exec");
+    } finally {
+      await page.close();
+    }
+  });
 });

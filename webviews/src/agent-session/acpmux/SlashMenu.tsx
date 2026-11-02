@@ -58,7 +58,7 @@ export function SlashMenu({
       {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
       {matches.map((match, index) => (
         <div
-          key={match.command.name}
+          key={`${match.command.source ?? "agent"}:${match.command.name}`}
           id={`acpmux-slash-${index}`}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="option"

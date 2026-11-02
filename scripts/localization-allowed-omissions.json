@@ -3,6 +3,28 @@
     "class": "brand",
     "source": "DEV"
   },
+  "chatMenu.presentation.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": {
+        "reason": "Messages is the standard French plural noun for chat messages.",
+        "values": [
+          "Messages"
+        ]
+      }
+    }
+  },
+  "settings.choice.agentChatPresentationMessages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": {
+        "reason": "Messages is the standard French plural noun for chat messages.",
+        "values": [
+          "Messages"
+        ]
+      }
+    }
+  },
   "cloud.workspaceSetup.setupClaude": {
     "class": "brand",
     "source": "Claude"

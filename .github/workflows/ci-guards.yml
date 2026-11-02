@@ -979,9 +979,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
-      - name: Validate no new job takes one Linux runner size
+      - name: Validate no job takes one runner size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_linux_single_size.py
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
 
       - name: Validate stalled CI paths use the runner set
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1454,6 +1454,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
+      - name: Validate the nightly-next feed writers' R2 lease
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_r2_cas.py
+
       - name: Validate nightly publish-path gh calls wait through a rate limit
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
@@ -1653,6 +1657,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_dev_ring.py
 
+      - name: Validate the nightly publishes no red webview tree and no known-bad commit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_publish_guard.py
+
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
@@ -1825,6 +1833,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer
@@ -2138,7 +2147,9 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A declared light job (.github/runners.json hosted_light_jobs): a rollup of the guard results,
+    # 2 s of work. Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

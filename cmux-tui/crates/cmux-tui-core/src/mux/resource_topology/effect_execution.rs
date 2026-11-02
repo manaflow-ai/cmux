@@ -677,6 +677,11 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        if ephemeral {
+            // Its first terminal spawns before the workspace row is
+            // published: it must start incognito already.
+            self.note_incognito_workspace(&workspace_key);
+        }
         // `workspace.create` from a caller: the resource router sends
         // `focus: false` unless it asked. Other creations focus.
         let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
@@ -778,7 +783,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
@@ -927,7 +932,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);

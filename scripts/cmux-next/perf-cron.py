@@ -163,6 +163,8 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
+    # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
+    {"name": "web-ui", "where": "linux", "kind": "webui", "needs": "web-ui"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -170,7 +172,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
-    (r"^diff\.", "diff-viewer"),
+    (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
 ]
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
@@ -506,6 +508,19 @@ def rows_of_part(part, report, budgets_mod, budgets):
             out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
             version = versions.get(name.split(".")[1])  # sidecar or stream
             out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
+    elif part["kind"] == "webui":
+        # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
+        # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
+        for r in report.get("rows") or []:
+            name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
+            if not (isinstance(name, str) and WEBUI_ROW_RE.match(name) and isinstance(p95, (int, float))):
+                continue
+            p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
+            floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
+            out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+                                    "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
+                                    "floor": floor,
+                                    "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
     return out
 
 
@@ -516,9 +531,10 @@ def report_is_incomplete(part, report):
     measurements and keep the issue tracker non-blocking. Their receipt still
     carries the completeness verdict; retain measured rows for diagnostics but
     keep the overall measurement from becoming a new last-good baseline.
-    Older reports and non-budget parts have no such field and remain complete.
+    Older reports and non-budget parts have no such field and remain complete. The web-ui part's report is
+    incomplete when a bench of web-ui-suite.ts failed (its `failed`, copied there by cmd_run_linux_part).
     """
-    return part.get("kind") == "budgets" and isinstance(report, dict) and bool(report.get("incomplete"))
+    return part.get("kind") in ("budgets", "webui") and isinstance(report, dict) and bool(report.get("incomplete"))
 
 
 def frame_sensitive(name, row):
@@ -583,11 +599,11 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch and main-thread rows their budget."""
+    0; diff, launch, web UI and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
-    if name.startswith(("diff.", "launch.")):
+    if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -632,10 +648,12 @@ def version_changed(rows, base_rows):
     return sorted(out)
 
 
-def linux_bench_runs(root):
-    """The diff-viewer part's two benches in a checkout at root, {name: (argv, cwd, extra env)}:
-    scripts/benchmark-diff-viewer.sh's benches without their budget env (cmd_run_linux_part runs them; part_config
-    names them with root "")."""
+def linux_bench_runs(root, part="diff-viewer"):
+    """A Linux part's benches in a checkout at root, {name: (argv, cwd, extra env)} (cmd_run_linux_part runs them;
+    part_config names them with root ""). diff-viewer: scripts/benchmark-diff-viewer.sh's two benches without their
+    budget env. web-ui: the shared web UI perf harness, which runs the web UI benches and prints one JSON report."""
+    if part == "web-ui":
+        return {"suite": (["bun", "bench/web-ui-suite.ts"], os.path.join(root, "webviews"), {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -650,7 +668,7 @@ def part_config(name):
     part's bench commands. Its rows carry it (record_part stores it with the done part), so a change of the args
     rebases them (version_changed) instead of comparing two configurations. run_seconds and --vdisplay-hold are caps,
     not what is measured, and stay out of it."""
-    what = linux_bench_runs("") if is_linux_part(name) else PART_BY_NAME[name].get("args")
+    what = linux_bench_runs("", name) if is_linux_part(name) else PART_BY_NAME[name].get("args")
     return hashlib.sha256(json.dumps(what, sort_keys=True).encode()).hexdigest()[:12]
 
 
@@ -990,7 +1008,7 @@ def bisect_measurable(rows, mac_measurable, supported_parts):
     """Whether a bisect step can judge a group's rows at commit c (returns the predicate; pure): the commit runs
     every part of the rows (supported_parts), and, when a part is a Mac part, the cron measures the commit on the
     fleet (mac_measurable: the tip's split-spring.sh measurement version and a published cmux-tui tree). A group of
-    Linux rows needs neither: the diff-viewer part runs on a GitHub runner from the commit's own checkout."""
+    Linux rows needs neither: the diff-viewer and web-ui parts run on a GitHub runner from the commit's own checkout."""
     parts = {part_for_row(name) for name in rows}
     mac = any(p is None or not is_linux_part(p) for p in parts)
     return lambda c: parts <= set(supported_parts(c)) and (not mac or mac_measurable(c))
@@ -1431,6 +1449,8 @@ def supported_parts_at(sha):
         elif need == "diff-viewer":
             ok = all(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True).returncode == 0
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
+        elif need == "web-ui":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
         elif need in ("perf-gate", "launch"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1461,6 +1481,9 @@ LEGACY_MEASURE_VERSION = 2  # the version of every row stored before rows carrie
 # `export const` in webviews/bench/diff-stream.bench.ts), bumped by an edit that changes what it measures; a bench
 # without one measures as DIFF_LEGACY_VERSION, so adding the constant at 1 rebases nothing.
 DIFF_LEGACY_VERSION = 1
+# The web-ui part's runner; a commit without it does not run the part. Its rows are webui.<the bench's PERF_ROW name>.
+WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
+WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
 
@@ -2637,24 +2660,63 @@ def last_json_object(text):
     return None
 
 
+def webui_summary(report):
+    """The web-ui part's rows as Markdown lines, slowest first relative to their target (rows with no target after,
+    by p95), then the benches that failed (pure): what a lane fixes first."""
+    rows = [r for r in (report.get("rows") or []) if isinstance(r, dict) and isinstance(r.get("p95"), (int, float))
+            and isinstance(r.get("name"), str) and WEBUI_ROW_RE.match(r["name"])]  # the rows rows_of_part keeps
+
+    def ratio(r):
+        target = r.get("target")
+        return r["p95"] / target if isinstance(target, (int, float)) and target > 0 else -1.0
+    rows.sort(key=lambda r: (-ratio(r), -r["p95"]))
+    lines = ["| row | p95 | target | of target |", "| --- | ---: | ---: | ---: |"]
+    for r in rows:
+        unit = r.get("unit") or "ms"
+        target = f"{r['target']} {unit}" if ratio(r) >= 0 else "-"
+        lines.append(f"| webui.{r.get('name')} | {r['p95']} {unit} | {target} | "
+                     + (f"{ratio(r) * 100:.0f} %" if ratio(r) >= 0 else "-") + " |")
+    for f in report.get("failed") or []:
+        if isinstance(f, dict):
+            lines.append(f"failed: {f.get('bench')} ({f.get('why')})")
+    return lines
+
+
 def cmd_run_linux_part(o):
-    """The diff-viewer part on Linux, in a checkout of the measured commit with Rust and the webviews packages
-    installed: scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of
-    failing; perf-cron judges the numbers."""
+    """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
+    too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
+    web-ui (Playwright's browsers too): webviews/bench/web-ui-suite.ts; a bench of it that failed makes the report
+    incomplete (its rows still count), and a run with no row at all fails the part. perf-cron judges the numbers."""
     os.makedirs(o.out, exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_DIFF_BENCH_MAX") and not k.startswith("CMUX_DIFF_BENCH_MIN")}
     started = time.monotonic()
-    runs = linux_bench_runs(ROOT)
+    part = getattr(o, "part", "diff-viewer")
+    runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
     for name, (argv, cwd, extra) in runs.items():
-        proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
-        value = last_json_object(proc.stdout)
-        tail += [f"{name}: exit {proc.returncode}"] + (proc.stderr or "").splitlines()[-10:]
-        if proc.returncode != 0 or value is None:
+        try:
+            proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
+            value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
+        except subprocess.TimeoutExpired:
+            value, code, stderr = None, "timeout (1800 s)", ""
+        tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        if part == "web-ui":
+            if isinstance(value, dict):
+                report = value
+                failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
+                if failed:
+                    report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
+                    tail += [f"{f.get('bench')}: {f.get('why')}" for f in failed]
+            ok = isinstance(value, dict) and bool(value.get("rows"))
+        elif code != 0 or value is None:
             ok = False
         else:
             report[name] = value
-    report["bench_versions"] = diff_bench_versions(ROOT)
+    if part == "web-ui":
+        for line in webui_summary(report):
+            print(f"perf-cron web-ui: {line}")
+    else:
+        report["bench_versions"] = diff_bench_versions(ROOT)
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
               "worker": o.runner_class}
@@ -3168,7 +3230,8 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--why", default="the job ended")
     s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
-    s = sub.add_parser("run-linux-part", help="run the diff-viewer part (Linux, in a checkout of the measured commit)")
+    s = sub.add_parser("run-linux-part", help="run one Linux part (in a checkout of the measured commit)")
+    s.add_argument("--part", default="diff-viewer", choices=[p["name"] for p in PARTS if p.get("where") == "linux"])
     s.add_argument("--out", required=True)
     s.add_argument("--runner-class", default=os.environ.get("PERF_CRON_RUNNER_CLASS", ""),
                    help="the runner label the job ran on: the Linux rows' host (compared only within one class)")

@@ -56,6 +56,7 @@ import { ContextCardBody } from "./ContextCard";
 import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
+import { compactingUsage } from "./usageStats";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
@@ -200,6 +201,10 @@ type Props = {
   /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
    * running): only then is a pending chat's start mode a live menu, else an inert chip. */
   holdsModePick?: boolean;
+  /** A mode pick before the chat has a session is held, though a model or effort pick is not: a
+   * chat on another machine (the cloud, a remote host) that starts with its first send, which
+   * takes the held mode first. Its pending start mode is then a live menu, as with `holdsModePick`. */
+  holdsStartMode?: boolean;
   /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
    * is never fixed there, even once the page's deferred chat has started behind it. */
   startsChat?: boolean;
@@ -230,6 +235,7 @@ export function ComposerPickers({
   catalogRefresh,
   pickerCatalog,
   holdsModePick = false,
+  holdsStartMode = false,
   startsChat = false,
 }: Props) {
   const t = useT();
@@ -869,7 +875,7 @@ export function ComposerPickers({
   // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
   // access row.
   const pendingAccessModes: ModeChoice[] = (() => {
-    if (!holdsModePick || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
+    if (!(holdsModePick || holdsStartMode) || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
     const menu =
       pendingMenu ??
       harnessFamilyMenu(
@@ -972,7 +978,7 @@ export function ComposerPickers({
   // narrow row ("Med"). Before the session reports, it names the held pick.
   const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
   const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
-  const usage = summary?.usage;
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const usageNote =
     showContextUsage && usage && usage.size > 0
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })

@@ -70,6 +70,16 @@ enum StatusGlyphArt {
             context.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius, startAngle: .pi / 2,
                            endAngle: .pi / 2 - 2 * .pi * progress, clockwise: true)
             context.strokePath()
+        case .sweep:
+            context.setLineWidth(thickness)
+            context.setAlpha(config.trackOpacity)
+            context.addPath(StatusGlyphGeometry.ringPath(in: rect, thickness: thickness))
+            context.strokePath()
+            context.setAlpha(1)
+            let radius = max(0, rect.width / 2 - thickness / 2)
+            context.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius, startAngle: 0,
+                           endAngle: 2 * .pi * StatusIndicatorPlan.sweepLength, clockwise: false)
+            context.strokePath()
         case .native:
             guard let image = NativeSpinnerImage.image(side: CGFloat(pixels) / scale, scale: scale) else { return nil }
             context.draw(image, in: rect)

@@ -1271,6 +1271,7 @@ impl Hub {
             self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
                 .await;
             self.set_status(session, SessionStatus::Ready);
+            self.note_launch(session, &child);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1347,11 +1348,12 @@ impl Hub {
                 );
             }
         }
-        if saved.agent_session_id.is_some() {
+        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
+        self.note_launch(session, &child);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

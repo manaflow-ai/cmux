@@ -33,6 +33,18 @@ public struct DaemonEndpoint: Hashable, Sendable {
 /// guard daemon.supports(DaemonCapability.tabDrag.rawValue) else { return }
 /// ```
 public enum DaemonCapability: String, CaseIterable, Sendable {
+    /// The minimum handshake surface served by the Native guest owner. Keep
+    /// this separate from ``required``: Native does not implement the GUI's
+    /// viewport/layout/attachment controls.
+    public static let nativeRemoteRequired: [String] = [
+        workspaceRegistry.rawValue,
+        "layout-delta-v1",
+        sessionIdentity.rawValue,
+        conversationTabs.rawValue,
+        agentSessionTabs.rawValue,
+        agentSessionStart.rawValue,
+        agentSessionAttach.rawValue,
+    ]
     /// The GUI refuses a daemon without these (`DaemonCompatibility.missingRequired`).
     case workspaceRegistry = "workspace-registry-v1"
     case viewportSplits = "viewport-splits-v1"
@@ -261,6 +273,13 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
+    /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
+    /// once when it shows again (SWITCH FRAMES SF-5).
+    case attachVisibility = "attach-visibility-v1"
+    /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
+    /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
+    /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
+    case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -290,6 +309,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     case agentSessionAttach = "agent-session-attach-v1"
+    /// The `mobile-chat-*` relay the Mac's mobile host offers a phone (cmux-tui mobile_chat.rs).
+    case cloudChatRelay = "cloud_chat_relay.v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -523,10 +544,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,

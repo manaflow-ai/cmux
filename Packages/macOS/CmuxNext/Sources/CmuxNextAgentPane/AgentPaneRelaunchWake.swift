@@ -29,7 +29,10 @@ public final class AgentPaneRelaunchWake {
     nonisolated static let maximumBytes = 8 * 1024 * 1024
     let file: URL?
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
-    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
+    /// As the app quits: prompts the page holds for a folder trust answer go into their drafts.
+    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = {
+        await AgentPaneWakeState.quitting($0, limit: $1)
+    }
 
     /// Reads the saved states.
     private let reader: LaunchFileReader

@@ -232,10 +232,9 @@ async fn agent_login_over_the_wire() {
     assert_eq!(reason(&e), "unknown_session");
     let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
     assert_eq!(r, json!({"signedIn": true, "restarted": false}));
-    assert_eq!(
-        std::fs::read_to_string(home.join(".config/cmux/agent-auth/codex")).unwrap(),
-        "own\n"
-    );
+    // This chat uses an alternate Codex home, so its sign-in stays scoped to
+    // the chat and does not change the machine-wide canonical choice.
+    assert!(!home.join(".config/cmux/agent-auth/codex").exists());
 
     // API keys: Codex through its own CLI, Claude into its settings.json.
     let e = c
@@ -257,10 +256,9 @@ async fn agent_login_over_the_wire() {
         serde_json::from_slice(&std::fs::read(d.join("claude-home/settings.json")).unwrap())
             .unwrap();
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], "sk-ant-test-1");
-    assert_eq!(
-        std::fs::read_to_string(home.join(".config/cmux/agent-auth/claude")).unwrap(),
-        "own\n"
-    );
+    // The Claude profile also uses an alternate account home, so its API key
+    // save must leave the canonical machine choice untouched.
+    assert!(!home.join(".config/cmux/agent-auth/claude").exists());
 
     // A team machine: refused before anything runs.
     std::fs::write(d.join("root/etc/cmux/vm-kind"), "team\n").unwrap();

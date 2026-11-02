@@ -12,7 +12,7 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
+import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
@@ -104,9 +104,7 @@ export const CommandRow = memo(function CommandRow({
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
-          {foreground ? (
-            !grouped && <Spinner size={12} />
-          ) : tool.background ? (
+          {foreground ? null : tool.background ? (
             <BackgroundMark background={tool.background} showActivity={!grouped} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>

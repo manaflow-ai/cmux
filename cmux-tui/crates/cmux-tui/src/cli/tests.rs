@@ -222,6 +222,8 @@ mod remote_cli_docs {
                 | ["harness", "doctor", ..]
                 | ["link", "machine", "update", ..]
                 | ["docs", "search", ..]
+                // vm.rs owns `machine new` (the app's Cloud create, or the VM API).
+                | ["machine", "new" | "create", ..]
         )
     }
 
@@ -251,6 +253,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
+            .filter(|name| cloud_help::renamed(name).is_none())
             .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");

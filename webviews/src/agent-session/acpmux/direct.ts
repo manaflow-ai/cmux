@@ -1,5 +1,6 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
@@ -91,6 +92,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
@@ -99,6 +101,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -733,7 +736,7 @@ function recordImages(msg: any): QueuedPromptImage[] {
 
 /// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
 /// them from the send on, before acpmux names them.
-function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
+export function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
   return attachments.flatMap((attachment) =>
     attachment.kind === "image" && attachment.data
       ? [
@@ -1109,8 +1112,15 @@ export function mergeToolItem(
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
   const locations = readLocations(update.locations) ?? before?.locations;
+  // ACP sends an empty object when an update changes status or output without changing the
+  // call's input. Keep the input from the initial call so a draft command never regresses to
+  // the blank/Thinking state after that update.
+  const hasRawInput =
+    update.rawInput !== undefined &&
+    update.rawInput !== null &&
+    !(objectValue(update.rawInput) && Object.keys(update.rawInput).length === 0);
   // The input's file, from the update that carries the input.
-  const input = update.rawInput ? inputPath(update) : before?.inputPath;
+  const input = hasRawInput ? inputPath(update) : before?.inputPath;
   const placed =
     update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
@@ -1132,7 +1142,7 @@ export function mergeToolItem(
       title: String(update.title ?? update.name ?? before?.title ?? callId),
       kind,
       status,
-      inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
+      inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
@@ -1216,8 +1226,17 @@ function sessionUpdate(event: EventRecord): any | undefined {
 }
 
 /// Opens the client's socket; mock mode passes an in-page daemon (mock.ts), the app the host
-/// bridge (bridgeSocket.ts).
-export type OpenSocket = (url: URL) => WebSocket;
+/// bridge (bridgeSocket.ts). `protocols` carries the listener token (`tokenProtocols`): acpmux
+/// takes it only from a header, never the URL, which logs, history and a Referer keep.
+export type OpenSocket = (url: URL, protocols?: string[]) => WebSocket;
+
+/// The subprotocol acpmux answers a browser's upgrade with; it never echoes the token.
+export const ACPMUX_PROTOCOL = "acpmux.v1";
+
+/// The WebSocket subprotocols that carry `token`: a browser cannot set an Authorization header.
+export function tokenProtocols(token: string): string[] {
+  return [ACPMUX_PROTOCOL, `acpmux.token.${token}`];
+}
 
 /// The placeholder URL of a bridge connection (never dialed).
 export const BRIDGE_URL = "cmux-bridge://acpmux/";
@@ -1595,8 +1614,15 @@ export class AcpmuxDirectClient {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
       timer?: ReturnType<typeof setTimeout>;
+      /// Puts the request on the wire again (a busy refusal's retry).
+      send: () => void;
+      /// Busy refusals it has had.
+      busy: number;
     }
   >();
+  /// The daemon's count of this connection's work requests: a page never sends past it
+  /// (requestBudget.ts). Reset with the connection.
+  private budget = new RequestBudget();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
@@ -1813,6 +1839,7 @@ export class AcpmuxDirectClient {
   private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
+  private autoResumedAttempt: number | undefined;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
@@ -2030,7 +2057,7 @@ export class AcpmuxDirectClient {
     host: AcpmuxHostConfig,
     listener: Listener,
     onLost?: () => void,
-    private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+    private readonly openSocket: OpenSocket = (url, protocols) => new WebSocket(url, protocols),
     private readonly gitRoute: GitRoute = "native",
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
@@ -2050,6 +2077,66 @@ export class AcpmuxDirectClient {
   private pageWentAway = (): void => {
     this.rememberCurrentTail(false);
   };
+
+  /// This prewarmed New Tab page now stands for a tab bound to chat `sessionId` (the host's
+  /// `acpmux-session-adopt`, AgentPaneView+SessionAdopt.swift): from here it is that tab's page as if
+  /// its handshake had named the session, so a session the daemon lacks, or one that goes away, says
+  /// so instead of falling back to another chat, and a reconnect reopens it. The switch itself is
+  /// `chat.select`'s.
+  bindToSession(sessionId: string): void {
+    this.host = { ...this.host, sessionId, newSession: false, sessionMustExist: true };
+  }
+
+  /// The adopted page's switch to its chat: bound to it (`bindToSession`), then opened as
+  /// `chat.select` opens a chat. A chat the daemon does not list is the tab's missing chat, said why
+  /// in the pane (chatUnavailable.ts) as a tab whose handshake named it says it, never an empty
+  /// chat; an open that fails with nothing drawn says it failed. Its answer is `select`'s.
+  async adoptSession(sessionId: string): Promise<string | undefined> {
+    this.bindToSession(sessionId);
+    const listed = () => this.sessions.some((session) => session.sessionId === sessionId);
+    // A chat this page's list lacks (it started after the page connected, or its row is on a page
+    // still being read) opens without waiting for the list: its attach proves it is there, as a
+    // cold open's does (`attachedBeforeList`), since a busy acpmux paces its whole list for seconds.
+    // The list is read again behind the open, and decides only when the attach fails.
+    const relisting = listed() ? undefined : this.refreshSessions().catch(() => false);
+    const generation = this.selectionGeneration + 1;
+    try {
+      return await this.select(sessionId);
+    } catch (error) {
+      if (relisting) await relisting;
+      if (this.closed) return undefined;
+      if (relisting && !listed() && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        return this.adoptedMissing(sessionId);
+      // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
+      // the open failed here, for the chat this adoption still shows.
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && !this.drewKeptTail)
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+      throw error;
+    }
+  }
+
+  /// The adopted tab's chat is one the daemon neither attaches nor lists: the pane says it is
+  /// missing (chatUnavailable.ts) as a tab whose handshake named it says it, never an empty chat.
+  private async adoptedMissing(sessionId: string): Promise<undefined> {
+    this.rememberCurrentTail();
+    this.selectedSessionId = undefined;
+    this.selectionGeneration += 1;
+    this.resetSessionState();
+    this.noteMissing(sessionId);
+    this.missingReason = "notListedAtOpen";
+    // The machine the chat was on, from what the app host kept of it (another tab read it).
+    if (this.missingPeer === undefined) {
+      await readHostTail(sessionId).catch(() => undefined);
+      if (this.missingSession === sessionId) this.missingPeer = keptPeer(sessionId);
+    }
+    this.emit();
+    void this.refreshPeers()
+      .catch(() => undefined)
+      .then(() => {
+        if (!this.closed && !this.snapshotHold) this.emit();
+      });
+    return undefined;
+  }
 
   /// Hands the chat on screen to the host now, for a tab about to open it (`chat.openTab`). The
   /// page keeps it selected, so nothing else would hand it over and the new tab would open cold —
@@ -2230,14 +2317,16 @@ export class AcpmuxDirectClient {
     if (cold && this.events.length === 0 && !keptTail(cold)) void readHostTail(cold).catch(() => undefined);
     // Over the bridge the URL names nothing: the host knows its daemon.
     const url = new URL(this.host.endpoint ?? BRIDGE_URL);
-    if (this.host.token) url.searchParams.set("token", this.host.token);
+    const protocols = this.host.token ? tokenProtocols(this.host.token) : undefined;
     this.wire.lifecycle("connecting", {
       endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
     const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
-      const socket = this.openSocket(url);
+      const socket = this.openSocket(url, protocols);
       this.socket = socket;
+      // A new connection starts the daemon's count anew.
+      this.budget.reset();
       let opened = false;
       socket.onopen = () => {
         opened = true;
@@ -2330,12 +2419,19 @@ export class AcpmuxDirectClient {
       // frame waits on one round trip rather than one per read (Leo, 2026-10-29: "as in i want
       // ours to load fast too :(").
       const peersSince = this.peerEvents.statusStarted();
-      const peersRead = this.request("_acpmux/status", {}).catch(() => undefined);
+      const peersRead = this.request("_acpmux/status", {})
+        .catch(() => undefined)
+        .then((status) => {
+          // A late read belongs only to this connection. A closed or replaced socket must not
+          // replace the next connection's peer state or emit a connected snapshot.
+          if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN) return;
+          this.readPeers(status, peersSince);
+          if (!this.opening && !this.snapshotHold) this.emit();
+        });
       const listRead = this.sessionPages.first();
-      // Awaited below, after the machines: a list that fails meanwhile is not left unobserved.
+      // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early = this.askEarly();
-      this.readPeers(await peersRead, peersSince);
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -2358,7 +2454,9 @@ export class AcpmuxDirectClient {
           attachedRow,
           ...this.sessions.filter((session) => session.sessionId !== attachedRow.sessionId),
         ];
-      else if (first && !linkedLater) this.sessions = first.sessions;
+      // Live notices can arrive while status is pending, before this first page is installed.
+      // Keep their newer rows (and purges) when replacing the previous list.
+      else if (first && !linkedLater) this.sessions = this.sessionPages.settle(first.sessions);
       else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
@@ -2366,6 +2464,17 @@ export class AcpmuxDirectClient {
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
+      // A known chat on this daemon can draw from its attach without the machine list. Keep
+      // status on the path for remote wires, peer chats and missing/unspecified sessions: they
+      // use it to choose a peer copy or explain availability. The late local reply fills the
+      // environment picker above, without holding the transcript's first frame.
+      const localChat =
+        this.localOrigin &&
+        this.selectedSessionId !== undefined &&
+        this.sessions.some(
+          (session) => session.sessionId === this.selectedSessionId && typeof session.peer !== "string",
+        );
+      if (!localChat) await peersRead;
       // A chat on another machine: that machine's daemon attached the session its store records for
       // this tab (agent-session-attach checks it), so that session is the tab's chat even when this
       // page holds another name for it: a session name the tab recorded, or the id from before the
@@ -2598,6 +2707,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
+    this.autoResumedAttempt = undefined;
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
@@ -3016,6 +3126,15 @@ export class AcpmuxDirectClient {
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
+      const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
+      if (request && busy && request.busy + 1 < BUSY_TRIES) {
+        // The daemon's count and this page's drifted: the request goes again later, never at once.
+        request.busy += 1;
+        this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
+        this.budget.retryLater(message.id, request.send, busyDelay(request.busy));
+        return;
+      }
+      this.budget.settled(message.id);
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
@@ -3801,26 +3920,39 @@ export class AcpmuxDirectClient {
           origin: "native",
         }),
       );
+    const socket = this.socket;
     const id = this.nextRequest++;
-    const result = this.expectReply(id, method, deadline);
-    try {
-      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
-      this.wire.sent(text, method, id);
-      this.socket!.send(text);
-    } catch (error) {
-      const request = this.pending.get(id);
-      this.pending.delete(id);
-      if (request?.timer) clearTimeout(request.timer);
-      request?.reject(error instanceof Error ? error : new Error(String(error)));
-    }
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    // A request that waited goes only on the connection it was asked on: a closed one rejected it.
+    // A send that throws fails its own request and frees its slot, also when a reply freed it later.
+    const send = () => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        this.wire.sent(text, method, id);
+        socket.send(text);
+      } catch (error) {
+        const request = this.pending.get(id);
+        this.pending.delete(id);
+        if (request?.timer) clearTimeout(request.timer);
+        this.budget.settled(id);
+        request?.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
+    this.budget.admit(id, method, send);
     return result;
   }
 
-  private expectReply(id: number | string, method: string, deadline?: number): Promise<any> {
+  /// `send` puts the request on the wire again after a busy refusal; without one (a request the
+  /// native host sends, or any but a read) a busy refusal fails it like any other.
+  private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = deadline
         ? setTimeout(() => {
             this.pending.delete(id);
+            // One on the wire holds the daemon's slot until its late answer (receive); one still
+            // waiting for a slot never goes.
+            if (!this.budget.onWire(id)) this.budget.settled(id);
             reject(
               Object.assign(new Error(translate("error.timedOut")), {
                 code: "native.timed_out",
@@ -3836,6 +3968,8 @@ export class AcpmuxDirectClient {
           reject(error);
         },
         timer,
+        send: send ?? (() => {}),
+        busy: send ? 0 : BUSY_TRIES,
       });
     });
   }
@@ -4667,6 +4801,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.turnOpen = false;
     this.runningTurnId = undefined;
+    this.autoResumedAttempt = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
@@ -5416,6 +5551,9 @@ export class AcpmuxDirectClient {
       ) {
         // The steer of a prompt already drawn below (it ran as that prompt): shown once, as the prompt.
       } else if (event.kind === "user_message") {
+        // The continuation's raw instructions stay hidden. Its provenance supplies only the
+        // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
+        if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
@@ -6052,6 +6190,18 @@ export class AcpmuxDirectClient {
     return this.waitingSteerRows.rows;
   }
 
+  /// The row of the person's newest steer the agent has not read (not another session's message):
+  /// the one that carries Send now while several wait. Send now stops the current step, and the
+  /// agent then reads every waiting steer, so one Send now does it for all of them (Leo,
+  /// 2026-11-01: "why are ALL of these send now???? aren't these steers???").
+  private newestOwnSteer(): string | undefined {
+    for (let i = this.waitingSteers.length - 1; i >= 0; i--) {
+      const row = this.rows.get(this.waitingSteers[i]!.rowId);
+      if (row && row.kind === "user" && !row.incoming && !row.inboxThread && row.steerPromptId) return row.id;
+    }
+    return undefined;
+  }
+
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
@@ -6148,6 +6298,9 @@ export class AcpmuxDirectClient {
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
+      ...(this.replayThrough === undefined
+        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        : {}),
       rows: publishedRows,
       subagentViews: this.subagents.views(),
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
@@ -6249,6 +6402,7 @@ export class AcpmuxDirectClient {
       ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
       // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
+      ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size }
@@ -6320,10 +6474,22 @@ export class AcpmuxDirectClient {
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
+  /// A permission mode picked in a chat that starts with its first send (a Cloud or other remote
+  /// machine's, `startsOnSend`) before that send started it: the session the send starts takes it
+  /// before the prompt goes (ensureSession), as a New Tab start's held pick does (harnessSwitch.ts).
+  /// `ticket`: the pick's gesture, taken at the click (pane-native transport). A failed start keeps
+  /// it for the next send; another chat selected before the send drops it.
+  private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
+  holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
+    this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
+      const generation = this.selectionGeneration;
+      if (this.heldStartMode?.generation !== generation) this.heldStartMode = undefined;
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
@@ -6331,6 +6497,28 @@ export class AcpmuxDirectClient {
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
+      // The newest pick for this chat, one made while the start was pending included. It goes to the
+      // session this start made, never the selected one: another chat picked while the ticket is
+      // pending must not take a held Bypass permissions.
+      // create() selects the new session, a new generation: a pick made after that, while this chat
+      // is still the one selected, is also this start's.
+      const pick = this.heldStartMode;
+      const held =
+        pick &&
+        (pick.generation === generation ||
+          (pick.generation === this.selectionGeneration && this.selectedSessionId === sessionId))
+          ? pick
+          : undefined;
+      if (held) {
+        this.heldStartMode = undefined;
+        const ticket = await held.ticket?.catch(() => undefined);
+        // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
+        await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
+          (error: unknown) => {
+            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+          },
+        );
+      }
       return sessionId;
     }
     return this.selectedSessionId;
@@ -6740,6 +6928,11 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
+      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
+      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
+      // so its sender waits for it to show there instead of saying "Not sent" at once.
+      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -6760,7 +6953,8 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error))
+        // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
+        if (held && !isTrustRefusal(error) && !lostPrompt(error))
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
@@ -8355,6 +8549,17 @@ export class AcpmuxDirectClient {
       )
     );
   }
+  /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
+  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  private journalsPrompts(blocks: unknown): boolean {
+    if (!this.localOrigin) return false;
+    try {
+      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
+    } catch {
+      return false;
+    }
+  }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
   private resendWaits = new Map<() => void, string>();
@@ -9207,6 +9412,8 @@ export class AcpmuxDirectClient {
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
+    // The daemon's count went with the connection; busy retries waiting for their time stop here.
+    this.budget.reset();
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
       // The timeout code stays (git writes, checkpoints and permissions read it); `reason` tells a

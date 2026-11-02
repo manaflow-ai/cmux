@@ -467,6 +467,7 @@ fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: u
         let mut request = Some(Request {
             id: Some(json!(index)),
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            remote_line: None,
         });
         assert_eq!(
             scheduler.dispatch(mux.clone(), 0, &mut request, retained_bytes, writer.clone(),),
@@ -536,6 +537,8 @@ mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
 mod incognito_orphans;
+mod incognito_remote;
+mod input_lane;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod resource_attach;
@@ -543,6 +546,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod subscribe_scroll_on_attach;
 mod test_socket_path;
 mod view_leases;
 mod wire_commands;

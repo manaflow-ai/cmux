@@ -165,7 +165,7 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
         // ACP extensions acpmux names in the acp.* space.
-        untyped(method::ACP_SESSION_FORK, Request),
+        request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         untyped(method::ACP_TRUST_GET, Request),
         untyped(method::ACP_TRUST_SET, Request),
         untyped("catalog.get", Request),
@@ -254,6 +254,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SIDE, Request),
         untyped(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
+        untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),

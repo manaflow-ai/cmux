@@ -27,12 +27,14 @@ tokio::task_local! {
 }
 
 /// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
-/// true if the reply went whole (not as its too-large error).
+/// true if the reply went whole (not as its too-large error). The request's future is made on the
+/// heap (`heap_future.rs`): this future, the task's, and their poll frames hold only its pointer.
 pub(super) async fn scope<F: Future>(
     id: Value,
     method: &str,
-    request: F,
+    request: impl FnOnce() -> F,
 ) -> (F::Output, Option<bool>) {
+    let request = crate::heap_future::heap(request);
     let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
     REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
 }
@@ -160,7 +162,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
 /// A connection served as a peer (it proved this launch's peer token) reads only this
 /// daemon's own sessions: the link drops every row mirrored from a peer (`peer.rs`
-/// `watch_sessions`), and with them big-red's list was 17 MB with tools on 2026-10-30, past
+/// `watch_sessions`), and with them one lane VM's list was 17 MB with tools on 2026-10-30, past
 /// the message limit, so no peer's handshake there finished. Built from the own sessions
 /// alone, never from the whole list, once per snapshot.
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {

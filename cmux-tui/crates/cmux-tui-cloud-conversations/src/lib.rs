@@ -15,6 +15,7 @@ mod contract;
 mod environments;
 mod error;
 mod host_replica;
+pub mod platform;
 mod service;
 mod session;
 mod stream;

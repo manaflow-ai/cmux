@@ -18,16 +18,16 @@
 //
 // Open, it floats under the header's toggle in the pane's right gutter, beside the transcript's
 // centered column, so opening, closing or updating it never moves or reflows the chat. When that
-// gutter has no room for it, it floats over the chat and stops above the composer (Leo, 2026-10-29:
-// "it's not supposed to be a fucking sidebar that pushes the fucking layout"). Settings > Agent Chat >
-// Session Info: Push always pushes.
+// gutter has no room for it, it pushes the chat left and takes its column (sessionInfoPushes; in a
+// short pane it is a popover over the chat instead). Settings > Agent Chat > Session Info: Push always
+// always pushes.
 // It shows only over the chat, where its toggle is: while a view takes the pane in the chat's place
 // (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
 // and with the side panel open beside the chat it floats in the chat's gutter, never over the
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
 // CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
 // (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
-// (sessionInfoState.ts). Debug Settings `agent.inspector` (on by default)
+// (sessionInfoState.ts). Debug Settings `agent.sessionInfo` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -55,12 +55,14 @@ import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { compactingUsage } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
+import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { Artifact } from "../conversation/artifactPreview";
@@ -102,6 +104,8 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
+import { useNativeSessionInfoHost } from "./native/host";
+import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./sessionInfo.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -116,9 +120,7 @@ export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
 
-/// Whether Session Info pushes the chat: only with Settings Push always. By default it floats
-/// outside the pane's layout and never takes a column (Leo, 2026-10-24: "it was never supposed to be
-/// a sidebar; y'all kept doing sidebars").
+/// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
 
 /// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
@@ -140,9 +142,9 @@ const gutterOf = (paneWidth: number, column?: ChatColumn, wide = false) => {
     : columnInset;
 };
 
-/// Whether the floating panel lies over the chat's column: the right gutter cannot hold it and its
-/// margins. Opening it never moves the chat (Leo, 2026-10-29: "it's not supposed to be a fucking
-/// sidebar that pushes the fucking layout"), so then the card, full length otherwise, stops above the
+/// Whether the floating panel would lie over the chat's column: the right gutter cannot hold it and
+/// its margins. By default it then pushes the chat (sessionInfoPushes); where it still floats (a short
+/// pane's popover, a handoff review's form), the card, full length otherwise, stops above the
 /// composer's stack so it never covers the composer.
 export const sessionInfoOverChat = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return false;
@@ -163,7 +165,49 @@ export const POPOVER_BELOW_HEIGHT = 520;
 export const sessionInfoPopover = (paneHeight: number, overChat: boolean) =>
   overChat && paneHeight > 0 && paneHeight < POPOVER_BELOW_HEIGHT;
 
-/// Whether Session Info shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
+/// Whether Session Info pushes the chat aside. With Settings Push always, always. By default it
+/// floats in the right gutter and moves nothing while the gutter holds it (Leo, 2026-10-31: "why is
+/// the session info thing still pushing my layout when it doesnt need to???"), and where the gutter
+/// cannot hold it, it takes its column and the chat moves left instead of lying under it (Leo,
+/// 2026-11-01: "why does the session info not push the layout left ever anymore"). A short pane keeps
+/// it a popover over the chat (POPOVER_BELOW_HEIGHT), and a handoff review's wider form never pushes.
+/// `overflow` is how far the chat's drawn content reaches past the column the model expects
+/// (chatContentOverflow): a panel that would lie over any row or the composer pushes, whatever the
+/// gutter's width says.
+export const sessionInfoPushes = (
+  placement: SessionInfoPlacement,
+  pane: { width: number; height: number },
+  width: number,
+  column?: ChatColumn,
+  wide = false,
+  overflow = 0,
+) =>
+  pushes(placement) ||
+  (!wide &&
+    sessionInfoOverChat(pane.width, width + Math.max(0, overflow), column) &&
+    !sessionInfoPopover(pane.height, true));
+
+/// The chat's content Session Info must never float over: the transcript's rows and the composer.
+const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
+
+/// How far the chat's drawn content reaches past the right end of the column the model expects
+/// (`paneWidth` less the transcript's gutter, from the shell's left edge); 0 when it stays inside.
+/// Read only while the panel floats, where the chat has the pane's full width, so the reading never
+/// depends on the push it decides.
+export function chatContentOverflow(shell: HTMLElement, paneWidth: number, column?: ChatColumn): number {
+  if (paneWidth <= 0) return 0;
+  const left = shell.getBoundingClientRect().left;
+  const end = paneWidth - gutterOf(paneWidth, column);
+  let reach = 0;
+  for (const element of shell.querySelectorAll<HTMLElement>(CHAT_CONTENT)) {
+    const { right, width } = element.getBoundingClientRect();
+    if (width > 0) reach = Math.max(reach, right - left);
+  }
+  // Under half a pixel is the shell's sub-pixel offset, not content under the panel.
+  return Math.max(0, Math.floor(reach - end + 0.5));
+}
+
+/// Whether Session Info shows: on (Debug Settings `agent.sessionInfo`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
 export const sessionInfoShown = ({
@@ -186,6 +230,14 @@ const SIDE_PANEL = ":scope > .acpmux-artifact, :scope > .acpmux-bg";
 /// Session Info starts right below the header: the pane's tab row when the header is in it.
 export function sessionInfoTopOffset(tabRowHeight: number): string {
   return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
+}
+
+/// AppKit's top is in page CSS pixels, below the same header or shared tab row as the web panel.
+function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number): number {
+  const shellTop = Math.max(0, shell?.getBoundingClientRect().top ?? 0);
+  if (tabRowHeight > 0) return shellTop + tabRowHeight;
+  const header = shell ? Number.parseFloat(getComputedStyle(shell).getPropertyValue("--acpmux-header-height")) : NaN;
+  return shellTop + (Number.isFinite(header) ? header : 28);
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -266,7 +318,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
 const REVEAL_LIT_MS = 1200;
 
 /// The header's toggle and Session Info for the chat's pane. `on` is Debug Settings
-/// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
+/// `agent.sessionInfo`: off, there is neither, and the App shows its summary card instead.
 export function useSessionInfo({
   snapshot,
   machineName,
@@ -278,6 +330,7 @@ export function useSessionInfo({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenDocument,
   processes: registry,
   onStopProcess,
@@ -332,6 +385,8 @@ export function useSessionInfo({
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
   onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
@@ -412,6 +467,7 @@ export function useSessionInfo({
   const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
   const stableOnOpenUrl = useStableCallback(onOpenUrl);
   const stableOnOpenImage = useStableCallback(onOpenImage);
+  const stableReadPromptImage = useStableCallback(readPromptImage);
   const stableOnOpenDocument = useStableCallback(onOpenDocument);
   const stableOnOpenFolder = useStableCallback(onOpenFolder);
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
@@ -525,6 +581,8 @@ export function useSessionInfo({
         onOpenOutput={openOutput}
         onOpenUrl={stableOnOpenUrl}
         onOpenImage={stableOnOpenImage}
+        // A subagent's prompt images live in its own chat, which this reader does not reach.
+        readPromptImage={subagent ? undefined : stableReadPromptImage}
         onOpenFolder={stableOnOpenFolder}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
@@ -597,6 +655,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
@@ -649,6 +708,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
@@ -666,20 +727,47 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
 }) {
   onRender?.();
   const { width, sections } = useSessionInfoState(chat);
+  const native = useNativeSessionInfoHost();
+  const t = useT();
+  const [gallery, setGallery] = useState(false);
   const display = useChatDisplay();
   const sizing = useChatSizing();
   const column = chatColumnOf(sizing.width, display, sizing.scale);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
-  const presence = usePresence(shown, "right");
-  const drawn = presence.present;
+  const presence = usePresence(shown && !native, "right");
+  const drawn = native ? shown : presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
-  const push = pushes(display.sessionInfo);
-  const overChat = !push && sessionInfoOverChat(paneWidth, width, column, wide);
+  // How far the chat's content reaches past the column the model expects (chatContentOverflow),
+  // read while the panel floats: a panel that would lie over any of it pushes the chat left (Leo,
+  // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
+  // reading while pushed, and starts again at 0 each time the panel opens.
+  const [overflow, setOverflow] = useState(0);
+  const push = sessionInfoPushes(
+    display.sessionInfo,
+    { width: paneWidth, height: paneHeight },
+    width,
+    column,
+    wide,
+    overflow,
+  );
+  // A handoff review's form has its own gutter: the rows' reading does not apply to it.
+  const overChat = !push && sessionInfoOverChat(paneWidth, width + (wide ? 0 : overflow), column, wide);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
+  useEffect(() => {
+    const doc = shell?.ownerDocument;
+    if (!native || !drawn || !popover || !doc) return;
+    const away = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.(`${SESSION_INFO_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      onSuppress();
+    };
+    doc.addEventListener("pointerdown", away, true);
+    return () => doc.removeEventListener("pointerdown", away, true);
+  }, [native, drawn, popover, shell, onSuppress]);
   // Over the chat in a taller pane, the card stops above the composer's stack: its height, followed
   // while it lies over the chat (one ResizeObserver on the dock, disconnected when it no longer does,
   // turns popover, or the panel goes). The card's foot animates to it (sessionInfo.css).
@@ -687,8 +775,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const dockHeight = useDockHeight(shell, drawn && stopsAboveComposer);
   const tabRowHeight = useTabRow().height;
   const sessionInfoTop = sessionInfoTopOffset(tabRowHeight);
-  // The placement marker: Push always's column narrows the transcript and not the header
-  // (sessionInfo.css). Overlay moves nothing.
+  // The placement marker: a pushed column narrows the transcript and not the header
+  // (sessionInfo.css). Floating moves nothing.
   useLayoutEffect(() => {
     if (!shell) return;
     if (!drawn) {
@@ -715,11 +803,25 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   useUnderSessionInfo(shell, drawn, push, FLOAT_MARGIN, sessionInfoTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
+  // Measured before paint, so a panel that would cover the chat never draws a frame over it. Again
+  // as the pane, the panel or the rows change while it floats.
+  const floating = drawn && !push;
+  useLayoutEffect(() => {
+    if (!drawn) {
+      setOverflow(0);
+      return;
+    }
+    if (!shell || !floating || wide) return;
+    const next = chatContentOverflow(shell, paneWidth, column);
+    setOverflow((current) => (next > current ? next : current));
+  }, [shell, drawn, floating, wide, paneWidth, side, width, column, rows.length]);
   const scopedAgent = scope?.agent;
   const summary = useMemo(
     () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
     [drawn, scopedAgent, snapshot.summary, rows],
   );
+  // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],
@@ -754,10 +856,13 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const prUrls = useStableUrls(changes);
   const { statuses: cached } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
   const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
-  // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
+  // An output's diff opens beside the chat. With Settings Push always, when that split leaves too
   // little room for a readable chat beside Session Info, it steps aside until the toggle opens it
-  // again. Floating, it takes no room from the chat and stays.
-  const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+  // again. By default it stays, floating or pushed at its narrowest.
+  const roomy =
+    !pushes(display.sessionInfo) ||
+    paneWidth <= 0 ||
+    paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
   // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,
@@ -783,6 +888,79 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     const opened = Math.max(openedOutputAt.current, openedFolderAt.current);
     if (was && !roomy && Date.now() - opened < SPLIT_SETTLE_MS) onSuppress();
   }, [roomy, openedOutputAt, onSuppress]);
+  // AppKit is above the page. Existing page popovers temporarily take the pane and restore it on close.
+  if (native)
+    return (
+      <>
+        <NativeSessionInfo
+          key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
+          shown={drawn && !gallery}
+          width={push ? pushedWidth(paneWidth, width) : width}
+          top={nativeTop(shell, tabRowHeight)}
+          side={side}
+          foot={stopsAboveComposer ? dockHeight : undefined}
+          label={t("sessionInfo.title")}
+          title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
+          onBack={scope?.onBack}
+          backLabel={scope ? t("sessionInfo.subagent.back", { name: scope.parent }) : undefined}
+          summary={summary}
+          usage={usage}
+          machineName={machineName}
+          peerKinds={snapshot.peerKinds}
+          repository={repository}
+          grants={scope ? undefined : grants}
+          cloudRepositoryAvailable={cloudRepositoryAvailable}
+          made={made}
+          links={links}
+          artifacts={artifacts}
+          documents={documents}
+          rows={rows}
+          agents={agents}
+          waiting={waiting}
+          statuses={statuses}
+          processes={processes ?? []}
+          listed={registry?.listed ?? false}
+          transcriptTasks={transcriptTasks ?? []}
+          sessions={scope ? [] : (sessions?.list ?? [])}
+          workflows={scope ? [] : (workflows?.list ?? [])}
+          agent={scope?.agent}
+          onOpenSubagent={subagents?.onOpen}
+          onOpenSession={sessions?.onOpen}
+          allSessions={scope ? undefined : snapshot.sessions}
+          onOpenChat={onOpenChat}
+          onShowUsage={scope ? undefined : onShowUsage}
+          onSetRunningLimit={onSetRunningLimit}
+          onStopWorkflow={workflows?.onStop}
+          onOpenWorkflowAgent={workflows?.onOpenAgent}
+          onStopProcess={onStopProcess}
+          onOpenOutput={onOpenOutput}
+          onOpenSourceFile={onOpenSourceFile}
+          onOpenUrl={onOpenUrl}
+          onOpenDocument={onOpenDocument}
+          onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+          onReconnectMcp={onReconnectMcp}
+          remoteControl={scope ? undefined : remoteControl}
+          onCompact={scope ? undefined : onCompact}
+          onOpenFolder={openFolder}
+          onShowCall={onShowCall}
+          revealed={revealed}
+          onRevealed={onRevealed}
+        />
+        {gallery && (
+          <GalleryDialog
+            rows={rows}
+            onClose={() => setGallery(false)}
+            onOpenImage={
+              onOpenImage &&
+              ((src, alt, path) => {
+                setGallery(false);
+                onOpenImage(src, alt, path);
+              })
+            }
+          />
+        )}
+      </>
+    );
   if (!drawn) return null;
   return (
     <SessionInfoPanel
@@ -843,6 +1021,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        readPromptImage={readPromptImage}
         onOpenFolder={openFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
@@ -1066,6 +1245,7 @@ export function SessionInfo({
   onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
+  readPromptImage,
   onOpenDocument,
   remoteControl,
   onSaveEnvironment,
@@ -1136,6 +1316,8 @@ export function SessionInfo({
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
+  /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
+  readPromptImage?: (id: string) => Promise<string | undefined>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
@@ -1174,7 +1356,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = summary?.usage;
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
@@ -1191,6 +1373,16 @@ export function SessionInfo({
     [showsCalls, rows],
   );
   const body = useRef<HTMLDivElement>(null);
+  // Rows scrolled past the body's top or bottom fade at that edge (scrollEdges.ts, sessionInfo.css)
+  // instead of being cut off. It stops following when the body unmounts.
+  const edges = useScrollEdges();
+  const bodyRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      body.current = node;
+      edges(node);
+    },
+    [edges],
+  );
   // Once: then it is done, so the palette or another pane opening Session Info again does not jump
   // back to this section.
   // The section lights for a moment (sessionInfo.css `[data-revealed]`), so a reveal of a section already
@@ -1351,6 +1543,8 @@ export function SessionInfo({
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
         onOpenBeside={onOpenUrl}
+        onOpenImage={onOpenImage}
+        readImage={readPromptImage}
         expanded={sessionInfoState.sourcesAll}
         onExpandedChange={setSessionInfoSourcesAll}
       />
@@ -1450,7 +1644,7 @@ export function SessionInfo({
     </SessionInfoSection>
   );
   return (
-    <div ref={body} className="acpmux-session-info__body" data-layout={layout}>
+    <div ref={bodyRef} className="acpmux-session-info__body" data-layout={layout}>
       {banner}
       {/* Where it runs, what it made, what it runs: one order the person drags (SessionInfoGroup.tsx). */}
       <SessionInfoSectionList
