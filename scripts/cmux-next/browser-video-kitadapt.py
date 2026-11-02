@@ -9,6 +9,9 @@ HID key (rounds 1..N); close = the last HID key. State before/open/after from th
 Event rounds (bv-pane-*, bv-agent-*): every HID key and bv_action/bv_agent note with a send time, in time order."""
 import argparse, glob, json, os
 
+# macOS virtual key codes of the keys the journeys press.
+KEY_CODES = {"i": 34, "d": 2, "1": 18, "2": 19, "w": 13, "h": 4, "return": 36, "left": 123, "right": 124, "l": 37, "n": 45}
+
 parser = argparse.ArgumentParser()
 parser.add_argument("folder")
 parser.add_argument("--prefix", default="bv-")
@@ -24,15 +27,27 @@ for meta_path in sorted(glob.glob(os.path.join(opts.folder, opts.prefix + "*.met
     # The driver's t_sent is its own process clock; the movie's frames are host seconds (CACurrentMediaTime). The app's
     # input journal stamps each key-down in host time (uptimeNanos): key i's time is the i-th key-down the app got, and
     # the driver-to-host offset (from those pairs) places a note's t_sent (an action) on the host clock too.
-    downs = [e["uptimeNanos"] / 1e9 for e in events.get("journal") or []
-             if ((e.get("kind") or {}).get("key") or {}).get("_0", {}).get("phase") == "down"
-             and ((e.get("kind") or {}).get("key") or {}).get("_0", {}).get("keyClass") != "modifier"]
-    # A refused dock action falls back to a real key that the hid log does not list: one more key-down than keys,
-    # the first one (the open).
-    fallback_open = downs[0] if len(downs) == len(keys) + 1 else None
-    if fallback_open is not None:
-        downs = downs[1:]
-    offsets = [d - k["t_sent"] for k, d in zip(keys, downs)]
+    journal = [((e.get("kind") or {}).get("key") or {}).get("_0", {}) | {"t": e.get("uptimeNanos", 0) / 1e9}
+               for e in events.get("journal") or []]
+    journal = [k for k in journal if k.get("phase") == "down" and k.get("keyClass") != "modifier"]
+    # Each logged HID key matches the next app key-down of its key code (typed text in between, from other steps, is
+    # skipped). A refused dock action falls back to a real Cmd-Opt-I that the hid log does not list: an extra 'i'
+    # key-down before the first logged one is that open.
+    downs, at = [], 0
+    for k in keys:
+        code = KEY_CODES.get(k["args"].get("key"))
+        found = next((i for i in range(at, len(journal)) if journal[i].get("keyCode") == code), None)
+        if found is None:
+            downs.append(None)
+            continue
+        downs.append(journal[found]["t"])
+        at = found + 1
+    first_i = next((i for i, k in enumerate(journal) if k.get("keyCode") == KEY_CODES["i"]), None)
+    fallback_open = None
+    if keys and keys[0]["args"].get("key") == "i" and first_i is not None and downs and downs[0] is not None \
+            and journal[first_i]["t"] < downs[0]:
+        fallback_open = journal[first_i]["t"]
+    offsets = [d - k["t_sent"] for k, d in zip(keys, downs) if d is not None]
     offset = sorted(offsets)[len(offsets) // 2] if offsets else None
     for k, d in zip(keys, downs):
         k["t_host"] = d
