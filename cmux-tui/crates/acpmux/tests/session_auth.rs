@@ -152,7 +152,7 @@ async fn agent_login_respects_default_and_route_account_homes() {
         assert!(home.join("settings.json").is_file(), "{harness} saves into its own account");
         let auth = c.auth(json!({"sessionId": id, "refresh": true})).await;
         assert_eq!(auth["state"], "unknown", "{auth}");
-        let target = c.auth(json!({"target": {"harness": harness}, "refresh": true})).await;
+        let target = c.auth(json!({"target": {"harness": harness, "cwd": std::env::temp_dir()}, "refresh": true})).await;
         assert_eq!(target["state"], "unknown", "new chats share the invalidation: {target}");
     }
     assert!(!root.join("canonical/settings.json").exists());
@@ -181,6 +181,8 @@ async fn session_auth_refresh_recognizes_a_terminal_login_in_only_its_account() 
     assert_eq!(changed["state"], "unknown", "a changed file permits retry: {changed}");
     let cached = c.auth(json!({"sessionId": id})).await;
     assert_eq!(cached["state"], "unknown", "a non-refresh must not revive the failure");
+    assert!(cached["evidenceAt"].is_null());
+    assert!(cached.get("fromSessionId").is_none());
     let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
     assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
     assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before);
@@ -375,7 +377,7 @@ async fn session_auth_for_a_target_reads_only_its_own_account() {
     let root = scratch("target");
     let hub = hub(&root);
     let mut c = client(&hub);
-    let target = json!({"target": {"harness": "fake"}});
+    let target = json!({"target": {"harness": "fake", "cwd": std::env::temp_dir()}});
     let none = c.auth(target.clone()).await;
     assert_eq!(state(&none), ("unknown", "none"), "{none}");
 
@@ -391,6 +393,24 @@ async fn session_auth_for_a_target_reads_only_its_own_account() {
     let out = c.auth(target.clone()).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["fromSessionId"], json!(sibling), "{out}");
+
+    // An unrelated project or omitted cwd must not inherit this project's failed sign-in.
+    for other in [
+        json!({"target": {"harness": "fake", "cwd": root}}),
+        json!({"target": {"harness": "fake"}}),
+    ] {
+        let out = c.auth(other).await;
+        assert_eq!(state(&out), ("unknown", "none"), "project evidence leaked: {out}");
+    }
+    for cwd in [PathBuf::from("relative"), root.join("missing"), root.join("file")] {
+        if cwd == root.join("file") {
+            std::fs::write(&cwd, "not a directory").unwrap();
+        }
+        let out = c
+            .call(method::MUX_SESSION_AUTH, json!({"target": {"harness": "fake", "cwd": cwd}}))
+            .await;
+        assert_eq!(out["error"]["code"], -32602, "{out}");
+    }
 
     let unknown = c.call(method::MUX_SESSION_AUTH, json!({"target": {"harness": "nope"}})).await;
     assert_eq!(unknown["error"]["code"], -32602, "{unknown}");
@@ -410,7 +430,7 @@ async fn session_auth_reads_the_home_the_defaults_pin() {
     let out = c.auth(json!({"sessionId": chat})).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["login"]["command"], login, "{out}");
-    let out = c.auth(json!({"target": {"harness": "deflt"}})).await;
+    let out = c.auth(json!({"target": {"harness": "deflt", "cwd": std::env::temp_dir()}})).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["fromSessionId"], json!(chat), "{out}");
     assert_eq!(out["login"]["command"], login, "{out}");
@@ -509,7 +529,7 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
         let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
         let mut asked = 0;
         while let Some(Ok(Ws::Text(text))) = ws.next().await {
-            let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+            let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                 continue;
             };
             let result = match m.as_str() {
@@ -525,7 +545,7 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
                 method::MUX_SESSION_AUTH => {
                     asked += 1;
                     json!({"state": "signedOut", "source": "turn", "evidenceAt": 5,
-                           "detail": "its last turn failed", "harness": "fake", "host": null,
+                           "detail": params.as_ref().and_then(|p| p.pointer("/target/cwd")).and_then(Value::as_str).unwrap_or("its last turn failed"), "harness": "fake", "host": null,
                            "routeId": null, "fromSessionId": session,
                            "login": {"kind": "terminal", "command": "claude auth login"}})
                 }
@@ -542,6 +562,23 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
         }
     });
     port
+}
+
+/// A remote path is passed intact; only the destination daemon knows whether it exists.
+#[tokio::test]
+async fn session_auth_forwards_target_cwd_to_the_destination() {
+    let root = scratch("peer-cwd");
+    let hub = hub(&root);
+    let port = fake_peer(json!(["sessionAuth"]), "cwd-1", 1).await;
+    hub.add_peer("cwd-peer", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut c = client(&hub);
+    let out = c
+        .auth(json!({"target": {"harness": "fake", "host": "cwd-peer",
+        "cwd": "/only-on-destination/project"}}))
+        .await;
+    assert_eq!(out["detail"], "/only-on-destination/project", "{out}");
 }
 
 /// A peer's chat or target is the peer's answer, naming the peer; a peer whose link is down is

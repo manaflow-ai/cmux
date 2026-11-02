@@ -807,6 +807,8 @@ export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNee
  * spawn).
  */
 export type SessionAuthTarget = {
+  /** Absolute project directory on the destination daemon. Absent: project auth is unknown. */
+  cwd?: (string | null);
   harness: string;
   host?: (string | null);
   routeId?: (string | null);

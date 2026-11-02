@@ -11,7 +11,7 @@
 //!    `unknown` say nothing about the sign-in and fall through.
 //! 3. The chat's newest turn ([`turn_evidence`]): a sign-in failure (`auth.signed_out`,
 //!    `auth.expired`) or a completed turn. A target (a chat with no session yet) takes the
-//!    newest such turn of a chat here with the same harness, account home and route.
+//!    newest such turn of a chat here with the same harness, project directory, account home and route.
 //! 4. With `refresh`, the harness's own check that reads no keychain
 //!    (`harness_health::fresh_auth`).
 //! 5. Else `unknown`, never signed out. A connection error is never a sign-in state.
@@ -214,9 +214,9 @@ impl Facts {
         if let Some((from, turn)) = self.turn.filter(|_| !newer_refusal) {
             out.state = turn.state;
             out.source = if turn.state == State::Unknown { Source::None } else { Source::Turn };
-            out.evidence_at = Some(turn.at);
+            out.evidence_at = (turn.state != State::Unknown).then_some(turn.at);
             out.detail = turn.detail;
-            out.from_session_id = Some(from);
+            out.from_session_id = (turn.state != State::Unknown).then_some(from);
             if matches!(turn.state, State::SignedOut | State::Expired) {
                 out.login = Some(terminal(&self.login));
             }
@@ -365,6 +365,20 @@ impl Hub {
             self.session_log(session).await;
         }
         let meta = session.map(|s| s.meta());
+        // Validate on the destination daemon, after peer forwarding. Never substitute this
+        // daemon's own cwd for an omitted target directory.
+        let cwd = match (&meta, target.and_then(|t| t.cwd.as_ref())) {
+            (Some(meta), _) => Some(meta.cwd.clone()),
+            (None, Some(cwd)) => {
+                if !cwd.is_absolute() || !tokio::fs::metadata(cwd).await.is_ok_and(|m| m.is_dir()) {
+                    return Err(RpcError::invalid_params(
+                        "target.cwd must be an absolute existing directory on the destination",
+                    ));
+                }
+                Some(cwd.clone())
+            }
+            (None, None) => None,
+        };
         let harness = match (&meta, target) {
             (Some(meta), _) => meta.harness.clone(),
             (None, Some(t)) => t.harness.clone(),
@@ -437,6 +451,7 @@ impl Hub {
                     env,
                     defaults: &defaults,
                     route: &route_id,
+                    cwd: cwd.as_deref(),
                 };
                 self.sibling_turn(&harness, &siblings, &home).await
             }
@@ -545,7 +560,7 @@ impl Hub {
         let dir = routes::places(&*self.config.read().await).0;
         let mut best: Option<(String, TurnEvidence)> = None;
         for s in self.sessions() {
-            if s.meta().harness != harness {
+            if s.meta().harness != harness || like.cwd != Some(s.meta().cwd.as_path()) {
                 continue;
             }
             // A chat whose log is not read yet (a deferred start) has only its summary.
@@ -581,6 +596,8 @@ struct Siblings<'a> {
     defaults: &'a BTreeMap<String, String>,
     /// The target's route id.
     route: &'a Option<String>,
+    /// An omitted project directory cannot borrow another project's evidence.
+    cwd: Option<&'a Path>,
 }
 
 /// The route a spawn takes, given the route id and scope it chose (`routes::spawn_route`): an
