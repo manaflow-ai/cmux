@@ -134,6 +134,7 @@
    "name": "closesample",
    "seconds": 1.0,
    "interval_ms": 1,
+   "wait_first_sample": true,
    "title": "a 1 ms main-thread sample of the app around the motion"
   },
   {
