@@ -2187,10 +2187,10 @@ pre.cv-math-source {
   pointer-events: none;
 }
 /* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
-   the run's quiet color, wrapped on the rows' 20px lines, with the plain status gap (12px, the
-   transcript's inner gap) to the tool rows above and below it, as a longer reply between two runs
-   has (Leo, 2026-11-01: "the thoughts in between tool calls probably want a bit more padding").
-   model.ts `activityStepHeight` estimates it with the same numbers (NOTE_LINE, NOTE_GAP). */
+   the run's quiet color, wrapped on the rows' 20px lines, with the block gap (--cv-note-gap, 24) to
+   the flush tool rows above and below it (Leo, 2026-11-01: "the thoughts in between tool calls
+   probably want a bit more padding"). model.ts `activityStepHeight` estimates it with the same
+   numbers (NOTE_LINE, noteGap). */
 .cv-tool-note {
   margin: var(--cv-note-gap) 0;
   line-height: 20px;
