@@ -1,3 +1,4 @@
+// l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment, experimentArm } from "../../../experiments/experiment";
 
 export const newTabComposerTrailingGap = defineExperiment({
