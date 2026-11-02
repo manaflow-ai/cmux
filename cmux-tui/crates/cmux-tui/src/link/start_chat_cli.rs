@@ -67,7 +67,7 @@ const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--environment env_ID]";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -919,6 +919,7 @@ pub(super) struct StartCopy {
     pub(super) local: String,
     /// The chat's folder inside `local`; empty for `local` itself.
     pub(super) subpath: String,
+    pub(super) environment: Option<String>,
     /// The machine's folders for copies, in the order they are tried.
     pub(super) work_roots: Vec<String>,
     /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
@@ -931,11 +932,13 @@ impl StartCopy {
         let subpath = flags.one("--subpath").unwrap_or("").trim_matches('/').to_string();
         let work_roots: Vec<String> =
             flags.all("--work-root").into_iter().map(str::to_string).collect();
+        let environment = flags.one("--environment").map(str::to_string);
         if !local.starts_with('/')
             || local == "/"
             || subpath.split('/').any(|part| part == "..")
             || work_roots.is_empty()
             || work_roots.iter().any(|root| !root.starts_with('/'))
+            || environment.as_deref().is_some_and(|id| !valid_environment(id))
         {
             return None;
         }
@@ -946,9 +949,26 @@ impl StartCopy {
             socket: PathBuf::from(flags.one("--socket")?),
             local: local.to_string(),
             subpath,
+            environment,
             work_roots,
             acpmux_home: trust::acpmux_home(flags),
         })
+    }
+
+    /// Durable copy identity, redacted as a digest in the local ledger.
+    fn copy_source(&self) -> String {
+        use sha2::Digest as _;
+        let selection = json!([
+            "cloud.chat-copy.v1",
+            self.local,
+            self.subpath,
+            folder_repo(&self.local),
+            self.environment,
+        ]);
+        sha2::Sha256::digest(selection.to_string().as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     /// A new folder for one copy of the send, under its [`Keys::place`].
@@ -1044,6 +1064,21 @@ impl StartCopy {
         }
     }
 
+    fn source_refusal(previous: Option<Option<String>>, source: &str) -> Option<Value> {
+        match previous {
+            None => None,
+            Some(Some(was)) if was == source => None,
+            Some(Some(_)) => Some(refused(
+                "checkout.source_changed",
+                "This send was prepared for another project, subfolder or Cloud environment; start a new chat for the new selection.",
+            )),
+            Some(None) => Some(refused(
+                "checkout.source_unknown",
+                "This older Cloud chat has no recorded project selection; start a new chat to copy the chosen project safely.",
+            )),
+        }
+    }
+
     fn run_copy(&self, ledger: &Path, push: &Push<'_>, probe: &CheckoutProbe<'_>) -> Value {
         if too_broad(&self.local, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
             return refused(
@@ -1055,14 +1090,24 @@ impl StartCopy {
             );
         }
         let send = Send::new(&self.key, &self.account);
-        let in_flight = match Ledger::update(ledger, |pins| {
-            pins.copied_chat(&send, &self.machine)
-                .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
-        }) {
-            Ok(Ok(chat)) => return self.cached_chat(chat, probe),
-            Ok(Err(place)) => place,
+        let source = self.copy_source();
+        let first = Ledger::update(ledger, |pins| {
+            (
+                pins.copy_source(&send, &self.machine),
+                pins.copied_chat(&send, &self.machine),
+                pins.copy_place(&send, &self.machine),
+            )
+        });
+        let (previous, finished, in_flight) = match first {
+            Ok(first) => first,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         };
+        if let Some(refusal) = Self::source_refusal(previous, &source) {
+            return refusal;
+        }
+        if let Some(chat) = finished {
+            return self.cached_chat(chat, probe);
+        }
         // The unfinished copy's folder when no live copy holds it, else a new one.
         let resumed = in_flight
             .and_then(|place| Some((Lease::take(ledger, &send, &self.machine, &place)?, place)));
@@ -1080,14 +1125,20 @@ impl StartCopy {
         // first read and the lease (and let it go) is the send's copy now,
         // and its folder may hold a chat; it is never pushed over.
         match Ledger::update(ledger, |pins| {
+            if let Some(refusal) =
+                Self::source_refusal(pins.copy_source(&send, &self.machine), &source)
+            {
+                return Err(refusal);
+            }
             let finished = pins.copied_chat(&send, &self.machine);
             if finished.is_none() {
-                pins.start_copy(&send, &self.machine, &place);
+                pins.start_copy(&send, &self.machine, &place, &source);
             }
-            finished
+            Ok(finished)
         }) {
-            Ok(Some(chat)) => return self.cached_chat(chat, probe),
-            Ok(None) => {}
+            Ok(Ok(Some(chat))) => return self.cached_chat(chat, probe),
+            Ok(Ok(None)) => {}
+            Ok(Err(refusal)) => return refusal,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
@@ -1095,6 +1146,14 @@ impl StartCopy {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(fields) => {
+                    // The local origin can change while a large seed/copy is running.
+                    // Never record success for a checkout prepared under a different source.
+                    if self.copy_source() != source {
+                        return refused(
+                            "checkout.source_changed",
+                            "The project's GitHub origin changed while it was copying; start a new chat for the changed project.",
+                        );
+                    }
                     let recorded = Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     });

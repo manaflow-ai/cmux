@@ -321,6 +321,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         socket: PathBuf::from("/tmp/machine.sock"),
         local: local.into(),
         subpath: subpath.into(),
+        environment: None,
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
         acpmux_home: None,
     }
@@ -481,6 +482,147 @@ fn cached_checkout_probe_reads_the_daemons_fs_stat() {
         }
         machine.join().unwrap();
     }
+}
+
+/// A copy's send key pins its original project, subfolder, GitHub origin and
+/// environment. A retry after selecting another project never opens the old
+/// checkout, even when that old directory still exists on the guest.
+#[test]
+fn cached_chat_refuses_changed_project_subfolder_origin_and_environment() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project-a");
+    let other = dir.path().join("project-b");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let config = folder.join(".git/config");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let folder = folder.to_str().unwrap();
+    let copy = copy_of(folder, "src");
+    let first = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(first["ok"], json!(true), "{first}");
+    let ledger_before = std::fs::read(&path).unwrap();
+    let no_push = |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> {
+        panic!("a changed selection must never copy onto the old chat")
+    };
+    let no_probe = |_: &Path, _: &str| -> Result<bool, (String, String)> {
+        panic!("a changed selection must be refused before the guest is queried")
+    };
+    let changed = [
+        StartCopy { local: other.to_string_lossy().into_owned(), ..copy.clone() },
+        StartCopy { subpath: "tests".into(), ..copy.clone() },
+        StartCopy { environment: Some(ENV.into()), ..copy.clone() },
+    ];
+    for different in changed {
+        let result = different.run_with_probe(&path, &no_push, &no_probe);
+        assert_eq!(result["error_code"], json!("checkout.source_changed"), "{result}");
+        assert_eq!(result["checkout_state"], json!("unverified"));
+        assert_eq!(result["dependencies_state"], json!("unverified"));
+        assert!(result["error"].as_str().unwrap().contains("start a new chat"));
+        assert_eq!(std::fs::read(&path).unwrap(), ledger_before);
+    }
+    // The local directory stays identical, but its GitHub origin is now repo B.
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/two/project\n")
+        .unwrap();
+    let changed_origin = copy.run_with_probe(&path, &no_push, &no_probe);
+    assert_eq!(changed_origin["error_code"], json!("checkout.source_changed"));
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    // The exact first selection can still resume the original chat, without repushing.
+    let cached = copy.run_with_probe(&path, &no_push, &|_, _| Ok(true));
+    assert_eq!(cached["ok"], json!(true), "{cached}");
+    assert_eq!(cached["copied"], json!(false));
+    assert_eq!(cached["chat"], first["chat"]);
+}
+
+#[test]
+fn origin_changed_during_a_guest_push_cannot_be_recorded_as_a_ready_chat() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    let config = folder.join(".git/config");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let copy = copy_of(folder.to_str().unwrap(), "");
+    let first = copy.run(&path, &|_, _, _| {
+        std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/two/project\n")
+            .unwrap();
+        Ok(json!({}))
+    });
+    assert_eq!(first["error_code"], json!("checkout.source_changed"), "{first}");
+    assert_eq!(first["checkout_state"], json!("unverified"));
+    assert!(first["error"].as_str().unwrap().contains("start a new chat"));
+    let pin = Ledger::update(&path, |pins| {
+        (pins.copied_chat(&send(&copy.key), "vm-a"), pins.copy_place(&send(&copy.key), "vm-a"))
+    })
+    .unwrap();
+    assert_eq!(pin.0, None, "the changed project must not be opened");
+    let original_place = pin.1.expect("incomplete copy is kept for the original project");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let resumed = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(resumed["ok"], json!(true), "{resumed}");
+    assert_eq!(resumed["folder"], json!(copy.remote("/home/cmux/work", &original_place).0));
+}
+
+#[test]
+fn interrupted_copy_refuses_changed_source_and_resumes_the_original_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/work/project-a", "");
+    let first = copy.run(&path, &|_, _, _| Err(("timeout".into(), "cut off".into())));
+    assert_eq!(first["error_code"], json!("timeout"));
+    let original_place =
+        Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a")).unwrap().unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let changed = StartCopy { local: "/Users/me/work/project-b".into(), ..copy.clone() };
+    let refused = changed.run(&path, &|_, _, _| panic!("changed retry cannot push"));
+    assert_eq!(refused["error_code"], json!("checkout.source_changed"), "{refused}");
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    let again = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(again["ok"], json!(true));
+    assert_eq!(again["folder"], json!(copy.remote("/home/cmux/work", &original_place).0));
+}
+
+#[test]
+fn copy_environment_flag_is_validated_before_the_ledger_or_guest_is_touched() {
+    let args = flags(&[
+        "--key",
+        &key(),
+        "--account",
+        ACCOUNT,
+        "--machine",
+        "vm-a",
+        "--socket",
+        "/tmp/guest.sock",
+        "--local",
+        "/Users/me/project",
+        "--work-root",
+        "/home/cmux/work",
+        "--environment",
+        ENV,
+    ]);
+    let copy = StartCopy::of(&args).expect("valid selected environment");
+    assert_eq!(copy.environment.as_deref(), Some(ENV));
+    let invalid = flags(&[
+        "--key",
+        &key(),
+        "--account",
+        ACCOUNT,
+        "--machine",
+        "vm-a",
+        "--socket",
+        "/tmp/guest.sock",
+        "--local",
+        "/Users/me/project",
+        "--work-root",
+        "/home/cmux/work",
+        "--environment",
+        "env_other",
+    ]);
+    assert!(StartCopy::of(&invalid).is_none());
 }
 
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
@@ -949,7 +1091,10 @@ fn the_sends_the_app_kept_before_carry_over_once() {
     };
     let never =
         |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
-    assert_eq!(copy.run_with_probe(&path, &never, &|_, _| Ok(true))["copied"], json!(false));
+    assert_eq!(
+        copy.run_with_probe(&path, &never, &|_, _| panic!("legacy source must not be trusted"))["error_code"],
+        json!("checkout.source_unknown")
+    );
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
     assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));

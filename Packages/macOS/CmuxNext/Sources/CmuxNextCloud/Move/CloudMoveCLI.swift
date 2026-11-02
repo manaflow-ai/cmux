@@ -196,8 +196,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+                              workRoots: [String], acpmuxHome: String?, environment: String? = nil,
+                              stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
+            + (environment.map { ["--environment", $0] } ?? [])
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
                                     "--socket", socket, "--local", local, "--subpath", subpath] + roots, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""

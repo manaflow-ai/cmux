@@ -71,6 +71,10 @@ struct Entry {
     place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     copied_chat: Option<String>,
+    /// Immutable SHA-256 of the first copy's local root, chat subfolder, GitHub
+    /// origin and selected Cloud environment. Missing on pre-v1/imported copies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    copy_source: Option<String>,
 }
 
 impl Entry {
@@ -231,14 +235,16 @@ impl Ledger {
     /// same machine keeps its copy's place and finished copy.
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat) =
-            same.map_or((None, None), |entry| (entry.place.clone(), entry.copied_chat.clone()));
+        let (place, copied_chat, copy_source) = same.map_or((None, None, None), |entry| {
+            (entry.place.clone(), entry.copied_chat.clone(), entry.copy_source.clone())
+        });
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place,
             copied_chat,
+            copy_source,
         });
     }
 
@@ -247,6 +253,16 @@ impl Ledger {
         self.entry(send)
             .filter(|entry| entry.machine_id == machine)
             .and_then(|entry| entry.copied_chat.clone())
+    }
+
+    /// Some(Some(digest)): the first copy's source; Some(None): an imported or
+    /// legacy copy with unknown source; None: this send has not started copying.
+    /// A retry must compare this before reusing even a directory that still exists.
+    pub(crate) fn copy_source(&self, send: &Send, machine: &str) -> Option<Option<String>> {
+        self.entry(send).filter(|entry| entry.machine_id == machine).and_then(|entry| {
+            (entry.place.is_some() || entry.copied_chat.is_some())
+                .then(|| entry.copy_source.clone())
+        })
     }
 
     /// The folder of `send`'s copy to `machine` that started and did not
@@ -261,24 +277,36 @@ impl Ledger {
     /// `send`'s copy to `machine` starts now, into `place`. Kept before
     /// anything is copied: a retry of a copy that does not finish resumes
     /// it there, unless a live copy still holds it ([`super::Lease`]).
-    pub(crate) fn start_copy(&mut self, send: &Send, machine: &str, place: &str) {
+    pub(crate) fn start_copy(
+        &mut self,
+        send: &Send,
+        machine: &str,
+        place: &str,
+        copy_source: &str,
+    ) {
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: None,
+            copy_source: Some(copy_source.to_string()),
         });
     }
 
     /// `send`'s copy into `place` finished on `machine`, its chat's folder there `chat`.
     pub(crate) fn record_copy(&mut self, chat: &str, send: &Send, machine: &str, place: &str) {
+        let copy_source = self
+            .entry(send)
+            .filter(|entry| entry.machine_id == machine)
+            .and_then(|entry| entry.copy_source.clone());
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
+            copy_source,
         });
     }
 
@@ -303,6 +331,7 @@ impl Ledger {
                 machine_id: old.machine_id.clone(),
                 place: old.place.clone(),
                 copied_chat: old.copied_chat.clone(),
+                copy_source: None,
             });
         }
         let count = imported.len();

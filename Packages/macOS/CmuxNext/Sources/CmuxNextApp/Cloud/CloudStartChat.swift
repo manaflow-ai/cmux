@@ -134,8 +134,8 @@ struct CloudStartChat {
             // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
             copy = try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
                                                        link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
-                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = Self.accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path] line in
-                    try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, stderrLine: line)
+                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = Self.accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, selectedEnvironment = start.environment] line in
+                    try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, environment: selectedEnvironment, stderrLine: line)
                 }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
             } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
