@@ -131,11 +131,16 @@ def columns(n, heavy, rows=1, start=0):
     for c in range(n):
         if c > 0 or idx > 0:
             steps += add_pane(idx, "newColumn", heavy)
-        steps.append(dict(width))
+        if c > 0:
+            steps.append(dict(width))  # a width preset needs a second column
         idx += 1
         for _ in range(rows - 1):
             steps += add_pane(idx, "splitDown", heavy)
             idx += 1
+    if n > 1:
+        # Back to the first column (it still has the full width) and give it 1/n too.
+        steps += [{"do": "action", "action": "focusLeft", "title": "set-up: focus the column on the left"}] * (n - 1)
+        steps.append(dict(width))
     return steps
 
 
