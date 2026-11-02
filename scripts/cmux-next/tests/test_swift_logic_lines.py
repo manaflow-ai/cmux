@@ -348,13 +348,15 @@ class LogicLinesTests(Repo):
                    ("CmuxNextDomain", "struct", "Tie", 0, "LOGIC", 100, 0, f"{d}/Tie.swift",
                     "the larger logic share counts"),
                    ("CmuxNextDomain", "struct", "Elsewhere", 0, "LOGIC", 100, 0, "Packages/Other/Tie.swift",
-                    "a path outside a Sources/<module>/ folder"))
+                    "a path outside a Sources/<module>/ folder"),
+                   ("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, f"{SRC}/CmuxNextUI/Store.swift",
+                    "a path in another module's folder: it never matches CmuxNextDomain/Store.swift"))
         self.write(f"{SRC}/CmuxNextDomain/Tie.swift", "struct Tie {\n    let a = 1\n    let b = 2\n    let c = 3\n}\n")
         self.commit()
         data = self.count()
         # Store 3 (unlisted), Wire 50/50 of 2 = 1/1, Tie the larger of each share: 100/40 of 5 = 5/2.
         self.assertEqual(data["rows"], {"swift_logic_lines": 3 + 1 + 5, "mirror_lines": 1 + 2})
-        self.assertEqual(data["table_rows_invalid"], 5)
+        self.assertEqual(data["table_rows_invalid"], 6)
         self.write(TABLE, "module\tkind\tname\tordinal\tclass\tmove_share\tpath\treason\n"
                           "CmuxNextDomain\tclass\tStore\t0\tPLATFORM\t0\tp\tthe old header\n")
         self.commit()
