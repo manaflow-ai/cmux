@@ -179,7 +179,7 @@ def step_video_start(j, step):
     time.sleep(float(step.get("lead", 0.4)))
     # The refresh the app's display link runs at on the window's screen (the recording precondition, KIT.md): a
     # pacing case (`require_hz`) does not record at another rate; a geometry case records it.
-    refresh = float(_motion(j, "trace_read").get("refresh_ms") or 0)
+    refresh = float(_motion(j, "trace_read", path=str(_vdir(j) / ".trace-refresh.json")).get("refresh_ms") or 0)
     j.video["refresh_ms"] = refresh
     want = step.get("require_hz")
     if want and abs(refresh - 1000.0 / float(want)) > 0.35:
@@ -196,17 +196,26 @@ def step_video_stop(j, step):
         raise D.StepError(f"video_stop {step['name']}: not recording it")
     time.sleep(float(step.get("tail", 0.6)))
     _motion(j, "record_stop")
-    trace = _motion(j, "trace_stop")
-    end = time.monotonic() + 30
+    base = _vdir(j) / rec["name"]
+    trace_path = base.parent / f"{rec['name']}.trace.json"
+    # `path`: the app writes the trace off its main thread and replies with counts (an inline reply cost 85 ms of
+    # the app's main thread, STATUS 4782). Builds before #31504 d2f5eb7350f ignore `path` and reply inline.
+    trace = _motion(j, "trace_stop", path=str(trace_path))
+    inline = "samples" in trace and isinstance(trace.get("samples"), list)
+    end = time.monotonic() + 30  # orchestration wait only, never a measurement
     counts = {}
     while time.monotonic() < end:
         counts = _motion(j, "record_read")
-        if counts.get("written"):
+        if counts.get("written") and (inline or trace_path.exists()):
             break
         time.sleep(0.1)
     j.video = None
-    base = _vdir(j) / rec["name"]
-    (base.parent / f"{rec['name']}.trace.json").write_text(json.dumps(trace))
+    if inline:
+        trace_path.write_text(json.dumps(trace))
+    elif trace_path.exists():
+        trace = json.loads(trace_path.read_text())
+    else:
+        trace = {"samples": []}
     entries = [e for e in R._journal_entries(j, 400) if int(e.get("seq") or 0) > int(rec["journal_seq"])]
     (base.parent / f"{rec['name']}.events.json").write_text(json.dumps({"hid": rec["hid"], "journal": entries}))
     layers = R._layers_window(j)
@@ -233,7 +242,20 @@ def _display_facts():
 
 
 def _latest_sample(j):
-    samples = (_motion(j, "trace_read").get("samples") or [])
+    """The trace's newest sample. Read through a file (`trace_read` with `path`): an inline reply serializes every
+    sample on the app's main thread."""
+    path = _vdir(j) / ".trace-read.json"
+    if path.exists():
+        path.unlink()
+    reply = _motion(j, "trace_read", path=str(path))
+    if isinstance(reply.get("samples"), list):  # a build without the path form
+        samples = reply["samples"]
+        return samples[-1] if samples else {}
+    end = time.monotonic() + 10  # orchestration wait only
+    while time.monotonic() < end and not path.exists():
+        time.sleep(0.02)
+    samples = json.loads(path.read_text()).get("samples") if path.exists() else []
+    path.unlink(missing_ok=True)
     return samples[-1] if samples else {}
 
 
