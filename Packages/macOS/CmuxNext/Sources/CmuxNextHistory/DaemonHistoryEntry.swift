@@ -71,13 +71,13 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
 
     /// The app's entry for the restore paths (history.open, palette pages). A location comes from the
     /// daemon's trail (`location` and `window`); the caller marks whether its tab is reachable.
-    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled;
-    /// `untitledChat`: the same for a closed agent chat (its tab strip title before a session title).
-    public func historyEntry(untitled: String, untitledChat: String) -> HistoryEntry? {
-        // A closed agent chat: the daemon names its session and harness (history_ops/sources.rs).
-        let chat: ClosedItem.AgentSession? = kind == .closed && (sessionID != nil || provider != nil || closedKind == "conversation_tab")
+    /// `titles`: the app's localized titles of a closed row the daemon left untitled.
+    public func historyEntry(titles: HistoryUntitledTitles) -> HistoryEntry? {
+        // A closed agent chat: the daemon names its session and harness (history_ops/sources.rs); a
+        // `conv_` conversation tab has neither and is no chat.
+        let chat: ClosedItem.AgentSession? = kind == .closed && (sessionID != nil || provider != nil)
             ? ClosedItem.AgentSession(sessionID: sessionID, harness: provider) : nil
-        let title = kind == .closed && self.title.isEmpty ? (chat == nil ? untitled : untitledChat) : self.title
+        let title = kind == .closed && self.title.isEmpty ? (chat == nil ? titles.terminal : titles.chat) : self.title
         let payload: HistoryEntry.Payload
         switch kind {
         case .location:
@@ -109,6 +109,25 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         }
         return HistoryEntry(id: id, kind: kind, time: time, title: title, detail: detail, machineName: machine,
                             isAvailable: available, payload: payload)
+    }
+}
+
+/// The titles the app shows, in the person's language, for a closed row the daemon leaves untitled:
+/// a closed agent chat's and every other closed row's. The same words go to the daemon as
+/// `untitled_titles`, so its search matches what the person sees (`history-untitled-titles-v1`).
+public nonisolated struct HistoryUntitledTitles: Hashable, Sendable {
+    public var chat: String
+    public var terminal: String
+
+    public init(chat: String, terminal: String) {
+        self.chat = chat
+        self.terminal = terminal
+    }
+
+    /// The `untitled_titles` fields for a daemon that serves `history-untitled-titles-v1`
+    /// (`served`); nil for an older daemon, which refuses an unknown field.
+    public func wireFields(served: Bool) -> [String: String]? {
+        served ? ["chat": chat, "terminal": terminal] : nil
     }
 }
 

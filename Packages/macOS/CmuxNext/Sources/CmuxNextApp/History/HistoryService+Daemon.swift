@@ -14,12 +14,14 @@ extension HistoryService {
     var daemonHistory: DaemonHistoryClient? {
         let daemon = services.machines.local
         guard let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
-        return DaemonHistoryClient(connection: connection)
+        return DaemonHistoryClient(connection: connection, servesUntitledTitles: daemon.supports(DaemonCapability.historyUntitledTitles.rawValue))
     }
 
+    static var untitledTitles: HistoryUntitledTitles { .init(chat: AgentPaneModel.tabTitle, terminal: Strings.untitledTerminal) }
+
     /// Entries from the daemon (every kind but commands) merged with every machine's command rows.
-    /// The daemon filters, searches, sorts and cuts its kinds, closed chats by their session and
-    /// harness too (history_ops/sources.rs); the app adds only the command rows of other machines.
+    /// The daemon filters, searches, sorts and cuts its kinds, closed rows by a chat's session and
+    /// harness and the titles the person sees (history_ops); the app adds other machines' commands.
     func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
         let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
         // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
@@ -28,8 +30,8 @@ extension HistoryService {
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
-            let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all += rows.compactMap(entry(of:)).map { reachable($0) }
+            let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit, untitled: Self.untitledTitles)) ?? []
+            all += rows.compactMap { $0.historyEntry(titles: Self.untitledTitles) }.map { reachable($0) }
         }
         if wantsCommands {
             await commands.refresh()
@@ -49,13 +51,7 @@ extension HistoryService {
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }.flatMap(entry(of:)).map { reachable($0) }
-    }
-
-    /// A daemon row as the app's entry, with the app's localized titles of an untitled closed
-    /// terminal or chat.
-    private func entry(of row: DaemonHistoryEntry) -> HistoryEntry? {
-        row.historyEntry(untitled: Strings.untitledTerminal, untitledChat: AgentPaneModel.tabTitle)
+        return rows.first { $0.id == id }.flatMap { $0.historyEntry(titles: Self.untitledTitles) }.map { reachable($0) }
     }
 
     /// A location row greyed while its tab is not reachable (the daemon cannot know).

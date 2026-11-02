@@ -25,10 +25,9 @@ struct ClosedAgentIdentityTests {
         #expect(row.json["kind"]?.stringValue == "agent")
     }
 
-    /// The daemon's merged history names a closed chat's session and harness itself
-    /// (history_ops/sources.rs `closed_entry`; its search finds the chat by them, see
-    /// `closed_chat_search_matches_session_and_harness_before_limit`). The app reads them from the
-    /// row; it no longer looks the chat up in its own closed records.
+    /// A daemon that serves `history-untitled-titles-v1` names a closed chat's session and harness
+    /// in the row (history_ops/sources.rs `closed_entry`); the app reads them from the row and
+    /// gives an untitled chat its localized title.
     @Test(arguments: ["closed:daemon:closed_1", "closed:closed_1"])
     func daemonClosedChatRowCarriesItsAgentIdentity(_ id: String) throws {
         let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
@@ -36,7 +35,7 @@ struct ClosedAgentIdentityTests {
              "closed_kind":"conversation_tab","available":true,
              "session_id":"same-session","provider":"codex"}
             """.utf8))
-        let entry = try #require(row.historyEntry(untitled: "Terminal fallback", untitledChat: AgentPaneModel.tabTitle))
+        let entry = try #require(row.historyEntry(titles: HistoryService.untitledTitles))
         #expect(entry.id == id)
         #expect(entry.title == AgentPaneModel.tabTitle)
         #expect(HistoryPalettePages.agentBrand(entry) != nil)
@@ -47,17 +46,28 @@ struct ClosedAgentIdentityTests {
         #expect(NewTabClosed.kind(for: item) == .agent)
     }
 
-    /// A closed terminal or browser row has no agent identity and keeps the terminal fallback title.
-    @Test func daemonClosedRowWithoutSessionIsNoChat() throws {
+    /// An untitled closed terminal, and a `conv_` conversation tab (no agent session), are no chat:
+    /// they keep the terminal title, as before.
+    @Test(arguments: ["terminal_tab", "conversation_tab"])
+    func daemonClosedRowWithoutSessionIsNoChat(_ closedKind: String) throws {
         let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
             {"id":"closed:daemon:closed_2","kind":"closed","at_ms":"1","title":"",
-             "closed_kind":"terminal_tab","available":true}
+             "closed_kind":"\(closedKind)","available":true}
             """.utf8))
-        let entry = try #require(row.historyEntry(untitled: "Terminal fallback", untitledChat: AgentPaneModel.tabTitle))
-        #expect(entry.title == "Terminal fallback")
+        let entry = try #require(row.historyEntry(titles: HistoryService.untitledTitles))
+        #expect(entry.title == Strings.untitledTerminal)
         guard case .closed(let item) = entry.payload else { Issue.record("not a closed row"); return }
         #expect(item.agentSession == nil)
-        #expect(NewTabClosed.kind(for: item) == .terminal)
+    }
+
+    /// The app sends the titles it shows for untitled closed rows only to a daemon that serves
+    /// `history-untitled-titles-v1`: an older daemon refuses the unknown field, and the list would
+    /// come back empty. The same words name an untitled row in the app.
+    @Test func untitledTitlesGoOnlyToADaemonThatServesThem() {
+        let titles = HistoryService.untitledTitles
+        #expect(titles == HistoryUntitledTitles(chat: AgentPaneModel.tabTitle, terminal: Strings.untitledTerminal))
+        #expect(titles.wireFields(served: true) == ["chat": AgentPaneModel.tabTitle, "terminal": Strings.untitledTerminal])
+        #expect(titles.wireFields(served: false) == nil)
     }
 
     @Test func closedContainersRetainTheirOwnKind() throws {
@@ -76,7 +86,7 @@ struct ClosedAgentIdentityTests {
             {"id":"closed:daemon:closed_1","kind":"closed","at_ms":"1","title":"Chat",
              "closed_kind":"conversation_tab","available":true}
             """.utf8))
-        let entry = try #require(row.historyEntry(untitled: "Terminal", untitledChat: AgentPaneModel.tabTitle))
+        let entry = try #require(row.historyEntry(titles: HistoryService.untitledTitles))
         guard case .closed(let item) = entry.payload else { Issue.record("not closed"); return }
         #expect(item.kind == .conversationTab)
         #expect(NewTabClosed.kind(for: item) == .agent)
