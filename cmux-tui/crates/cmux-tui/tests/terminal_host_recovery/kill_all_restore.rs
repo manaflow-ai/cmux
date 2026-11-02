@@ -302,11 +302,25 @@ fn logical_writes(pid: u32) -> Option<u64> {
     }
 }
 
-/// MEASUREMENT (scratch): workloads x compaction policies.
 #[test]
-fn kill_all_heavy_load_disk_writes_per_pane() {
+fn kill_all_heavy_matrix_scroll() {
+    heavy_matrix(0);
+}
+
+#[test]
+fn kill_all_heavy_matrix_repaint() {
+    heavy_matrix(1);
+}
+
+#[test]
+fn kill_all_heavy_matrix_alt() {
+    heavy_matrix(2);
+}
+
+/// MEASUREMENT (scratch): workloads x compaction policies.
+fn heavy_matrix(only: usize) {
     const PANES: usize = 12;
-    const WINDOW: Duration = Duration::from_secs(15);
+    const WINDOW: Duration = Duration::from_secs(8);
     let _exclusive = exclusive_process_test();
     // scroll: 40 rows per frame and a newline that scrolls one row into history;
     // repaint: 40 rows by cursor address, no scroll (an inline TUI);
@@ -318,7 +332,7 @@ fn kill_all_heavy_load_disk_writes_per_pane() {
         ("alt", format!("printf '\\033[?1049h'; i=0; while :; do i=$((i+1)); printf '\\033[?2026h'; {rows}; printf '\\033[?2026l'; sleep 0.016; done")),
     ];
     let mut report = Vec::new();
-    for (workload, frame) in &workloads {
+    for (workload, frame) in workloads.iter().skip(only).take(1) {
         for policy in ["memory", "v0", "small", "ratio:1", "ratio:4", "min"] {
             let mut harness = RecoveryHarness::start_unstarted(&format!(
                 "heavy-{workload}-{}",
@@ -338,7 +352,7 @@ fn kill_all_heavy_load_disk_writes_per_pane() {
                 );
             }
             wait_for_host_records(&harness.host_root(), PANES);
-            std::thread::sleep(Duration::from_secs(3));
+            std::thread::sleep(Duration::from_secs(2));
             let pid = harness.child.as_ref().unwrap().id();
             let before = logical_writes(pid);
             let started = Instant::now();
