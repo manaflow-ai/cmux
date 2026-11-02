@@ -150,7 +150,7 @@ def term_size(fd, fixed):
         return 80, 24
 
 
-PACE_MODES = ("sleep", "hybrid", "spin")
+PACE_MODES = ("sleep", "hybrid", "spin", "rt")  # rt: the compiled programs' real-time thread; Python sleeps
 
 
 class Pacer:
@@ -182,7 +182,7 @@ class Pacer:
         now = self.clock()
         if now < due:
             self.before = 0.0
-            if self.mode == "sleep":
+            if self.mode in ("sleep", "rt"):  # Python has no real-time thread: rt sleeps
                 self.sleep(due - now)
             else:
                 if self.mode == "hybrid" and due - now > self.spin:
@@ -322,6 +322,24 @@ def cmd_build_bins(a):
     return 0 if all(built.values()) else 1
 
 
+def cmd_beacon(a):
+    """The SWITCH FRAMES beacon, compiled (tk-beacon; there is no Python engine)."""
+    path = rust_bin("tk-beacon")
+    if not path:
+        sys.stderr.write("beacon: no tk-beacon (run `tuikit.py build-bins` on this Mac)\n")
+        return 2
+    argv = [path, "--ws", str(a.ws), "--pane", str(a.pane), "--hz", repr(float(a.hz)), "--cell-cols",
+            str(a.cell_cols), "--pace", a.pace, "--spin-ms", repr(float(a.spin_ms)), "--duration", repr(float(a.duration))]
+    if a.fill:
+        argv.append("--fill")
+    if a.label:
+        argv += ["--label", a.label]
+    if a.log:
+        argv += ["--log", a.log]
+    sys.stdout.flush()
+    os.execv(path, argv)
+
+
 def cmd_describe(a):
     style = gradient_style(a.seed)
     cols, rows = a.size or (120, 40)
@@ -407,7 +425,7 @@ class Gradient:
 
 RUST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust")
 RATE_FLOOR = 0.95  # cmux-ad 03:40Z: a run below 95 % of its target rate is NOT RUN
-RUST_PROGRAMS = ("tk-gradient", "tk-storm")
+RUST_PROGRAMS = ("tk-gradient", "tk-storm", "tk-beacon")
 
 
 def rust_bin(name):
@@ -1383,6 +1401,20 @@ def build_parser():
     p.add_argument("--engine", choices=("auto", "rust", "python"), default="auto",
                    help="auto (default): the compiled tk-gradient when built (build-bins), else Python")
     p.set_defaults(fn=cmd_gradient)
+    p = sub.add_parser("beacon", help="SWITCH FRAMES beacon (compiled tk-beacon): pane id and uptime clock in colors")
+    p.add_argument("--ws", type=nonnegative(int), required=True)
+    p.add_argument("--pane", type=nonnegative(int), default=0)
+    p.add_argument("--hz", type=positive, default=240.0)
+    p.add_argument("--cell-cols", type=int, choices=(1, 2, 3, 4), default=2)
+    p.add_argument("--fill", action="store_true")
+    p.add_argument("--label")
+    p.add_argument("--duration", type=nonnegative(float), default=0.0)
+    p.add_argument("--log")
+    # rt, not spin: a SWITCH profile runs 18 beacons at 240 Hz, and 18 spinning cores would be the load
+    # under test; rt is a real-time thread that waits with mach_wait_until (pace_probe's rust-rt row
+    # says whether it holds the rate; the end event's verdict says it per run)
+    pace_args(p, "rt")
+    p.set_defaults(fn=cmd_beacon)
     p = sub.add_parser("build-bins", help="build the compiled programs (cargo, on this Mac)")
     p.set_defaults(fn=cmd_build_bins)
     p = sub.add_parser("describe", help="gradient's element positions for --size")
