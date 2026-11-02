@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4148415549501",
+  "notes": "notes/4148415549501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32454,
+      "title": "Cloud: a queued connect that bails before its hop clears retryIfHopFails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32438,
+      "title": "base red: the Needs you banners and the system notifier move out of the App (#32213 app_lines)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32455,
+      "title": "ci(nightly): the Sentry dSYM upload leaves build-nightly-app's critical path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32459,
+      "title": "Re-pin app FFI to 17b7593 after #32436",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32372,
+      "title": "fix(reopen): a pane on screen never loses its saved frame to the quit or the keeper (#32274)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32368,
+      "title": "Cloud: a hold answered on the phone is known from the feed push, not a poll (#32354)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32442,
+      "title": "fix(cmux-tui): base red: clippy unnecessary qualification of SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY in capabilities.rs (from #32380)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32439,
+      "title": "cmux-next tests: VerticalTabListViewTests closes its windows (base red from #32127)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32352,
+      "title": "fix(focus): a failed new workspace releases its hold at once; a click releases the wait for a left workspace",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32434,
+      "title": "cmux-next tests: video wallpaper clips encode once a process; a crash backtrace symbolicates fast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32440,
+      "title": "Cloud: a running edge behind an in-flight connect retries it if it fails; user.ensure on every create attempt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32353,
+      "title": "Session Info: expose chats to iPhone per chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32441,
+      "title": "perf(compat): an ObservationStream looks up Equatable at run time only when its second value comes (REOPEN-F7 part B follow-up)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32421,
+      "title": "P0 RESIZE KEYS K1: keyboard pane resize steps from the shown size and stops at the shown limit (no dead presses)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32449,
+      "title": "bench(chat-open): trace, profile and latency modes, without #32365's anchor reorder",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
