@@ -151,31 +151,36 @@ class Pacer:
     the due time, then poll the clock (costs about spin_ms per frame of CPU). `spin`: poll only (a
     whole core). The late time returned is measured after the wait, so it shows what the mode got."""
 
-    def __init__(self, fps, mode="sleep", spin_ms=2.0):
+    def __init__(self, fps, mode="sleep", spin_ms=2.0, clock=time.monotonic, sleep=time.sleep):
         if mode not in PACE_MODES:
             raise ValueError("pace mode %r" % mode)
         self.period = 1.0 / fps if fps > 0 else 0.0
         self.mode = mode
         self.spin = spin_ms / 1000.0
-        self.start = time.monotonic()
+        self.clock = clock
+        self.sleep = sleep
+        self.start = clock()
         self.base = 0
+        self.before = 0.0  # how late the frame was before its wait (0 when it waited)
 
     def wait(self, k):
+        """Waits for frame k; returns how late the frame starts after the wait (seconds)."""
         if not self.period:
             return 0.0
         due = self.start + (k - self.base) * self.period
-        now = time.monotonic()
+        now = self.clock()
         if now < due:
+            self.before = 0.0
             if self.mode == "sleep":
-                time.sleep(due - now)
+                self.sleep(due - now)
             else:
                 if self.mode == "hybrid" and due - now > self.spin:
-                    time.sleep(due - now - self.spin)
-                while time.monotonic() < due:
+                    self.sleep(due - now - self.spin)
+                while self.clock() < due:
                     pass  # pace: poll the clock to the due time (a sleep's wake-up may be coalesced late)
-            now = time.monotonic()
-            return max(0.0, now - due)
+            return max(0.0, self.clock() - due)
         late = now - due
+        self.before = late
         if late > 0.25:
             self.start, self.base = now, k
         return late
@@ -197,6 +202,21 @@ class Run:
 
 def shown_time(a, k, fps, t0):
     return k / fps if a.fake_clock else time.monotonic() - t0
+
+
+def darwin_bg():
+    """Whether this process is in the Darwin background class ("yes"/"no"; "n/a" off macOS)."""
+    if sys.platform != "darwin":
+        return "n/a"
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        value = libc.getpriority(4, 0)  # PRIO_DARWIN_PROCESS
+        if value == -1:
+            return "err%d" % ctypes.get_errno()
+        return "yes" if value & 0x1000 else "no"
+    except (OSError, AttributeError):
+        return "?"
 
 
 def rgb_hex(r, g, b):
@@ -369,7 +389,8 @@ def cmd_gradient(a):
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
-        log.event("start", program="gradient", seed=a.seed, fps=a.fps)
+        log.event("start", program="gradient", seed=a.seed, fps=a.fps, pace=a.pace, spin_ms=a.spin_ms,
+                  darwin_bg=darwin_bg(), pid=os.getpid())
         while not run.done(k):
             if winch[0]:
                 winch[0] = False
@@ -378,18 +399,21 @@ def cmd_gradient(a):
                     g.resize(cols, rows)
                     log.event("size", cols=cols, rows=rows, frame=k)
             late = pacer.wait(k)
-            drawn = time.monotonic()
+            drawn, drawn_wall = time.monotonic(), time.time()
             text = g.frame(k, shown_time(a, k, a.fps, run.t0))
             out.write(text)
-            log.event("frame", frame=k, late_ms=round(late * 1000, 3), bytes=len(text),
-                      draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn)
+            # late_ms: how late the frame starts after its wait (a sleep that woke late counts);
+            # before_ms: how late it already was before the wait (the frame before took too long).
+            log.event("frame", frame=k, late_ms=round(late * 1000, 3), before_ms=round(pacer.before * 1000, 3),
+                      bytes=len(text), draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn,
+                      wall=drawn_wall)
             k += 1
     except Quit:
         pass
     finally:
         calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
-        log.event("end", frames=k)
+        log.event("end", frames=k, darwin_bg=darwin_bg())
         log.close()
     return 0
 
