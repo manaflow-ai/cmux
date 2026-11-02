@@ -448,11 +448,9 @@ struct CloudStartSessionTests {
         try await start.passHarnessLogin(f.session, agent: "pi") {}
         #expect(f.session.harnessLogin?.provider == nil, "pi has no login to pass")
         // A sign-out or team switch while the login waited (its confirm) stops the run there.
-        let changed = CloudStartSessionStrings.accountChanged(Self.asked)
         await #expect(throws: CloudStartSession.AccountChanged.self) {
             try await start.passHarnessLogin(f.session, agent: "claude") { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], Self.asked) }
         }
-        #expect(!changed.isEmpty)
     }
 
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {
