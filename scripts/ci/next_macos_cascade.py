@@ -1004,13 +1004,17 @@ class Api:
             raise
 
     def in_flight(self) -> dict[str, int] | None:
-        # The owned census and optional complete scale-set counts share one
-        # trusted variable; absent counts retain this client's live group read.
+        # Scale counts match this live path's first-page (per_page=100)
+        # approximation of online occupancy, including busy runners. They share
+        # the owned census's trusted variable; absent counts retain live reads.
         from pr_runner_pool import runner_state
         document = runner_state(self.repository)
         counts = document.get("scale_sets", {}) if document is not None else {}
-        if all(label in counts for label in LABELS):
-            return {label: counts[label] for label in POOL_LABELS if label in counts}
+        # A missing optional pool count may mean its visible group failed to
+        # enumerate. Without visibility evidence, use the live path for all
+        # pools instead of substituting older repository-only snapshot counts.
+        if all(label in counts for label in POOL_LABELS):
+            return {label: counts[label] for label in POOL_LABELS}
         owner, _, name = self.repository.partition("/")
         groups = self._get(f"/orgs/{owner}/actions/runner-groups?per_page=100"
                            f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
