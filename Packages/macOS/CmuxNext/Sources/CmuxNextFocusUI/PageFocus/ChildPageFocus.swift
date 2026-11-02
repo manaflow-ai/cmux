@@ -25,6 +25,8 @@ public import AppKit
 public final class ChildPageFocus {
     /// The page this window gave focus to (blurred when focus leaves it), held weakly.
     public weak var page: AnyObject?
+    /// A grant is running (``focus(_:)``).
+    private var granting = false
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
@@ -50,6 +52,8 @@ public final class ChildPageFocus {
         guard page !== next else { return }
         blurPage()
         page = next
+        granting = true
+        defer { granting = false }
         setFocus(next, true)
     }
 
