@@ -97,6 +97,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.assertLess(int(judge["timeout-minutes"]), int(workflow["jobs"]["health"]["timeout-minutes"]))
 
+    def test_the_shard_count_matches_the_matrix(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        shards = workflow["jobs"]["health"]["strategy"]["matrix"]["shard"]
+        self.assertEqual(shards, list(range(len(shards))))
+        self.assertIn(f"--shard-count {len(shards)} ", step("Render the gallery and judge it")["run"])
+
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
