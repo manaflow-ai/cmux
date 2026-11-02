@@ -12,6 +12,9 @@
 //! (`group_hover_summary`).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// What a member is doing, as the card counts it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,7 +198,10 @@ pub fn summarize(request: &Request) -> Response {
             Section::Ports => {
                 let ports =
                     unique(members.iter().filter_map(|m| m.ports.as_deref()).flat_map(|ports| {
-                        ports.split(',').map(|p| trim_whitespaces(p).to_owned()).collect::<Vec<_>>()
+                        split_on_comma(ports)
+                            .into_iter()
+                            .map(|p| trim_whitespaces(p).to_owned())
+                            .collect::<Vec<_>>()
                     }));
                 if !ports.is_empty() {
                     let (listed, more) = joined(&ports);
@@ -249,15 +255,34 @@ fn joined(values: &[String]) -> (String, u64) {
     (listed, count(values.len().saturating_sub(MAX_LISTED)))
 }
 
-/// The non-empty values, each once, in first-seen order.
+/// The non-empty values, each once, in first-seen order. Two values are the same when they
+/// are canonically equivalent (equal after NFC), as Swift's `String` equality says, and the
+/// first one seen is the one listed.
 fn unique(values: impl Iterator<Item = String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
     for value in values {
-        if !value.is_empty() && !out.contains(&value) {
+        if !value.is_empty() && seen.insert(value.nfc().collect::<String>()) {
             out.push(value);
         }
     }
     out
+}
+
+/// `text` split at each grapheme cluster that is exactly ",", as Swift's
+/// `split(separator: ",")` on `Character`s does: a comma followed by a combining mark is one
+/// cluster and does not split. Empty parts are kept (the caller drops them after trimming).
+fn split_on_comma(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    for (at, cluster) in text.grapheme_indices(true) {
+        if cluster == "," {
+            parts.push(text.get(start..at).unwrap_or_default());
+            start = at.saturating_add(cluster.len());
+        }
+    }
+    parts.push(text.get(start..).unwrap_or_default());
+    parts
 }
 
 /// Foundation's `CharacterSet.whitespaces`: Unicode general category Zs and tab.
