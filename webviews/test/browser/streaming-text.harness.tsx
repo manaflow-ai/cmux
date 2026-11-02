@@ -427,10 +427,22 @@ function analyze(
   // stepped view has no glide, and every move it makes counts whole.
   const steps: number[] = [];
   const snapEvents: { t: number; px: number; ms: number; atOnce: number; slide: number; tail: string }[] = [];
+  const starvedFrames: { t: number; intervalMs: number; pageWorkMs: number }[] = [];
   let nextGlide = 0;
   for (let index = 1; index < live.length; index += 1) {
     const previous = live[index - 1]!;
     const frame = live[index]!;
+    // Use the same monotonic clock as the animation and the work spans. The rAF timestamp is the
+    // display timestamp, which can stay on the nominal cadence while this callback waits in a
+    // loaded runner; using it would charge that scheduler gap to the glide's 60 Hz step.
+    const ms = frame.at - previous.at;
+    const pageWorkMs = frame.scriptMs + frame.layoutMs;
+    // Keep delayed frames in the motion metric. A low-work, long interval is useful evidence of
+    // runner starvation, but dropping it could hide a real jump from an unmeasured callback. The
+    // glide contribution below is the only part adjusted for the scheduler gap; layout movement
+    // remains a semantic one-frame jump. The work/long-task checks still inspect the same frame.
+    if (ms > FRAME_MS && pageWorkMs < FRAME_MS)
+      starvedFrames.push({ t: at(frame.t), intervalMs: round2(ms), pageWorkMs: round2(pageWorkMs) });
     let took = 0;
     for (; nextGlide < glideEvents.length && glideEvents[nextGlide]!.at <= frame.at; nextGlide += 1)
       if (glideEvents[nextGlide]!.at > previous.at) took += glideEvents[nextGlide]!.px;
@@ -440,7 +452,6 @@ function analyze(
     const glided = (frame.glide ?? 0) - (previous.glide ?? 0);
     const atOnce = now - before - glided + took;
     const slide = glided - took;
-    const ms = frame.t - previous.t;
     const step = Math.abs(atOnce + slide * Math.min(1, FRAME_MS / Math.max(ms, 1)));
     steps.push(step);
     if (step > SNAP_PX)
@@ -536,6 +547,8 @@ function analyze(
       ...stats(steps),
       overSnap: steps.filter((px) => px > SNAP_PX).length,
       snapEvents: snapEvents.slice(0, 40),
+      starvedFrames: starvedFrames.length,
+      starved: starvedFrames.slice(0, 40),
     },
     settle: {
       moves: settleMoves.length,

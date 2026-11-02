@@ -2662,6 +2662,7 @@
     "agent-pane.transcript-chevron-column#light": [],
     "agent-pane.transcript-row-alignment#finished": [],
     "agent-pane.transcript-row-alignment#finished-hover": [],
+    "agent-pane.transcript-row-alignment#finished-work": [],
     "agent-pane.transcript-row-alignment#footer": [
       "center-line:row subagentDone:agent-docs-check"
     ],

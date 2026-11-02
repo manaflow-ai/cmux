@@ -294,7 +294,7 @@ import Testing
 
     @Test func theCLIReportsAConnectionFailureAsFailure() async {
         let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in throw GitHubConnections.GitHubFailure.refused }, open: { _ in })
-        let result = await AccountsHandlers.githubConnectResult(model)
+        let result = await model.connectResult()
         guard case .failure(let error) = result else { Issue.record("the command reported success after a failed request"); return }
         #expect(!error.message.isEmpty)
         #expect(model.pageState["outcome"] == "failed")
