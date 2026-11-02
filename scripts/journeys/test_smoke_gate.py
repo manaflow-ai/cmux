@@ -679,6 +679,12 @@ class TypingRule(unittest.TestCase):
             self.rows(mod, tmp, self.GOOD, dict(self.GOOD, p95_refreshes=5, smoke_env=True))
             self.assertEqual(mod.typing_blockers("J"), [])
 
+    def test_a_lost_key_blocks_whatever_the_start_clock(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3], out="/r"))
+            self.assertIn("break the rule", mod.typing_blockers("J")[0][1])
+
     def test_an_upper_bound_pass_counts(self):
         mod = load_gate()
         with tempfile.TemporaryDirectory() as tmp:

@@ -494,18 +494,19 @@ def typing_row_ok(row):
     if not hz_ok:
         return False, False, f"display at {row.get('refresh_ms')} ms, not 120 Hz"
     p95, top = row.get("p95_refreshes"), row.get("max_refreshes")
-    broke = []
+    slow, broke = [], []
     if p95 is None or p95 > TYPING_P95:
-        broke.append(f"p95 {p95} > {TYPING_P95} refresh")
+        slow.append(f"p95 {p95} > {TYPING_P95} refresh")
     if top is None or top > TYPING_MAX:
-        broke.append(f"max {top} > {TYPING_MAX} refreshes")
+        slow.append(f"max {top} > {TYPING_MAX} refreshes")
+    # Breaches that do not depend on the start clock (review should-fix 2 at 71bef9a1695).
     if row.get("missing_frames"):
         broke.append(f"{row.get('missing_frames')} keys never shown")
     if row.get("lost") or row.get("merged") or row.get("order_ok") is not True:
         broke.append(f"keys: lost {row.get('lost')}, merged {row.get('merged')}, order_ok {row.get('order_ok')}")
-    if broke and row.get("start_clock") != "nsevent":
-        return False, False, "an upper-bound breach (start = HID post, not NSEvent time): " + "; ".join(broke)
-    return True, bool(broke), "; ".join(broke)
+    if slow and row.get("start_clock") != "nsevent" and not broke:
+        return False, False, "an upper-bound latency breach (start = HID post, not NSEvent time): " + "; ".join(slow)
+    return True, bool(slow or broke), "; ".join(slow + broke)
 
 
 # The rule is live only while TYPING_RULE_ON exists (the lead creates it when the L6 load tool and the per-build L6

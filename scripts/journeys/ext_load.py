@@ -100,7 +100,10 @@ def step_load_start(j, step):
         if r:
             chunk = os.read(fd, 65536)
             if not chunk:
-                proc.wait(timeout=10)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
                 stdout.write(buf.decode(errors="replace"))
                 raise D.NotRun(f"load_start: {profile} ended (exit {proc.returncode}) before LOAD-READY: "
                                f"{buf.decode(errors='replace')[-300:]}")
@@ -157,7 +160,11 @@ def step_typist_play(j, step):
         raise D.NotRun("typist_play: real keys only (journey option key_path=real)")
     sys.path.insert(0, os.path.join(_kit(), "typing"))
     import typist
-    events = typist.plan(int(step.get("seed", 7)), float(step.get("seconds", 120)))
+    rect = getattr(j, "typing_rect", None) or {}
+    cw = rect.get("cell_width")
+    columns = int(rect["rect_points_top_left"][2] // cw) if cw else 80
+    columns = min(columns, int(step.get("columns", 80)))
+    events = typist.plan(int(step.get("seed", 7)), float(step.get("seconds", 120)), columns=columns)
     lo, hi = float(step.get("from", 0)), float(step.get("to", 1e9))
     events = [e for e in events if lo <= e["t"] < hi]
     if not events:
@@ -185,7 +192,7 @@ def step_typist_play(j, step):
         played.append(dict(e, t_post=round(t_post, 6), t_back=round(t_back, 6), late_ms=round((t_post - due) * 1000, 2)))
     late = sorted(p["late_ms"] for p in played)
     calls = sorted(p["t_back"] - p["t_post"] for p in played)
-    return {"label": step.get("label"), "events": played, "planned": len(events),
+    return {"label": step.get("label"), "events": played, "planned": len(events), "columns": columns,
             "call_ms": {"p50": round(calls[len(calls) // 2] * 1000, 2), "max": round(calls[-1] * 1000, 2)}, "key_path": "real_hid", "start": round(start, 6),
             "post_late_ms": {"p50": late[len(late) // 2], "max": late[-1]},
             "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t and of echo.py)"}

@@ -55,7 +55,9 @@ def probe_starts(path):
     return [int(r.split(",")[k]) / 1e9 for r in lines[1:] if len(r.split(",")) > k and r.split(",")[k]]
 
 
-def hog_held_gb(run):
+def hog_held_gb(run, t0, t1):
+    """The LEAST the hog held during the typing window (its log's t_mono, the clock of the key posts); 0 when its log
+    has no sample in the window (review should-fix 4 at 71bef9a1695)."""
     rows = []
     for h in Path(run).glob("hog-*.jsonl"):
         for l in h.read_text(errors="replace").splitlines():
@@ -63,7 +65,9 @@ def hog_held_gb(run):
                 rows.append(json.loads(l))
             except ValueError:
                 pass
-    return round(max([float(r.get("held_mb") or 0) for r in rows if isinstance(r, dict)] or [0]) / 1024, 2)
+    held = [float(r.get("held_mb") or 0) for r in rows if isinstance(r, dict)
+            and isinstance(r.get("t_mono", r.get("t")), (int, float)) and t0 <= float(r.get("t_mono", r.get("t"))) <= t1]
+    return round(min(held) / 1024, 2) if held else 0.0
 
 
 def main():
@@ -82,7 +86,19 @@ def main():
     envs = [s.get("result") for s in res.get("steps", []) if s.get("do") == "env_windows" and isinstance(s.get("result"), dict)]
     smoke = not envs or any(e.get("smoke_env") for e in envs)
     events = [e for p in plays for e in p["result"]["events"]]
-    planned = len(__import__("typist").plan(7, 120)) if (HERE / "typist.py").is_file() else None
+    # The keys each part was planned to play (its own seed, length and window), checked against the plan itself.
+    import typist
+    planned = 0
+    for p in plays:
+        st = next(x for x in res["steps"] if x is p)
+        args = {k: st.get(k) for k in ("seed", "seconds", "from", "to")}
+        want = [e for e in typist.plan(int(args["seed"] or 7), float(args["seconds"] or 120),
+                                       columns=int(p["result"].get("columns") or 80))
+                if float(args["from"] or 0) <= e["t"] < float(args["to"] if args["to"] is not None else 1e9)]
+        if p["result"].get("planned") != len(want):
+            planned = None
+            break
+        planned += len(want)
     # Start of each key: the key's own NSEvent time from the in-app probe (event_uptime_ns, CLOCK_UPTIME_RAW ns, the
     # clock of time.monotonic and of the recorder's frames), else t_post (before the CuaDriver call: an UPPER bound
     # of the latency; the gate counts such a row only when it passes: review should-fix 5 at 8802cbd6e87).
@@ -131,7 +147,7 @@ def main():
         refresh_ms = meta.get("refresh_ms")
     loads = [s.get("result") or {} for s in res.get("steps", []) if s.get("do") == "load_stop" and s.get("result", {}).get("profile")]
     load_ok = bool(loads) and all(l.get("alive_at_stop") and l.get("focus_changed") is False for l in loads)
-    hog = hog_held_gb(run)
+    hog = hog_held_gb(run, min(e["t_post"] for e in events), max(e["t_back"] for e in events))
     lag = max([p["result"].get("post_late_ms", {}).get("max") or 0 for p in plays] or [0])
     source = "video" if judged == len(plays) == 2 and (refreshes or missing) else "in-app"
     profile = a.journey.split("typing-load-")[1].split("-")[0].upper()

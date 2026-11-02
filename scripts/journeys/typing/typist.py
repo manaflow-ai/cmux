@@ -9,7 +9,8 @@ the start. Kinds: `char` (a printable key), `backspace`, `left`, `right`, `ctrl_
 the step sets first), `return`. The pace is a person's: words at 60-120 wpm (5 characters a word), faster inside a
 word (bursts) than between words, a typo now and then that is fixed with Backspace, an arrow-key edit, a Ctrl-C about
 every 25 s and a paste about every 35 s. `expect` is what the echo recorder (echo.py) must print for that event, so
-the round checks the order and that no key is lost or doubled.
+the round checks the order and that no key is lost or doubled. A line ends (Return) before COLUMNS - 30 characters and
+a paste is at most 4 words, so a key never lands in a pane's last column (a pending wrap changes only one cell).
 Python 3.9 standard library only (it also runs on the mini).
 """
 import argparse
@@ -22,7 +23,7 @@ WORDS = ("git status make test cargo build ls cd src grep error todo vim main op
          "build fleet cmux pane split close tab window commit branch rebase stash fetch reset patch").split()
 
 
-def plan(seed=7, seconds=120.0, wpm=(60, 120)):
+def plan(seed=7, seconds=120.0, wpm=(60, 120), columns=80):
     rng = random.Random(seed * 7919 + 13)
     out, t = [], 0.4
     next_ctrl_c, next_paste = rng.uniform(18, 30), rng.uniform(28, 40)
@@ -59,11 +60,11 @@ def plan(seed=7, seconds=120.0, wpm=(60, 120)):
             next_ctrl_c = t + rng.uniform(20, 30)
             line_len = 0
         elif t > next_paste:
-            text = " ".join(rng.choice(WORDS) for _ in range(rng.randint(3, 8)))
+            text = " ".join(rng.choice(WORDS) for _ in range(rng.randint(2, 4)))
             add("paste", "v", ["cmd"], text=text, expect=text, gap=rng.uniform(0.4, 0.8))
             next_paste = t + rng.uniform(30, 40)
             line_len += len(text)
-        elif line_len > 70:
+        elif line_len > columns - 30:
             add("return", "return", expect="\n", gap=rng.uniform(0.3, 0.6))
             line_len = 0
     return out
