@@ -190,6 +190,7 @@
     "nightly.yml:signer-dmg": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the DMG and app artifacts earlier jobs built, compiles nothing"},
     "nightly.yml:signer-dmg-image": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
     "nightly.yml:verify-final-dmg-nightly": {"class": "mac-sign", "warm": [], "exempt": "verification only: checks a signed app or DMG an earlier job built, compiles nothing"},
+    "nightly.yml:launch-smoke-nightly": {"class": "mac-sign", "warm": [], "exempt": "verification only: launches the app in a DMG an earlier job built, compiles nothing"},
     "nightly.yml:verify-nightly-identity-legacy": {"class": "mac-sign", "warm": [], "exempt": "verification only: checks a signed app or DMG an earlier job built, compiles nothing"},
     "nightly.yml:verify-nightly-identity-legacy-pool": {"class": "mac-sign", "warm": [], "exempt": "verification only: checks a signed app or DMG an earlier job built, compiles nothing"},
     "nightly.yml:legacy-signer-dmg-image": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},

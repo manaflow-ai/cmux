@@ -34,6 +34,9 @@ import tempfile
 import urllib.request
 from typing import Callable, Optional
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_pages  # noqa: E402
+
 SHA = re.compile(r"^[0-9a-f]{40}$")
 # check-nightly-webviews's name: in nightly.yml and in the jobs a recovered build's run lists.
 WEBVIEW_JOB = "nightly webview checks"
@@ -69,11 +72,17 @@ def webview_verdict(source: str, result: str, checked_sha: str, build_sha: str,
 def run_jobs(repo: str, run_id: str) -> list:
     if not re.fullmatch(r"[0-9]+", run_id or ""):
         raise ValueError(f"no run id ('{run_id}')")
-    out = subprocess.run(["gh", "api", "--paginate", f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100",
-                          "--jq", ".jobs[] | {name, conclusion}"], capture_output=True, text=True, timeout=120)
-    if out.returncode != 0:
-        raise RuntimeError(out.stderr.strip().replace("\n", " ") or f"gh exited {out.returncode}")
-    return [json.loads(line) for line in out.stdout.splitlines() if line.strip()]
+    # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses gh api's paginating flag.
+    def fetch(url: str) -> dict:
+        out = subprocess.run(["gh", "api", url], capture_output=True, text=True, timeout=120)
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr.strip().replace("\n", " ") or f"gh exited {out.returncode}")
+        return {"jobs": json.loads(out.stdout)["jobs"]}
+    try:
+        jobs = gh_pages.items(fetch, f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    except gh_pages.PageCapError as error:
+        raise RuntimeError(str(error)) from None
+    return [{"name": job.get("name"), "conclusion": job.get("conclusion")} for job in jobs]
 
 
 # ---------------------------------------------------------------- known-bad list

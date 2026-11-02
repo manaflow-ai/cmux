@@ -242,6 +242,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         needs = publish.get("needs") or []
         needs = [needs] if isinstance(needs, str) else needs
         for need in needs:
+            # launch-smoke-nightly is the pre-publish gate's parallel half (tests/test_nightly_signer_jobs.py
+            # ParallelLaunchSmoke), not this post-publish smoke.
+            if need == "launch-smoke-nightly":
+                continue
             self.assertNotRegex(need, r"smoke", f"publish-nightly needs {need}")
         self.assertNotIn("nightly-next-launch-smoke", self.nightly_text)
         self.assertNotIn("fresh_home_launch_smoke", self.nightly_text)

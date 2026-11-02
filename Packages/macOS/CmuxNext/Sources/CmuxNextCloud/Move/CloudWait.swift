@@ -39,40 +39,6 @@ public struct CloudWait {
         return connected() ? nil : failure() ?? deadline
     }
 
-    /// The person's answer to `ask` (a sheet), unless `elsewhere` finds the same question answered somewhere
-    /// else first: then true, and `ask` is cancelled, which closes its sheet. Neither task outlives this call.
-    public static func firstAnswer(ask: @escaping @MainActor () async -> Bool, elsewhere: @escaping @MainActor () async -> Bool) async -> Bool {
-        let sheet = Task { @MainActor in await ask() }
-        let watch = Task { @MainActor in await elsewhere() }
-        // concurrency-allow: both children only await the two tasks above, which end on cancellation
-        return await withTaskCancellationHandler {
-            await withTaskGroup(of: Bool?.self) { group -> Bool in
-                group.addTask { await sheet.value }
-                group.addTask { await watch.value ? true : nil }
-                defer { sheet.cancel(); watch.cancel() }
-                for await answer in group {
-                    if let answer { return answer }
-                }
-                return false
-            }
-        } onCancel: {
-            sheet.cancel()
-            watch.cancel()
-        }
-    }
-
-    /// Calls `poll` after each `pause`, at most `limit` times, until it decides: true answered, false give
-    /// up, nil ask again. False when the pause throws (cancelled), the task is cancelled or `limit` runs out.
-    public static func untilAnswered(limit: Int = 600, pause: @MainActor (_ attempt: Int) async throws -> Void,
-                                     poll: @MainActor () async -> Bool?) async -> Bool {
-        for attempt in 1...max(limit, 1) {
-            do { try await pause(attempt) } catch { return false }
-            if Task.isCancelled { return false }
-            if let decided = await poll() { return decided }
-        }
-        return false
-    }
-
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         for await ready in ObservationStream({ condition() }) where ready { return true }
         return false

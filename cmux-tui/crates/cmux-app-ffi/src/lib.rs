@@ -9,9 +9,12 @@
 //! functions are the archive's exported symbols, over one Rust runtime.
 //! Add a new in-tree C ABI here, never as another static library.
 //! `motion` is cmux-motion's C ABI (the spring step and motion tokens);
+//! `hover` is its hover rules' C ABI (the hover card machine, tooltip hover
+//! intent, the safe triangle and the row card's placement);
 //! `host_budget` is cmux-host-budget's (the host CPU/RAM budget's verdict
 //! and level, `include/cmux_host_budget_ffi.h` in that crate).
 
+pub mod hover;
 pub mod motion;
 
 pub use cmux_host_budget::ffi as host_budget;

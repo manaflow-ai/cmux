@@ -365,6 +365,16 @@ impl DerefMut for PinnedState<'_> {
 }
 
 impl Mux {
+    /// The test hook a state mutation runs after the part that reads the
+    /// session (`set_state_commit_after_apply_hook_for_test`); nothing
+    /// outside tests.
+    pub(crate) fn run_state_commit_after_apply_hook(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.state_commit_after_apply.lock().unwrap().clone() {
+            hook();
+        }
+    }
+
     /// Lock state for a flow that holds `registry` and touches its database
     /// while state is held. The connection lock is taken first (see the
     /// module docs); registry methods called meanwhile re-enter it.

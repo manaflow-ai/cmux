@@ -260,6 +260,14 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      {machine.kind === "cloud" && (
+        // What a Cloud machine is and how long its files last, said plainly beside the chat
+        // (Leo, 2026-11-02, on Claude Code's cloud session that says so: "i want us to be able to
+        // do this too"). The agent says the same when asked (acpmux cloud_repo_mcp.rs INSTRUCTIONS).
+        <li className="acpmux-session-info-note" data-note="cloud-lifetime">
+          {t("cloudRepository.lifetime")}
+        </li>
+      )}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
