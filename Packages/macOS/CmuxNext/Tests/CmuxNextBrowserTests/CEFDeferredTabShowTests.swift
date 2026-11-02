@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 /// `PageTracker` stands in for the fork's `CmuxParentViewTracker`: it reads the host view's geometry
 /// on each `CmuxParentViewGeometryDidChange` post and each frame change of the host view itself, as
 /// the tracker does while it follows a superview chain it no longer has (a same-window reparent).
-@MainActor @Suite(.serialized) struct CEFDeferredTabShowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDeferredTabShowTests {
     /// A link opens a tab in a pane whose Chromium window is live: it joins as the active tab in the
     /// one `tab_add` (no second activation), layer hosting shows its browser, and the page is placed.
     @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedOnceAndPlaced() throws {
@@ -223,6 +224,7 @@ import Testing
         // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(first.container)
 
         TabSpyShim.resizeSyncs = []
@@ -251,6 +253,7 @@ import Testing
         // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(first.container)
 
         first.container.paneResizeGestureDidChange(active: true)
@@ -271,6 +274,7 @@ import Testing
         let (host, first, container) = try Self.liveHost(runtime)
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(first.container)
         first.devToolsController.layout.dock = .bottom
 
@@ -309,6 +313,7 @@ import Testing
         // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(first.container)
         defer { Self.setDragResize(nil) }
         TabSpyShim.resizeSyncs = []

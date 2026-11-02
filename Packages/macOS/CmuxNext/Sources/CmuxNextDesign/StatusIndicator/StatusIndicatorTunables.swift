@@ -13,7 +13,7 @@ public nonisolated enum StatusIndicatorTunables {
         "status.indicator.arcLength", .status, "Arc length", help: "Share of the circle the indeterminate arc covers.",
         default: 0.72, range: 0.2...0.95, step: 0.01, unit: .fraction, code: "StatusIndicatorTunables.arcLength")
     public static let trackOpacity = Tunable<Double>.number(
-        "status.indicator.trackOpacity", .status, "Ring track opacity", help: "Opacity of the full circle behind determinate progress.",
+        "status.indicator.trackOpacity", .status, "Ring track opacity", help: "Opacity of the full circle behind determinate progress and the working sweep.",
         default: 0.22, range: 0...1, step: 0.01, unit: .fraction, code: "StatusIndicatorTunables.trackOpacity")
     public static let dotScale = Tunable<Double>.number(
         "status.indicator.dotScale", .status, "Dot size", help: "Dot diameter as a share of the indicator slot (busy dot, waiting, error).",

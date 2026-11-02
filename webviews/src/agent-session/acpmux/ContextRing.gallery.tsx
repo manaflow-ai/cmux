@@ -61,6 +61,25 @@ const hoverCard: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
 };
 
+// Details › runs edge to edge (full bleed) at the card's bottom, and its chevron centres on the label.
+const detailsRow: Play = async (ctx) => {
+  await hoverCard(ctx);
+  const card = ctx.document.querySelector<HTMLElement>(".acpmux-context-card");
+  const details = card?.querySelector<HTMLElement>(".acpmux-context-card-details");
+  const chevron = details?.querySelector<SVGElement>(".acpmux-context-card-details-chevron");
+  const label = [...(details?.childNodes ?? [])].find((node) => node.nodeType === 3);
+  if (!card || !details || !chevron || !label) throw new Error("The context card's Details row is missing");
+  const outer = card.getBoundingClientRect();
+  const row = details.getBoundingClientRect();
+  const gaps = [row.left - outer.left, outer.right - row.right, outer.bottom - row.bottom];
+  if (gaps.some((gap) => Math.abs(gap) > 0.5)) throw new Error(`Details is inset from the card: ${gaps.join(", ")} px`);
+  const range = ctx.document.createRange();
+  range.selectNodeContents(label);
+  const center = (rect: DOMRect) => rect.top + rect.height / 2;
+  const delta = Math.abs(center(chevron.getBoundingClientRect()) - center(range.getBoundingClientRect()));
+  if (delta > 0.5) throw new Error(`The Details chevron is ${delta.toFixed(2)} px off the label's centre`);
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.context-ring",
   title: "Context usage ring",
@@ -112,12 +131,12 @@ export default componentEntry<Props>({
       play: hoverCard,
     },
     "popover-summary": {
-      note: "A one-line context summary keeps the token count and percentage together over the shared glass material.",
+      note: "A one-line context summary keeps the token count and percentage together over the menus' glass; Details › runs edge to edge at the bottom, its chevron centred on the label.",
       props: { used: 131_400, size: 1_000_000, details: true },
-      play: hoverCard,
+      play: detailsRow,
     },
     "popover-breakdown": {
-      note: "When the harness reports categories, the card adds only the short Messages, Tools and System headline rows.",
+      note: "When the harness reports categories, the card adds only the short Messages, Tools and System headline rows, on the summary's text column: swatches, names and tokens each on one line.",
       props: {
         used: 131_400,
         size: 1_000_000,

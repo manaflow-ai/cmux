@@ -119,10 +119,10 @@ pub(super) fn validate(action: &str, fields: &Map<String, Value>) -> Result<(), 
                 return Err("complete must be true or false".into());
             }
         } else if key == "timeout_ms" {
-            if !value.as_u64().is_some_and(|ms| ms <= MAX_WAIT_MS) {
+            if value.as_u64().is_none_or(|ms| ms > MAX_WAIT_MS) {
                 return Err(format!("timeout_ms must be an integer from 0 to {MAX_WAIT_MS}"));
             }
-        } else if !value.as_str().is_some_and(|value| !value.trim().is_empty()) {
+        } else if value.as_str().is_none_or(|value| value.trim().is_empty()) {
             return Err(format!("{key} must be a nonempty string"));
         }
     }
@@ -162,7 +162,7 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
             error: super::wire::resolve_failure(&error),
             idempotency_key: None,
         })?;
-    let mut stream =
+    let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
             fail(
                 FailureKind::NotRun,
@@ -176,14 +176,17 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
     let _ = stream.set_read_timeout(Some(timeout));
     request.insert("cmd".into(), json!(action));
     request.insert("id".into(), json!("cloud-repo"));
-    let mut bytes = Value::Object(request).to_string().into_bytes();
+    let mut reader = BufReader::new(stream);
+    let mut request = Value::Object(request);
+    super::launch_credential::attach(&mut reader, &socket, &mut request);
+    let mut bytes = request.to_string().into_bytes();
     bytes.push(b'\n');
     let sent_kind = if matches!(action, "cloud.repo.add" | "cloud.repo.sync") {
         FailureKind::InProgress
     } else {
         FailureKind::NotRun
     };
-    stream.write_all(&bytes).map_err(|error| {
+    reader.get_mut().write_all(&bytes).map_err(|error| {
         fail(
             sent_kind,
             "transport.failed",
@@ -191,7 +194,7 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
         )
     })?;
     let mut line = String::new();
-    BufReader::new(stream).take(MAX_REPLY + 1).read_line(&mut line).map_err(|error| {
+    reader.take(MAX_REPLY + 1).read_line(&mut line).map_err(|error| {
         fail(
             sent_kind,
             "transport.failed",

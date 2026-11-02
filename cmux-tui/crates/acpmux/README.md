@@ -1465,7 +1465,9 @@ Extensions:
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
+| `_acpmux/queue_approve {promptId, turnId, revision}`, `_acpmux/queue_decline {promptId}` | The owner's answer to a person's prompt that waits for them (`_meta.acpmux.author.approval: "owner"`, a link guest's): approve runs it in its place in the queue (never as a steer), for the queued `turnId` and `revision` the owner saw, else `queue.stale`; once approved it runs under the stricter rules of its sender and its approver (an approval from the Web runs it as a Web prompt, checked again at dispatch); decline drops it, and its `session/prompt` answers `queue.declined`. A request with an author gets `queue.owner_only`; an answer to a prompt that no longer waits gets `queue.not_found` with `decided`. The log records `queue_approved` (with the `control` and `trustGate` it runs under) or `queue_declined`. Capability `queue-approval-v1` ([hub/queue_approve.rs](src/hub/queue_approve.rs)). |
 | `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
+| `_acpmux/queue_get {promptId}` | The owner reads a queued prompt whole before answering it: `{promptId, turnId, revision, text, prompt, inlineParts, author, provenance, awaitingOwner}`, `prompt` the full blocks as it would run now. Owner only (`queue.owner_only`); `queue.not_found` with `decided` once it left the queue. Capability `queue-get-v1`, feature `queueGet`, which a peer must list to be forwarded it. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
@@ -1537,6 +1539,40 @@ list with no daemon running, which the cmux app bundle records for its web pages
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
+
+### Fork before an edited prompt
+
+Gate Edit and Resend on `initialize._meta.acpmux.operations` containing
+`acp.session.fork.beforePromptId`. Send the source's recorded prompt identity and a stable
+client-generated retry identity:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"acp.session.fork","params":{"sessionId":"source","beforePromptId":"prompt-id","requestId":"edit-request-id"}}
+```
+
+Both ids must contain 1–512 UTF-8 bytes. Omit `throughSeq` and `live` entirely, including
+`live: false`. The daemon validates the complete source history. For Claude and Codex it
+forks through the preceding completed turn, or creates an empty configured child for the
+true first prompt. The reply's `sessionId` is the child; send the edited prompt there.
+Configuration and parent/boundary lineage follow fork semantics; source history stays unchanged.
+A retry with the same source, request id and boundary returns that child even after a lost reply.
+Reusing the request id for another boundary is refused. An incomplete persisted fork is refused
+without creating another child. Direct `session/fork` cannot supply internal boundary metadata.
+
+Refusals use JSON-RPC `-32602` and `data.reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `fork.invalid_boundary` | Invalid ids or combined boundary selectors. |
+| `fork.unknown_prompt` | No recorded prompt has that identity. |
+| `fork.ambiguous_prompt` | More than one recorded prompt has that identity. |
+| `fork.unsupported` | Unsupported harness or steering boundary. |
+| `fork.unreconstructable` | The full boundary or prompt content cannot be reconstructed. |
+| `fork.request_conflict` | The persisted request identity names a different boundary. |
+| `fork.incomplete` | The persisted fork has not completed safely. |
+
+Existing fork authorization and admission checks still apply. Retain the editor draft on refusal;
+never fall back to a whole-conversation fork when the capability is absent.
 
 ### Typed errors
 

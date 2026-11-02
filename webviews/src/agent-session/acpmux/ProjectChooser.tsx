@@ -9,9 +9,11 @@ import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
+import { machineColor } from "./machineColor";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
-/// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
+/// its row carries the machine's computer, in the machine's own color, and its name, and a pick
+/// starts the chat there. `repo` is the
 /// folder's repository as this Mac's host read it (projectRepos.ts).
 export type Project = {
   cwd: string;
@@ -234,8 +236,8 @@ export function ProjectChooser({
                     )}
                   </span>
                   {project?.host && (
-                    <span className="acpmux-project-host">
-                      <GlobeIcon />
+                    <span className="acpmux-project-host" data-peer={project.peer}>
+                      <MachineIcon name={project.peer ? project.host : undefined} />
                       <span>{project.host}</span>
                     </span>
                   )}
@@ -273,21 +275,27 @@ function titledByPath(project: Project) {
   return trim(project.label) === trim(project.cwd);
 }
 
-function GlobeIcon() {
+/// The machine a project is on: the computer the composer's chip and the environment list draw for
+/// it, in that machine's own color (machineColor), so each machine reads as itself instead of one
+/// globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
+/// this is a computer symbol. This is a computer symbol"). This Mac stays quiet.
+function MachineIcon({ name }: { name?: string }) {
   return (
     <svg
       className="acpmux-icon"
+      style={name ? { color: machineColor(name) } : undefined}
       width={12}
       height={12}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      <circle cx="8" cy="8" r="5.75" />
-      <path d="M2.25 8h11.5M8 2.25c-1.8 1.6-2.6 3.5-2.6 5.75S6.2 12.15 8 13.75M8 2.25c1.8 1.6 2.6 3.5 2.6 5.75S9.8 12.15 8 13.75" />
+      <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
+      <path d="M1.75 12.5h12.5" strokeLinecap="round" />
     </svg>
   );
 }

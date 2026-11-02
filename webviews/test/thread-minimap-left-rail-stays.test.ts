@@ -8,6 +8,10 @@
 // overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
 // and pushing (Push always): the rail keeps one full-width look, uses its pane-edge spacing inset,
 // and keeps a live edge strip when the text leaves no room.
+// The default gutter is `tight` (gutter.experiment.ts, #30436): a short gutter shrinks the inset to the
+// smallest spacing step, so the resting rail fits beside the text and is never hidden. The hover-strip
+// cases below cover the `edge-strip` arm, which still hides the rail at rest and reveals it from the
+// pane edge.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Locally:
@@ -16,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -77,6 +82,23 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
     await settle(page);
   };
+  /// The pane-edge inset useRailPlacement gives the default `tight` gutter: the spacing tokens it reads
+  /// (--cmux-space-1 to --cmux-space-4), the widest whenever the pane's gutter has room for it.
+  const tightInset = (width: number) =>
+    railPlacement(width, undefined, { min: 4, max: 16, compact: 12, narrowest: 12 }).left;
+  /// Opens the pane under the `edge-strip` gutter arm, through the experiments' debug key.
+  const edgeStrip = async (page: Page) => {
+    await page.addInitScript(() => {
+      const key = "cmux.experiments";
+      let stored: Record<string, string> = {};
+      try {
+        stored = JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, string>;
+      } catch {
+        stored = {};
+      }
+      localStorage.setItem(key, JSON.stringify({ ...stored, "thread-minimap-gutter": "edge-strip" }));
+    });
+  };
   /// Settings > Agent Chat > Prompt Rail Side, as the rail's right-click menu writes it (railSide.ts).
   const railSide = (page: Page, side: "left" | "right") =>
     page.evaluate(async (side) => {
@@ -129,15 +151,17 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await closeSessionInfo(page);
           await openSessionInfo(page, true);
           const pushed = await rail(page);
-          // The rail is pinned to the pane edge. Its inset grows from space-2 to space-4 with room;
-          // the chat column may therefore overlap it at narrow widths without hiding the rail.
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          // The rail is pinned to the pane edge at its spacing-token inset (model.ts railPlacement: the
+          // widest step whenever the gutter has room for it, down to --cmux-space-1 in the tight
+          // gutter), whatever the chat column does.
+          const railInset = tightInset(width);
           for (const state of [closed, open, pushed]) {
             expect(state).toMatchObject({ shown: true, insidePane: true });
             expect(state.occluded).toBe(state.distance! < -0.5);
           }
           expect(closed.scrollbarPinned).toBe(true);
-          expect(open.scrollbarPinned).toBe(true);
+          // By default it floats only where the gutter holds it (1600px); narrower, it pushes too.
+          expect(open.scrollbarPinned).toBe(width >= 1600);
           expect(pushed.scrollbarPinned).toBe(false);
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
@@ -157,11 +181,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           // Keep this same preview open while Session Info changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
           await page.evaluate(() => {
-            const samples: { rail: number; card: number | null }[] = [];
+            const samples: { pinned: number; rail: number; card: number | null }[] = [];
             const stop = window.cmuxAfterPaint(() => {
               const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
               const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
-              samples.push({ rail: rail.right, card: card?.left ?? null });
+              samples.push({ pinned: rail.left, rail: rail.right, card: card?.left ?? null });
               return true;
             });
             Object.assign(window, { railCardFrames: { samples, stop } });
@@ -183,14 +207,18 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const samples = await page.evaluate(() => {
             const trace = (
               window as unknown as {
-                railCardFrames: { samples: { rail: number; card: number | null }[]; stop(): void };
+                railCardFrames: { samples: { pinned: number; rail: number; card: number | null }[]; stop(): void };
               }
             ).railCardFrames;
             trace.stop();
             return trace.samples;
           });
           expect(samples.length).toBeGreaterThan(0);
-          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBeGreaterThan(2);
+          // The rail is pinned to the pane edge (model.ts railPlacement), so Session Info and these
+          // resizes never move its left edge; where Session Info pushes the chat (1084px, Leo
+          // 2026-11-01), the narrower gutter may narrow the rail. The card must stay on it on every
+          // painted frame.
+          expect(new Set(samples.map((sample) => Math.round(sample.pinned))).size).toBe(1);
           expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
             [],
           );
@@ -236,7 +264,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         return trace.samples as { railLeft: number; railRight: number; columnLeft: number; cardLeft: number | null }[];
       });
       if (process.env.RAIL_RESIZE_SCREENSHOT) await page.screenshot({ path: process.env.RAIL_RESIZE_SCREENSHOT });
-      const paneInset = Math.min(16, Math.max(8, Math.round(1600 / 100)));
+      const paneInset = railPlacement(1600).left;
       expect(samples.every((sample) => Math.abs(sample.railLeft - paneInset) <= 1)).toBe(true);
       expect(
         samples.every((sample) => sample.cardLeft === null || Math.abs(sample.cardLeft - sample.railRight) <= 1),
@@ -249,7 +277,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   test("chromium: leaving a wide rail does not leave it revealed after narrowing", async () => {
     current = browsers.get("chromium");
     if (!current) return;
-    const page = await pane!.open({ width: 1600, height: 700 });
+    const page = await pane!.open({ width: 1600, height: 700 }, edgeStrip);
     try {
       await closeSessionInfo(page);
       await page.locator(".acpmux-minimap__tick").first().hover();
@@ -265,10 +293,10 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   });
 
   for (const width of [760, 160])
-    test(`chromium: a ${width}px pane keeps a live hover strip that reveals the rail`, async () => {
+    test(`chromium: a ${width}px pane keeps a live hover strip that reveals the rail (edge-strip gutter)`, async () => {
       current = browsers.get("chromium");
       if (!current) return;
-      const page = await pane!.open({ width, height: 700 });
+      const page = await pane!.open({ width, height: 700 }, edgeStrip);
       try {
         await closeSessionInfo(page);
         const nav = page.locator(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
@@ -313,18 +341,24 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     });
   // The right-edge rail is the left one mirrored (design/session-rail.md): the same pane-edge inset
   // from the right edge, card.right == rail.left, and the narrow pane's live strip at the right edge.
+  // The tight gutter never hides the resting rail; the edge-strip gutter hides it in the 760px pane.
   for (const name of browsers.keys())
-    for (const width of [1600, 1084, 760])
-      test(`${name}: in a ${width}px pane the right-edge rail mirrors the left one`, async () => {
+    for (const [width, gutter] of [
+      [1600, "tight"],
+      [1084, "tight"],
+      [760, "tight"],
+      [760, "edge-strip"],
+    ] as const)
+      test(`${name}: in a ${width}px pane the right-edge rail mirrors the left one (${gutter} gutter)`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width, height: 700 });
+        const page = await pane!.open({ width, height: 700 }, gutter === "edge-strip" ? edgeStrip : undefined);
         try {
           await closeSessionInfo(page);
           await railSide(page, "right");
           const nav = page.locator('.acpmux-minimap__rail[data-side="right"]:not(.acpmux-scrollmap)');
           await nav.waitFor({ state: "attached" });
           await settle(page);
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          const railInset = gutter === "tight" ? tightInset(width) : railPlacement(width).left;
           const placed = await page.evaluate(() => {
             const scroller = document.querySelector(".acpmux-scroll")!;
             const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
@@ -336,7 +370,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           });
           expect(placed).toEqual({ inset: railInset, stripRight: 0 });
           const occluded = (await nav.getAttribute("data-occluded")) !== null;
-          expect(occluded).toBe(width === 760);
+          expect(occluded).toBe(gutter === "edge-strip");
           if (occluded) {
             await page.locator(".acpmux-minimap__strip").hover();
             await page.waitForFunction(

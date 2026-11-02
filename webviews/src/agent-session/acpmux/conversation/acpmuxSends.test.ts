@@ -174,6 +174,52 @@ describe("acpmuxSend", () => {
     });
   });
 
+  test("through ssh, as through reach: the session is on that host", () => {
+    // ask-1b0c0b04de: a lane relayed to cmux16 by copying the message file there and running the
+    // send over ssh; the pane drew it as a raw Shell block instead of a sent message.
+    expect(read(`ssh cmux16 'acpmux send --no-wait lane-7 "rebased"'`)).toEqual({
+      target: "cmux16/lane-7",
+      text: "rebased",
+      noWait: true,
+    });
+    expect(
+      read(
+        `scp -q /tmp/claude-sr2/m318.txt cmux16:/tmp/cx-lanes/ && ssh cmux16 'acpmux send --no-wait cx-lane "$(cat /tmp/cx-lanes/m318.txt)"'`,
+      ),
+    ).toEqual({ target: "cmux16/cx-lane", file: "/tmp/cx-lanes/m318.txt", noWait: true, others: 1 });
+    // Options, a user and a port: the host is what names the machine.
+    expect(read("ssh -o ConnectTimeout=5 -i ~/.ssh/fleet leoli@cmux16 acpmux send x hi")?.target).toBe("cmux16/x");
+    expect(read("ssh -qtt -p22 ssh://me@box:2222 'acpmux send x hi'")?.target).toBe("box/x");
+    expect(read("ssh -- box 'acpmux send x hi'")?.target).toBe("box/x");
+    // A target that names its own host keeps it.
+    expect(read("ssh box 'acpmux send hb/review ship'")?.target).toBe("hb/review");
+    // -n points ssh's stdin at /dev/null: the here-string never reaches the send.
+    expect(read("ssh box 'acpmux send x -' <<< 'local words'")?.text).toBe("local words\n");
+    expect(read("ssh -n box 'acpmux send x -' <<< 'local words'")?.text).toBeUndefined();
+    // Modes that run no command, a missing value, a host that is not literal: no send row.
+    expect(read("ssh -N box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -G box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -O exit box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -s box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -p")).toBeUndefined();
+    expect(read(`ssh "$HOST" 'acpmux send x y'`)).toBeUndefined();
+    // Options that change what ssh runs, where its stdin goes, or write a file of their own.
+    expect(read("ssh -o SessionType=none box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -oStdinNull=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -o 'LocalCommand=rm -rf ~/x' -o PermitLocalCommand=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -E /tmp/ssh.log box 'acpmux send x y'")).toBeUndefined();
+    // A bare IPv6 address keeps its colons; the user runs to the last @.
+    expect(read("ssh ::1 'acpmux send x hi'")?.target).toBe("::1/x");
+    expect(read("ssh a@b@box 'acpmux send x hi'")?.target).toBe("box/x");
+    // A host or command that is not literal may hold a second send: no row, through reach too.
+    expect(read('ssh "$H" "$CMD"; acpmux send a b')).toBeUndefined();
+    expect(read('reach "$H" "$CMD"; acpmux send a b')).toBeUndefined();
+    // Two sends, one over ssh, are two messages.
+    expect(read("acpmux send a x; ssh box 'acpmux send b y'")).toBeUndefined();
+    // ssh that runs no send leaves the local send alone, as other work.
+    expect(read("ssh box 'df -h'; acpmux send a b")?.others).toBe(1);
+  });
+
   test("output plumbing and reporting are not other work; other work is counted", () => {
     expect(read("acpmux send --no-wait a 'b' 2>&1 | tail -1")?.text).toBe("b");
     expect(read("acpmux send --no-wait a 'b' >/dev/null && echo sent || true")?.text).toBe("b");

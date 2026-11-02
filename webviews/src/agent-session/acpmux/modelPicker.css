@@ -231,6 +231,7 @@
   grid-column: 2;
   grid-row: 1;
   align-self: center;
+  /* menu-gutter-allow: the model picker's trailing check, in the number key's column (design/model-picker.md) */
   width: 16px;
   margin: 0;
   padding: 0;
@@ -672,6 +673,22 @@
 .acpmux-quick-model-effort:has(> .acpmux-quick-effort-trigger) { --acpmux-quick-effort-width: var(--acpmux-quick-effort-column); }
 .acpmux-quick-model-effort:has(> .acpmux-quick-star) { --acpmux-quick-star-column: 26px; }
 .acpmux-quick-menu { --acpmux-quick-effort-column: 112px; }
+/* Compact (Leo 2026-11-01: "i also don't like the way this composer has so much space between
+   stuff surely we can get more compact horizontally" / "see claude code has that"): the menu is as
+   wide as the rows its tabs show (QuickModelMenu's width probe leaves Legacy models out), and the
+   effort column is as wide as a level's name and chevron ("Extra high ›"), so a row's effort, star
+   and key sit close after its name. `fit` is the default; `wide` keeps the earlier menu. */
+.acpmux-quick-menu:is(.acpmux-quick-width-fit, .acpmux-quick-width-stable) {
+  --acpmux-quick-effort-column: 88px;
+  min-width: min(240px, var(--available-width, calc(100vw - 24px)));
+}
+/* The rail's menu was a fixed 480px (#26615): the compact looks take their rows' width instead. */
+.acpmux-quick-railed:is(.acpmux-quick-width-fit, .acpmux-quick-width-stable, .acpmux-quick-width-snug) { width: max-content; }
+.acpmux-quick-menu.acpmux-quick-width-snug {
+  --acpmux-quick-effort-column: 76px;
+  min-width: min(200px, var(--available-width, calc(100vw - 24px)));
+  max-width: min(360px, var(--available-width, calc(100vw - 24px)));
+}
 .acpmux-quick-effort-now {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -774,6 +791,8 @@
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+.acpmux-quick-width-probe-trail { display: inline-block; width: 16px; }
+.acpmux-quick-width-probe-trail.acpmux-quick-width-probe-starred { width: calc(16px + 26px); }
 
 /* A model row's star at its trailing edge: shown on a starred row, else while the row is pointed at. */
 .acpmux-quick-star {
@@ -796,3 +815,13 @@
 /* Legacy models and its count on one row, the count quiet after the name. */
 .acpmux-quick-legacy { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
 .acpmux-quick-legacy .acpmux-quick-value { margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-caption); }
+
+/* Fast mode on (ModelPicker.tsx chipFace): a small bolt right after the model's name, in the
+   effort's muted ink (styles.css .acpmux-picker-button .acpmux-icon:last-child). A mark, not a
+   button: Fast mode turns on and off in the model menu. */
+.acpmux-model .acpmux-model-bolt {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: inherit;
+}

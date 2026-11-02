@@ -11,6 +11,7 @@ import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
+import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
 import {
@@ -1177,7 +1178,7 @@ export class HomeChannelsStore {
           // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
           // retry boundary; mounted cards alone must not retry failures in a loop.
           if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-          await this.loadRunSteps(run);
+          if (readPresentation(conversation) !== "transcript") await this.loadRunSteps(run);
         }
       }
     };

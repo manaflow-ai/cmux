@@ -101,6 +101,11 @@ struct WorkspaceHoverCardContent: Equatable {
                      options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
                      pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
         var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
+        // Keep the hover card in step with the row: a local host plus the same
+        // session title is metadata without information and gets no fact row.
+        card.facts.removeAll { fact in
+            WorkspaceRowContent.nonRedundantDetail(fact.text, title: workspace.title) == nil
+        }
         if let looked, let text = sinceLooked(timeline, after: looked) {
             card.facts.insert(Fact(icon: .historyRecent, text: text, kind: sinceLookedKind), at: 0)
         }
@@ -191,6 +196,23 @@ struct WorkspaceHoverCardContent: Equatable {
         Calendar.current.isDate(date, inSameDayAs: now) ? clockFormatter.string(from: date) : dayFormatter.string(from: date)
     }
 
+    /// What the row's agent chat carries per call and spent in the last 24 hours ("312K context ·
+    /// $1,421 in 24h"), with the context's share of its window as a ring; nil when acpmux reported
+    /// neither (Leo 2026-10-30: "that visibility into huge-blue guys was (and is?) pretty bad").
+    static func usageFact(_ detail: SidebarWorkspaceDetail) -> Fact? {
+        let context = detail.contextTokens.map { Strings.usageContext($0.formatted(.number.notation(.compactName))) }
+        let cost = detail.costUsd24h.map {
+            // Half away from zero, as the page's Intl rounds it ($1,420.50 is $1,421 in both).
+            Strings.usageCost($0.formatted(.currency(code: "USD").precision(.fractionLength($0 >= 100 ? 0 : 2))
+                .rounded(rule: .toNearestOrAwayFromZero)))
+        }
+        let parts = [context, cost].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        let share = detail.contextTokens.flatMap { tokens in detail.contextWindow.map { min(1, Double(tokens) / Double($0)) } }
+        return Fact(icon: .contextUsage, text: parts.joined(separator: " · "), kind: "usage",
+                    accessory: share.map { .ring($0, tone: .secondary) })
+    }
+
     /// The facts card (the classic layout): one row per meaningful fact. Without `showsGit` the
     /// place reads as the folder alone (no branch, no repository from a pull request).
     private static func facts(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
@@ -219,6 +241,7 @@ struct WorkspaceHoverCardContent: Equatable {
         if let agent = workspace.agentName {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
         }
+        if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").

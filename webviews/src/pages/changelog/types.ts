@@ -109,3 +109,8 @@ export type ChangelogDesign = "sheet" | "ledger" | "journal" | "rail" | "digest"
     clip beside its words, alternating sides (default); one under another; two-up cards; or the
     lead row the clips replaced. */
 export type NewsLayout = "alternate" | "stack" | "grid" | "lead";
+/** How the What's New sheet sets its rows (SheetPage.tsx; the route's `sheet=`, for the gallery),
+    all across the pane's width (Leo 2026-11-01: "this is way too narrow and not info dense
+    enough"): a row's title and its muted line on one line where they fit (default); the line
+    tight under the title; or two columns of rows on a wide pane. */
+export type SheetLayout = "inline" | "stack" | "grid";

@@ -3,7 +3,7 @@
 // client fed by the room's socket (AcpmuxDirectClient.fed), with nothing of the pane around it:
 // no composer pickers, sessions, inspector or permission buttons. A pending ask shows who it waits on.
 import "./guest.css";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { VirtualTranscript } from "../acpmux/App";
 import { AcpmuxDirectClient } from "../acpmux/direct";
 import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
@@ -11,7 +11,11 @@ import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import { PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
+import { GuestComposer, GuestMessages } from "./GuestComposer";
+import { GuestPrompts } from "./guestPrompts";
+import { GuestSendQueue } from "./guestSendQueue";
 import { joinName, type Redeem, type RedeemError } from "./redeem";
+import { TypingSignal } from "./typingSignal";
 import {
   type GuestChat,
   type GuestConnection,
@@ -39,6 +43,7 @@ const ENDED_TEXT = {
 export function endedBy(error: RedeemError): GuestEnded | undefined {
   if (error === "share.expired") return "expired";
   if (error === "share.revoked") return "revoked";
+  if (error === "share.closed") return "closed";
   if (error === "share.kicked") return "kicked";
   if (error === "share.used" || error === "share.left") return "used";
   return undefined;
@@ -123,12 +128,18 @@ const ownerOf = (participants: GuestParticipant[]): Participant | undefined => {
 
 export function LiveChat({
   guestId,
+  name,
+  prompts,
   socketUrl,
   openSocket,
   onEnded,
 }: {
   /** This guest: never in its own face stack, as the pane leaves the reader out. */
   guestId: string;
+  /** The name this guest joined with, for its chip until presence names it. */
+  name?: string;
+  /** This guest's own messages (guestPrompts.ts). */
+  prompts: GuestPrompts;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
   onEnded: (reason: GuestEnd) => void;
@@ -141,19 +152,32 @@ export function LiveChat({
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
+  const sendQueue = useMemo(
+    () =>
+      new GuestSendQueue(
+        prompts,
+        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
+      ),
+    [prompts],
+  );
   const pageArrived = useRef<(() => void) | undefined>(undefined);
   const ended = useRef(onEnded);
   ended.current = onEnded;
+  const mine = useSyncExternalStore(prompts.subscribe, prompts.list);
+  const typing = useMemo(() => new TypingSignal((on) => socket.current?.send({ t: "typing", on }) ?? false), []);
+  useEffect(() => () => typing.dispose(), [typing]);
 
   useEffect(() => {
     const client = AcpmuxDirectClient.fed(GUEST_SESSION, setSnapshot);
     const room = new ShareSocket(
-      { url: socketUrl, ...(openSocket ? { open: openSocket } : {}) },
+      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
       {
         snapshot: (next) => {
           setChat(next.chat);
           setHasMore(next.hasMore);
           client.feed(next.records, "snapshot");
+          sendQueue.snapshot(next.prompts);
+          typing.reset();
           // A page asked for on the old connection never comes; the new history is in place.
           pageArrived.current?.();
           pageArrived.current = undefined;
@@ -166,10 +190,13 @@ export function LiveChat({
           pageArrived.current = undefined;
         },
         presence: setPeople,
-        // The guest's own prompts' states: the composer's (part 2).
-        promptState: () => undefined,
-        connection: setConnection,
+        promptState: (state) => sendQueue.status(state),
+        connection: (state) => {
+          setConnection(state);
+          if (state !== "live") sendQueue.disconnected();
+        },
         ended: (reason) => {
+          sendQueue.stop();
           client.dispose();
           ended.current(reason);
         },
@@ -178,11 +205,12 @@ export function LiveChat({
     socket.current = room;
     room.connect();
     return () => {
+      sendQueue.disconnected();
       room.stop();
       client.dispose();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue]);
 
   const loadOlder = useCallback(
     () =>
@@ -203,6 +231,15 @@ export function LiveChat({
 
   const owner = ownerOf(people);
   const ownerName = owner?.name ?? t("guest.live.owner");
+  const me = participant(guestId, people.find((person) => isMe(person.id, guestId))?.name ?? name) ?? {
+    id: guestId,
+    name: t("guest.you"),
+  };
+  const send = (text: string) => {
+    typing.stop();
+    prompts.add(text);
+    sendQueue.queued();
+  };
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
@@ -243,6 +280,10 @@ export function LiveChat({
             {snapshot.permission.title && <span className="guest-live__ask-title">{snapshot.permission.title}</span>}
           </output>
         )}
+        <div className="guest-live__dock">
+          <GuestMessages prompts={mine} me={me} owner={ownerName} />
+          <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+        </div>
       </div>
     </GuestActionsBoundary>
   );
@@ -257,8 +298,12 @@ export type GuestPageProps = {
   redeem: Redeem;
   /** This tab's redeem attempt id (redeem.ts attemptId). */
   attempt: () => string;
+  /** The name this tab joined with (redeem.ts joinedName). */
+  name?: string;
   /** Called once the redeem worked (redeem.ts rememberJoined). */
-  onJoined?: (guestId: string) => void;
+  onJoined?: (guestId: string, name: string) => void;
+  /** Where this tab keeps its own messages (sessionStorage in the page). */
+  storage: Storage;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
   /** Starts on the ended page (the gallery's ended states). */
@@ -269,6 +314,8 @@ export function GuestPage({
   shareId,
   secret,
   guestId: joinedAs,
+  name: joinedName,
+  storage,
   redeem,
   attempt,
   onJoined,
@@ -277,12 +324,15 @@ export function GuestPage({
   ended: endedAtStart,
 }: GuestPageProps) {
   const [guestId, setGuestId] = useState(joinedAs);
+  const [name, setName] = useState(joinedName);
+  const prompts = useMemo(() => new GuestPrompts(shareId, storage), [shareId, storage]);
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.(result.guestId);
+      onJoined?.(result.guestId, name);
+      setName(name);
       setGuestId(result.guestId);
       return undefined;
     }
@@ -292,5 +342,14 @@ export function GuestPage({
   };
   if (ended) return <EndedPage reason={ended} />;
   if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
-  return <LiveChat guestId={guestId} socketUrl={socketUrl} openSocket={openSocket} onEnded={setEnded} />;
+  return (
+    <LiveChat
+      guestId={guestId}
+      name={name}
+      prompts={prompts}
+      socketUrl={socketUrl}
+      openSocket={openSocket}
+      onEnded={setEnded}
+    />
+  );
 }

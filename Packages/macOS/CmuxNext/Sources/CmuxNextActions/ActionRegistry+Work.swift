@@ -23,6 +23,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
     /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
     public var shown = false
+    /// Why it failed in the person's words and language, where `message` is the daemon's own error (a full disk:
+    /// "the disk is full"); the notice a person's run shows uses it, a capturing caller still gets `message`. Nil: `message`.
+    public var shownReason: String?
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message

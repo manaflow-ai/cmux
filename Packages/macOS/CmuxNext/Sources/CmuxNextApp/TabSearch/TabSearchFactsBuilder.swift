@@ -57,9 +57,24 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
+        // Each daemon's workspaces by resource id, built once per publish: a closed tab names its
+        // workspace, and a scan per tab (`workspace(resourceID:)`) cost O(closed tabs x workspaces)
+        // tracked reads on every publish (perf100: most of this builder at 483 workspaces).
+        var byResource: [ObjectIdentifier: [ResourceID: WorkspaceModel]] = [:]
+        func workspace(_ id: ResourceID, of daemon: DaemonService) -> WorkspaceModel? {
+            let key = ObjectIdentifier(daemon)
+            if let index = byResource[key] { return index[id] }
+            var index: [ResourceID: WorkspaceModel] = [:]
+            for model in daemon.store.workspaces {
+                // The first workspace with an id wins, as `workspace(resourceID:)` finds it.
+                if let resource = model.resourceID, index[resource] == nil { index[resource] = model }
+            }
+            byResource[key] = index
+            return index[id]
+        }
         return listed(DaemonClosedHistory.entries([.tab], in: services)) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
-            let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
+            let workspaceTitle = item.workspaceID.flatMap { workspace($0, of: daemon)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
             // One close gesture of several tabs is one item: its row reopens all of them.
             let title = item.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(item.tabs.count)

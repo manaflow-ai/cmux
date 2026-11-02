@@ -17,6 +17,9 @@ import Testing
 /// (`SidebarStyle+TrailingColumn`, the group header chevron's x), so it ends half the column slot less half the
 /// glyph further in than the leading inset. Since Leo 2026-10-27 the fill runs to `SidebarStyle.rowEdgeGap`
 /// (1.5 pt) from the sidebar's right edge (a negative trim); the content's insets inside it are unchanged.
+/// Since #27598 (Leo 2026-10-29: "We need to have the stuff aligned on grids and lines") the trailing
+/// column is the shared grid's line, `LayoutGrid.sidebarTrailCenter` from the sidebar's right edge, and a row with no
+/// mark runs its title to that column's 16 pt slot (`SidebarColumns.trailingEdge`).
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let unreadID = WorkspaceID("ws-unread")
@@ -71,9 +74,16 @@ import Testing
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
         let gutter = SidebarStyle.horizontalInset
-        // A status glyph centers on the trailing column (10990df76a738), whose slot ends at the inset. A row with
-        // no mark (the selected row: `.working` with no agent at work shows idle) runs its title to the inset.
-        let columnTrailing = gutter + (SidebarStyle.trailingSlotSide - SidebarStyle.statusGlyphSize) / 2
+        // A status glyph centers on the trailing column (10990df76a738): the grid's trailing line, 24 pt from the
+        // sidebar's right edge, so `sidebarTrailCenter - rowEdgeGap` inside the row's fill (#27598). A row with no
+        // mark (the selected row: `.working` with no agent at work shows idle) runs its title to the column's slot,
+        // one grid icon box wide around the line.
+        let centerInset = LayoutGrid.sidebarTrailCenter - SidebarStyle.rowEdgeGap
+        // The control slot on that line still clears the resize band (#27954, 9a79771762c4).
+        #expect(centerInset - SidebarStyle.trailingSlotSide / 2 >= SidebarStyle.trailingColumnInset,
+                "the trailing control slot ends \(centerInset - SidebarStyle.trailingSlotSide / 2) pt in, inside the resize clearance")
+        let slotEnd = centerInset - LayoutGrid.iconBox / 2
+        let columnTrailing = centerInset - SidebarStyle.statusGlyphSize / 2
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing, lastMidX) = try Self.insets(row)
             if row === unread { #expect(lastMidX != nil, "the unread row shows its count and status glyph") }
@@ -83,7 +93,7 @@ import Testing
                 #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
                 #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
             } else {
-                #expect(leading == trailing, "\(name): icon slot \(leading) pt in, title ends \(trailing) pt in")
+                #expect(trailing == slotEnd, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
             }
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.

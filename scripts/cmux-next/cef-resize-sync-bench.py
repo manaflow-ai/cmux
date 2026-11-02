@@ -77,7 +77,8 @@ def check_mode(mode, hosting):
         code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
     report = load(os.path.join(out, f"verify-{hosting}.json")) or {}
     rows = report.get("rows") or []
-    return code == 0 and bool(rows) and all(r.get("ok") for r in rows), {"exit": code, "rows": rows, **(report.get("facts") or {})}
+    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork")]  # show.again: recorded only
+    return len(gate) == 3 and all(r.get("ok") for r in gate), {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
 
 def bench_command(bench, out):

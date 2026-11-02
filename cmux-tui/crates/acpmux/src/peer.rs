@@ -31,6 +31,9 @@ mod wanted;
 use wanted::BackoffWait;
 
 #[cfg(test)]
+#[path = "peer_features_tests.rs"]
+mod features_tests;
+#[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
 
@@ -169,14 +172,10 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
     native_history: AtomicBool,
-    /// Whether the peer saves a message's attachments (`attach.rs`).
-    send_attach: AtomicBool,
-    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
-    prompt_uploads: AtomicBool,
-    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
-    upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The features the peer listed at its last handshake (`lists`).
+    features: StdMutex<Vec<String>>,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
@@ -204,6 +203,8 @@ pub struct Peer {
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
+    stop_changed: tokio::sync::watch::Sender<bool>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -310,10 +311,8 @@ impl Peer {
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             native_history: AtomicBool::new(false),
-            send_attach: AtomicBool::new(false),
-            prompt_uploads: AtomicBool::new(false),
-            upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            features: StdMutex::new(Vec::new()),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -326,6 +325,7 @@ impl Peer {
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            stop_changed: tokio::sync::watch::channel(false).0,
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -413,7 +413,17 @@ impl Peer {
     /// What its last handshake would have said of attachments: a test's peer that never ran.
     #[cfg(test)]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
-        self.send_attach.store(takes, Ordering::SeqCst);
+        let mut features = self.features.lock_or_recover();
+        features.retain(|f| f != crate::attach::FEATURE);
+        if takes {
+            features.push(crate::attach::FEATURE.to_owned());
+        }
+    }
+
+    /// What its last handshake listed (`lists`): a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_features(&self, features: &[&str]) {
+        *self.features.lock_or_recover() = features.iter().map(|f| (*f).to_owned()).collect();
     }
 
     pub(crate) fn seed_cached_link(
@@ -464,8 +474,14 @@ impl Peer {
         self.settled.send_modify(|count| *count += 1);
     }
 
+    /// Every explicit stop/replacement, including one with no connect attempt in flight.
+    pub(crate) fn stopped(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.stop_changed.subscribe()
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
         self.stop_signal.notify_one();
@@ -753,6 +769,7 @@ impl Peer {
 
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
+        self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
     }
@@ -1280,12 +1297,14 @@ impl Peer {
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
             set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
-            set(&me.send_attach, crate::attach::FEATURE);
-            set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
-            set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
             set(&me.watch_delta, crate::watch_delta::FEATURE);
+            // The rest are read from the list (`lists`): attachments, uploads, upload status,
+            // and holding a prompt for the owner.
+            let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
+            let listed = listed.into_iter().flatten().filter_map(Value::as_str);
+            *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init

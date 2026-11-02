@@ -10,7 +10,7 @@ A runs-on that names a Blacksmith Linux label literally and reads neither
 variable never sees that, so its job queued with zero capacity for the whole
 outage (2026-10-27). Each such label must sit behind
 `vars.CI_CLOUD_OVERFLOW_SAVED && '<FAILOVER_SIZE[label]>' ||` (another
-Blacksmith Linux size: 2 goes to 4, 4 and 8 swap, 16 goes to 8, and the older
+Blacksmith Linux size: 2 goes to 4 or 8, 4 and 8 swap, 16 goes to 8, and the older
 pairing of 4 and 8 to 16 and 16 and 32 swapping still counts), or the expression
 must read one of the switched variables first. Blacksmith's concurrency is a cap
 on vCPUs, so a failover to a smaller size is the one likelier to start
@@ -43,7 +43,7 @@ EXCLUDED_FILES = {
 # x64 Blacksmith Linux labels; -arm labels are a different pool.
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
 # Each x64 Blacksmith Linux size and the sizes it may fail over to, the first preferred.
-FAILOVER_SIZES = {2: (4,), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
+FAILOVER_SIZES = {2: (4, 8), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
 FAILOVER_PREFIX = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-"
 
 
@@ -85,6 +85,12 @@ def literal_covered(head: str, label: str) -> bool:
 
 def covered(value: str) -> bool:
     """True when every Blacksmith Linux literal in a runner value fails over."""
+    # A bounded workflow_dispatch input is a broker-selected reroute set, not a primary
+    # Blacksmith reservation. The workflow defaults to fleet and accepts these labels only
+    # when the broker explicitly supplies one after a stalled attempt.
+    if "contains(fromJSON(" in value and "inputs.runner) && inputs.runner" in value \
+            and "cmux-fleet-linux-x64" in value:
+        return True
     if "vars.CI_TRUSTED_RUNNER" in value:
         # The switch points CI_TRUSTED_RUNNER at another Blacksmith size; the labels in its
         # allowlist are double-quoted JSON, not runner literals.

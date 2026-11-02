@@ -97,11 +97,11 @@ async fn a_list_larger_than_a_page_is_read_whole_each_row_once() {
     assert_eq!(got.next, Some(Value::Null));
 }
 
-/// A fleet host, 2026-10-30: 3,700 sessions of about 4 KB came to 15.7 MB, past the 15 MiB a
+/// A fleet host, 2026-10-30: 3,700 sessions of about 9 KB come to 33 MB, past the 31 MiB a
 /// reply may hold. Later pages use the measured available space.
 #[tokio::test]
 async fn a_busy_hosts_list_goes_in_pages_under_the_message_limit() {
-    let list = RefCell::new(sessions(3_700, 4_300));
+    let list = RefCell::new(sessions(3_700, 9_000));
     let whole = json!({"sessions": *list.borrow()}).to_string().len();
     assert!(whole > crate::rpc::MAX_MESSAGE_BYTES, "{whole}");
     let seen = Seen::default();
@@ -393,7 +393,9 @@ async fn an_eight_thousand_row_peer_census_uses_fuller_pages() {
     assert_eq!(before.rows, *list.borrow());
     assert_eq!(got.rows, before.rows);
     assert_eq!(baseline.requests.get(), 8);
-    assert_eq!(seen.requests.get(), 3);
+    // A first page of PAGE_ROWS, then pages learned to fill three quarters of the 31 MiB limit
+    // (`fuller_page`): the rest of the 8,000 rows in one more.
+    assert_eq!(seen.requests.get(), 2);
     assert!(seen.largest.get() < crate::rpc::MAX_MESSAGE_BYTES);
     eprintln!(
         "8000-row census: fixed={} requests, {before_ms:.3} ms; adaptive={} requests, {after_ms:.3} ms; largest={} bytes",

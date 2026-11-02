@@ -1,12 +1,13 @@
 /* The messages that wait for the agent, as one group (PendingMessagesCard.tsx): its head is one
-   26px line in 2px margins (model.ts estimates that): the chevron in the icon column, the count, the
+   tool row on the tool rows' line (MessageGroupHead.css), no margins of its own (its row's frame
+   gives the room; model.ts estimates that): the sender's mark in the icon column, the count, the
    senders muted and cut to the line (none in a narrow pane). Open, each sender's 22px head (its
    mark and name, which opens its chat, and how many it sent), then its messages, each its own
    received line; a line in the group leaves out the sender the head names. Never an opaque or
    bordered box, and nothing animates in: only the chevron turns. The hover highlight is the
    toggle's own, never the whole row's. */
 .cv-pending {
-  margin: 2px 0;
+  margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -15,56 +16,9 @@
 .cv-pending__line {
   display: flex;
   align-items: center;
-  height: var(--cv-message-line);
   min-width: 0;
   container-type: inline-size;
   white-space: nowrap;
-  user-select: none;
-}
-.cv-pending__toggle {
-  all: unset;
-  display: flex;
-  align-items: center;
-  flex: 0 1 auto;
-  min-width: 0;
-  height: var(--cv-message-line);
-  box-sizing: border-box;
-  gap: var(--ds-space-2);
-  /* The trailing room keeps the count clear of the plate's edge; none before the chevron, which
-     sits in the tool rows' glyph slot at the row's left edge (design/chat-transcript.md "One icon
-     column"). */
-  padding: 0 var(--ds-space-1) 0 0;
-  border-radius: 6px;
-  cursor: default;
-}
-.cv-pending__toggle:hover,
-.cv-pending__toggle:focus-visible {
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
-}
-.cv-pending__icon {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: var(--cv-glyph-slot);
-  color: var(--cv-text-muted);
-}
-.cv-pending__count {
-  flex: none;
-  color: var(--cv-text);
-}
-.cv-pending__senders {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--cv-text-dim);
-}
-/* A narrow pane keeps the count whole: the names, cut to a letter or two, would say nothing. */
-@container (max-width: 480px) {
-  .cv-pending__senders {
-    display: none;
-  }
 }
 .cv-pending__body {
   margin-inline-start: 24px;

@@ -18,3 +18,4 @@ Packages/Shared/CmuxFeedPushCore  CmuxFeedPushCoreTests  CMUX_SWIFTPM_TARGET_LIN
 Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxTextConfirmCore  CmuxTextConfirmCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxChiefVoiceCore  CmuxChiefVoiceCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxAgentCursor  CmuxAgentCursorTests  -

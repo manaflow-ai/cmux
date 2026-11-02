@@ -1,5 +1,5 @@
 import { translate, type Translate } from "./i18n";
-import type { SlashCommand } from "./slashCommands";
+import { shownName, type SlashCommand } from "./slashCommands";
 import { PLUS_RECENT_COMMANDS } from "./recentCommands";
 
 /**
@@ -171,7 +171,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: `commands.recent.${command.name}`,
       section: "commands",
-      name: `/${command.name}`,
+      name: `/${shownName(command)}`,
       description: command.descriptionKey ? t(command.descriptionKey) : command.description,
       icon: "terminal",
       keywords: [command.name, command.description],

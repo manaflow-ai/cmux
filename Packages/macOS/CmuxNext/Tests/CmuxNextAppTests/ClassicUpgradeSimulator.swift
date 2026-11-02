@@ -128,7 +128,7 @@ final class ClassicUpgradeSimulator {
             let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
                                               onRefused: { [weak services] message in services?.registry.refuse(message) })
             layout.start()
-            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarDoc.start(services, layout: layout, wrapping: documentRemote)
             services.sidebarLayout = layout
         }
         AppActions.bind(services)
@@ -321,7 +321,7 @@ final class ClassicUpgradeSimulator {
     /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
     func windows() -> [[[String]]] {
         services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+            SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {

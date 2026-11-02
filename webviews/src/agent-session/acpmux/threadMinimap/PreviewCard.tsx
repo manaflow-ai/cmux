@@ -15,11 +15,13 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
+import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
   const side = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, side)}…${value.slice(-side)}`;
+  return `${sliceWhole(value, side)}…${sliceWholeEnd(value, side)}`;
 };
 
 const linkLabel = (href: string) => {
@@ -71,6 +73,15 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
   scroller.scrollTop += by;
 }
 
+/// What the card covers when it draws in the scroller's parent: the transcript scroller alone, never
+/// the rail or a Find bar beside it. In a see-through Chromium page the card's backdrop blur draws
+/// over the rows, not in their place, so they read sharp through its tint (Lawrence via Leo,
+/// 2026-10-28: "popovers in general need glassier bg blur"); the scroller blurs its own rows under
+/// the card instead (ui/glass/seeThroughBlur.ts). In place (no layer) the card is inside the
+/// scroller and covers nothing.
+const underCard: CoveredCandidates = (surface) =>
+  surface.parentElement?.querySelectorAll(":scope > .acpmux-scroll") ?? [];
+
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
 export const PreviewCard = React.forwardRef<
@@ -89,6 +100,9 @@ export const PreviewCard = React.forwardRef<
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
+    /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
+    /// names them, so it never reads as the person's own words.
+    from?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
@@ -110,6 +124,7 @@ export const PreviewCard = React.forwardRef<
     viewportHeight,
     scroller,
     prompt,
+    from,
     reply,
     metadata,
     railLeft = 0,
@@ -165,6 +180,8 @@ export const PreviewCard = React.forwardRef<
   }, []);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: the rail can move under the card with any render.
   useLayoutEffect(() => place());
+  // After the card is placed, so the blur's first measure finds it where it draws.
+  useSeeThroughBlur(self, !!layer, underCard);
   // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
   // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
   // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
@@ -228,7 +245,7 @@ export const PreviewCard = React.forwardRef<
   // A new prompt, reply or failure (the pointer reaching another row), or a change of kind: fit once.
   useLayoutEffect(() => {
     if (self.current) refit(self.current);
-  }, [metadata?.failure, metadata?.failed, prompt, reply, refit]);
+  }, [metadata?.failure, metadata?.failed, prompt, from, reply, refit]);
   // Content that grows or shrinks without a render (a font or an image loading, a wrap) fits again.
   // One observer for the card's life, not one per row the pointer crosses (each new one notifies on
   // observe, which fitted the card a second time per move). It stops with the card: disconnected in
@@ -262,6 +279,7 @@ export const PreviewCard = React.forwardRef<
       id={id}
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
+      data-incoming={from !== undefined || undefined}
       // Its transform is `place`'s, written before paint; on the right with no layer it is pinned to
       // the right edge (left: auto; right: 0) and `place` counts `x` in from there.
       style={cardStyle}
@@ -271,6 +289,9 @@ export const PreviewCard = React.forwardRef<
       onFocus={onFocus}
       onBlur={onBlur}
     >
+      {prompt !== undefined && from !== undefined && (
+        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+      )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
           <span className="acpmux-minimap__prompt">{prompt}</span>

@@ -35,6 +35,7 @@ the compile and test suites below. Small routing/status jobs can keep the
 from __future__ import annotations
 
 import re
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -92,17 +93,16 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
-    ("web-validation.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundle-publish.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundles.yml", "bundles", "runs-on", BIG),
     ("cmux-next.yml", "web-bundles", "runs-on", BIG),
     # Small compiles: one type check, a small test suite, Go, C++ shims.
+    # web-validation.yml's build and tests and gallery-health.yml's health read the live Linux pool
+    # (fromJSON(vars.RUNNER_POOLS).linux, tests/test_ci_runner_set.py) instead of one fixed size.
     ("ci-web.yml", "web-typecheck", "runs-on", SMALL),
     ("ci-web.yml", "web-tests", "runs-on", SMALL),
     ("ci-web.yml", "web-instant-navigation", "runs-on", SMALL),
-    ("web-validation.yml", "tests", "runs-on", SMALL),
     ("cmux-next-web-bundles.yml", "webviews-checks", "runs-on", SMALL),
-    ("gallery-health.yml", "health", "runs-on", SMALL),
     ("cmux-actions.yml", "check", "runs-on", SMALL),
     ("cmux-vm.yml", "check", "runs-on", SMALL),
     ("cmux-vm-cloud.yml", "check", "runs-on", SMALL),
@@ -140,6 +140,9 @@ OTHER = {
     if measured(workflow, job_id)
 }
 
+FLEET_FIRST = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
+FLEET_RUNNER_LIST = ["cmux-fleet-linux-x64", SMALL, BIG]
+
 LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
@@ -150,6 +153,16 @@ def trusted_fallback(label: str, other: str | None = None) -> str:
     other = other or (SMALL if label == BIG else BIG)
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
             f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
+
+
+def fleet_runner_list(value: str) -> list[str]:
+    match = re.search(r"contains\(fromJSON\('([^']+)'\), inputs\.runner\) && inputs\.runner", value)
+    if match is None:
+        raise AssertionError(f"missing bounded fleet runner allowlist: {value}")
+    labels = json.loads(match.group(1))
+    if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+        raise AssertionError(f"invalid runner allowlist: {labels!r}")
+    return labels
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -260,6 +273,10 @@ class LinuxCompileRunners(unittest.TestCase):
                 job = doc["jobs"].get(job_id)
                 self.assertIsNotNone(job, f"{workflow} has no job {job_id!r}")
                 value = selector(job, where)
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
+                    self.assertNotIn("vars.LINUX_RUNNER", value)
+                    continue
                 labels = LINUX_LABEL.findall(value)
                 self.assertTrue(labels, f"{workflow}:{job_id} {where} names no Blacksmith Ubuntu label: {value}")
                 self.assertEqual(labels[-1], label, f"{workflow}:{job_id} {where}: {value}")
@@ -277,6 +294,9 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
+                    continue
                 self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)))), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
                     value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)))) + r"\)? \}\}$",
@@ -289,6 +309,9 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FLEET_FIRST:
+                    self.assertTrue(value.startswith("${{ " + OWNER), value)
+                    continue
                 self.assertEqual(value, expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
@@ -303,7 +326,7 @@ class LinuxCompileRunners(unittest.TestCase):
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
         known = set(config["self-hosted-runner"]["labels"])
-        self.assertLessEqual({label for _, _, _, label in EXPECTED} | set(OTHER.values()), known)
+        self.assertLessEqual({label for _, _, _, label in EXPECTED} | set(OTHER.values()) | {"cmux-fleet-linux-x64"}, known)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@
 //! this/get pinged to send this"; then "yeah" to "a turn you didn't start that has nothing new to
 //! tell you shouldn't show up as a message or ping you").
 //!
+//! Verified Cloud trigger prompts use the same records with trigger `system`,
+//! without updating human-facing summary or unread state. Their provenance is
+//! admitted by the dedicated trigger RPC, never raw local metadata.
+//!
 //! Claude Code runs turns acpmux never prompted: when a background task or subagent ends (a task
 //! notification), on a scheduled wakeup or loop tick, or for a hook. Each runs from its
 //! `system/init` to its `result` while no acpmux turn runs (`Session::harness_turn` without
@@ -50,6 +54,8 @@ pub(super) struct Running {
     text: String,
     /// Its reply outgrew [`TEXT_KEPT`]: not quiet, whatever the kept part says.
     long: bool,
+    /// A permission or structured question needs the person's attention.
+    attention: bool,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -113,7 +119,8 @@ impl BackgroundTurns {
             let (trigger, seq) = self.pending.take().unwrap_or(("system", seq));
             let id = format!("bg-{seq}");
             started = Some(json!({"state": "started", "id": id, "trigger": trigger}));
-            self.running = Some(Running { id, trigger, text: String::new(), long: false });
+            self.running =
+                Some(Running { id, trigger, text: String::new(), long: false, attention: false });
         }
         let Some(running) = self.running.as_mut() else { return started };
         if kind != "agent_message_chunk" {
@@ -143,7 +150,7 @@ impl BackgroundTurns {
         let r = self.running.take()?;
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
-            "quiet": !r.long && is_quiet(&r.text), "reason": reason,
+            "quiet": !r.attention && !r.long && is_quiet(&r.text), "reason": reason,
         }))
     }
 
@@ -154,6 +161,72 @@ impl BackgroundTurns {
 }
 
 impl Hub {
+    /// An adopted host continues the already journaled bracket. Its earlier
+    /// reply is not in memory, so keep the row expanded rather than guess.
+    pub(super) fn restore_trigger_background(&self, session: &Session, turn_id: &str) {
+        session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).running =
+            Some(Running {
+                id: format!("bg-trigger-{turn_id}"),
+                trigger: "system",
+                text: String::new(),
+                long: true,
+                attention: false,
+            });
+    }
+
+    /// A verified trigger is prompted by acpmux, but is still not the person's
+    /// turn. Use the existing transcript record and its supported discriminator.
+    pub(super) fn start_trigger_background(&self, session: &Session, turn_id: &str) {
+        let id = format!("bg-trigger-{turn_id}");
+        let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        if state.running.as_ref().is_some_and(|r| r.id == id) {
+            return;
+        }
+        let previous = state.end("prompt");
+        state.running = Some(Running {
+            id: id.clone(),
+            trigger: "system",
+            text: String::new(),
+            long: false,
+            attention: false,
+        });
+        drop(state);
+        if let Some(msg) = previous {
+            self.append(session, "mux", RECORD_KIND, msg);
+        }
+        self.append(
+            session,
+            "mux",
+            RECORD_KIND,
+            json!({"state":"started", "id":id, "trigger":"system"}),
+        );
+    }
+
+    /// Non-Claude adapters have no raw claude.result, so settle their bracket
+    /// after the inbound barrier too. A result already ended it is a no-op.
+    pub(super) fn end_trigger_background(&self, session: &Session, turn_id: &str) {
+        let id = format!("bg-trigger-{turn_id}");
+        let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        let ended = state
+            .running
+            .as_ref()
+            .is_some_and(|r| r.id == id)
+            .then(|| state.end("result"))
+            .flatten();
+        drop(state);
+        if let Some(msg) = ended {
+            self.append(session, "mux", RECORD_KIND, msg);
+        }
+    }
+
+    pub(super) fn background_attention(&self, session: &Session) {
+        if let Some(running) =
+            session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).running.as_mut()
+        {
+            running.attention = true;
+        }
+    }
+
     /// The tap saw a raw Claude line (`claude.*`): logs the background-turn records it starts or
     /// ends, before the line itself.
     pub(super) fn background_turn_line(&self, session: &Session, method: &str, line: &Value) {
@@ -194,6 +267,16 @@ impl Hub {
 
     /// Whether an `agent_message_chunk` is a background turn's: its words stay off the preview.
     pub(super) fn background_message(&self, session: &Session, update: &Value) -> bool {
+        if session.turn().is_some_and(|t| t.trigger)
+            || session
+                .ending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(|t| t.trigger)
+        {
+            return true;
+        }
         let Some(id) = update.get("messageId").and_then(Value::as_str) else { return false };
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).owns_message(id)
     }

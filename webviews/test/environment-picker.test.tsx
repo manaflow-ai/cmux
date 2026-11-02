@@ -197,6 +197,20 @@ async function openPicker(init: { altKey?: boolean } = {}) {
   });
 }
 
+/// Every machine: Machines… on the control's right-click menu (the main list is This Mac and Cloud).
+async function openMachines() {
+  await act(async () =>
+    computerButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const item = [...doc().querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === t("composer.machinesList"),
+  );
+  expect(item, "no Machines… item").toBeTruthy();
+  await act(async () => item!.click());
+}
+
 async function type(text: string) {
   const field = doc().querySelector<HTMLInputElement>(".acpmux-env-popover input");
   expect(field, "no search field").toBeTruthy();
@@ -253,7 +267,7 @@ test("a peer's connected flag reads the same from the relayed reply and the daem
 test("each remote machine shows whether it is connected, read again as the list opens; this Mac shows none", async () => {
   await mount(true);
   expect(refreshes).toBe(0);
-  await openPicker();
+  await openMachines();
   expect(refreshes).toBe(1);
   const states = machineRows().map((row) => {
     const mark = row.querySelector(".acpmux-env-status");
@@ -375,10 +389,10 @@ test("previews off: an existing remote computer keeps the current connection foo
   ]);
 });
 
-test("previews on: one list, This Mac first, numbered ⌥⌘1–9, defaulting to this computer", async () => {
+test("Machines…: every machine, This Mac first, numbered ⌥⌘1–9, defaulting to this computer", async () => {
   await mount(true);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.thisMac")}`);
-  await openPicker();
+  await openMachines();
   const shown = machineRows();
   expect(shown.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.thisMac"),
@@ -401,9 +415,8 @@ test("previews on: one list, This Mac first, numbered ⌥⌘1–9, defaulting to
     false,
     false,
   ]);
-  // Cloud follows This Mac; it is the list's only action.
-  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([t("composer.cloud")]);
-  expect(rows()[1]).toBe(newRows()[0]);
+  // The machine list is machines only: Cloud is the main list's.
+  expect(newRows()).toHaveLength(0);
 });
 
 // Leo, 2026-10-30, on a chat seeded onto a Cloud machine: "the ui is so ass in general for this tho".
@@ -476,12 +489,12 @@ const longList = {
 
 test("a long list's search field filters by name and section, keeping each machine's shortcut", async () => {
   await mount(true, longList);
-  await openPicker();
+  await openMachines();
   await type("cloud");
   const shown = machineRows();
   expect(shown.map((row) => rowText(row))).toEqual(["build-cloud⌥⌘9", `cloud-1${t("composer.envNotConnected")}`]);
-  // Cloud matches its own name.
-  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([t("composer.cloud")]);
+  // Cloud is the main list's row, never the machine list's.
+  expect(newRows()).toHaveLength(0);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
@@ -627,26 +640,23 @@ test("a started chat with no move to offer keeps the fixed computer label", asyn
   }
 });
 
-test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {
+test("Return on a machine search picks a matching machine, and runs nothing when none matches", async () => {
   let calls = await mount(true, longList);
-  await openPicker();
+  await openMachines();
   await press(await typeKeys("gpu"), { key: "Enter" });
   expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
   act(() => root?.unmount());
-  // "clou" leaves Cloud alone with no machine named so, and Base UI moves its highlight onto it.
+  // "clou" names no machine: the machine list holds no Cloud action for Return to run.
   calls = await mount(true, {
     sessions: [],
     peers: [...boxes, "gpu-box", "lab"],
     peerKinds: Object.fromEntries([...boxes, "gpu-box", "lab"].map((name) => [name, "ssh"])),
   });
-  await openPicker();
+  await openMachines();
   const field = await typeKeys("clou");
-  expect(labels()).toEqual([t("composer.cloud")]);
+  expect(labels()).toEqual([]);
   await press(field, { key: "Enter" });
   expect(calls).toEqual([]);
-  await press(field, { key: "ArrowDown" });
-  await press(field, { key: "Enter" });
-  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("choosing the environment already chosen hands focus back to the prompt", async () => {
@@ -798,7 +808,7 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
   });
   await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)), snapshot);
   await newWorktreeFromMenu();
-  await openPicker();
+  await openMachines();
   const devbox = machineRows().find((row) => row.textContent?.includes("devbox"))!;
   await act(async () => devbox.click());
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
@@ -927,11 +937,11 @@ const daemonProps = async (extra: Record<string, unknown> = {}) => {
 test("previews on: every machine the daemon lists, grouped; the ones not connected greyed with their state", async () => {
   const { computers, props } = await daemonProps();
   await mount(true, props);
-  await openPicker();
+  await openMachines();
   const shown = machineRows();
   expect(shown).toHaveLength(22);
-  // No section headers: one hairline under This Mac and Cloud.
-  expect(rows().filter((row) => row.querySelector("[data-divider]"))).toEqual([shown[1]!]);
+  // No section headers and no hairline: one list of machines.
+  expect(rows().filter((row) => row.querySelector("[data-divider], [data-section]"))).toHaveLength(0);
   const greyed = shown.filter((row) => row.querySelector('.acpmux-env-row[data-ready="false"]'));
   expect(
     greyed.map((row) => [
@@ -962,7 +972,7 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
 test("previews on: 20+ machines stay searchable by name and section", async () => {
   const { props } = await daemonProps();
   await mount(true, props);
-  await openPicker();
+  await openMachines();
   await type("agent 1");
   expect(machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["agent-vm-1"]);
   await type("my machines");
@@ -1099,7 +1109,7 @@ test("the environment picker warns on a ready machine at its CPU budget, as the 
       "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
     },
   });
-  await openPicker();
+  await openMachines();
   const row = () =>
     [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
       (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
@@ -1118,7 +1128,7 @@ test("the environment picker withholds a warning while a machine is not ready", 
       "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
     },
   });
-  await openPicker();
+  await openMachines();
   const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
     (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
   )!;
@@ -1219,15 +1229,6 @@ test("Labs: Sandboxed is Cloud's other face, shown while ⌥ is held or searched
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
 });
 
-test("Labs: a long list's search for Sandboxed shows it in Cloud's place", async () => {
-  await mount(true, { ...longList, runMode: { mode: "persistent", onMode: () => undefined } });
-  await openPicker();
-  await type("sandbox");
-  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
-  // It is a match: no "no environment" line over it.
-  expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
-});
-
 test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
   const calls: unknown[][] = [];
   const runMode = { mode: "sandboxed", onMode: (mode: string) => calls.push(["mode", mode]) };
@@ -1235,6 +1236,9 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.sandboxed")}`);
   await openPicker();
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"][data-current]')).toBeTruthy();
+  expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
+  await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+  await openMachines();
   expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
   await act(async () => machineRows()[1]!.click());
   expect(calls).toEqual([["mode", "persistent"]]);
@@ -1253,35 +1257,65 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
 // and New environment headers, Cloud's long second line, New Cloud Machine…, Open Cloud…, Create
 // environment): "bro this text is so fucking stupid why the fuck IS THERE SO MUCH BULLSHIT JUST A
 // LITTLE CLOUD ICON OR FUCKING THE SELECTION YOU KNOW WHATEVER WORKS JUST NOT THE FUCKING EXISTING
-// GAHHH". As Codex's "Where should this chat run?": This Mac and Cloud, other machines only when the
-// person has some, one line each, no headers; the setup actions live off the list.
+// GAHHH". Then: "we ideally also can just hide the machines too and it's just a cloud button without
+// as much of the whole subttitling on whatever... it's just a cloud button". As Codex's "Where should
+// this chat run?": This Mac and Cloud, one line each, no headers and no machine list; the machines
+// and the setup actions live on the control's right-click menu.
 const labels = () => rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
 
-test("Leo's menu: This Mac and Cloud, then the other machines only when there are some", async () => {
+test("Leo's menu: This Mac and Cloud only, with no machine list, however many machines there are", async () => {
   await mount(true, alone);
   await openPicker();
   expect(labels()).toEqual([t("composer.thisMac"), t("composer.cloud")]);
   act(() => root?.unmount());
   await mount(true);
   await openPicker();
-  expect(labels()).toEqual([t("composer.thisMac"), t("composer.cloud"), "gpu-box", "build-cloud", "cloud-1"]);
-  // One hairline splits them, over the first other machine.
-  expect(rows().map((row) => row.querySelector(".acpmux-env-row")!.hasAttribute("data-divider"))).toEqual([
-    false,
-    false,
-    true,
-    false,
-    false,
-  ]);
-  // This Mac keeps ⌥⌘1; Cloud is no machine, so it takes no digit.
-  expect(rows().map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual([
-    "⌥⌘1",
-    undefined,
-    "⌥⌘2",
-    "⌥⌘3",
-    undefined,
-  ]);
+  // Leo, 2026-10-31: "we ideally also can just hide the machines too and it's just a cloud button".
+  expect(labels()).toEqual([t("composer.thisMac"), t("composer.cloud")]);
+  // No hairline and no machine name on either row; This Mac keeps ⌥⌘1, Cloud is no machine.
+  expect(rows().filter((row) => row.querySelector("[data-divider]"))).toHaveLength(0);
+  expect(rows().map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual(["⌥⌘1", undefined]);
+  const text = doc().querySelector(".acpmux-env-popover")!.textContent ?? "";
+  for (const name of ["gpu-box", "build-cloud", "cloud-1"]) expect(text, name).not.toContain(name);
+  // The machines are behind Machines… on the right-click menu, with no Cloud row among them.
+  await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+  await openMachines();
+  expect(labels()).toEqual([t("composer.thisMac"), "gpu-box", "build-cloud", "cloud-1"]);
+});
+
+test("Leo's menu: Cloud picks a new machine for the new chat, never one of the listed machines", async () => {
+  // With Run as: Cloud is the chat's mode, and the host's cloud.startChat gives the workspace its own
+  // new machine (cmux-tui, one workspace per machine, #30020); the page names no machine.
+  const modes: unknown[][] = [];
+  const calls = await mount(true, {
+    runMode: { mode: "persistent", onMode: (mode: string) => modes.push(["mode", mode]) },
+  });
+  await openPicker();
+  const cloud = rows().find((row) => row.querySelector('.acpmux-env-row[data-mode="cloud"]'))!;
+  expect(cloud.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.cloud"));
+  await act(async () => cloud.click());
+  expect(modes).toEqual([["mode", "cloud"]]);
+  expect(calls).toEqual([]);
+  act(() => root?.unmount());
+  // Without Run as: Cloud opens the host's New Cloud Machine flow, which makes a new machine.
+  const connects = await mount(true);
+  await openPicker();
+  await act(async () => newRows()[0]!.click());
+  expect(connects).toEqual([["connect", "cloud"]]);
+});
+
+test("Leo's menu: a machine picked from Machines… is the main list's one other row, checked", async () => {
+  await mount(true);
+  await openMachines();
+  await act(async () =>
+    machineRows()
+      .find((row) => rowText(row).startsWith("gpu-box"))!
+      .click(),
+  );
+  await openPicker();
+  expect(labels()).toEqual([t("composer.thisMac"), "gpu-box", t("composer.cloud")]);
+  expect(rows()[1]!.querySelector(".acpmux-env-row")!.hasAttribute("data-current")).toBe(true);
 });
 
 test("Leo's menu: no section headers, no second lines, and no setup rows", async () => {
@@ -1309,21 +1343,24 @@ test("Leo's menu: no section headers, no second lines, and no setup rows", async
   expect(text).not.toContain("Auto ·");
 });
 
-test("Leo's menu: a search field only from eight machines", async () => {
+test("Leo's menu: the main list never searches; Machines… searches only from eight machines", async () => {
   const { ENVIRONMENT_SEARCH_MIN } = await import("../src/agent-session/acpmux/EnvironmentPicker");
   expect(ENVIRONMENT_SEARCH_MIN).toBe(8);
   await mount(true);
-  await openPicker();
+  await openMachines();
   const popover = () => doc().querySelector<HTMLElement>(".acpmux-env-popover")!;
   expect(popover().classList.contains("acpmux-env-searchless")).toBe(true);
   expect(popover().querySelector("input")!.getAttribute("placeholder")).toBeNull();
   // Keys typed into a list with no field filter nothing.
   await type("gpu");
-  expect(labels()).toHaveLength(5);
+  expect(labels()).toHaveLength(4);
   act(() => root?.unmount());
   const many = Array.from({ length: 8 }, (_, index) => `box-${index + 1}`);
   await mount(true, { peers: many, peerKinds: Object.fromEntries(many.map((name) => [name, "ssh"])) });
   await openPicker();
+  expect(popover().classList.contains("acpmux-env-searchless")).toBe(true);
+  await press(popover().querySelector("input")!, { key: "Escape" });
+  await openMachines();
   expect(popover().classList.contains("acpmux-env-searchless")).toBe(false);
   expect(popover().querySelector("input")!.getAttribute("placeholder")).toBe(t("composer.environmentSearch"));
   await type("box-3");
@@ -1341,14 +1378,15 @@ test("Leo's menu: the setup actions moved to the control's right-click menu, eac
     );
   await rightClick();
   expect(items().map((item) => item.textContent)).toEqual([
+    t("composer.machinesList"),
     t("composer.newCloudMachine"),
     t("composer.openCloud"),
     t("composer.connectSSH"),
     t("composer.addMachine"),
     t("composer.connectPhone"),
   ]);
-  for (const index of [0, 1, 2, 3, 4]) {
-    if (index > 0) await rightClick();
+  for (const index of [1, 2, 3, 4, 5]) {
+    if (index > 1) await rightClick();
     await act(async () => items()[index]!.click());
   }
   expect(calls).toEqual([
@@ -1391,7 +1429,7 @@ test("Leo's menu: the control shows the current choice, its icon this Mac's or t
   const face = () => computerButton()!;
   expect(face().querySelector(".acpmux-env-icon")!.getAttribute("data-kind")).toBe("local");
   expect(face().querySelector(".acpmux-location-label")!.textContent).toBe(t("composer.thisMac"));
-  await openPicker();
+  await openMachines();
   await act(async () =>
     rows()
       .find((row) => rowText(row).startsWith("build-cloud"))!

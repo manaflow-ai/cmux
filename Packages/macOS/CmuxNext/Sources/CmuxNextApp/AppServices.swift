@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -28,6 +29,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextAccounts
+import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
@@ -55,6 +57,8 @@ final class AppServices {
     let activeLook = ActiveLookScope()
     /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
     let selectionCloses = WorkspaceSelectionCloseFlow.Running()
+    /// The incognito workspaces' chat purges under way (``IncognitoChats``); the quit drains them.
+    let incognitoChats = IncognitoChats()
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -107,7 +111,7 @@ final class AppServices {
     /// Set and Clear Space Terminal Defaults…: one run at a time per space.
     let roomDefaults = RoomDefaultsUpdates()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
-    private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, document: { [weak self] in self?.sidebarDoc.store.flatMap { $0.isActive ? $0 : nil } }, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// Each window's own Home (cmux#27880).
     private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
@@ -160,9 +164,9 @@ final class AppServices {
     })
     /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
-    /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
-    /// grant made in a page. Started at launch.
-    let personInput = PersonInputLedger()
+    /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
+    /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
+    let personInput = PersonInputLedger(sources: EventSourceProcesses())
     /// Process-wide widening-switch gate shared by every Settings window.
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
@@ -331,9 +335,11 @@ final class AppServices {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
-        SidebarDocWiring.start(self, layout: service)
+        sidebarDoc.start(self, layout: service)
         return service
     }()
+    /// This app's own sidebar document (sidebar-v2), whose store starts with `sidebarLayout`; apps never share one.
+    private(set) lazy var sidebarDoc = SidebarDocument(stores: { [machines] in machines.daemons.map(\.store) }, machine: { [machines] in machines.daemon(machine: $0)?.store })
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
@@ -408,10 +414,10 @@ final class AppServices {
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
 
-    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no
-    /// avatar of its own: its worn upload's first frame, else its pet character's.
-    func characterPicture(of chief: String?) -> URL? {
-        ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
+    /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).
+    func chosenPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.chosenPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot, file: settings?.fileRoot)
     }
 
     /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
@@ -488,6 +494,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
+    /// This Mac's acpmux session lanes: the turn-state watch writes them, readers look a session up by id.
+    let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -556,12 +564,12 @@ final class AppServices {
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
         updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
-        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
-        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
+        // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
+        daemon.installRecovery()
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -708,6 +716,7 @@ final class AppServices {
         _ = resources  // built here, as before
         _ = windows  // built here, as before
         DebugTimings.markLaunch("services.windows")
+        ssh.actingWindow = { [weak self] in self?.windows.active?.state.id } // a connect's "Connecting to…" row lists there (#31490)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
@@ -716,7 +725,7 @@ final class AppServices {
         _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
+        WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
@@ -844,15 +853,15 @@ final class AppServices {
         }
     }
 
-    /// The pane controller showing `pane` in the active window, if any.
-    /// The controller showing `pane` itself. Handles are daemon-local
-    /// numbers that repeat across machines, so a handle match counts only
-    /// when the controller shows this very model.
+    /// The controller showing `pane` itself. Handles are daemon-local numbers that repeat across machines, so a
+    /// handle match counts only when the controller shows this very model; else the controller holding the model: an
+    /// optimistic split's echo gives its record the daemon's handle in place before the window's handle map follows,
+    /// and a Cmd-D in that step found no controller, so it split with no focus and no key hold (smoke step 23).
     func paneController(for pane: PaneModel) -> PaneController? {
         for controller in windows.controllers {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
-        return nil
+        return windows.controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
     }
 
     /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is

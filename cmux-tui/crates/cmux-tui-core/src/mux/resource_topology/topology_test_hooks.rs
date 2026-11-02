@@ -11,6 +11,30 @@ impl Mux {
         *self.terminal_create_after_terminal_reservation.lock().unwrap() = hook;
     }
 
+    /// Runs `hook` in a terminal creation after its workspace exists and
+    /// before the terminal's durable reservation.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_create_after_workspace_reservation_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.terminal_create_after_workspace_reservation.lock().unwrap() = hook;
+    }
+
+    /// Runs `hook` in a reserved terminal spawn after the terminal is
+    /// durably running and before its surface joins the topology.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_ready_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        let hook = hook.map(|hook| {
+            let wrapped: TerminalSpawnBeforeCellPixelReconcileHook = Arc::new(move |_| hook());
+            wrapped
+        });
+        *self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = hook;
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failure_for_test(&self, enabled: bool) {
         self.workspace_registry.lock().unwrap().set_resource_patch_failure(enabled).unwrap();
