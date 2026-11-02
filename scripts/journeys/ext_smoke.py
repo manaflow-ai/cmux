@@ -123,6 +123,13 @@ def step_smoke_make_key(j, step):
     out = {"window": window, "reply": reply, "key_window_now": j.smoke_key_ok, "front_before": list(j.smoke_front_before)}
     if page:
         out["held_by_page"] = page
+    if not took:
+        # The app's windows as AppKit lists them (review of 37fb4ba6272): a key null with no key window, a key page
+        # and a key panel read the same in the focus reply; the record tells them apart.
+        try:
+            out["windows"] = _main_key(j)[1]
+        except D.StepError as error:
+            out["windows_error"] = str(error)[:200]
     return out
 
 
@@ -160,7 +167,10 @@ def step_smoke_type_now(j, step):
             raise D.StepError(f"the app has no main window to type in: {json.dumps(windows)[:200]}")
         if not _diagnostic(j):
             # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
-            how = ("the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
+            page = getattr(j, "smoke_key_page", None)
+            how = (f"smoke_make_key found the window's browser page key ({json.dumps(page)}), and no main window is key now"
+                   if page and getattr(j, "smoke_key_ok", False)
+                   else "the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
                    else f"debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}")
             front = _front_app()
             raise D.NotRun(GAP + f" ({how}; front app {front[0]!r} {front[1] or ''}; windows now {json.dumps(windows)[:200]})")
