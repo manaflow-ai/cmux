@@ -116,7 +116,9 @@ import Testing
         }
         for row in rows {
             let detail = row.detail?.stringValue ?? ""
-            #expect(!detail.isEmpty, "\"\(row.title.stringValue)\" shows no detail line")
+            // A blank page has no fact worth a line (Leo 2026-11-01: no "Tab" under "New Tab"); every other row has one.
+            let blank = row.title.stringValue == Strings.hoverCardNewTab
+            #expect(detail.isEmpty == blank, "\"\(row.title.stringValue)\" detail line: \"\(detail)\"")
             // The icon sits on its title's line (the middle of its capitals), not between the two lines.
             let font = try #require(row.title.font)
             let titleFrame = Self.frame(row.title, in: card)
@@ -144,9 +146,14 @@ import Testing
         for (row, tab) in zip(rows, tabs) {
             let labels = Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.filter { Self.shown($0) && !$0.stringValue.isEmpty }
                 .sorted { $0.frame.minY < $1.frame.minY }
+            let now = WorkspaceHoverCardFixture.now
+            // A tab with no fact worth a line (a blank page) shows its title alone.
+            if WorkspaceTabHoverCardLine(tab, style: .standard, now: now).detail.isEmpty {
+                #expect(labels.count == 1, "\(tab.title) shows a line with no fact: \(labels.map(\.stringValue))")
+                continue
+            }
             let detail = try #require(labels.dropFirst().first, "\(tab.title) shows no detail line")
             let text = detail.stringValue
-            let now = WorkspaceHoverCardFixture.now
             for field in [WorkspaceTabHoverCardStyle.Field.state, .time] {
                 if let word = WorkspaceTabHoverCardLine.text(field, of: tab, now: now) {
                     #expect(text.contains(word), "\(tab.title): \"\(text)\" lost \"\(word)\"")
@@ -163,12 +170,16 @@ import Testing
         }
     }
 
-    /// A blank page reads "New Tab", with no "about:blank" or "Blank page".
+    /// A blank page reads "New Tab", with no "about:blank" or "Blank page", and no bare kind word under it
+    /// (Leo 2026-11-01, on "New Tab" over "Tab": "these are not informative enough").
     @Test func aBlankPageReadsNewTab() {
         let line = WorkspaceTabHoverCardLine(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser), style: .standard,
                                              now: WorkspaceHoverCardFixture.now)
         #expect(WorkspaceTabHoverCardLine.title(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser)) == Strings.hoverCardNewTab)
-        #expect(line.detail == Strings.hoverCardKindBrowser)
+        #expect(line.detail.isEmpty)
+        let newTab = WorkspaceTabHoverCardLine(SidebarTab(id: TabID("n"), title: "New Tab", kind: .newTab), style: .standard,
+                                               now: WorkspaceHoverCardFixture.now)
+        #expect(newTab.detail.isEmpty, "\(newTab.detail)")
     }
 
     /// The place shortens from its middle and keeps its last path component.

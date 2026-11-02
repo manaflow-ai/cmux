@@ -17,6 +17,13 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
         case state
         /// How long ago the tab last had activity ("12m").
         case time
+        /// The model an agent chat runs on.
+        case model
+        /// The program a terminal runs now.
+        case command
+        /// Where an agent chat or terminal runs: "This Mac", "Cloud" or the machine's name (Leo
+        /// 2026-11-01: "local or nonlocal is probably useful to see in the hover previews").
+        case machine
     }
 
     /// What the card's top line holds.
@@ -39,7 +46,9 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     /// Two lines per tab (title over its detail line), or one (the detail after the title).
     var twoLines = true
     /// The detail line's facts, in order; empty facts are skipped. A row with none shows its kind.
-    var detail: [Field] = [.place, .state, .time]
+    var detail: [Field] = [.command, .place, .model, .state, .machine, .time]
+    /// Whether a tab on this Mac names it too ("This Mac"), or only a tab elsewhere names its machine.
+    var namesLocalMachine = true
     /// A text column at the row's trailing end, before the status mark; nil for none.
     var trailing: Field?
     /// Tabs listed under a muted kind label (terminals, agents, pages), each group in its tabs' order.
@@ -51,8 +60,8 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     /// The state word in its status color (needs input orange, error red).
     var tintsState = false
 
-    /// The shipped card: compact two-line rows (icon, title, one muted line: place · state · time) on one
-    /// text column, on the frosted glass.
+    /// The shipped card: compact two-line rows (icon, title, one muted line: command · place · model ·
+    /// state · machine · time, each when the tab has it) on one text column, on the frosted glass.
     static let standard = WorkspaceTabHoverCardStyle()
 
     /// A row's height: the title and detail lines plus a step above and below.
