@@ -454,7 +454,19 @@ def typed_terminal(builder, workspace_id, pane):
     terminal = next((t for t in tabs if t.get("kind") == "terminal" and t.get("selected")), None)
     if terminal is not None:
         return terminal
-    sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")  # the old rule
+    last = next((t for t in reversed(tabs) if t.get("kind") == "terminal"), None)
+    if last is None:
+        sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} has no terminal")
+    shown = next((t.get("kind") for t in tabs if t.get("selected")), None)
+    note(f"stress: the last pane shows a {shown}, not its terminal; selecting terminal {last['id']}")
+    builder.action("tab.focus", target=f"tab:{last['id']}", focus=False)
+
+    def selected():
+        return next((t for t in builder.tabs(workspace_id, pane["id"]) if t.get("id") == last["id"] and t.get("selected")), None)
+    shown_terminal = wait(selected, 20, step=0.1)
+    if shown_terminal is None:
+        sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} does not show terminal {last['id']}")
+    return shown_terminal
 
 
 def main():
