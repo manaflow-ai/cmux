@@ -11,9 +11,9 @@ import Foundation
 import Testing
 
 /// MQ6: `hostPressure.enabled` and `hibernation.compressedSnapshots` became the features
-/// `hostPressure` and `compressedSnapshots`. The readers read the launch's feature; each toggle is only its
-/// feature's local override, which the launch reads from the Debug Settings file as step 3
-/// (`FeatureLaunchLocalOverrides`), so `features.list` reports the value the code uses, with source `local`.
+/// `hostPressure` and `compressedSnapshots`. Each toggle is its feature's local override, which the launch reads
+/// from the Debug Settings file as step 3 (`FeatureLaunchLocalOverrides`); the host pressure indicator and its
+/// `features.list` row also read `hostPressure.enabled` live, so `features.list` reports the value the code uses.
 @MainActor @Suite(.serialized)
 struct HostPressureAndSnapshotFeatureTests {
     @Test func theFeatureDefaultsAreTheTogglesDefaults() {

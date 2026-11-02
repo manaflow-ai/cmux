@@ -7,8 +7,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// App services whose launch features have `hostPressure` on or off (`CMUX_ENABLE_FEATURES`), as the
-/// launch resolves it once; the Debug toggle `hostPressure.enabled` is read only by that launch.
+/// App services whose launch features have `hostPressure` on or off (`CMUX_ENABLE_FEATURES`); the Debug
+/// toggle `hostPressure.enabled` is read at launch and live, as the feature's local override.
 @MainActor private func hostPressureServices(_ on: Bool) -> AppServices {
     let overrides = FeatureOverrides(environmentEnabled: on ? [Feature.hostPressure.name] : [])
     return AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]),
