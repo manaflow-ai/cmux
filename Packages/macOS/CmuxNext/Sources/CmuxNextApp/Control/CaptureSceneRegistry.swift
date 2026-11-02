@@ -389,7 +389,7 @@ extension CaptureSceneRegistry {
         let listed = Set(services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue) ?? [])
         return .array(Self.sceneMachineIDs.map { id in
             let ws = Self.sceneWorkspace(id), session = services.machines.session(id)
-            let ordered = session.map { WindowManager.orderedIDs(of: $0.daemon, machines: services.machines).contains(ws) } ?? false
+            let ordered = session.map { WindowManager.orderedIDs(of: $0.daemon, machines: services.machines, doc: services.sidebarDoc).contains(ws) } ?? false
             let row = SidebarRowKey.workspace(WorkspaceID(ws))
             return .object([
                 "machine": .string(id), "in_store": .bool(session?.daemon.store.workspace(id: ws) != nil), "in_order": .bool(ordered),
