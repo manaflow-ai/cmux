@@ -3415,7 +3415,12 @@ jobs:
       # while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes
       # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
       # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
-      owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
+      # The all-nightly reservation is the first owned choice for the secret-free
+      # verify and DMG-image jobs. It is deliberately an exact capability check:
+      # an unset, stale or foreign value falls through to the normal owned picker.
+      # Release-pool signing jobs consume sign_owned instead and keep their
+      # existing keychain and claim contract.
+      owned: ${{ github.repository == 'manaflow-ai/cmux' && github.ref_name == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
       # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
       # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
@@ -6267,86 +6272,26 @@ jobs:
 
   # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
   # copies, if any: the newest build on the cmux NEXT feed when it is newer than
-  # the old feed's.
-  # Linux, seconds; the macOS job starts only when there is work.
-  # Read live capacity after the build/publication prerequisites, immediately before
-  # the legacy control. This picker holds only the routing App key, never release keys.
-  pick-legacy-identity-runner:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
-    if: &legacy-identity-enabled "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
-    environment: ci-routing-agent
-    continue-on-error: true
-    timeout-minutes: 8
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      runs_on: ${{ steps.place.outputs.linux_runner }}
-      overflow: ${{ steps.overflow.outputs.runner }}
-      alternate: ${{ steps.overflow.outputs.alternate }}
-      attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Checkout runner tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          sparse-checkout: scripts/ci
-      - name: Mint routing token for legacy capacity
-        id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-      - name: Place legacy identity target on live fleet Linux
-        id: place
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: legacy-identity-target
-          LINUX_ONLY: legacy-identity-target
-          REQUIRE_LIVE_CAPACITY: "1"
-          NIGHTLY: "1"
-          NIGHTLY_WAIT_FOR_FLEET: "1"
-          FLEET_LINUX: cmux-fleet-linux-x64
-          SIDE_LABEL: glaeda-side-light-xcode-26.6
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-      - name: Pick moving Linux overflow for legacy identity target
-        id: overflow
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          PLATFORM: linux
-          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/nightly_sign_runner.py
-
+  # the old feed's. Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     # The prepared NEXT artifact is a candidate before the main notarization.
     # The compatibility copy is deliberately post-publication: its independent
     # re-sign and notarization must never consume the signing cap or delay the
     # primary appcast. A pending continuation still uses the published feed path.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner, pick-legacy-identity-runner]
-    if: *legacy-identity-enabled
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
+    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # Only for the release App credentials (CMUX_RELEASE_APP_*), which live in this environment;
     # it runs only on nightly-next, the environment's one deployment branch.
     environment: release-next
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
-    # Fresh fleet observation per attempt, then moving paid overflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.runs_on || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.overflow || needs.pick-legacy-identity-runner.outputs.alternate || github.run_attempt > 1 && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The signer route (signer-app, signer-dmg): GitHub-hosted Ubuntu first, Blacksmith Linux 4 vCPU on a
+    # re-run. A 14-20 s feed compare that picks the signing job's build, on the feed's path: its fleet-Linux
+    # picker waited its whole three minutes and then sent it to Blacksmith 4 vCPU in every run (runs
+    # 41412703950..41418619409, 2026-11-02: 3.2-3.4 min, about 28 runner reads). The rulebook's measured
+    # exception for signing and its picks (Leo, 2026-11-01: "surely github has linux hosted we can just use").
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 65
     permissions:
       contents: read
