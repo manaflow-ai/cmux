@@ -265,7 +265,7 @@ impl Mux {
         icon: Option<String>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let name = name.unwrap_or_default();
-        let color = color.unwrap_or_else(|| "grey".to_string());
+        let color = color.unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         validate_workspace_group_id(&id)?;

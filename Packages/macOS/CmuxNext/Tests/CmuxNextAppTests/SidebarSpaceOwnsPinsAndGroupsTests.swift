@@ -349,7 +349,7 @@ import Testing
     /// New Group stores the window's space on the group.
     @Test func aNewGroupStoresTheWindowsSpace() throws {
         let store = SidebarDocStore(remote: nil, mirror: nil)
-        let intent = SidebarIntent.createGroup(GroupID("grp_new"), name: "New", color: .blue, workspaces: [])
+        let intent = SidebarIntent.createGroup(GroupID("grp_new"), name: "New", color: .palette(.blue), workspaces: [])
         let ops = try #require(store.groupOps(intent, room: Self.work, items: { _ in [] })?.ops)
         #expect(ops.first?["profile"] as? String == Self.work, "\(ops)")
     }
