@@ -305,6 +305,49 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
     Some(value.to_string())
 }
 
+/// Daemon protocol rows carry an agent session nested under `agent_session`;
+/// ordinary daemon `session` fields identify the terminal and must remain.
+pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<String> {
+    if !state.available {
+        return None;
+    }
+    if !state.configured {
+        return Some(message.to_owned());
+    }
+    let mut value: Value = serde_json::from_str(message).ok()?;
+    fn clean(value: &mut Value, state: &SessionExposure) {
+        match value {
+            Value::Object(object) => {
+                for rows in object.values_mut() {
+                    clean(rows, state);
+                }
+            }
+            Value::Array(items) => items.retain(|item| {
+                let Some(id) = item.pointer("/agent_session/session").and_then(Value::as_str) else {
+                    return true;
+                };
+                !state.blocked.contains(id)
+            }),
+            _ => {}
+        }
+    }
+    clean(&mut value, state);
+    Some(value.to_string())
+}
+
+pub fn daemon_request_blocked(message: &str, state: &SessionExposure) -> bool {
+    if !state.available {
+        return true;
+    }
+    state.configured
+        && serde_json::from_str::<Value>(message).ok().is_some_and(|value| {
+            value
+                .pointer("/agent_session/session")
+                .and_then(Value::as_str)
+                .is_some_and(|id| state.blocked.contains(id))
+        })
+}
+
 /// The refusal for a control request on a session whose current mode (acpmux
 /// `_acpmux/info` `currentModeId`) does not ask; None when it asks or is unknown
 /// (acpmux's own guard decides then).

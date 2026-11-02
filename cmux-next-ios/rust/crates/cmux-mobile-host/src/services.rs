@@ -585,7 +585,7 @@ async fn splice(
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
-    let exposure_state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+    let daemon_exposure = exposure.clone();
     let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
@@ -603,9 +603,12 @@ async fn splice(
                     let line = if matches!(reply_policy, LinePolicy::Daemon(_)) {
                         let body = line.strip_suffix(b"\n").unwrap_or(&line);
                         if serde_json::from_slice::<Value>(body).is_ok() {
-                            match crate::acpmux_policy::filter_response(
+                            match crate::acpmux_policy::filter_daemon_response(
                                 &String::from_utf8_lossy(body),
-                                &exposure_state,
+                                &daemon_exposure
+                                    .as_ref()
+                                    .map(|receiver| receiver.borrow().clone())
+                                    .unwrap_or_default(),
                                 &HashSet::new(),
                             ) {
                                 Some(filtered) => format!("{filtered}\n").into_bytes(),
@@ -728,6 +731,19 @@ async fn splice(
                     line.pop();
                 }
                 if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                let exposure_state =
+                    daemon_exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                if crate::acpmux_policy::daemon_request_blocked(
+                    &String::from_utf8_lossy(&line),
+                    &exposure_state,
+                ) {
+                    let mut answer = b"{\"error\":\"chat is not exposed\"}".to_vec();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
                     continue;
                 }
                 let (verdict, canonical) = policy.evaluate(&line);
