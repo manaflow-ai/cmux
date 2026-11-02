@@ -396,7 +396,28 @@ public final class MainThreadWatchdog: Sendable {
 
     // MARK: - Watchdog thread
 
+    /// Publishes one sample for the main thread to read when its stall ends (``recordStall``): the CEF pump state,
+    /// the running task, the startup tag, the frame count and the beat. It runs while the main thread is suspended,
+    /// so atomics only and no first use of anything (``ThreadStackSampler`` says why). Watchdog thread only.
+    private func publishSample(board: MainTaskBoard?, crashKeys: CrashKeySlots?, trace: TraceRuntime?, count: Int, beat: UInt64) {
+        publishedInCEFPump.store(Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0,
+                                                pumpKey: trace?.crashKey(.inCEFPump) ?? 0), ordering: .relaxed)
+        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
+        publishedTaskPacked.store(task.packed, ordering: .relaxed)
+        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
+        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        let startup = StartupStallTag(startupTasks?.read())
+        publishedStartupTask.store(startup.task, ordering: .relaxed)
+        publishedStartupState.store(startup.state, ordering: .relaxed)
+        publishedSampleCount.store(count, ordering: .relaxed)
+        publishedSampleBeat.store(beat, ordering: .releasing)
+    }
+
     func watch(sampler: ThreadStackSampler?) {
+        // Once with no objects and the beat no stall has, while nothing is suspended: its first suspended call
+        // then fills no Swift runtime cache (a Debug build's generic atomics, the startup tag and its conversions
+        // resolve their metadata and witness tables on first use; #32463). Every reader checks the beat first.
+        publishSample(board: nil, crashKeys: nil, trace: nil, count: 0, beat: .max)
         var sampledBeat: UInt64 = .max
         var sampledTask: UInt64 = 0, reportedScope: UInt64 = 0
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
@@ -432,18 +453,12 @@ public final class MainThreadWatchdog: Sendable {
                     let board = boardSink.withLock { $0 }, crashKeys = threadHangs?.crashKeys, trace = threadHangs?.trace
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
+                    // The reads the suspended publication makes, once here while nothing is suspended: a first use
+                    // of these objects fills no Swift runtime cache while the main thread is stopped (#32463).
+                    _ = Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0, pumpKey: trace?.crashKey(.inCEFPump) ?? 0)
+                    _ = board?.runningPacked
                     _ = sampler.sample { count in
-                        publishedInCEFPump.store(Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0,
-                                                                pumpKey: trace?.crashKey(.inCEFPump) ?? 0), ordering: .relaxed)
-                        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
-                        publishedTaskPacked.store(task.packed, ordering: .relaxed)
-                        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
-                        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
-                        let startup = StartupStallTag(startupTasks?.read())
-                        publishedStartupTask.store(startup.task, ordering: .relaxed)
-                        publishedStartupState.store(startup.state, ordering: .relaxed)
-                        publishedSampleCount.store(count, ordering: .relaxed)
-                        publishedSampleBeat.store(beat, ordering: .releasing)
+                        publishSample(board: board, crashKeys: crashKeys, trace: trace, count: count, beat: beat)
                     }
                     #if DEBUG
                     afterSampleForTesting.withLock { $0 }?()
