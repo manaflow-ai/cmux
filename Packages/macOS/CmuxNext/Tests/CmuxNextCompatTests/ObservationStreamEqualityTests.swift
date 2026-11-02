@@ -1,0 +1,49 @@
+@testable import CmuxNextCompat
+import Observation
+import Testing
+
+/// REOPEN-F7 (launch stalls, feat 287ad03, 20 warm reopens): right after the first window was built, 26-31 ms of
+/// main-thread work ran before the first window frame's mark, most of it in `ObservationStream.makeAsyncIterator`
+/// asking the runtime whether each stream's element is `Equatable` (a conformance lookup that scans the binary's
+/// conformance records the first time per type). An `Equatable` element is known to be one where the stream is made:
+/// its stream must ask the runtime nothing, and still skip an equal value.
+@MainActor
+@Suite struct ObservationStreamEqualityTests {
+    struct Count: Equatable, Sendable { var value: Int }
+    struct Opaque: Sendable { var value: Int }
+
+    @MainActor @Observable final class Box {
+        var count = Count(value: 0)
+        var opaque = Opaque(value: 0)
+    }
+
+    @Test func anEquatableStreamAsksTheRuntimeNothing() async {
+        let box = Box()
+        let stream = ObservationStream({ box.count })
+        #expect(!stream.looksUpEqualityAtRunTime, "the stream looks up Equatable at run time for an element known to be Equatable")
+        var values = stream.makeAsyncIterator()
+        #expect(await values.next() == Count(value: 0))
+    }
+
+    @Test func anEquatableStreamStillSkipsAnEqualValue() async {
+        let box = Box()
+        var values = ObservationStream({ box.count }).makeAsyncIterator()
+        #expect(await values.next() == Count(value: 0))
+        Task { @MainActor in
+            box.count = Count(value: 0) // equal: wakes no consumer
+            await Task.yield()
+            box.count = Count(value: 1)
+        }
+        #expect(await values.next() == Count(value: 1))
+    }
+
+    @Test func aStreamOfAnotherElementEmitsEveryValueAsBefore() async {
+        let box = Box()
+        let stream = ObservationStream({ box.opaque })
+        #expect(stream.looksUpEqualityAtRunTime)
+        var values = stream.makeAsyncIterator()
+        #expect(await values.next()?.value == 0)
+        Task { @MainActor in box.opaque = Opaque(value: 0) }
+        #expect(await values.next()?.value == 0, "a value that is not Equatable is emitted on every change")
+    }
+}

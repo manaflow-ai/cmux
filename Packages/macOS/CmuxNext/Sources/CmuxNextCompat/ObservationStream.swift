@@ -113,6 +113,9 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         return (value, ObservationStream(emit, primed: Primed(state: state, value: value)))
     }
 
+    /// Whether iteration asks the runtime if `Element` is `Equatable` (`equality()`): every stream does.
+    var looksUpEqualityAtRunTime: Bool { true }
+
     public func makeAsyncIterator() -> Iterator {
         if let primed, primed.once.take() {
             return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), isEqual: Self.equality(), last: primed.value)
