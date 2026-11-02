@@ -73,9 +73,8 @@ pub async fn run(cmd: GroupCmd, json_out: bool) -> Result<()> {
                      with `acpmux new --group {group}` or `cmux agent open {id} --group {group}`"
                 )
             })?;
-            let made =
-                cmux_json(&["workspace", "group", "create", "--name", &group, "--reuse"])
-                    .or_else(|_| find_or_make(&group))?;
+            let made = cmux_json(&["workspace", "group", "create", "--name", &group, "--reuse"])
+                .or_else(|_| find_or_make(&group))?;
             let made = made.get("value").unwrap_or(&made);
             let gid = made["id"].as_str().context("cmux named no group id")?;
             cmux_json(&["workspace", "group", gid, "add", "--workspace", &workspace])?;
@@ -92,7 +91,14 @@ pub async fn run(cmd: GroupCmd, json_out: bool) -> Result<()> {
             if apply {
                 for merge in &plan {
                     for workspace in &merge.members {
-                        cmux_json(&["workspace", "group", &merge.into, "add", "--workspace", workspace])?;
+                        cmux_json(&[
+                            "workspace",
+                            "group",
+                            &merge.into,
+                            "add",
+                            "--workspace",
+                            workspace,
+                        ])?;
                     }
                     if merge.unmovable == 0 {
                         cmux_json(&["workspace", "group", &merge.from, "delete"])?;
@@ -100,7 +106,9 @@ pub async fn run(cmd: GroupCmd, json_out: bool) -> Result<()> {
                 }
             }
             if json_out {
-                print_json(&json!({"applied": apply, "merges": plan.iter().map(Merge::json).collect::<Vec<_>>()}));
+                print_json(
+                    &json!({"applied": apply, "merges": plan.iter().map(Merge::json).collect::<Vec<_>>()}),
+                );
             } else if plan.is_empty() {
                 println!("no space has two groups of one name");
             } else {
@@ -217,8 +225,7 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
         let Some(same) = named.get(&key).filter(|same| same.len() > 1) else {
             continue;
         };
-        let Some(kept) = same.iter().find(|group| group["pinned"] == true).or(same.first())
-        else {
+        let Some(kept) = same.iter().find(|group| group["pinned"] == true).or(same.first()) else {
             continue;
         };
         let into = kept["id"].as_str().unwrap_or_default();
@@ -227,7 +234,9 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
             let members = members_of(placements, from);
             let movable: Vec<String> = members
                 .iter()
-                .filter_map(|placement| placement.pointer("/workspace/workspace_id").and_then(Value::as_str))
+                .filter_map(|placement| {
+                    placement.pointer("/workspace/workspace_id").and_then(Value::as_str)
+                })
                 .map(str::to_owned)
                 .collect();
             plan.push(Merge {
@@ -247,7 +256,9 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
 pub(crate) fn workspace_of(placements: &[Value], key: &str) -> Option<String> {
     placements
         .iter()
-        .filter(|placement| placement.pointer("/workspace/workspace_ref").and_then(Value::as_str) == Some(key))
+        .filter(|placement| {
+            placement.pointer("/workspace/workspace_ref").and_then(Value::as_str) == Some(key)
+        })
         .find_map(|placement| placement.pointer("/workspace/workspace_id").and_then(Value::as_str))
         .map(str::to_owned)
 }
