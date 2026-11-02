@@ -284,7 +284,7 @@ final class CloudService {
     /// harness login goes only to such a machine (``CloudCredentialTransfer``).
     func callerOwnsVM(_ machineID: String) async throws -> Bool {
         guard configuration.linkSource == .appServer else {
-            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).callerOwnsVM
         }
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil
