@@ -253,9 +253,7 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     const empty = rows
       .filter((row) => !row.footer)
       .filter((row) =>
-        row.height <= 1
-          ? row.content > 1
-          : row.content === 0 || (row.height > 40 && row.height - row.content > 40),
+        row.height <= 1 ? row.content > 1 : row.content === 0 || (row.height > 40 && row.height - row.content > 40),
       )
       .map((row) => `${row.id} is ${Math.round(row.height)}px with ${Math.round(row.content)}px drawn`);
     const gapBetween = (after: string, before: string) =>

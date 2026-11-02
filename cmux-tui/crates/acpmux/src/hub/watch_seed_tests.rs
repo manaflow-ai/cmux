@@ -139,7 +139,8 @@ async fn missing_claude_transcript_retries_native_history_seed_when_it_reappears
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
         "defaultHarness": "fake",
-    })).unwrap();
+    }))
+    .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
@@ -173,13 +174,23 @@ async fn missing_claude_transcript_retries_native_history_seed_when_it_reappears
     // More than PAGE_TURNS real Claude turns make a nonzero newest-page start.
     let mut transcript = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
     for n in 0..240 {
-        writeln!(transcript, "{}", json!({
-            "type": "user", "message": {"role": "user", "content": format!("prompt {n}")}
-        })).unwrap();
-        writeln!(transcript, "{}", json!({
-            "type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": format!("answer {n}")}]}
-        })).unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            json!({
+                "type": "user", "message": {"role": "user", "content": format!("prompt {n}")}
+            })
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            json!({
+                "type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": format!("answer {n}")}]}
+            })
+        )
+        .unwrap();
     }
     transcript.flush().unwrap();
     drop(transcript);

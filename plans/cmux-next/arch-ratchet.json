@@ -801,6 +801,16 @@
       "owner": "cloud refresh implementation",
       "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 1,
+      "why": "AppServices+WindowHomeHost.swift windowHomeRoom (+1 line, MW-1b, PR #31844): the one-line host forward that tells WindowHomes (CmuxNextHomeEngine) its window's space, so a window's own Home is pinned there before its create. The pin and its retry live in CmuxNextHomeEngine/WindowHomes.swift; the forward reads App-only WindowManager.states, so it stays with the other WindowHomeHost forwards. showHome stays unchanged (its source is a tunable the defaults guard watches).",
+      "author": "mw1-fix (agent)",
+      "owner": "mw1-fix (agent)",
+      "receipt": "Review (independent review subagent): SHIP at 44af799ec686c6f92be23745d25498e581791626",
+      "expiry": "2026-12-31"
     }
   ],
   "escape_reviews": [
