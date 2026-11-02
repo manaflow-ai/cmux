@@ -209,7 +209,7 @@ fn a_snapshot_in_full_mode_removes_a_tail_left_from_snapshot_mode() {
     let directory = directory("full-mode");
     let log = log(b"");
     super::super::tail::append(&directory, &log.terminal_id, "g", 0, 0, b"old", false).unwrap();
-    snapshot_written(&directory, &log, false, 9, (80, 24), &Arc::from("g"), 3);
+    snapshot_written(&directory, &log, false, 9, (80, 24), &Arc::from("g"), 3, 0);
     let left = super::super::tail::path(&directory, &log.terminal_id).exists();
     let _ = std::fs::remove_dir_all(&directory);
     assert!(!left, "the tail of snapshot mode outlived a full-mode snapshot");
@@ -382,10 +382,32 @@ fn a_drop_during_a_snapshot_write_still_asks_for_a_snapshot() {
     }
     // The snapshot's capture ended at 6; then a flood crossed the cap.
     store.append(&id, &generation, &vec![b'x'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1], None);
-    snapshot_written(&directory, &log, true, 9, (80, 24), &generation, 6);
+    snapshot_written(&directory, &log, true, 9, (80, 24), &generation, 6, 0);
     let retry = log.state.lock().unwrap().snapshot_retry_in();
     let _ = std::fs::remove_dir_all(&directory);
     assert!(retry.is_some(), "the dropped bytes are in no snapshot, and none is asked for");
+}
+
+/// A host reconnect (`stream_gap`) while a snapshot of the old screen is
+/// being written must still bring a snapshot of the replaced screen: the
+/// stream offset did not move (the gap's bytes never came through append),
+/// so the write must not clear the request (review of #31931).
+#[test]
+fn a_reconnect_during_a_snapshot_write_still_asks_for_a_snapshot() {
+    let directory = directory("gap-during-write");
+    let store = OutputStore::new(None);
+    store.set_tail_enabled(true);
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3f").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append(&id, &generation, b"old screen", None);
+    let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
+    // The pass captured the old screen at offset 10; the reconnect replaces
+    // the terminal before the pass records its snapshot.
+    store.stream_gap(&id);
+    snapshot_written(&directory, &log, true, 9, (80, 24), &generation, 10, 0);
+    let retry = log.state.lock().unwrap().snapshot_retry_in();
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(retry.is_some(), "the snapshot of the old screen cleared the reconnect's request");
 }
 
 /// An unfinished Kitty image upload changes nothing the content digest sees
