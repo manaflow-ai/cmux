@@ -93,9 +93,26 @@ def owned(runner: str) -> bool:
     return re.fullmatch(r'[a-zA-Z0-9._-]+-(?:glaeda(?:-[0-9]+)?|nightly-next)', runner) is not None
 
 
-def dedicated(runner: str) -> bool:
-    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name)."""
-    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None
+def nightly_only(runner: str) -> bool:
+    """A runner of the dedicated nightly-only M4 Pro minis (<member>-glaeda-nightly-only-K)."""
+    return re.fullmatch(r'[a-zA-Z0-9._-]+-glaeda-nightly-only-[0-9]+', runner) is not None
+
+
+def dedicated(runner: str, builder: bool = False) -> bool:
+    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name), or a nightly-only
+    runner the build reached through the warm builder label (`builder`, NIGHTLY_ONLY_BUILDER=true), which only
+    build-nightly-app asks for: one runner per mini carries it. The other nightly-only runners keep nothing,
+    so five per mini never hold five copies of this state. Without it the builder restored Swift packages
+    from R2 and built from empty DerivedData on every head (282 s and 1011 s, run 41340244486)."""
+    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None or (builder and nightly_only(runner))
+
+
+def keeps_state(runner: str, builder: bool = False) -> bool:
+    return owned(runner) or dedicated(runner, builder)
+
+
+def builder_label() -> bool:
+    return os.environ.get('NIGHTLY_ONLY_BUILDER', '') == 'true'
 
 
 def git(workspace: Path, *args: str) -> str:
@@ -227,9 +244,11 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
 
 
 def mark_built(workspace: Path, home: Path, runner: str) -> bool:
-    """Record that the build prepared on this workspace finished, so the next one may build on it."""
+    """Record that the build prepared on this workspace finished, so the next one may build on it. A nightly-only
+    runner kept DerivedData only when prepare saw the builder label, so it needs no flag here: the link below
+    exists only then (the workflow step runs only when prepare chose a mode)."""
     derived = workspace / 'build-universal'
-    if not dedicated(runner) or not derived.is_symlink():
+    if not dedicated(runner, builder=nightly_only(runner)) or not derived.is_symlink():
         return False
     state_file = derived.resolve().parent / INCREMENTAL_STATE
     if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
@@ -303,15 +322,15 @@ def notices_cache(home: Path, runner: str) -> Path:
     return cache
 
 
-def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
-    if not owned(runner) or track != 'nightly-next':
+def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str, builder: bool = False) -> bool:
+    if not keeps_state(runner, builder) or track != 'nightly-next':
         return False
     runner_state = home / STATE_ROOT / runner
     derived = workspace / 'build-universal'
     remove(derived)
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
     incremental = None
-    if dedicated(runner):
+    if dedicated(runner, builder):
         try:
             incremental = prepare_incremental(workspace, runner_state, identity, input_key(workspace, toolchain))
         except (OSError, ValueError, subprocess.CalledProcessError) as error:
@@ -340,11 +359,11 @@ def main(argv: list[str]) -> int:
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
-        if owned(runner) and argv[2] == 'nightly-next':
+        if keeps_state(runner, builder_label()) and argv[2] == 'nightly-next':
             toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
             toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
             toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
-            if prepare(workspace, Path.home(), runner, argv[2], toolchain):
+            if prepare(workspace, Path.home(), runner, argv[2], toolchain, builder_label()):
                 cache = notices_cache(Path.home(), runner)
                 print(f'NEXT third-party notices read crate sources kept in {cache}')
                 github_env = os.environ.get('GITHUB_ENV')

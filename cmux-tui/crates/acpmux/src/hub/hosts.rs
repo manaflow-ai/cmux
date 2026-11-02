@@ -30,10 +30,11 @@ pub(super) struct OpenWork {
     /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
     /// for an older record.
     turn_line: Option<String>,
+    turn_trigger: bool,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
-    /// The person's own prompt started that turn (`turn_started` `persons`, `inbox.rs`).
+    /// The person's own prompt started this turn (`turn_started` `persons`).
     turn_persons: bool,
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
@@ -482,6 +483,9 @@ impl Hub {
             return Ok(());
         }
         let resume_after = self.last_host_seq(session, &record.incarnation);
+        // The subagents the host still runs, before its first replayed line reaches the tap:
+        // a child's line is tagged with its session from the first one (`work_below.rs`).
+        self.seed_subagents_from_log(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
@@ -532,6 +536,8 @@ impl Hub {
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
+        self.restore_launch(session, &child, &incarnation);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -883,7 +889,6 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
-                    // The open turn is still the person's own on a new harness (`turn_started`).
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -912,9 +917,10 @@ impl Hub {
                     ));
                     work.turn_line =
                         e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
+                    work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
-                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.carry_next = None;
                     work.next_raised = false;
                     work.heard_at = 0;
@@ -1158,6 +1164,7 @@ impl Hub {
             if let Some(line) = &work.turn_line {
                 turn.show(line);
             }
+            turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
@@ -1182,7 +1189,7 @@ impl Hub {
                 // it): nothing can answer it any more.
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
-                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error, "trigger": work.turn_trigger}));
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
@@ -1198,6 +1205,7 @@ impl Hub {
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     *session.turn.lock().unwrap() = Some(TurnInfo {
+                        trigger: work.turn_trigger,
                         started_at,
                         client,
                         masked_preview: super::auto_resume::shown_line(&line),
@@ -1213,6 +1221,9 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                     });
+                    if work.turn_trigger {
+                        self.restore_trigger_background(session, &turn_id);
+                    }
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
@@ -1269,7 +1280,17 @@ impl Hub {
                         }
                         let next = carried.as_deref();
                         let mut result = hub
-                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
+                            .finish_turn(
+                                &s,
+                                &c,
+                                result,
+                                &prompt_id,
+                                &turn_id,
+                                turn_seq,
+                                None,
+                                work.turn_trigger,
+                                next,
+                            )
                             .await;
                         if let Ok(value) = &mut result {
                             super::merge_mux_meta(
@@ -1805,7 +1826,9 @@ impl Hub {
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
-        let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        let servers =
+            LaunchServers::read(&launch, meta.family.clone().unwrap_or_default(), profile.kind)
+                .await;
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
@@ -1968,18 +1991,8 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.
             turn_open
-                // Every subagent the log starts, which a later turn's update may belong to
-                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
-                // a `spawnAgent` call or a `_meta.codex.subagent` object).
-                || matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
-                )
-                || (matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "tool_call" | "tool_call_update"
-                ) && (head.may_contain(b"\"spawnAgent\"")
-                    || head.may_contain(b"\"subagent\":{")))
+                // Every subagent the log starts, which a later turn's update may belong to.
+                || super::work_below::names_subagents(head)
                 // An agent request (an `id` and a `method`), answered or not.
                 || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
         }

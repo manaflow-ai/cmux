@@ -225,6 +225,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
                 "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
+            // `maxRowsPerCard`.
+            card("settings.pageGroup.sidebarLayout", "Sidebar Layout", [
+                "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
+            ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
                 "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
@@ -339,6 +344,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.chiefEngine"),
             // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
             group("settings.group.chiefReactions"),
+            // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
+            group("settings.group.chiefSubagents"),
         ],
         lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices])
 

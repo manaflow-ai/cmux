@@ -4,11 +4,11 @@ import Foundation
 /// "Restart cmux-tui" (cx-jniyz.1): `server ensure --replace-unresponsive`
 /// stops a session owner that accepts connections but never answers, then
 /// ensures as usual (status `replaced`, or `running`/`started` when nothing
-/// was stuck). The verb cannot tell a stuck owner from one still restoring,
-/// so the app offers it only after a plain ensure failed the way a stuck owner
-/// makes it fail (``EnsureOutcome``): the daemon's restore bound passed, or no
-/// answer. The owner's terminal hosts survive a replace and the next owner
-/// adopts them.
+/// was stuck). The app offers it once a plain ensure failed (``EnsureOutcome``),
+/// so the person has a way out whatever stopped the start (a full disk too, restore
+/// fuzz h2); it restarts by itself only after ensures failed the way a stuck owner
+/// makes them fail (the daemon's restore bound passed, or no answer). The owner's
+/// terminal hosts survive a replace and the next owner adopts them.
 extension DaemonLauncher {
     /// `server ensure --replace-unresponsive` refused (exit 3, `server.replace_*`):
     /// the owner was not stopped.
@@ -58,7 +58,10 @@ extension DaemonLauncher {
             return ensured
         } catch {
             // A cancelled ensure (its connection torn down, or shutdown) says nothing about the owner.
-            if !Task.isCancelled, !(error is CancellationError) { ensureOutcome.note(error) }
+            if !Task.isCancelled, !(error is CancellationError) {
+                let free = DaemonStartFailure.freeBytes(at: configuration.stateDirectory ?? configuration.runtimeBase)
+                ensureOutcome.note(error, freeBytes: free)
+            }
             throw error
         }
     }
@@ -80,22 +83,26 @@ extension DaemonLauncher {
 
     /// True for a plain ensure failure a stuck owner causes: the restore bound
     /// passed (`server.restore_timeout`), the ensure itself got no answer in
-    /// time, or no owner became ready (`server.unavailable`).
+    /// time, no owner became ready (`server.unavailable`), or the owner refused
+    /// every connection at its connection limit (`server.busy`, issue 22311).
     static func isStuckOwnerFailure(_ error: any Error) -> Bool {
         switch error as? DaemonError {
         case .sessionRestoreTimedOut?, .timedOut?: true
-        case .launchFailed(let detail)?: detail.contains("\"server.unavailable\"")
+        case .launchFailed(let detail)?:
+            detail.contains("\"server.unavailable\"") || detail.contains("\"server.busy\"")
         default: false
         }
     }
 }
 
-/// Whether the launcher's last `server ensure` failed the way a stuck owner
-/// makes it fail (``DaemonLauncher/isStuckOwnerFailure(_:)``), the gate of
-/// "Restart cmux-tui". Shared by every copy of one launcher.
+/// How the launcher's last `server ensure` ended: whether it failed (``failure``, the gate of
+/// "Restart cmux-tui" while no daemon runs, restore fuzz h2) and whether it failed the way a stuck
+/// owner makes it fail (``DaemonLauncher/isStuckOwnerFailure(_:)``, the automatic restart's
+/// input). Shared by every copy of one launcher.
 public final class EnsureOutcome: Sendable {
     private struct State {
         var ownerLooksStuck = false
+        var failure: DaemonStartFailure?
         var observer: (@MainActor @Sendable () -> Void)?
         /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
         var watch: UnresponsiveOwnerWatch?
@@ -108,7 +115,10 @@ public final class EnsureOutcome: Sendable {
     /// The last ensure failed as a stuck owner makes it fail; false after one that succeeded.
     public var ownerLooksStuck: Bool { state.withLock { $0.ownerLooksStuck } }
 
-    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck``.
+    /// Why the last ensure failed; nil after one that succeeded (or before any ran).
+    public var failure: DaemonStartFailure? { state.withLock { $0.failure } }
+
+    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck`` or ``failure``.
     public func observe(_ observer: @escaping @MainActor @Sendable () -> Void) {
         state.withLock { $0.observer = observer }
     }
@@ -119,11 +129,14 @@ public final class EnsureOutcome: Sendable {
     }
 
     /// Records how an ensure ended (nil: it succeeded, finding or starting the owner `pid`).
-    func note(_ error: (any Error)?, pid: Int32? = nil) {
+    /// `freeBytes`: the free space on the state's volume after a failure (nil: unknown).
+    func note(_ error: (any Error)?, pid: Int32? = nil, freeBytes: UInt64? = nil) {
         let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
+        let failure = error.map { DaemonStartFailure($0, freeBytes: freeBytes) }
         let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
-            guard state.ownerLooksStuck != stuck else { return (nil, state.watch) }
+            guard state.ownerLooksStuck != stuck || state.failure != failure else { return (nil, state.watch) }
             state.ownerLooksStuck = stuck
+            state.failure = failure
             return (state.observer, state.watch)
         }
         watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))

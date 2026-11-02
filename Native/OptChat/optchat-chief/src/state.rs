@@ -83,6 +83,10 @@ pub struct HostState {
     /// a reply posts, the owner stops its turn, or the failure note posts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub awaiting: Vec<Awaiting>,
+    /// Messages closed by the most recent owner Stop, until another message
+    /// or turn. Explicit Continue alone reopens them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_reply: Option<StoppedReply>,
     /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -556,6 +560,9 @@ pub struct QueuedLaunch {
     /// account hit a usage limit); None: the engine of now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
+    /// The model its spawn chose (`spawn(model)`); None: the engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1285,4 +1292,11 @@ pub struct Awaiting {
     /// error, a refused post), for the retry note and the failure note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+}
+
+/// The stopped reply batch retains the original turn's permission floor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StoppedReply {
+    pub messages: Vec<Awaiting>,
+    pub requires_approval: bool,
 }

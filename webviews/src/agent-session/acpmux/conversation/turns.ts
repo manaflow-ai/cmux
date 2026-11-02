@@ -30,6 +30,7 @@ import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
+import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -163,8 +164,9 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
+  firstVisible?: number;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
-  ends: { count: number; row: AcpmuxRow | undefined }[];
+  ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
   rows: AcpmuxRow[];
 };
 
@@ -173,6 +175,10 @@ export type TurnView = {
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
+
+const firstDateUnchanged = (view: TurnView, now: number) =>
+  view.firstVisible === undefined ||
+  showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
@@ -214,8 +220,7 @@ export function turnViewFrom(
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
     previous.waitingSteers === waitingSteers &&
-    (!previous.starts.length ||
-      showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
+    firstDateUnchanged(previous, now)
   )
     return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -240,9 +245,8 @@ export function turnViewFrom(
     }
     reuse = Math.max(0, reuse - 1);
   }
-  // The first turn's line depends on `now`.
-  if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
-    reuse = 0;
+  // The first visible turn's line depends on `now`.
+  if (reuse > 0 && !firstDateUnchanged(previous!, now)) reuse = 0;
   let reusedRows = 0;
   let index: number;
   let lead: number;
@@ -279,6 +283,9 @@ export function turnViewFrom(
     ends = [];
   }
   const first = starts.length;
+  let firstVisible =
+    previous?.firstVisible !== undefined && previous.firstVisible < first ? previous.firstVisible : undefined;
+  let visible = ends.at(-1)?.visible;
   const fromStart = lead === 0;
   const pending: AcpmuxRow[] = [];
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
@@ -298,7 +305,6 @@ export function turnViewFrom(
     }
     starts.push(start);
     const turn = { promptAt: rows[start]!.at, answerAt };
-    dated.push(showsTimestamp(turn, times.at(-1), now, fromStart));
     times.push(turn);
   }
   for (let at = first; at < starts.length; at += 1) {
@@ -307,6 +313,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
+    dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     const shaped = shapedTurn(
       rows,
       start,
@@ -331,8 +338,14 @@ export function turnViewFrom(
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
+    // Invisible turns cannot consume a gap or the first visible turn's age threshold. Store
+    // the preceding visible turn at each reusable boundary, avoiding a history scan per token.
+    if (drawn.some((row) => row.kind !== DATE && !isVisiblyEmptyMessage(row))) {
+      firstVisible ??= at;
+      visible = at;
+    } else dated[at] = false;
     for (const row of drawn) out.push(row);
-    ends.push({ count: out.length, row: out.at(-1) });
+    ends.push({ count: out.length, row: out.at(-1), visible });
   }
   return {
     source: rows,
@@ -351,6 +364,7 @@ export function turnViewFrom(
     starts,
     times,
     dated,
+    firstVisible,
     ends,
     rows: out,
   };
@@ -366,6 +380,8 @@ type ShapedTurn = {
   open: string;
   /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
   background: string;
+  /// Which of its message runs' lines are open (messageRuns.ts `openMessageRuns`).
+  messageRuns: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -409,11 +425,13 @@ function shapedTurn(
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
+  const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
     cached.background === background &&
+    cached.messageRuns === messageRuns &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
@@ -452,18 +470,22 @@ function shapedTurn(
   // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
   // measures zero. Only a wholly invisible completed turn is omitted below.
   const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
-  // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
-  // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
-  // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
+  // A sent prompt waiting for its turn to open draws the Thinking line already, also while its
+  // agent still starts (harnessSwitch): no "Starting Claude Code…" and no Cancel there (Leo,
+  // 2026-11-01: "i hate the "Starting Claude Code... cancel" thing that it starts with"; the
+  // composer's Stop takes the prompt back). The line never jumps from under the bubble to the
+  // turn's status row, nor leaves for a frame (cx-ncc.58).
   const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
   let shaped: AcpmuxRow[];
   if (waiting) {
-    const { status, queued } = user;
-    const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
-    if (status) Object.assign(line, { status, queued });
-    shaped = [...date, ...(status ? [{ ...user, status: undefined }] : drawnUser), line];
+    const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING };
+    // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts), with
+    // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
+    // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
+    if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
+    shaped = [...date, ...drawnUser, line];
   } else {
-    const body = shapeTurn(
+    const shapedBody = shapeTurn(
       user,
       turn,
       expanded,
@@ -477,6 +499,10 @@ function shapedTurn(
       lineBelow,
       agentFamily,
     );
+    // Where its runs fold, a run of them that carries messages between agents folds under one line
+    // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
+    const body =
+      liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -502,7 +528,18 @@ function shapedTurn(
     }
   }
   if (!live)
-    shapedTurns.set(user, { source, open, background, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+    shapedTurns.set(user, {
+      source,
+      open,
+      background,
+      messageRuns,
+      last,
+      clockOffset,
+      dated,
+      liveRuns,
+      agentFamily,
+      rows: shaped,
+    });
   return shaped;
 }
 
@@ -1451,6 +1488,19 @@ export function openViewTurnFold(
   return next;
 }
 
+/// The folds to open so `rows[index]`, which `drawn` leaves out, draws: its turn's "Worked for"
+/// (``turnFoldFor``) when that hides it, and the message run that holds it (messageRuns.ts), which
+/// may sit inside that fold. Find, a link and a running line's count open them all.
+export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly AcpmuxRow[], index: number): string[] {
+  const row = rows[index];
+  if (!row) return [];
+  const line = messageRunFoldFor(drawn, row.id);
+  if (line) return [line];
+  const turn = turnFoldFor(rows, index);
+  const run = messageRunRevealKey(drawn, row);
+  return [...(turn ? [turn] : []), ...(run ? [run] : [])];
+}
+
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
 /// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
 /// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only
@@ -1461,13 +1511,15 @@ export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
   messageRows: readonly string[],
-): { rowId: string; fold?: string } | undefined {
+): { rowId: string; fold?: string; run?: string } | undefined {
   const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
   if (places.length === 0) return undefined;
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
-  return { rowId: rows[at]!.id, fold: turnFoldFor(rows, at) };
+  // The turn's fold first, then the message run inside it (``hiddenRowFolds``).
+  const [fold, run] = hiddenRowFolds(rows, drawn, at);
+  return { rowId: rows[at]!.id, fold, ...(run && { run }) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward

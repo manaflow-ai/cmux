@@ -3,6 +3,9 @@ import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextPages
 import CmuxNextSidebar
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
@@ -29,9 +32,16 @@ final class AgentPageChats {
     /// run with no state folder, where New Tab pages list none.
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
-    var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    var sandboxRun: (@MainActor (String, String?, String, Bool) async -> [String: Any])?
+    /// The signed-in person's platform environment API, through the existing install mint and Rust transport.
+    var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
+    var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
+    /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
+    /// of these. A relaunched App has none, and a pick there does what it did before.
+    var cloudStarted: [String: AgentPaneCloudStarted] = [:]
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
@@ -74,15 +84,17 @@ final class AgentPageChats {
         }
     }
 
+    /// The cards follow their window (acpmux sorts and pages; only that window's changes push).
     func follow(_ feed: ChatsFeed, open: @escaping @MainActor (String) -> Void, views: @escaping @MainActor () -> [AgentPaneView]) {
         self.open = open
-        let push = { [weak self, weak feed] in
-            guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
+        let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
+        window.follow(self) { [weak self] rows in
+            guard let self else { return }
+            chats = Self.deviceChats(rows)
             for view in views() { view.deviceChats = chats }
         }
-        feed.observe(self) { push() }
-        push()
+        feed.windows.open(.newTabCards)
+        chats = Self.deviceChats(window.rows)
     }
 
     /// A new page starts with the current chats and closed items.
@@ -91,6 +103,8 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        view.model.sendIsIncognito = { [weak self, weak view] in view.flatMap { self?.runNotices?.sendIsIncognito($0) } ?? true }
+        view.model.onCloudEnvironment = cloudEnvironment
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
@@ -106,6 +120,13 @@ final class AgentPageChats {
         } else {
             view.model.onCloudStartChat = nil
         }
+        if let run = cloudRepick {
+            view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
+                await run(view, repick)
+            }
+        } else {
+            view.model.onCloudRepickChat = nil
+        }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -117,12 +138,22 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
+        tabs.pageChats.cloudEnvironment = { [weak services] request in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            return await request.run(
+                allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                    let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
+                    return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
+                }
+        }
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
-        tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
+        tabs.pageChats.sandboxRun = { [weak services] task, agent, key, incognito in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
             // refusal, nothing was asked of the server.
@@ -138,7 +169,7 @@ final class AgentPageChats {
             let team = await services.cloud.api.currentTeam()
             let api = services.cloud.api.pinningTeam(team)
             let follow: @Sendable (String) async throws -> Data = { id in
-                try await notices.follow(id: id, task: task, key: key, team: team)
+                try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }
             return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
