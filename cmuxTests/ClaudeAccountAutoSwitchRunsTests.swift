@@ -111,6 +111,25 @@ struct ClaudeAccountAutoSwitchRunsTests {
         #expect(!operation.sawCancellation)
     }
 
+    /// The coordinator learns of a close only through the pane: closing it must cancel the run
+    /// the shared coordinator holds for it.
+    @Test func closingThePaneCancelsItsAutomaticSwitch() async throws {
+        let workspace = Workspace()
+        let first = try #require(workspace.focusedTerminalPanel)
+        let closing = try #require(workspace.newTerminalSplit(from: first.id, orientation: .horizontal, focus: false))
+        let runs = ClaudeAccountAutoSwitchCoordinator.shared.runs
+        let operation = Operation()
+        let task = try #require(runs.start(panelId: closing.id) { await operation.run() })
+
+        #expect(workspace.closePanel(closing.id, force: true))
+
+        // Ends the wait even if the close did not cancel it, so a failure reports instead of hanging.
+        operation.continuation.finish()
+        await task.value
+        #expect(operation.sawCancellation)
+        #expect(!runs.isRunning(panelId: closing.id))
+    }
+
     @Test func releasingTheRunsCancelsTheirTasks() async throws {
         var runs: ClaudeAccountAutoSwitchRuns? = ClaudeAccountAutoSwitchRuns()
         let operation = Operation()

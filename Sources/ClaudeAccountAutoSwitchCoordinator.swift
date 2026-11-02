@@ -31,7 +31,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     /// report arriving meanwhile is dropped: the pane is already moving, and its new account
     /// reports its own limit later. The pane's Claude events seen while its switch runs are
     /// replayed into its gate, so a `SessionStart` that lands before the switch returns counts.
-    private let runs = ClaudeAccountAutoSwitchRuns()
+    let runs = ClaudeAccountAutoSwitchRuns()
     /// The last report handled per pane, so one report switches at most once.
     private var handledEventIds: [UUID: String] = [:]
     /// Panes waiting for the resumed Claude's idle prompt to be typed `continue` into.
@@ -95,9 +95,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
         handledEventIds[panelId] = request.eventId
     }
 
-    /// The pane closed for good. A switch still deciding about it stops there; one already
-    /// restarting it ends its waits at once, which the switch treats as a timeout: it types
-    /// nothing and reports the resume command.
+    /// The pane closed for good. A switch still deciding about it stops there. One already under
+    /// way runs on with its waits cut short and types nothing; its follow-up then treats the pane
+    /// as closed (see ``ClaudeAccountAutoSwitchFollowUp/init(result:sendContinue:paneClosed:)``).
     func paneClosed(panelId: UUID) {
         runs.cancel(panelId: panelId)
     }
@@ -204,7 +204,12 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return self.paneInUse(request, workspace: workspace) == nil
             }
         )
-        let followUp = ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue)
+        // Only the pane's close cancels this run (see paneClosed(panelId:)).
+        let followUp = ClaudeAccountAutoSwitchFollowUp(
+            result: result,
+            sendContinue: sendContinue,
+            paneClosed: Task.isCancelled
+        )
         log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) followUp=\(followUp.logName)")
         switch followUp {
         case .announce(let from, let to, let sessionId, let typeContinue):
@@ -234,11 +239,11 @@ final class ClaudeAccountAutoSwitchCoordinator {
                     switchStartedAt: switchStartedAt
                 )
             }
-        case .announceWithoutResume(let from, let to):
+        case .announceWithoutResume(let from, let to, let notification):
             ledger.noteAutomaticSwitch(panelId: panelId, atMs: Self.nowMs())
             announce(
                 ClaudeAccountAutoSwitchAnnouncement(from: from, to: to, reset: exhaustion.quotedReset, continues: false),
-                notification: ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification,
+                notification: notification,
                 workspace: workspace,
                 panelId: panelId
             )
@@ -274,8 +279,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         workspace.terminalPanel(for: panelId)?.sessionTextBoxDraftSnapshot() != nil
     }
 
-    /// The pane's screen as the shared prompt classifier reads it; `.unknown`, which holds the
-    /// switch back, when the pane is gone or its screen can't be read.
+    /// The pane's screen as the shared prompt classifier reads it; `.unknown` when it is gone.
     private static func screenState(of workspace: Workspace, panelId: UUID) -> AgentAutoResumeCoordinator.ScreenState {
         guard let terminal = workspace.terminalPanel(for: panelId) else { return .unknown }
         return AgentAutoResumeCoordinator.shared.screenState(for: terminal.surface)
