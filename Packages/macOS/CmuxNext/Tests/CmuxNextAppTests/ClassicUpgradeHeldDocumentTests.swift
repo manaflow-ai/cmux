@@ -8,7 +8,7 @@ import Testing
 /// and adopt is held before it reaches the daemon, with no clock: a held one goes on only once someone
 /// waits for the document to settle (`SidebarDocStore.settled()`), which is what the import's group
 /// write and the check's read must do. A read that does not wait finds the moves still held.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .oneDaemonSimulationAtATime, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHeldDocumentTests {
     /// Holds each change and adopt before it is sent, until ``release()``; one sent while someone waits
     /// in `settled()` (`waiting`) goes on at once.
