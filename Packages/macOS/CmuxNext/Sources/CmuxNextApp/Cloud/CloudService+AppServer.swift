@@ -54,7 +54,7 @@ extension CloudService {
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment)
-        } catch let failure as CloudAppOpFailure where Self.isDefinitiveRefusal(failure) {
+        } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
@@ -107,10 +107,6 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-    }
-
-    nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
-        CloudMachineCreateRetry().isDefinitiveRefusal(failure)
     }
 
     static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {

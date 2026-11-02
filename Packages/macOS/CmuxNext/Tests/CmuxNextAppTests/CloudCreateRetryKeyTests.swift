@@ -195,10 +195,10 @@ import Testing
         for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
                      "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired",
                      "cmux.cloud.secrets_unavailable", "cloud.environment.secrets_unavailable", "cmux.cloud.no_snapshot_configured", "cmux.cloud.not_found"] {
-            #expect(CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
+            #expect(CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
         }
         for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {
-            #expect(!CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
+            #expect(!CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
         }
         let creation = CloudMachineCreation(windowID: nil)
         let key = creation.request.idempotencyKey
