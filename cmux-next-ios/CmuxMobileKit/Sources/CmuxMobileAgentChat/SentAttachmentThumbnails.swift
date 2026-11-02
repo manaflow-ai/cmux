@@ -35,6 +35,10 @@ final class SentAttachmentThumbnails {
     let byteLimit: Int
     /// Decodes started (tests).
     @ObservationIgnored private(set) var decodes = 0
+    /// Decodes started per attachment id (tests: a count other suites sharing the cache cannot move).
+    @ObservationIgnored private var decodesByAttachment: [String: Int] = [:]
+
+    func decodes(attachmentID: String) -> Int { decodesByAttachment[attachmentID] ?? 0 }
     /// Bytes of the decoded thumbnails kept.
     @ObservationIgnored private(set) var residentBytes = 0
 
@@ -101,6 +105,7 @@ final class SentAttachmentThumbnails {
         if settled[key] == false { return nil }
         if let running = decoding[key] { return running }
         decodes += 1
+        if let id = key.split(separator: "|").first { decodesByAttachment[String(id), default: 0] += 1 }
         let work = Task.detached(priority: .userInitiated) {
             UIImage(data: data).map { SentAttachments.thumbnail(of: $0, side: side) }
         }
