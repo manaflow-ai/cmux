@@ -702,6 +702,46 @@ NEW_SESSION_EACH_RUN = False
 # --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
 # "inactive" spawns it with no activation (behind, not key).
 ACTIVATION = "inactive"
+# --xctrace-launch (REOPEN-F7 scratch, never merge): each measured launch under `xctrace record --all-processes`
+# (Time Profiler, trace.py's recorder), started and given a second for its first sample before the app is spawned
+# (KIT rule); the app's main-thread samples up to the first window frame, summed by function, go into the run's marks
+# as "launch_profile". A profiled run's marks are not timing evidence.
+XCTRACE_LAUNCH = False
+
+
+def launch_profile(out, app_pid, until_ms):
+    """{"samples", "self": [[ms, frame]...], "total": [[ms, frame]...]} of the app's main thread from its first sample
+    to `until_ms` later (the first window frame mark), from the recording in `out`."""
+    import collections
+    trace = load_trace_module()
+    exported = trace.export_xctrace(out)
+    path = exported.get("time-profile")
+    if not path:
+        return {"error": "no time-profile table"}
+    rows = [r for r in trace.time_profile_samples(path) if (r[2] or {}).get("pid") == app_pid]
+    if not rows:
+        return {"error": "no samples of the app"}
+    main_tid = min(rows, key=lambda r: r[0])[2].get("tid")
+    rows = sorted(r for r in rows if r[2].get("tid") == main_tid)
+    start = rows[0][0]
+    rows = [r for r in rows if r[0] - start <= until_ms * 1e6]
+    own, total = collections.Counter(), collections.Counter()
+    for _, weight, _, frames in rows:
+        names = [str(trace.text(f) if not isinstance(f, str) else f) for f in frames]
+        if names:
+            own[names[0][:200]] += weight
+        for name in set(n[:200] for n in names):
+            total[name] += weight
+    to_ms = lambda c, n: [[round(v / 1e6, 1), k] for k, v in c.most_common(n)]
+    return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250)}
+
+
+def load_trace_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cmux_trace", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trace.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def app_support_tag(tag):
@@ -1197,6 +1237,11 @@ def one_run(tag, mode, timeout, profile=None):
         prime.quit()
     # Cold allows no daemon older than this launch; warm and restart allow this step's (the floor taken above).
     floor = time.time() if mode == "cold" else STEP_STARTED_WALL[tag]
+    recorder = None
+    if XCTRACE_LAUNCH:
+        recorder = load_trace_module().XcTrace(scratch, cap_s=120)
+        recorder.start()
+        time.sleep(1.0)  # the recorder's first sample comes after its "Starting recording" line (KIT rule)
     launch = Launch(tag, scratch, active=ACTIVATION == "active")
     daemons = None
     try:
@@ -1234,6 +1279,8 @@ def one_run(tag, mode, timeout, profile=None):
         # on the app's main thread and would show as a stall itself.
         launch.front = front_app(launch)
     finally:
+        if recorder is not None:
+            recorder.stop()
         launch.quit()
         launch.linger = watch_linger(tag, time.monotonic())
     if not reached:
@@ -1246,6 +1293,11 @@ def one_run(tag, mode, timeout, profile=None):
     marks["quit_marks"] = getattr(launch, "quit_marks", {})
     marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
     marks["frames_after_quit"] = frame_files(tag)
+    if recorder is not None and "first_window_frame_committed" in marks:
+        try:
+            marks["launch_profile"] = launch_profile(scratch, launch.process.pid, marks["first_window_frame_committed"])
+        except Exception as error:  # a diagnosis: a failed export is reported, never fatal
+            marks["launch_profile"] = {"error": repr(error)[:400]}
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
@@ -1442,6 +1494,7 @@ def main():
                         help="scratch (REOPEN-F7): workspaces in the realistic seed (default 24)")
     parser.add_argument("--tiers", action="store_true",
                         help="scratch: record the core tier of the app's main thread from main() to the first frame")
+    parser.add_argument("--xctrace-launch", action="store_true", help="REOPEN-F7 scratch: xctrace each measured launch")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
@@ -1462,6 +1515,8 @@ def main():
     ACTIVATION = args.activation or ("active" if args.profile == "stress" and WINDOW_PLACEMENT == "restore" else "inactive")
     if ACTIVATION == "active" and WINDOW_PLACEMENT == "test":
         parser.error("--activation active needs --window-placement restore (the test placement is an agent launch)")
+    global XCTRACE_LAUNCH
+    XCTRACE_LAUNCH = args.xctrace_launch
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
