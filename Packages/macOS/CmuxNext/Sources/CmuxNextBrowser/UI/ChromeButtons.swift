@@ -1,10 +1,11 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextIcons
 
 /// Borderless icon button with gray hover and press fills (no accent color).
-final class ChromeIconButton: NSButton {
+final class ChromeIconButton: ClickableButton {
     private let density = DensityBinding()
     /// The pack icon the button draws (`BrowserToolbarReport.icons`).
     private(set) var iconName = IconName.placeholder
@@ -211,9 +212,15 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
-        isMenuOpen = false
+        // From a run-loop callout, not the timer's main-actor job: a menu tracking inside a main-queue
+        // job holds the main queue until it closes, and the click that closes it waits on everything
+        // queued meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is sometimes slow").
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, window != nil else { return }
+            isMenuOpen = true
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
+            isMenuOpen = false
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -249,7 +256,7 @@ final class ChromeIconButton: NSButton {
 
 /// Text button for prompts and error pages. `prominent` uses a stronger
 /// gray fill instead of the system accent.
-class ChromeTextButton: NSButton {
+class ChromeTextButton: ClickableButton {
     private let density = DensityBinding()
     private let prominent: Bool
     private var hover: PointerHover?

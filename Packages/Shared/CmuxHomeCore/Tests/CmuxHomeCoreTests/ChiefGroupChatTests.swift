@@ -55,6 +55,26 @@ import CmuxHomeCoreTestSupport
         #expect(ChiefReplyPolicy.default == .auto)
     }
 
+    // MARK: A Chief's conversation shared with teammates (cmux#25569)
+
+    @Test func mySharedChiefStaysMyChiefAndNamesSenders() {
+        let mine = Participant(id: chief.id, kind: .agent, displayName: "Chief", agentClass: .chief, ownerUser: me.id)
+        let alone = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, mine],
+                                        createdAt: .distantPast, updatedAt: .distantPast, declaredKind: .chief)
+        #expect(alone.kind(me: me.id) == .chief)
+        #expect(!alone.showsSenderNames(me: me.id))
+        let shared = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, aziz, mine],
+                                         createdAt: .distantPast, updatedAt: .distantPast, declaredKind: .chief)
+        #expect(shared.kind(me: me.id) == .chief)
+        #expect(shared.showsSenderNames(me: me.id))
+        // The teammate it was shared with sees someone else's Chief in a group, never as their own Chief.
+        #expect(shared.kind(me: aziz.id) == .group)
+        #expect(shared.showsSenderNames(me: aziz.id))
+        // Only the owner shares it (Add People… in its info).
+        #expect(shared.isMyChiefLine(me: me.id))
+        #expect(!shared.isMyChiefLine(me: aziz.id))
+    }
+
     // MARK: Through the store
 
     func started() async -> HomeStore {

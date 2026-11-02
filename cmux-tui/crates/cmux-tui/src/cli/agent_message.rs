@@ -47,6 +47,10 @@ pub(super) struct MessagePlan {
     pub thread: Option<String>,
     pub reply_to: Option<String>,
     pub idempotency_key: Option<String>,
+    /// `target` is an `acp:` id the caller already resolved and scoped (`cmux agents chat
+    /// send`, which may find the chat in the app's own acpmux rather than the caller's): it is
+    /// sent as is, and the daemon resolves and delivers it in its own acpmux.
+    pub target_resolved: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +104,15 @@ pub(super) fn parse_message(
     {
         return Err(UsageError::new("--from must be one line of at most 64 characters"));
     }
-    Ok(MessagePlan { target, body, from, thread, reply_to, idempotency_key: None })
+    Ok(MessagePlan {
+        target,
+        body,
+        from,
+        thread,
+        reply_to,
+        idempotency_key: None,
+        target_resolved: false,
+    })
 }
 
 pub(super) fn parse_inbox(
@@ -326,7 +338,11 @@ pub(super) fn send_and_deliver(
     let mut connection = Connection::open(global)?;
     let mut fields = Map::new();
     if let Some(target) = &plan.target {
-        let recipient = resolve_target(&mut connection, target)?;
+        let recipient = if plan.target_resolved {
+            target.clone()
+        } else {
+            resolve_target(&mut connection, target)?
+        };
         fields.insert("recipients".into(), json!([recipient]));
     }
     fields.insert("body".into(), Value::String(body));
@@ -588,6 +604,7 @@ fn failure_text(failure: &Failure) -> String {
             error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
         }
         Failure::Transport(message) => message.clone(),
+        Failure::Refused => "session is busy".into(),
         Failure::AppAction { action, .. } => format!("{action} is an app action"),
     }
 }
@@ -740,10 +757,12 @@ fn inbox_text(messages: &[Value], recipient: Option<&str>) -> String {
 }
 
 #[cfg(unix)]
-mod acp {
+pub(super) mod acp {
     //! acpmux, linked into this binary, reached at the same home `cmux acp`
     //! uses. A message never starts the acpmux daemon: an acpmux recipient
     //! exists only while its daemon runs.
+
+    use serde_json::Value;
 
     fn runtime() -> Result<tokio::runtime::Runtime, String> {
         crate::acp::configure_home();
@@ -763,13 +782,27 @@ mod acp {
                 .map_err(|error| format!("{error:#}"))
         })
     }
+
+    /// The running daemon's session summaries, without starting it.
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
+        runtime()?.block_on(async {
+            let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
+            acpmux::deliver::sessions(&client).await.map_err(|error| format!("{error:#}"))
+        })
+    }
 }
 
 #[cfg(not(unix))]
-mod acp {
+pub(super) mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
 
+    use serde_json::Value;
+
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
+        Err(UNSUPPORTED.to_owned())
+    }
+
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
         Err(UNSUPPORTED.to_owned())
     }
 }

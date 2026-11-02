@@ -263,6 +263,20 @@ export default componentEntry<Props>({
       note: "The classic page opens on Agent with recent sessions, project context, model chips, and the three-kind switch.",
       props: base,
     },
+    "long-project": {
+      note: "A long project name truncates inside its content-sized chip while the chevron stays visible.",
+      props: {
+        ...base,
+        cwd: "/Users/you/src/atlas-web-platform-integration-workspace",
+        projects: [
+          {
+            cwd: "/Users/you/src/atlas-web-platform-integration-workspace",
+            label: "atlas-web-platform-integration-workspace",
+          },
+          ...projects,
+        ],
+      },
+    },
     "switch-kinds": {
       note: "The Terminal, Browser, and Agent buttons switch the page without losing the field.",
       props: base,

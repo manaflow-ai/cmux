@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { minutesAgo } from "../../gallery/clock";
 import { session } from "../../gallery/fixtures/acpmux";
 import { homeLists } from "./HomeLists";
+import { withoutChildren } from "./sessionList";
 
 test("homeLists excludes unlisted and not-ready sessions, then caps each section", () => {
   const current = session({ sessionId: "current", status: "waiting", updatedAt: minutesAgo(0) });
@@ -36,11 +37,98 @@ test("homeLists excludes unlisted and not-ready sessions, then caps each section
   ];
 
   const result = homeLists([current, ...input, ...review, ...hidden], current.sessionId);
-  expect(result.input.map(({ sessionId }) => sessionId)).toEqual(["input-0", "input-1", "input-2"]);
+  // Every waiting chat is in the inbox, newest first: none is capped away.
+  expect(result.waiting.map(({ sessionId }) => sessionId)).toEqual(["input-0", "input-1", "input-2", "input-3"]);
   expect(result.review.map(({ sessionId }) => sessionId)).toEqual(["review-0", "review-1", "review-2"]);
-  expect([...result.input, ...result.review].some(({ sessionId }) => sessionId === current.sessionId)).toBe(false);
-  expect([...result.input, ...result.review].map(({ sessionId }) => sessionId)).not.toContain("archived");
-  expect([...result.input, ...result.review].map(({ sessionId }) => sessionId)).not.toContain("side");
-  expect([...result.input, ...result.review].map(({ sessionId }) => sessionId)).not.toContain("draft");
-  expect([...result.input, ...result.review].map(({ sessionId }) => sessionId)).not.toContain("not-ready");
+  const ids = [...result.waiting, ...result.review].map(({ sessionId }) => sessionId);
+  for (const hidden of [current.sessionId, "archived", "side", "draft", "not-ready"]) expect(ids).not.toContain(hidden);
+});
+
+test("the inbox lists each other chat's open ask by its permission, never the current chat's", () => {
+  const current = session({ sessionId: "current", pendingPermissions: 1, updatedAt: minutesAgo(0) });
+  const other = session({ sessionId: "other", title: "Other", pendingPermissions: 2, updatedAt: minutesAgo(3) });
+  const side = session({ sessionId: "side", side: true, pendingPermissions: 1 });
+  const ask = (sessionId: string, permissionId: string, at: number) => ({
+    sessionId,
+    at,
+    permission: {
+      permissionId,
+      title: `Run ${permissionId}`,
+      pending: true,
+      options: [
+        { id: `${permissionId}-yes`, name: "Yes", kind: "allow_once", allow: true },
+        { id: `${permissionId}-always`, name: "Always", kind: "allow_always", allow: true },
+        { id: `${permissionId}-no`, name: "No", kind: "reject_once", allow: false },
+      ],
+    },
+  });
+  const { waiting } = homeLists([current, other, side], current.sessionId, [
+    ask("current", "p-current", minutesAgo(0)),
+    ask("other", "p-old", minutesAgo(4)),
+    ask("other", "p-new", minutesAgo(2)),
+    ask("side", "p-side", minutesAgo(1)),
+  ]);
+  expect(waiting.map(({ id }) => id)).toEqual(["acpmux:p-new", "acpmux:p-old"]);
+  // One click answers once, never always: Always allow is the chat's card's to give.
+  expect(waiting[0]!.answers.map(({ id }) => id)).toEqual(["p-new-yes", "p-new-no"]);
+});
+
+test("a nested working chat's pending permission stays in the Home inbox", () => {
+  const parent = session({ sessionId: "parent", indicator: "working" });
+  const child = session({
+    sessionId: "child",
+    spawnedBy: "parent",
+    status: "running",
+    indicator: "working",
+    pendingPermissions: 1,
+  });
+  const quietChild = session({ sessionId: "quiet", spawnedBy: "parent", indicator: "working" });
+  const { waiting } = homeLists([parent, child, quietChild], "home", [
+    {
+      sessionId: "child",
+      at: minutesAgo(1),
+      permission: {
+        permissionId: "child-permission",
+        title: "Read the requested file",
+        pending: true,
+        options: [
+          { id: "allow", name: "Allow once", kind: "allow_once", allow: true },
+          { id: "deny", name: "Deny", kind: "reject_once", allow: false },
+        ],
+      },
+    },
+  ]);
+  expect(waiting.map(({ id }) => id)).toEqual(["acpmux:child-permission"]);
+  // A quiet agent-started chat still folds under its parent.
+  expect(withoutChildren([parent, child, quietChild]).map(({ sessionId }) => sessionId)).toEqual(["parent", "child"]);
+});
+
+test("a nested child waiting for a question remains discoverable before its indicator updates", () => {
+  const parent = session({ sessionId: "parent" });
+  const question = session({
+    sessionId: "question",
+    spawnedBy: "parent",
+    status: "running",
+    indicator: "working",
+    waitingOn: { on: "question", prompt: "Which option should I use?" },
+  });
+  const waiting = session({
+    sessionId: "waiting",
+    spawnedBy: "parent",
+    status: "waiting",
+    indicator: "working",
+  });
+  const lost = session({
+    sessionId: "lost",
+    spawnedBy: "parent",
+    indicator: "lost",
+    pendingPermissions: 1,
+  });
+  const result = homeLists([parent, question, waiting, lost], "home");
+  expect(result.waiting.map(({ sessionId }) => sessionId)).toEqual(["question", "waiting"]);
+  expect(withoutChildren([parent, question, waiting, lost]).map(({ sessionId }) => sessionId)).toEqual([
+    "parent",
+    "question",
+    "waiting",
+  ]);
 });

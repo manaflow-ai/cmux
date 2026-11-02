@@ -20,7 +20,10 @@ extension ChatController {
     /// `MessagesWindowView.displayChange` (followDisplay) the rows snap at the end of that pass, so the caller places
     /// the video layers after it.
     @discardableResult private func applyWindowScale() -> Bool {
-        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return false }
+        // cmux: a zoomed Chief chat (HostView.contentZoom) draws its bitmaps at the window's scale times the zoom, so
+        // its magnified rows map one bitmap pixel to one device pixel.
+        guard let demo, let backing = host.window?.backingScaleFactor, backing > 0 else { return false }
+        let s = backing * host.contentZoom
         let changed = s != demo.renderScale
         if changed {
             DisplayScale.current = s  // the process fallback (code with no view), as Host.swift
@@ -30,7 +33,7 @@ extension ChatController {
             CATransaction.commit()
             ScaleKeeper.shared.setNeedsApply()
         }
-        demo.setRenderScale(s)
+        demo.setRenderScale(s, contentZoom: host.contentZoom)
         guard changed else { return false }
         demo.moveToWindowRecursively()
         picker?.rescale()
@@ -49,7 +52,7 @@ extension ChatController {
     /// Never `RowBitmaps.shared.removeAll()` and never a `setInactive` toggle here: cached bitmaps are keyed by scale
     /// and colour space (a move back finds them), and both dropped every pane's rows (258b385).
     func followDisplay(backingChanged: Bool = false) {
-        if backingChanged, let demo, host.window?.backingScaleFactor == demo.renderScale,
+        if backingChanged, let demo, host.window.map({ $0.backingScaleFactor * host.contentZoom }) == demo.renderScale,
            window?.screen?.colorSpace?.cgColorSpace.map({ $0 == DisplayScale.colorSpace }) ?? true { return }
         var scaled = false
         MessagesWindowView.displayChange {

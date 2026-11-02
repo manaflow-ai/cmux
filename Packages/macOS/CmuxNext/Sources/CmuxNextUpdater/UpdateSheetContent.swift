@@ -31,7 +31,10 @@ nonisolated public struct UpdateSheetContent: Sendable, Equatable {
 
 /// A sheet button and what it does.
 nonisolated public enum UpdateSheetButton: Sendable, Hashable {
+    /// Install and relaunch at once (the palette's Install Available Update, nothing found yet).
     case install
+    /// The update-found step's answer: download only; the staged update then asks before relaunching.
+    case update
     case later
     case cancel
     case retry
@@ -44,6 +47,7 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
     public var title: String {
         switch self {
         case .install: UpdaterStrings.install
+        case .update: UpdaterStrings.update
         case .later: UpdaterStrings.later
         case .cancel: UpdaterStrings.cancel
         case .retry: UpdaterStrings.retry
@@ -58,7 +62,7 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
     public var dismisses: Bool {
         switch self {
         case .later, .cancel, .done: true
-        case .install, .retry, .relaunch, .releaseNotes, .downloadManually: false
+        case .install, .update, .retry, .relaunch, .releaseNotes, .downloadManually: false
         }
     }
 }

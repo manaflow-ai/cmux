@@ -4,7 +4,7 @@ import type { Env } from "../env.ts"
 import type { Principal } from "@cmux/ownership"
 import { liveFrame, postWork, runChanged } from "./brain-io.ts"
 import type { BrainConfig } from "./brain-store.ts"
-import { replyTarget } from "./brain-text.ts"
+import { oneLine, replyTarget, SHARED_CHIEF } from "./brain-text.ts"
 import { effectRefusal } from "./effect-policy.ts"
 import { readRun, readSteps } from "./brain-runs.ts"
 import { workspaceNote, type OpenedWorkspace } from "./brain-spawn-workspace.ts"
@@ -101,6 +101,12 @@ const Args = Type.Object({
   brief: Type.Optional(Type.String({ maxLength: BRIEF_MAX, description: "Shared context every subagent gets with its task." }))
 })
 type ArgsT = { tasks: Array<string>; brief?: string }
+
+/**
+ * The kind a report's woken row is queued under. A report is the Chief's own card, so the turn it
+ * starts in a shared Chief conversation answers on the main timeline without quoting it.
+ */
+const reportKind = (kind: string): string => (kind === SHARED_CHIEF ? "chief" : kind)
 
 /** The turn's thread: where its reply and its children's reports go. */
 export const turnThread = (kind: string, message: string, root: string | null): string | null => replyTarget(kind, message, root).thread_root ?? null
@@ -275,7 +281,7 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
     const report = r.report?.trim() || "(no report)"
     // The full report goes only to the Chief; members see a short preview in the Chief's own line or a DM,
     // and only the status in a channel or group (the Chief decides what of a report the room sees).
-    const shown = r.kind === "chief" || r.kind === "dm" ? clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES_SHOWN) : `${r.name}: ${r.state === "done" ? "done" : "failed"}`
+    const shown = oneLine(r.kind) ? clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES_SHOWN) : `${r.name}: ${r.state === "done" ? "done" : "failed"}`
     const res = await postWork(env, principal, {
       conversation: r.conversation,
       key: `spawn-report:${principal.agent}:${childKey(r.conversation, r.n)}`,
@@ -297,7 +303,7 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
       const seq = Number(sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, r.conversation).toArray()[0]?.seq ?? 0)
       const busy = sql.exec<{ name: string }>(`SELECT name FROM cb_spawn WHERE parent_run = ? AND conversation = ? AND state IN ('queued', 'enqueued') ORDER BY n`, r.parent_run, r.conversation).toArray().map((x) => x.name)
       const text = `[${r.name}] ${report}${r.state === "done" ? "" : " (the subagent failed)"}${busy.length > 0 ? `\n(still at work: ${busy.join(", ")})` : "\n(all subagents of this request have reported)"}`
-      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `spawn:${r.n}`, r.conversation, seq, r.kind, r.thread_root, text)
+      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `spawn:${r.n}`, r.conversation, seq, reportKind(r.kind), r.thread_root, text)
       conversations.add(r.conversation)
     })
   }
@@ -400,7 +406,7 @@ export const postOutcomes = async (env: Env, sql: SqlStorage, transaction: (f: (
       session: `agent_${o.session}`.slice(0, 200),
       host,
       status: o.status,
-      preview: r.kind === "chief" || r.kind === "dm" ? clipBytes(text, PREVIEW_BYTES_SHOWN) : `${r.label}: agent turn ${o.status}`,
+      preview: oneLine(r.kind) ? clipBytes(text, PREVIEW_BYTES_SHOWN) : `${r.label}: agent turn ${o.status}`,
       ...(r.thread_root ? { thread_root: r.thread_root } : {})
     }).catch((e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) }))
     if (!res.ok && res.code === "owner.unreachable") {
@@ -410,7 +416,7 @@ export const postOutcomes = async (env: Env, sql: SqlStorage, transaction: (f: (
     transaction(() => {
       sql.exec(`UPDATE cb_agent_out SET posted = 1 WHERE key = ?`, r.key)
       const seq = Number(sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, r.conversation).toArray()[0]?.seq ?? 0)
-      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `agent:${r.key}`, r.conversation, seq, r.kind, r.thread_root, text.slice(0, REPORT_MAX))
+      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `agent:${r.key}`, r.conversation, seq, reportKind(r.kind), r.thread_root, text.slice(0, REPORT_MAX))
       conversations.add(r.conversation)
     })
   }

@@ -15,6 +15,8 @@ It behaves as far as restore needs as the real CLIs do:
   (CMUX_TUI_HOOK), or else through the app's own cmux-tui (`RJ_CMUX_TUI __agent-hook`, which
   is what the `claude` shim's hooks run), with Claude Code's hook payload, so the terminal's
   relaunch record learns its session id as it does from the real hooks;
+- its flags are the arguments other than the session's; run by a cmux shim, the arguments the
+  shim was given (CMUX_TUI_AGENT_ARGS), not the hook arguments it adds;
 - it prints one banner line `RJ-AGENT <provider> session=<id> ...`, replays a resumed
   session's transcript, then answers each input line with `echo: <line>` and appends both to
   the session.
@@ -61,8 +63,8 @@ def report_session_start(provider, payload):
     return why
 
 
-def main():
-    provider, args = sys.argv[1], sys.argv[2:]
+def split_session(provider, args):
+    """(session id to resume or None, the other arguments)."""
     session, flags, i = None, [], 0
     while i < len(args):
         if provider == "claude" and args[i] in ("--resume", "-r") and i + 1 < len(args):
@@ -72,6 +74,21 @@ def main():
         else:
             flags.append(args[i])
             i += 1
+    return session, flags
+
+
+def main():
+    provider, args = sys.argv[1], sys.argv[2:]
+    session, flags = split_session(provider, args)
+    # Started through a cmux `claude` / `codex` shim (a new shell after a reboot puts the shims
+    # first on PATH): the shim folds its hook arguments in and names the arguments it was given
+    # in CMUX_TUI_AGENT_ARGS. Those are the flags a person typed; the folded hooks are cmux's own.
+    try:
+        given = json.loads(os.environ.get("CMUX_TUI_AGENT_ARGS") or "null")
+    except ValueError:
+        given = None
+    if isinstance(given, list) and all(isinstance(arg, str) for arg in given):
+        flags = split_session(provider, given)[1]
     resumed = session is not None
     account = os.environ.get("CLAUDE_CONFIG_DIR" if provider == "claude" else "CODEX_HOME")
     if not account or not os.path.exists(os.path.join(account, "rj-login")):

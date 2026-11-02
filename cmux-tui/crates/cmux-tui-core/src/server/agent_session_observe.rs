@@ -18,6 +18,8 @@ pub(super) fn try_handle(
     client: u64,
     message: &str,
     writer: &MessageWriter,
+    author: Option<Value>,
+    pinned: Option<String>,
 ) -> Option<bool> {
     if !message.contains("\"agent-session-") {
         return None;
@@ -42,5 +44,5 @@ pub(super) fn try_handle(
     let Some(socket) = sessions.socket() else {
         return Some(refuse(writer, id, Refusal::Unavailable));
     };
-    Some(attach(mux, client, id, socket, params, true, writer))
+    Some(attach(mux, client, id, socket, params, true, author, pinned, writer))
 }

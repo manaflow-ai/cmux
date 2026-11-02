@@ -227,14 +227,18 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     const then = /then:([a-z_]+)\s+(\{[^\n]*?\})\s+tool:/.exec(blocksOf(firstUser?.content).join("\n"));
     if (then) return withThinking(fauxAssistantMessage([fauxToolCall(then[1]!, JSON.parse(then[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
   }
-  const anyTool = /tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text);
-  if (anyTool) {
+  // A batch of several messages (a group: other members' lines come first as context) asks with its last line.
+  const lastLine = /tool:([a-z_]+)\s+(\{[^\n]*\})\s*$/.exec(text);
+  for (const anyTool of [/tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text), lastLine]) {
+    if (!anyTool) continue;
     try {
       return withThinking(fauxAssistantMessage([fauxToolCall(anyTool[1]!, JSON.parse(anyTool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
     } catch {
       // Not JSON: answer as text below.
     }
   }
+  // "SAY_NO_REPLY" at the end of the newest text: the model stays quiet (prompts.ts NO_REPLY).
+  if (/SAY_NO_REPLY\s*$/.test(text)) return fauxAssistantMessage([fauxText("NO_REPLY")]);
   // "SLOW_LONG" echoes more of the request, so a SLOW stream lasts as long as its request asks
   // (the steering test needs one call of about 7 s; the plain cut at 200 made it about 2 s).
   const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, text.includes("SLOW_LONG") ? 1200 : 200)}`);

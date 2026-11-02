@@ -42,9 +42,15 @@ struct CEFCookieStore {
 
     func delete(_ cookies: [BrowserCookie]) async throws {
         guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.closed }
+        // An empty batch stays the no-op it was, rather than reading the runtime to do nothing.
+        guard !cookies.isEmpty else { return }
+        // `CEFTab.runtime` is `unowned`, so it is read once here and held for the whole batch:
+        // re-reading it after a call would trap once the runtime's last owner went, which aborts
+        // the process rather than failing one delete (see `CEFMediaBridge.run`).
+        let runtime = tab.runtime
         for cookie in cookies {
-            _ = try await tab.runtime.devTools(browserID, method: "Network.deleteCookies",
-                                               params: ["name": cookie.name, "domain": cookie.domain, "path": cookie.path])
+            _ = try await runtime.devTools(browserID, method: "Network.deleteCookies",
+                                           params: ["name": cookie.name, "domain": cookie.domain, "path": cookie.path])
         }
     }
 }

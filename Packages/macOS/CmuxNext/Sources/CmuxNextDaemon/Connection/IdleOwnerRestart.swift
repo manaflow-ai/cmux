@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// A restart of a conversation owner that may run only while the owner is idle
@@ -6,6 +7,9 @@ import Foundation
 /// tries again on each owner event that can end the business: a client left or
 /// changed its kind (an open `cmux chief` chat ends, another app or a page
 /// disconnects) or a typing set changed (a Chief turn ends). It restarts at most once.
+/// A `cmux` CLI or MCP call in flight (a local client without a kind) ends with a
+/// `client-detached`; a standing connection without a kind sends no event when it stops
+/// counting as a call, so the probe's `callInFlight` schedules one more attempt for then.
 public actor IdleOwnerRestart {
     public enum Outcome: Equatable, Sendable {
         /// No restart yet: the owner was busy.
@@ -23,6 +27,9 @@ public actor IdleOwnerRestart {
     /// may have come after the running probe read the owner); later ones are covered by it.
     private var probing = false
     private var queued: [CheckedContinuation<Void, Never>] = []
+    /// One attempt when the youngest client without a kind stops counting as a call. One-shot;
+    /// cancelled once the outcome is decided, and with this actor (`DemandTimer.deinit`).
+    private let callEnds = DemandTimer(owner: "idle-owner-restart.call")
 
     public init(probe: OwnerIdleProbe, restart: @escaping @Sendable () async -> Bool) {
         self.probe = probe
@@ -47,8 +54,15 @@ public actor IdleOwnerRestart {
         } else {
             probing = true
         }
-        if await probe.isIdle() {
+        switch await probe.reading() {
+        case .idle:
             outcome = await restart() ? .started : .refused
+            callEnds.cancel()
+        case .callInFlight(let seconds):
+            // Whole seconds on the wire: one more makes sure the client counts as standing by then.
+            callEnds.scheduleIfIdle(after: .seconds(seconds + 1)) { [weak self] in _ = await self?.attempt() }
+        case .busy:
+            break
         }
         finishProbe()
         return outcome

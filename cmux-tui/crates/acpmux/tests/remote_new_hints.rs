@@ -183,6 +183,23 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
     let _ = std::fs::remove_dir_all(&outside);
 }
 
+#[tokio::test]
+async fn creation_tags_are_recorded_before_new_returns() {
+    let root = scratch("tags");
+    let hub = hub(&root);
+    let mut peer = C::open(&hub, Origin::Peer);
+    let r = peer
+        .call(
+            method::SESSION_NEW,
+            new(json!({"name": "tagged", "tags": {"a": "b", "owner": "leo"}}), Some(&root)),
+        )
+        .await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    assert_eq!(hub.resolve(id).unwrap().meta().tags["a"].value, "b");
+    assert_eq!(hub.resolve(id).unwrap().meta().tags["owner"].value, "leo");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 // The forwarding daemon's side: the refusal carries the command that works.
 
 /// B's WebSocket listener, with a peer token when `peer` (A is then served as a peer,
@@ -211,6 +228,75 @@ async fn pair(tag: &str, as_peer: bool, root: &Path) -> (Arc<Hub>, Arc<Hub>) {
 
 fn tried(r: &Value) -> String {
     r["error"]["data"]["try"].as_str().unwrap_or_else(|| panic!("no try: {r}")).to_owned()
+}
+
+#[tokio::test]
+async fn retry_metadata_stays_local_when_new_is_forwarded() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+
+    let root = scratch("retry-metadata");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (received_tx, mut received_rx) = mpsc::channel(1);
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
+                continue;
+            };
+            let reply = if m == method::SESSION_NEW {
+                received_tx.send(params.unwrap_or_default()).await.unwrap();
+                Message::err(
+                    id,
+                    acpmux::rpc::RpcError::invalid_params("policy refused").with_data(json!({
+                        "reason": "remote.policy_refused", "servedAs": "remote"
+                    })),
+                )
+            } else {
+                let result = if m == method::INITIALIZE {
+                    json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                        "version": "0", "build": "test", "origin": "peer",
+                        "features": ["trustGate"]}}})
+                } else {
+                    json!({})
+                };
+                Message::ok(id, result)
+            };
+            ws.send(Ws::Text(reply.to_line().into())).await.unwrap();
+        }
+    });
+    let a = hub(&root);
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
+    let mut ca = C::open(&a, Origin::Local);
+    let r = ca
+        .call(
+            method::SESSION_NEW,
+            new(
+                json!({"peer": "b", "harness": "fake", "policy": "approve-all",
+                    "tags": {"a": "b"}, "ephemeral": true,
+                    "argv": ["new", "--host", "b", "--prompt-file", "brief.md", "inline prompt"],
+                    "promptFileText": "file prompt"}),
+                Some(&root),
+            ),
+        )
+        .await;
+    assert_eq!(reason(&r), "remote.policy_refused");
+    let received = received_rx.recv().await.unwrap();
+    let meta = &received["_meta"]["acpmux"];
+    for key in ["argv", "promptFileText", "peer", "ephemeral"] {
+        assert!(meta.get(key).is_none(), "forwarded {key}: {received}");
+    }
+    assert_eq!(meta["tags"], json!({"a": "b"}));
+    // The forwarding daemon still has both inputs to build a complete retry.
+    let retry = tried(&r);
+    assert!(retry.contains("'inline prompt'"), "{retry}");
+    assert!(retry.contains("printf %s 'file prompt'"), "{retry}");
+    assert!(retry.contains("--prompt-file=/dev/stdin"), "{retry}");
+    server.abort();
+    let _ = server.await;
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[tokio::test]
@@ -277,4 +363,33 @@ async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion(
     assert!(b.sessions().iter().any(|s| s.id == id && s.meta().cwd == inside));
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// The documented rule (acpmux skill §6): `--policy approve-all` at a remote start passes
+/// when the peer serves this daemon as a peer (`servedAs` in `acpmux --json host ls`), and
+/// only then. What `host ls` shows and what the peer decides agree over a real link: a peer
+/// on a build from before #24442 showed `servedAs: peer` and still refused it (cosmic-gray to
+/// gcp-agent-lane-1, 2026-10-25), which `acpmux host update` fixes.
+#[tokio::test]
+async fn approve_all_at_a_remote_start_passes_exactly_when_host_ls_shows_served_as_peer() {
+    for (tag, as_peer) in [("served-peer", true), ("served-remote", false)] {
+        let root = scratch(tag);
+        let (a, b) = pair(tag, as_peer, &root).await;
+        let served = a.peers()[0]["servedAs"].clone();
+        assert_eq!(served, if as_peer { "peer" } else { "remote" }, "{:?}", a.peers());
+        let mut ca = C::open(&a, Origin::Local);
+        let name = format!("lane-{tag}");
+        let meta = json!({"peer": "b", "harness": "fake", "name": name, "policy": "approve-all"});
+        let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
+        if as_peer {
+            assert!(r["result"]["sessionId"].is_string(), "{r}");
+            let on_b = b.resolve(&name).unwrap_or_else(|e| panic!("{name} on b: {e:?} ({r})"));
+            assert_eq!(on_b.meta().permission_policy.as_deref(), Some("approve-all"), "{r}");
+        } else {
+            assert_eq!(reason(&r), "remote.policy_refused", "{r}");
+            assert_eq!(r["error"]["data"]["servedAs"], served, "{r}");
+            assert!(b.resolve(&name).is_err(), "a refused start leaves no session on b");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

@@ -20,7 +20,7 @@ enum RoomMoveHandlers {
             guard let qualified = WindowProfiles.qualified(workspace.id, machines: machines) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
             }
-            if let membership = WindowProfiles.membership(machines), membership.pins[qualified] == room.id {
+            if let membership = WindowProfiles.membership(machines), membership.pinned(qualified) == room.id {
                 throw ActionFailure.invalidTarget(RoomStrings.alreadyInRoom)
             }
             // A move is a pin in the home session: the workspace's own
@@ -42,6 +42,7 @@ enum RoomMoveHandlers {
             let group = try context.personalGroup(invocation)
             let id = group.id, target = room.id
             context.services.machines.local.send("update-personal-group") { try await $0.updatePersonalGroup(id, room: target) }
+            context.services.sidebarDoc.store?.moveGroup(id.rawValue, toSpace: target.rawValue)
         }
     }
 

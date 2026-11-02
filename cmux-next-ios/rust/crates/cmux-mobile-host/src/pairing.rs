@@ -548,6 +548,12 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
 }
 
+/// A pairing code's pre-approval as the Mac mints it: 16 to 64 base64url characters.
+fn is_pair_token(token: &str) -> bool {
+    (16..=64).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 fn new_nonce() -> Result<String, Refused> {
     use ring::rand::SecureRandom;
     let mut bytes = [0u8; 32];
@@ -642,11 +648,24 @@ async fn authenticate(
         }
     }
     send(sender, challenge).await;
-    let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
-        Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
-            .ok_or(("bad_request", "expected {signature}".to_owned()))?,
+    // With the signature, a phone that scanned the Mac's pairing code sends its pre-approval
+    // (`pairToken`), only after this challenge proved the Mac's key. hostd checks nothing but its
+    // shape and forwards it with the request: the app decides, and only for a phone this host
+    // already admitted as the owner's.
+    let (signature, pair_token) = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
+        Ok(Some(ChannelEvent::Data(bytes))) => {
+            let reply = serde_json::from_slice::<Value>(&bytes).ok();
+            let signature = reply
+                .as_ref()
+                .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
+                .ok_or(("bad_request", "expected {signature}".to_owned()))?;
+            let pair_token =
+                reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
+            if pair_token.as_deref().is_some_and(|token| !is_pair_token(token)) {
+                return Err(("bad_request", "pairToken is 16 to 64 base64url characters".into()));
+            }
+            (signature, pair_token)
+        }
         _ => return Err(("timeout", "no signature".into())),
     };
     let message =
@@ -714,6 +733,7 @@ async fn authenticate(
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
                     registered_at_ms,
+                    pair_token: pair_token.clone(),
                 });
                 send(sender, json!({"pending": true})).await;
             }

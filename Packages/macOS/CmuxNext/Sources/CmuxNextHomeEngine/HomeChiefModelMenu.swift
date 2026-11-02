@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextHome
 import Foundation
 
 /// The Chief's Model popup below its "Default" item, built from the models acpmux offers for the
@@ -20,7 +21,7 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     nonisolated struct Item: Equatable {
         var value: String
         var title: String
-        /// The model's catalog description, or what an alias runs (the row's tooltip).
+        /// The row's tooltip: the model's catalog description, then the id a pick writes.
         var detail: String?
     }
 
@@ -93,6 +94,24 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             ?? models.first { $0.id == base }
     }
 
+    /// The name a person reads for model `id`: the catalog's name for the release it runs (with
+    /// its context variant), else the name acpmux gave it, else the id made readable
+    /// (``Swift/String/chiefModelName``), never the raw id.
+    static func name(of id: String, in models: [ChiefEngineReport.Model]) -> String {
+        if let release = release(of: id, in: models), release.family != nil {
+            let name = displayName(release)
+            return baseID(id) == id ? name : variantTitle(base: name, id: id)
+        }
+        if let own = models.first(where: { $0.id == id }) { return readable(own) }
+        return id.chiefModelName
+    }
+
+    /// `model`'s own name, or its id made readable when acpmux named it by its id.
+    static func readable(_ model: ChiefEngineReport.Model) -> String {
+        let name = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == model.id ? model.id.chiefModelName : name
+    }
+
     /// `id` without a context-window suffix (`opus[1m]` → `opus`).
     static func baseID(_ id: String) -> String {
         guard id.hasSuffix("]"), let open = id.lastIndex(of: "[") else { return id }
@@ -111,6 +130,8 @@ nonisolated struct HomeChiefModelMenu: Equatable {
         /// The release id this row stands for (a variant's base), which dedupes and orders it.
         var key: String
         var variant: Bool
+        /// The catalog's description of the model, the first line of its tooltip.
+        var description: String?
     }
 
     /// One row per offered model: acpmux's own `default` is the popup's Default item; an alias
@@ -126,11 +147,11 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             // A variant's key is its release's with the same suffix, so `opus[1m]` and
             // `claude-opus-5-5[1m]` are one row.
             let key = ((release?.family != nil ? release?.id : nil) ?? base) + model.id.dropFirst(base.count)
-            var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? model.name
+            var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? readable(model)
             if variant { title = variantTitle(base: title, id: model.id) }
-            let detail: String? = isPlan ? model.name : (model.description ?? release?.description)
-            let row = Row(item: Item(value: model.id, title: title, detail: detail), family: release?.family,
-                          release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant)
+            let row = Row(item: Item(value: model.id, title: title, detail: isPlan ? planDetail(model, title: title) : nil), family: release?.family,
+                          release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant,
+                          description: model.description ?? release?.description)
             if let index = seen[key] {
                 // The alias wins the row unless the Chief is set on the other id.
                 let keepsNew = model.id == chosen || (rows[index].item.value != chosen && isAlias(model, of: models))
@@ -141,7 +162,16 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             rows.append(row)
         }
         if let chosen, chosen != "default", !rows.contains(where: { $0.item.value == chosen }) {
-            rows.append(Row(item: Item(value: chosen, title: chosen), family: nil, release: nil, kind: .model, key: chosen, variant: false))
+            // Named by its id made readable; the id itself is the row's tooltip.
+            rows.append(Row(item: Item(value: chosen, title: chosen.chiefModelName), family: nil, release: nil,
+                            kind: .model, key: chosen, variant: false, description: nil))
+        }
+        // The tooltip names the id the row writes once an alias and its release share the row.
+        for index in rows.indices where rows[index].kind == .model {
+            let item = rows[index].item
+            let id = item.title == item.value ? nil : item.value
+            let lines = [rows[index].description, id].compactMap { $0 }
+            rows[index].item.detail = lines.isEmpty ? nil : lines.joined(separator: "\n")
         }
         return rows
     }
@@ -175,7 +205,18 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     }
 
     /// Claude Code's `opusplan`: Opus plans, Sonnet carries the plan out.
+    /// Another plan reads by its own name, or by its id made readable (``readable(_:)``).
     private static func planTitle(_ model: ChiefEngineReport.Model) -> String {
-        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : model.name
+        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : readable(model)
+    }
+
+    /// A plan row's tooltip: the harness's own name for it, then the id the row writes.
+    private static func planDetail(_ model: ChiefEngineReport.Model, title: String) -> String? {
+        var lines: [String] = []
+        for line in [model.name.trimmingCharacters(in: .whitespacesAndNewlines), model.id]
+        where !line.isEmpty && line != title && !lines.contains(line) {
+            lines.append(line)
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

@@ -9,7 +9,7 @@
 // The item is the shared shape (plans/cmux-next/needs-you.md): the header's pinned list draws it,
 // the Feed keys the same prompt `acpmux:<permissionId>` (its dedupe key), and an agent points at an
 // item with `cmux://needs-you/<permissionId>` (links.ts) instead of restating it.
-import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow } from "../model";
+import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
 import { questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -49,6 +49,8 @@ export type NeedsYouItem = {
   /// acpmux holds; `ask` is that agent's name.
   peer?: string;
   held?: number;
+  /// A guest's held prompt (`awaitingOwner`), which Review opens on its card; `ask` is its text.
+  promptId?: string;
   question?: AgentQuestion;
 };
 
@@ -58,8 +60,9 @@ export type WatchedAsk = { sessionId: string; permission: AcpmuxPermission; at: 
 export type NeedsYouInput = {
   sessions: readonly AcpmuxSessionEntry[];
   asks: readonly WatchedAsk[];
-  /// The open chat and its rows: its agent pair holds are read from them.
-  open?: { sessionId?: string; rows: readonly AcpmuxRow[] };
+  /// The open chat and its rows: its agent pair holds are read from them, and its guests' held
+  /// prompts from its queue, answered here only where acpmux serves Approve (`queueApproval`).
+  open?: { sessionId?: string; rows: readonly AcpmuxRow[]; queue?: readonly QueuedPrompt[]; queueApproval?: boolean };
 };
 
 /// The Feed's key for a prompt (CmuxNextApp AcpmuxPermissionFeedBridge `dedupe_key`).
@@ -103,6 +106,22 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
         held: pair.held.length,
       });
     }
+    // A guest's prompt waits for the owner as a permission ask does (design/chat-multiplayer.md).
+    for (const entry of input.open.queueApproval ? (input.open.queue ?? []) : []) {
+      if (!entry.awaitingOwner) continue;
+      asked.add(input.open.sessionId);
+      items.push({
+        id: `guest:${input.open.sessionId}:${entry.id}`,
+        kind: "held",
+        sessionId: input.open.sessionId,
+        ask: entry.prompt,
+        who: who(session, input.open.sessionId, byId),
+        // Never approved from here: a preview is not what the owner approves. Review goes to the
+        // held card, which shows the whole message and has Approve (QueuedMessageCard.tsx).
+        answers: [{ id: "review", label: "review", tone: "choice" }],
+        promptId: entry.id,
+      });
+    }
   }
   // A chat that waits on the person with no ask read here (a chat on another computer, a grouped
   // request, or one whose ask is still being read): one item, so it is never missing from the list.
@@ -124,8 +143,11 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
 /// Something is pending on the person: acpmux counts an open request, names what the chat waits
 /// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
 /// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
-/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said.
+/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said. A chat
+/// acpmux marks `lost` (its machine is unreachable) waits on nobody: no one can answer its ask now,
+/// and the sidebar and tab strip mark it as an error, not as waiting (cx-zlox).
 function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
+  if (session.indicator === "lost") return false;
   if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
   return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
 }

@@ -66,7 +66,7 @@ class CheckPaths(unittest.TestCase):
         # A change to a gate on the base changes what the gate enforces on every open pull request.
         source = (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
         scripts = sorted(set(re.findall(r'"(scripts/[\w./-]+\.(?:py|sh))"', source)))
-        self.assertGreaterEqual(len(scripts), 7, scripts)
+        self.assertGreaterEqual(len(scripts), 6, scripts)  # the defaults-stamp gate left with the committed stamp
         self.assertEqual(matching(scripts), scripts)
         self.assertEqual(matching(["scripts/ci/crash-class-gate.sh", "webviews/src/protocol/codegen/ir.ts",
                                    "webviews/scripts/acpmux-protocol-codegen.ts", "scripts/cmux-next/lint/swiftlint.yml",

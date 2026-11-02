@@ -94,4 +94,9 @@ enum BrowserEngineStrings {
     static var fallbackStartFailed: String {
         String(localized: "browser.engine.fallback.startFailed", defaultValue: "Chromium couldn’t start, so this tab uses WebKit.", bundle: .module)
     }
+    /// A restored Chromium tab whose Chromium failed to start (`CEFUnavailableReason.keepsChromiumTabsOutOfWebKit`).
+    static var chromiumUnavailableRestoredTab: String {
+        String(localized: "browser.engine.unavailable.restoredTab",
+               defaultValue: "Chromium unavailable: this tab isn’t loaded, because WebKit would open it signed out. Quit and reopen cmux to load it.", bundle: .module)
+    }
 }

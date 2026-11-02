@@ -112,7 +112,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         statsSlot = session != nil && live && session?.preferences.showStats == true
         if statsSlot, let session { stats.stringValue = Self.statsLine(session) }
         let viewOnly = model.viewOnly
-        setToolTip(viewOnly
+        setThemedTip(viewOnly
             ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), model.name)
             : nil, on: badge)
         badge.isHidden = !viewOnly
@@ -126,7 +126,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         sendKeys.isHidden = !controlsShown
         sendKeys.isEnabled = canSend
         sendKeys.ink = canSend ? \.secondary : \.tertiary
-        setToolTip(viewOnly
+        setThemedTip(viewOnly
             ? L.t("macScreen.toolbar.sendKeysViewOnly", "Send Keys is off in a View Only session")
             : L.t("macScreen.toolbar.sendKeys", "Send Keys"), on: sendKeys)
         refresh.isHidden = !controlsShown
@@ -159,7 +159,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     }
 
     /// Sets a tooltip only when it changes (the stats redraw this every second).
-    private func setToolTip(_ text: String?, on view: NSView) {
+    private func setThemedTip(_ text: String?, on view: NSView) {
         if view.themedToolTip != text { view.themedToolTip = text }
     }
 
@@ -183,10 +183,21 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     static func statsLine(_ session: ScreenSession) -> String {
         let stats = session.stats
-        var parts = [session.streamPath, String(format: "%.0f fps", stats.fps)]
-        if let rtt = stats.latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
-        if stats.encoding != "-" { parts.append(stats.encoding) }
-        if session.frameSize.width >= 1 { parts.append("\(Int(session.frameSize.width))×\(Int(session.frameSize.height))") }
+        return statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                         encoding: stats.encoding, frameSize: session.frameSize)
+    }
+
+    /// The stats line: path, frame rate (measured, then the rate the Mac
+    /// streams at when it says: "118/120 fps"), round trip, codec, size.
+    static func statsLine(path: String, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String, frameSize: CGSize) -> String {
+        let measured = fps.isFinite ? Int(fps.rounded()) : 0
+        let rate = targetFps.map { target in
+            L.t("macScreen.stats.fpsOfTarget", "\(measured)/\(target) fps")
+        } ?? String(format: "%.0f fps", fps)
+        var parts = [path, rate]
+        if let rtt = latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
+        if encoding != "-" { parts.append(encoding) }
+        if frameSize.width >= 1 { parts.append("\(Int(frameSize.width))×\(Int(frameSize.height))") }
         return parts.joined(separator: " · ")
     }
 

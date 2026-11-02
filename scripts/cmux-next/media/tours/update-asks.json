@@ -1,0 +1,45 @@
+{
+  "title": "An update asks before it downloads and before it relaunches",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Downloaded: the Update Ready card asks before the relaunch (Restart to Update / Hide)",
+      "rpc": {
+        "method": "debug.updater",
+        "params": {
+          "action": "stage",
+          "version": "1.0.0-nightly.4012345678901",
+          "changes": 3
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "A scheduled check found an update: the titlebar's Update Available asks",
+      "rpc": {
+        "method": "debug.updater",
+        "params": {
+          "action": "available",
+          "version": "1.0.0-nightly.4012345678901"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Check for Updates found it: version, release notes, Update / Release Notes / Hide",
+      "rpc": {
+        "method": "debug.updater",
+        "params": {
+          "action": "available",
+          "version": "1.0.0-nightly.4012345678901",
+          "asked": true
+        }
+      },
+      "wait": 2
+    }
+  ]
+}

@@ -113,6 +113,9 @@ package struct HibernationPlanner {
         case downloading
         /// An agent holds the page's browser lease.
         case agentLease = "agent_lease"
+        /// cmux.json does not set `browser.hibernation`: hidden pages only freeze, so they keep their
+        /// state, and are never discarded on their own (`BrowserHibernationSetting.discardsAutomatically`).
+        case keepsState = "keeps_state"
     }
 
     package struct Plan: Equatable {
@@ -190,8 +193,15 @@ package struct HibernationPlanner {
     /// most under pressure). Under memory pressure, when no page is due, the least valuable page
     /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most
     /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting.
+    ///
+    /// Without `discardsAutomatically` no page is due, at any memory pressure: a discarded page
+    /// reloads when it wakes, which the person did not ask for.
     package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
         var plan = Plan()
+        if setting.isEnabled, !setting.discardsAutomatically {
+            for candidate in candidates { plan.exemptions[candidate.key] = exemption(candidate, setting: setting) ?? .keepsState }
+            return plan
+        }
         guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
             return plan

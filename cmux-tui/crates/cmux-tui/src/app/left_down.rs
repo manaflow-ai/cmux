@@ -332,6 +332,7 @@ impl App {
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
             self.focus = FocusTarget::Pane;
+            self.focus_frame_workspace_of_pane(area.pane);
             if area.content.contains(x, y) {
                 if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
                     if self.active_pane() != Some(area.pane) {

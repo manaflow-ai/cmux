@@ -3,7 +3,7 @@ import { chiefPrincipal } from "./brain-io.ts"
 import { lastTalk, runError, type Run, type Step } from "./brain-runs.ts"
 import { writeConfig } from "./brain-store.ts"
 import { creditsCanStart } from "./models.ts"
-import { clipReply } from "./brain-text.ts"
+import { clipReply, linkIds } from "./brain-text.ts"
 import { type ChildStart, childInput, childObject, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, subagentActivity, takeReport } from "./brain-spawn.ts"
 import { openCloudWorkspace } from "./brain-spawn-workspace.ts"
 import { handStub, listHands } from "../hand-api.ts"
@@ -125,7 +125,7 @@ export async function childEnd(b: ChiefBrainDO, id: string, ok: boolean, reason:
   const talk = ok ? lastTalk(b.sql, id) : ""
   const report = childReportText(ok, talk, why)
   if (!ok) console.warn(JSON.stringify({ msg: "chief_brain.spawn_child_failed", run: id, reason: why.slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) }))
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = 'pending' WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), clipReply(report), id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = 'pending' WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), clipReply(linkIds(report)), id)
   b.announce(id, [])
   await b.postAndSchedule(id)
 }

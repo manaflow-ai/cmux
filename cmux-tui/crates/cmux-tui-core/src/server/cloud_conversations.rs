@@ -52,6 +52,12 @@ pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
 /// `conversation-typing` broadcast of a subscribed conversation) for a
 /// connection that echoes it (advertised with `cloud-conversations-v1`).
 pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
+/// `cloud-conversation-presence`: the owner's ephemeral `presence.set` frame
+/// (the person views the conversation while any client of the daemon does)
+/// through the daemon, and the `cloud-conversation-presence` event (the
+/// owner's `conversation-presence` set of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_PRESENCE_CAPABILITY: &str = "cloud-conversation-presence-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -147,6 +153,9 @@ pub(super) struct InboxListParams {
     limit: Option<u32>,
     #[serde(default)]
     include_archived: bool,
+    /// The `next_cursor` of the page before (absent: the first page).
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
 /// `cloud-conversation-snapshot`.
@@ -222,6 +231,13 @@ pub(super) struct TypingParams {
     on: bool,
 }
 
+/// `cloud-conversation-presence`.
+#[derive(Deserialize)]
+pub(super) struct PresenceParams {
+    conversation: String,
+    viewing: bool,
+}
+
 /// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
 /// fields at all, so a client cannot name a chief (the queue is the lease
 /// token's) or another person (the requests are the lease's).
@@ -247,7 +263,13 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
 
 /// The `error_code` of a cloud error.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<CloudError>().and_then(CloudError::error_code).map(str::to_string)
+    let cloud = error.downcast_ref::<CloudError>()?;
+    if let CloudError::Rejected { code, .. } = cloud
+        && code.starts_with("cloud_environment.")
+    {
+        return Some(code.clone());
+    }
+    cloud.error_code().map(str::to_string)
 }
 
 /// The reply's `retryable` flag of a cloud error.
@@ -355,6 +377,55 @@ pub(super) fn selfhost_info(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.selfhost_info()?)
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EnvironmentParams {
+    pub action: String,
+    pub params: Value,
+    pub platform_origin: String,
+    pub access_token: String,
+}
+
+impl Drop for EnvironmentParams {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.access_token.zeroize();
+    }
+}
+
+// PATCH params can carry write-only secrets. Never include them in command diagnostics.
+impl std::fmt::Debug for EnvironmentParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvironmentParams")
+            .field("action", &self.action)
+            .field("params", &"[redacted]")
+            .field("access_token", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Only the verified native app may forward its platform origin and install token.
+pub(super) fn environment(
+    mux: &Mux,
+    client: u64,
+    params: EnvironmentParams,
+) -> anyhow::Result<Value> {
+    if !is_app(mux, client) {
+        return Err(CloudError::Rejected {
+            code: "forbidden".into(),
+            message: "cloud-environment requires the verified cmux app connection".into(),
+            retryable: false,
+        }
+        .into());
+    }
+    Ok(service(mux, client)?.environment(
+        &params.action,
+        &params.params,
+        &params.platform_origin,
+        &params.access_token,
+    )?)
+}
+
 /// The Worker's user id for a Stack user of a Stack project (backend
 /// domains/user.ts `userIdFor`).
 fn worker_user_id(project: &str, account: &str) -> String {
@@ -365,7 +436,11 @@ fn worker_user_id(project: &str, account: &str) -> String {
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+    Ok(lease_user(mux, client)?.inbox_list(
+        params.limit,
+        params.include_archived,
+        params.cursor.as_deref(),
+    )?)
 }
 
 /// `cloud-requests-list`: the person's open message requests (`home.requests.list`).
@@ -454,6 +529,12 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
     Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
 }
 
+/// `cloud-conversation-presence`: the connection views the conversation or
+/// stopped, as the owner's `presence.set` frame on the shared socket.
+pub(super) fn presence(mux: &Mux, client: u64, params: PresenceParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.presence(client, &params.conversation, params.viewing)?)
+}
+
 pub(super) fn unsubscribe(
     mux: &Mux,
     client: u64,
@@ -512,6 +593,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
         Command::CloudInboxList(_)
             | Command::CloudRequestsList(_)
             | Command::CloudSelfhostInfo(_)
+            | Command::CloudEnvironment(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -571,6 +653,17 @@ pub(super) fn start(
     writer: &MessageWriter,
 ) -> bool {
     let precheck = || {
+        if matches!(&cmd, Command::CloudEnvironment(_)) {
+            if !is_app(mux, client) {
+                return Err(CloudError::Rejected {
+                    code: "forbidden".into(),
+                    message: "cloud-environment requires the verified cmux app connection".into(),
+                    retryable: false,
+                }
+                .into());
+            }
+            return Ok(service(mux, client)?.begin_request()?);
+        }
         lease_user(mux, client).and_then(|service| {
             if let Command::CloudConversationOp(params) = &cmd {
                 check_origin(mux, client, params.origin.as_deref())?;

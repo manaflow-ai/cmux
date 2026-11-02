@@ -50,7 +50,11 @@ export default {
     port: Number(process.env.CMUX_GALLERY_DEV_PORT) || 4210,
     strictPort: true,
     allowedHosts,
-    fs: { strict: true, allow: [webviewsRoot] },
+    // The UI font's WOFF2 lives with the app's resources (src/gallery/frame/uiFont.ts).
+    fs: {
+      strict: true,
+      allow: [webviewsRoot, path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts")],
+    },
     // Behind tailscale serve the page is https://<host>:<public port>/<base>; the socket goes there too.
     ws: publicPort ? { protocol: "wss", clientPort: publicPort } : {},
     hmr: { overlay: true },

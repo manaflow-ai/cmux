@@ -9,10 +9,9 @@
 # fetched later stopped at it, HEAD was no longer its ancestor, and base-autofix-push.sh held every
 # Mac export as "not a commit between" (run 39617667536, 2026-10-21).
 #
-# A stale settings export stamp at HEAD (scripts/ci/defaults_guard.py check-stamp) adds the stamp's
-# path, which turns the settings area on: a run whose own changes missed the settings sources would
-# otherwise go green and move the next run's SINCE past exports a held or failed run never landed
-# (run 39620866697 at 9206eac62ab7).
+# The settings area comes from these paths alone. A committed source stamp once also turned it on
+# when the tip's exports were stale; the stamp is derived now (defaults_guard.py source-stamp), not
+# committed, and a held settings export fails its run, so the next run's SINCE still covers it.
 #
 # Usage: scripts/cmux-next/base-autofix-changed.sh SINCE   (run in the checkout)
 set -euo pipefail
@@ -31,8 +30,3 @@ git -C "$root" rev-parse --path-format=absolute --git-common-dir | sed 's#$#/obj
 git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 --filter=blob:none "$(git -C "$root" remote get-url origin)" "$since" \
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
 git -C "$scratch" diff --name-only --no-renames "$since" "$head"
-if [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
-  && ! (cd "$root" && python3 scripts/ci/defaults_guard.py check-stamp >&2); then
-  echo "::warning::the settings exports at ${head:0:12} are stale; regenerating them" >&2
-  echo schemas/settings-export/settings-schema.sources.sha256
-fi

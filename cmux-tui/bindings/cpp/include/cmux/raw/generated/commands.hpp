@@ -80,6 +80,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_conversation_history(const CloudConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_live(const CloudConversationLiveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_presence(const CloudConversationPresenceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_run(const CloudConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_runs(const CloudConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
@@ -87,6 +88,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_typing(const CloudConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_environment(const CloudEnvironmentRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_clear(const CloudHostReplicaClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_set(const CloudHostReplicaSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_host_replica_status(const CloudHostReplicaStatusRequest& request = {}, RequestOptions options = {});

@@ -161,7 +161,8 @@ struct HomeWireMapping: Sendable {
         summary.pinRank = entry["pinned"].bool == true ? (entry["pin_position"].int ?? 0) : nil
         summary.muted = entry["muted"].bool ?? false
         summary.mentionCount = entry["mentions"].int ?? 0
-        if let kind = kind(entry["kind"].string) { summary.declaredKind = kind }
+        // A teammate's entry for someone else's shared Chief conversation says group; the head's chief stays.
+        if let kind = kind(entry["kind"].string), summary.declaredKind != .chief { summary.declaredKind = kind }
         if let lastSeq = entry["last_seq"].uint, lastSeq > summary.lastSeq {
             summary.lastSeq = lastSeq
             if let at = date(entry["last_at"]) { summary.updatedAt = max(summary.updatedAt, at) }

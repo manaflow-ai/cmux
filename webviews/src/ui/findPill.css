@@ -16,6 +16,8 @@
   --find-pill-count-min: 52px;
   --find-pill-padding-start: 12px;
   --find-pill-padding-end: 5px;
+  /* The shared icon set's glyphs in the buttons (Octicons are drawn on a 16px grid). */
+  --find-pill-icon: 16px;
 }
 
 .find-pill {
@@ -32,11 +34,12 @@
   /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
   box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: 1;
   animation: find-pill-in var(--ui-popup-open, 120ms) ease-out;
   pointer-events: auto;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* Reduce Transparency: the opaque popup surface, no blur (desktop.css also swaps the tint tokens). */
@@ -104,6 +107,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Nothing matched: the count reads as an answer, in the danger ink. */
 .find-pill__count[data-none] {
@@ -130,7 +134,6 @@
   border-radius: calc(var(--find-pill-button) / 2);
   background: none;
   color: color-mix(in srgb, currentColor 62%, transparent);
-  cursor: default;
 }
 .find-pill__button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 9%, transparent);
@@ -147,6 +150,7 @@
   padding: 0 6px;
   font-size: var(--text-caption);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .find-pill__button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);
@@ -174,4 +178,21 @@
 .find-pill__toggle {
   margin-left: -6px;
   margin-right: 2px;
+}
+
+/* The shared icon set (icons.tsx `Icon`, `data-icon`): stroke glyphs on its 20px grid, Octicons
+   filled. The diff page styles them in its own sheet; a page without it (the markdown and code
+   editor pages) drew them with no stroke, so the chevrons and the close button were blank. */
+.find-pill__button svg[data-icon] {
+  width: var(--find-pill-icon);
+  height: var(--find-pill-icon);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.find-pill__button svg[data-icon][data-icon-fill] {
+  fill: currentcolor;
+  stroke: none;
 }

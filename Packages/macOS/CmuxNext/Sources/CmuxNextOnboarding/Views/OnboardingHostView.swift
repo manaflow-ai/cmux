@@ -4,9 +4,9 @@ import CmuxNextDesign
 /// The window's content view: the tool's screen on its surface.
 final class OnboardingHostView: NSView {
     init(model: OnboardingModel) {
-        super.init(frame: NSRect(origin: .zero, size: OnboardingMetrics.windowSize))
-        autoresizingMask = [.width, .height]
         let screen = model.step.screen
+        super.init(frame: NSRect(origin: .zero, size: screen.size))
+        autoresizingMask = [.width, .height]
         let content = screen.makeContent(OnboardingStepContext(model: model))
         let surface = OnboardingSurfaceView(surface: screen.surface, content: content)
         surface.frame = bounds

@@ -16,6 +16,7 @@ import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, typ
 import type { Commit, OpRequest } from "./request.ts"
 import { SYSTEM_ACTOR, type ClosedGrant, type ConversationHead, type ConversationKind, type Grant, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
+import { NOT_REACHABLE } from "./reach.ts"
 import { reduceSweep, SWEEP_OP } from "./sweep.ts"
 import { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
@@ -169,10 +170,15 @@ const prepare = (
     // The caller's own membership first (the same code apply gives), so a non-member's refusal
     // never depends on the target: no probe of who is or was in the conversation.
     if (!currentParticipant(head, actor)) return "not_participant"
+    // In a Chief's conversation only its owner adds people: refused before the reach facts, so a
+    // teammate learns nothing about who they could reach.
+    if (head.kind === "chief" && currentParticipant(head, actor)?.role !== "owner") return "forbidden"
     const participant = rest.participant
     if (typeof participant !== "object" || participant === null) return "invalid_participant"
     const decision = (options.participantPolicy ?? defaultParticipantPolicy)(ctx.principal, participant as Participant, head)
     if (!decision.ok) return decision.code
+    // A Chief's conversation is shared only inside a team (cmux#25569): a connection alone is not enough.
+    if (head.kind === "chief" && !sharesTeam(ctx.principal, participant as Participant)) return NOT_REACHABLE
     const role = rest.role === undefined ? {} : { role: rest.role as Participant["role"] & string }
     const banned = typeof (participant as Participant).id === "string" && rowsOf(ctx).get(TABLE_BAN, (participant as Participant).id) !== undefined
     return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision), ...role } as Op, trusted: true, banned }
@@ -184,6 +190,10 @@ const prepare = (
   }
   return { op: { ...rest, kind: op } as unknown as Op }
 }
+
+/** The Worker found that the caller and this person are members of one team (reach.ts `shared_team`). */
+const sharesTeam = (principal: Principal, participant: Participant): boolean =>
+  participant.kind !== "human" || principal.home_reach?.some((reach) => reach.user === participant.id && reach.shared_team && reach.blocked !== true) === true
 
 /** Unread and mentions of `user` after `cursor`, from the message rows (at most UNREAD_RECOUNT_LIMIT). */
 const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts => {

@@ -5,7 +5,11 @@
 //!   reference to that session, so a handle of a chat that was replaced or purged since, even
 //!   one with the same ID, is refused (`media.handle`).
 //! - A table holds at most [`MAX_HANDLES`], and the daemon at most [`MAX_OPEN`] over all its
-//!   connections (`media.handles`, `media.busy`).
+//!   connections (`media.handles`, `media.busy`). A peer daemon's link carries the reads of all
+//!   that daemon's clients, which it caps one by one (`server/media_forward.rs`), so its table
+//!   is capped only by [`MAX_OPEN`] ([`Handles::for_peer_link`]).
+//! - A handle whose session is gone counts toward no cap: the insert and the sweeper drop it, and
+//!   [`Handles::forget_orphan`] closes one named by a range for a chat that no longer resolves.
 //! - A handle unused for [`IDLE`] is closed by the table's sweeper: one task per table, spawned
 //!   by the insert that finds none, sleeping until the earliest handle's deadline. It stops when
 //!   the table is empty, when the table is dropped, or at [`Handles::close_all`], which aborts it.
@@ -58,6 +62,7 @@ struct Entry<O> {
 
 struct State<O> {
     entries: HashMap<String, Entry<O>>,
+    cap: usize,
     sweeper: Option<AbortHandle>,
     closed: bool,
 }
@@ -70,8 +75,18 @@ pub struct Handles<O = super::Session> {
 
 impl<O> Default for Handles<O> {
     fn default() -> Self {
-        let state = State { entries: HashMap::new(), sweeper: None, closed: false };
+        let state =
+            State { entries: HashMap::new(), cap: MAX_HANDLES, sweeper: None, closed: false };
         Handles { state: Arc::new(Mutex::new(state)) }
+    }
+}
+
+impl<O> Handles<O> {
+    /// The table of a peer daemon's link: capped by the daemon's [`MAX_OPEN`] alone.
+    pub fn for_peer_link() -> Self {
+        let handles = Self::default();
+        lock(&handles.state).cap = MAX_OPEN;
+        handles
     }
 }
 
@@ -94,7 +109,8 @@ impl<O: Send + Sync + 'static> Handles<O> {
         if state.closed {
             return Err(refused("media.closed", "the connection that opened the file has ended"));
         }
-        if state.entries.len() >= MAX_HANDLES {
+        state.entries.retain(|_, entry| entry.owner.strong_count() > 0);
+        if state.entries.len() >= state.cap {
             let message = "too many media files are open; read one to its end";
             return Err(refused("media.handles", message));
         }
@@ -142,6 +158,15 @@ impl<O: Send + Sync + 'static> Handles<O> {
         }
     }
 
+    /// Closes `handle` when the chat that opened it no longer exists, so nothing reads it again;
+    /// a live chat's handle stays.
+    pub fn forget_orphan(&self, handle: &str) {
+        let mut state = lock(&self.state);
+        if state.entries.get(handle).is_some_and(|entry| entry.owner.strong_count() == 0) {
+            state.entries.remove(handle);
+        }
+    }
+
     /// The connection ended: every handle closes, the sweeper stops, and no handle opens again.
     pub fn close_all(&self) {
         let mut state = lock(&self.state);
@@ -169,7 +194,9 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
             let Some(state) = state.upgrade() else { return };
             let mut state = lock(&state);
             let now = Instant::now();
-            state.entries.retain(|_, entry| now.saturating_duration_since(entry.used) < IDLE);
+            state.entries.retain(|_, entry| {
+                entry.owner.strong_count() > 0 && now.saturating_duration_since(entry.used) < IDLE
+            });
             let Some(used) = state.entries.values().map(|entry| entry.used).min() else {
                 state.sweeper = None;
                 return;
@@ -179,3 +206,7 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
         tokio::time::sleep_until(deadline).await;
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "media_handles_tests.rs"]
+mod tests;

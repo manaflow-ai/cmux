@@ -50,12 +50,34 @@ public final class TabStripView: NSView {
         get { newTabButton.shortcut }
         set { newTabButton.shortcut = newValue }
     }
+    /// A strip exposes its menu on a normal press, with a visible chevron on +.
+    public var opensNewTabMenuOnPress = false {
+        didSet {
+            newTabButton.showsChevron = opensNewTabMenuOnPress
+            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
+            applyTokens(animated: false)
+        }
+    }
+    /// A separate pane-type chooser beside +; the plus keeps its default-tab action.
+    public var showsNewTabMenuButton = false {
+        didSet {
+            newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+            applyTokens(animated: false)
+        }
+    }
+    var newTabControlsWidth: CGFloat {
+        metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
+    }
     var windowControlsInset: CGFloat = 0
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
     /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
+    /// Native menu tracking; injectable for interaction tests without a nested event loop.
+    var presentNewTabMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Inline rename (`TabInlineRename`).
     private(set) lazy var inlineRename = TabInlineRename(strip: self)
     // MARK: Views
@@ -69,6 +91,7 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
+    let newTabMenuButton = PaneTypeMenuButton()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -98,6 +121,12 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
         didSet { slotIndexCache = nil }
     }
+    /// The tabs fill the bar: they are narrower than their widest, or scroll (``updateCrowded()``).
+    /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
+    /// room the tabs could use.
+    public internal(set) var isCrowded = false
+    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    public var onCrowdedChange: ((Bool) -> Void)?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -148,6 +177,13 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
+    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
+    var pressedZoomID: TabID?
+    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
+    var zoomHoveredID: TabID?
+    /// The tab whose zoom indicator the click sequence began on: its remaining presses do not
+    /// activate the tab or another button that moves into the indicator's old slot.
+    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -185,6 +221,8 @@ public final class TabStripView: NSView {
     private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
     /// A dropped tab keeps the placeholder's geometry when it arrives.
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    /// Identifies the committed drop whose result may still roll back this strip.
+    var dropCommitID: UUID?
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
@@ -215,10 +253,24 @@ public final class TabStripView: NSView {
         tabsClip.layer?.addSublayer(scrollingLayer)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
-        newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        contentView.addSubview(newTabMenuButton)
+        newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+        newTabMenuButton.onPress = { [weak self] in
+            guard let self else { return }
+            showNewTabMenu(anchor: newTabMenuButton)
+        }
+        newTabButton.onPress = { [weak self] in
+            guard let self else { return }
+            if opensNewTabMenuOnPress { showNewTabMenu() }
+            else { model.send(.newTab(after: nil)) }
+        }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
+        }
+        newTabMenuButton.onAccessibilityFocus = { [weak self, weak newTabMenuButton] focused in
+            guard let newTabMenuButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabMenuButton), focused)
         }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -288,6 +340,7 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
+        if !newTabMenuButton.isHidden { children.append(newTabMenuButton) }
         return children
     }
 
@@ -329,6 +382,9 @@ public final class TabStripView: NSView {
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
+        _ = newTabHold.end()
+        pressedNewTab = false
+        newTabButton.isPressed = false
         buttonReveal.pointerInStrip = false
     }
 
@@ -409,9 +465,10 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
+        if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
-        let font = Typography.body
+        let font = Typography.tabTitle
         for cell in cells.values {
             cell.metrics = metrics
             cell.titleFont = font
@@ -436,7 +493,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.

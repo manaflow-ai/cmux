@@ -120,7 +120,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
             return ChiefHome(root: URL(fileURLWithPath: explicit, isDirectory: true).standardizedFileURL, isolated: false)
         }
         let rootOverride = value("CMUX_NEXT_CHIEF_ROOT").map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
-        let base = rootOverride ?? userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+        let base = chiefRoot(environment: environment, userHome: userHome)
         let isolatedLaunch = value("CMUX_NEXT_CHIEF_ISOLATED") == "1" || value("CMUX_NEXT_NO_ACTIVATE") == "1"
             || value("CMUX_NEXT_SHOWCASE") == "1"
             || value("CMUX_NEXT_TEST_WINDOW_FRAME") != nil || value("CMUX_NEXT_TEST_WINDOW_SCREEN") != nil
@@ -137,6 +137,22 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         return ChiefHome(root: root, isolated: false, buildID: build)
     }
 
+    /// The directory that holds every Chief home of this user (rules 2 and 4):
+    /// `CMUX_NEXT_CHIEF_ROOT`, else `~/.cmux/chief`. Isolated homes are under its `isolated/`.
+    public static func chiefRoot(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        if let override = environment["CMUX_NEXT_CHIEF_ROOT"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+        return userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+    }
+
+    /// Whether a Chief brain host holds this home now (the flock on `state/host.lock`). It reads
+    /// the disk: never on the main thread.
+    public var hostRuns: Bool {
+        ChiefMigration.lockHeld(at: root.appendingPathComponent("state/host.lock"))
+    }
+
     /// A Debug compile (DEV builds); NIGHTLY and Release compile as Release.
     public static var isDebugBuild: Bool {
         #if DEBUG
@@ -144,6 +160,20 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         #else
         false
         #endif
+    }
+
+    /// Every Chief home's agent tab host starts with it: `chief:<home id>`.
+    public static let tabHostPrefix = "chief:"
+
+    /// `chief:<home id>`, the agent tab host of the Chief home `muxHome`: its subagent tabs record
+    /// it. The id is optchat-chief `paths::home_id`: FNV-1a 32 of the path bytes.
+    public static func tabHost(muxHome: URL) -> String {
+        var hash: UInt32 = 0x811c_9dc5
+        for byte in muxHome.path.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 0x0100_0193
+        }
+        return tabHostPrefix + String(format: "%08x", hash)
     }
 
     /// `cmux-chief-<FNV-1a 32 of the root path>`: one owner per home, short

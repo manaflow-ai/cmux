@@ -43,8 +43,8 @@ per terminal (one per second, the same text once per five seconds). Ghostty's
 4. Quiet hours: no banner or sound.
 5. Banner per `desktop`: `unlessFocused` (default) skips a viewed pane; `always`;
    `whenInactive`; `never`. A source can turn banners off.
-6. Sound unless viewed, quiet or muted: `default` rides on the banner (Focus and the
-   per-app sound setting apply); a system sound name or a file path plays itself.
+6. Sound per "Sounds" below, unless quiet or muted: `default` rides on the banner (Focus
+   and the per-app sound setting apply); a sound name or a file path plays itself.
 7. Dismissal `timeout`: a one-shot `DemandTimer` reads it after `timeoutSeconds`.
 
 ## Dismissal (`NotificationPolicy.clears`)
@@ -62,6 +62,43 @@ The dismiss verbs always clear: Mark Read (tab), Mark Workspace as Read, Mark Al
 Notifications as Read, Dismiss Notification, `cmux clear-notifications`,
 `notification.clear` / `dismiss` / `mark_read`. Reading a tab withdraws its banners.
 Per source: `notifications.sources.<cli|terminal|agent>.dismissal`.
+
+## Sounds
+
+User request (2026-10-26): "make it possible to change notification sounds, make it super
+customizable per workspace, group, etc". Code: `CmuxNextSettings/NotificationSound*.swift`
+(pure rules) and `CmuxNextSettings/NotificationSounds/` (player, library, burst gate, actions; the App answers
+`NotificationSoundHost`).
+
+- Events: `finished` (an agent's info), `needsInput` (an agent's or `cmux notify`'s
+  warning: permission, question, plan review), `error` (any error level), `bell` (a terminal
+  program's OSC 9/777/99), `message` (`cmux notify`).
+- Levels, most specific first: agent kind (`notifications.sounds.agents.<kind>`: the chat's
+  harness or the agent its hooks report), workspace (`.workspaces.<id>`), its sidebar groups
+  from the innermost out (`.groups.<id or name>`), the global per-event sound
+  (`.events.<event>`), then `notifications.sound` (or its source's). Each level is a sound
+  name or `{sound, volume, events: {<event>: sound}}`; absent inherits, `"none"` mutes that
+  level (a more specific level can still sound). The nearest level that sets a volume wins,
+  times the master `notifications.sounds.volume`.
+- When: `notifications.sounds.when` = `unlessViewed` (default, as before), `whenInactive`, or
+  `always` (a pane in front sounds too, with no banner).
+- Bursts: after a sound, an event no more urgent than it stays silent for
+  `notifications.sounds.cooldownSeconds` (1.5 s; 0 off); urgency needsInput > error >
+  finished = message > bell, so an agent asking always sounds. A held sound silences its
+  banner too.
+- Sounds: the 14 macOS sounds, `/Library/Sounds`, and `~/Library/Sounds`, where Import
+  Notification Sound… (or Choose Sound File… in a level's menu, or `--arg file=`) copies a
+  file (AIFF, CAF, WAV, MP3, M4A) without overwriting or shadowing a system sound.
+- Surfaces: the workspace row and group menus (Options > Notification Sound, with the
+  current one checked; Preview Notification Sound), the palette, and the CLI:
+  `cmux notification set-workspace-sound | set-group-sound | set-agent-sound |
+  set-event-sound | preview-sound | import-sound` with `--arg sound=… event=… volume=0-100
+  file=…`. Settings > Notifications > Sounds has the per-event sounds, volume, when and the
+  cooldown; the level maps are cmux.json keys agents may set.
+- Not done: a per-tab level (tab ids churn and would leave stale keys), Focus detection for
+  sounds cmux plays itself (macOS gives no Focus state without the Communication
+  Notifications entitlement; `default` riding the banner respects Focus), and imported sounds
+  in the Settings page's sound menu (it lists /System/Library/Sounds; the palette lists all).
 
 ## Visuals
 

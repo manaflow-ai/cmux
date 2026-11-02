@@ -14,6 +14,11 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public private(set) var made: [FakeChromiumPage] = []
     /// Runs on each page made, before the host gets it (a test sets ``FakeChromiumPage/answer`` here).
     public var onMade: ((FakeChromiumPage) -> Void)?
+    /// A stand-in for the app's focus model (``PageChromiumHosting/focusViewChanged(_:)``); nil: none.
+    public var focusModel: ((PageWebView) -> Bool)?
+
+    /// Asks ``focusModel``.
+    public func focusViewChanged(_ page: PageWebView) -> Bool { focusModel?(page) ?? false }
 
     /// The error ``makePage(_:)`` throws while ``fails`` is set.
     public struct Refused: Error {}

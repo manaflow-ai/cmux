@@ -69,7 +69,7 @@ extension HandsService {
         do {
             try await work()
             return "ok"
-        } catch CloudAPIError.http(let status, let code, let message) {
+        } catch CloudAPIError.http(let status, let code, let message, _, _) {
             return "refused \(status) \(code ?? "") \(message ?? "")"
         } catch {
             return "failed \(error)"

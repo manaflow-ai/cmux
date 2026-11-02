@@ -102,8 +102,8 @@ end reason, the decision, or `old->new` for a permission change).
 | Method, path | Body | Result | Notes |
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
-| `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). |
-| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` from env `PAID_USER_IDS` in v1. Needs a registered device. |
+| `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
+| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
@@ -115,7 +115,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
 | `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
-| `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (paid only; else `[]`); otherwise 409 `session_not_active`. |
+| `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (checked against cmux billing on every call; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
@@ -180,8 +180,9 @@ to each host), so a change made while it was away never leaves an old value.
    `{sid, role:'viewer'|'host', dev, peer, peerKey, scope, iat, exp: iat+60, jti}`.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
-   credentials if the user is on a paid plan (Cloudflare TURN, minted per
-   session, TTL 1 h), else `[]`; the app adds the user's own relays.
+   credentials if cmux billing includes the relay for the user right now
+   (Cloudflare TURN, minted per session, TTL 1 h), else `[]`; the app adds the
+   user's own relays.
 4. Each device opens `signalURL?ticket=<jws>` with its device headers (no
    `Authorization`; the ticket admits it). The User DO passes both devices'
    signing keys to the Session DO when it creates it, so the Session DO
@@ -266,3 +267,13 @@ plaintext is `{"mode":"shared_secret","secret":…}` or
 username))`, expiry 6 h, renewed before it ends. Both sides use the relays.
 Free plan: direct, the user's own relays, and the host's tailnet/WireGuard
 addresses as candidates; the cmux relay only on paid plans.
+
+Plans: the hub keeps no plan list. For each ticket and each `/ice` call it
+asks the cmux web backend of the user's Stack project (env `BILLING_ORIGINS`,
+`<stackProjectId>=<origin>` pairs) for `GET /api/billing/plan` with the user's
+own Stack access token (`x-stack-auth`). The answer must be authenticated and
+about the same user. The cmux relay is included for `subscriptionPlanId` `pro`
+or `max`, or `teamPlanId` `team` (the user's billing team, as cmux billing
+resolves it). Go, Free, a non-200, a timeout (5 s) or any other answer gives
+`ice: []`. There is no cache, so a lapsed subscription loses the relay on its
+next ticket or refresh; ICE already handed out lasts its 1 h TTL.

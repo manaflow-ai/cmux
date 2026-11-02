@@ -5,7 +5,7 @@
   min-height: 200px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .breadcrumbs-gallery-copy {
@@ -13,6 +13,7 @@
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .breadcrumbs-gallery-copy strong {
@@ -39,6 +40,7 @@
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
   font-size: var(--text-body);
   text-overflow: ellipsis;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .breadcrumbs-gallery-crumb:hover {
@@ -64,4 +66,5 @@
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

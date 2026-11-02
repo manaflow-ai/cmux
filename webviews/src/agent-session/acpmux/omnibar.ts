@@ -11,7 +11,16 @@ export type OmnibarContext = {
   folders: string[];
   commands: string[];
   history: { url: string; title?: string; icon?: string }[];
+  /// Every Commands palette (Cmd-Shift-P) action the host can run here (`app.action`), in the
+  /// palette's order: `detail` is its palette section, `keycaps` its shortcut.
+  actions?: OmnibarAction[];
 };
+
+/// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
+export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
+
+/// The most action rows accepted from the host: every palette action fits (AgentPaneOmnibar.maximumActions).
+export const MAX_NEW_TAB_ACTIONS = 2000;
 
 export const EMPTY_OMNIBAR: OmnibarContext = {
   tabs: [],
@@ -86,7 +95,31 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
         return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
+    actions: omnibarActions(object.actions),
   };
+}
+
+/// Reads the host's palette actions, dropping one without an id or a title.
+export function omnibarActions(value: unknown): OmnibarAction[] {
+  const strings = (list: unknown) => (Array.isArray(list) ? list.flatMap((item) => string(item) ?? []) : []);
+  return records(value)
+    .flatMap((action): OmnibarAction[] => {
+      const id = string(action.id);
+      const title = string(action.title);
+      if (!id || !title) return [];
+      const detail = string(action.detail);
+      const keycaps = strings(action.keycaps);
+      return [
+        {
+          id,
+          title,
+          keywords: strings(action.keywords),
+          ...(detail ? { detail } : {}),
+          ...(keycaps.length ? { keycaps } : {}),
+        },
+      ];
+    })
+    .slice(0, MAX_NEW_TAB_ACTIONS);
 }
 
 export type OmnibarRow =
@@ -190,6 +223,17 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     kind === "terminal" ? [{ type: "run", text }] : kind === "browser" ? [{ type: "open", text }] : [];
   const last: OmnibarRow = { type: "ask", text };
   return [...first, ...scored.slice(0, MAX_ROWS - first.length - 1), last];
+}
+
+/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1) (Lucas 2026-10-26): Down
+/// on the last row wraps to the first, and Up on the first row returns to the field (-1, no row:
+/// Return sends the prompt), so the caret can move again. From the field Down takes the first row
+/// and Up the last.
+export function stepSelection(current: number, step: 1 | -1, count: number): number {
+  if (count === 0) return -1;
+  if (current < 0) return step === 1 ? 0 : count - 1;
+  if (step === 1) return (current + 1) % count;
+  return current - 1;
 }
 
 /// The row Enter takes before the arrows move: the typed text's own row. None for an

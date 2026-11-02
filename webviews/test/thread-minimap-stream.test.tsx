@@ -92,6 +92,7 @@ strings.__cmuxPaneStrings = { en: english };
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { tickRanges } = await import("../src/agent-session/acpmux/threadMinimap/tickWindow");
 const { minimapTurns } = await import("../src/agent-session/acpmux/threadMinimap/model");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 // No marks in this chat; acpmux answers at once.
@@ -152,9 +153,12 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
   try {
     let reply = "Streaming";
     await render(reply);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
-    // The rail drew each tick once.
-    expect(labels).toBeGreaterThanOrEqual(PROMPTS);
+    // The rail draws the ticks in its view and some past each edge (tickWindow.ts), not all 300.
+    const drawn = host.querySelectorAll("[data-tick]").length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(PROMPTS);
+    // The rail drew each of them once.
+    expect(labels).toBeGreaterThanOrEqual(drawn);
     const perToken: number[] = [];
     for (let token = 0; token < 20; token += 1) {
       reply += ` word${token}`;
@@ -164,7 +168,7 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
     }
     // No tick is built again for a token: the ticks show the prompts, and no prompt changed.
     expect(Math.max(...perToken)).toBe(0);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
+    expect(host.querySelectorAll("[data-tick]").length).toBe(drawn);
 
     // The card still previews the reply as it streams.
     const last = host.querySelector<HTMLElement>(`[data-tick="${PROMPTS - 1}"]`)!;
@@ -196,13 +200,29 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
     );
   try {
     await render(rows);
-    const before = [...host.querySelectorAll("[data-tick]")];
+    const ticks = () =>
+      new Map([...host.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => [Number(node.dataset.tick), node]));
+    /// The rows the rail's window draws for its list's offset and height (tickWindow.ts), nothing
+    /// focused or hovered.
+    const window = (count: number) => {
+      const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const height = Number.parseFloat(list.parentElement!.style.height);
+      return tickRanges(count, list.scrollTop, height).flatMap(([from, to]) =>
+        Array.from({ length: to - from }, (_, offset) => from + offset),
+      );
+    };
+    const before = ticks();
+    expect([...before.keys()]).toEqual(window(PROMPTS));
     await render([...rows, row(`user-${PROMPTS + 1}`, "user", "One more question")]);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS + 1);
     expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain("One more question");
-    // Every earlier tick is the same element.
-    const after = [...host.querySelectorAll("[data-tick]")].slice(0, PROMPTS);
-    expect(after.every((node, index) => node === before[index])).toBe(true);
+    expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain(`${PROMPTS + 1}`);
+    // Exactly the rows of the rail's window are drawn, and every one drawn before the new prompt is
+    // the same element.
+    const after = ticks();
+    expect([...after.keys()]).toEqual(window(PROMPTS + 1));
+    const kept = [...before.keys()].filter((index) => after.has(index));
+    expect(kept).toEqual([...before.keys()].filter((index) => window(PROMPTS + 1).includes(index)));
+    for (const index of kept) expect(after.get(index)).toBe(before.get(index)!);
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -44,12 +44,17 @@ pub struct QuestionAnswers {
     pub maximum_items: usize,
     pub maximum_list_strings: usize,
     pub maximum_value_bytes: usize,
+    /// The param of a question's annotations (`{preview?, notes?}` per item).
+    pub annotations_param: String,
+    pub maximum_annotation_bytes: usize,
 }
 
 /// The shape of a reply the host filters itself.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyShape {
     String,
+    /// A finite number, never a boolean (Swift's `.number`).
+    Number,
     Object(BTreeMap<String, ReplyShape>),
     List(Box<ReplyShape>),
 }
@@ -58,6 +63,9 @@ impl ReplyShape {
     fn from_json(v: &Value) -> Option<ReplyShape> {
         if v.as_str() == Some("string") {
             return Some(ReplyShape::String);
+        }
+        if v.as_str() == Some("number") {
+            return Some(ReplyShape::Number);
         }
         let o = v.as_object()?;
         if let Some(fields) = o.get("object").and_then(Value::as_object) {

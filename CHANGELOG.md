@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Cloud agent authentication failures now name missing, expired or rejected provider credentials and offer an explicit, confirmed setup followed by retrying the failed turn.
+
 ## [0.65.2] - 2026-10-14
 
 ### Changed

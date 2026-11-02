@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// for termination after CefShutdown, a window's observer removed a view, a hidden Chromium tab's
 /// content view lost its hidden ancestor (`viewDidUnhide`), and the pane created its browser
 /// (`cmux_shim_create_window`): CEF aborts creating a browser after shutdown began.
-@MainActor @Suite(.serialized) struct CEFQuitCreationTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFQuitCreationTests {
     @Test func noBrowserIsMadeOnceChromiumBeganToStop() {
         #expect(CEFRuntime.acceptsNewBrowsers(state: .ready, stopping: false))
         // Quit closed every browser and waits for Chromium to destroy them (`shutdown`).
@@ -145,6 +146,7 @@ import Testing
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         let parked = NSView(frame: content.bounds)
         parked.isHidden = true

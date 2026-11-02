@@ -620,3 +620,42 @@ fn prewarm_and_steer_go_over_the_wire() {
         json!({"promptId": "optchat-steer:k:1", "steer": true, "steerOnly": true})
     );
 }
+
+/// Chief fast eval `acp` (eval_acp.rs): a steer sent now (the Chief's tell) carries
+/// `steerNow`, so acpmux stops the agent's step for it as the pane's Send now does; a plain steer
+/// (another subagent's message) does not.
+#[test]
+fn a_steer_sent_now_carries_steer_now_over_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
+    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    connect(&acpmux);
+    let text = |t: &str| vec![json!({"type": "text", "text": t})];
+    assert_eq!(
+        acpmux.steer_now("s-1", text("now"), "optchat-tell:a1:1"),
+        Ok(())
+    );
+    assert_eq!(
+        acpmux.steer("s-1", text("later"), "optchat-fyi:a1:2"),
+        Ok(())
+    );
+    let requests = requests.lock().unwrap();
+    let metas: Vec<&Value> = requests
+        .iter()
+        .filter(|r| r["method"] == "session/prompt")
+        .map(|r| &r["params"]["_meta"]["acpmux"])
+        .collect();
+    assert_eq!(
+        metas,
+        vec![
+            &json!({"promptId": "optchat-tell:a1:1", "steer": true, "steerOnly": true, "steerNow": true}),
+            &json!({"promptId": "optchat-fyi:a1:2", "steer": true, "steerOnly": true}),
+        ]
+    );
+}

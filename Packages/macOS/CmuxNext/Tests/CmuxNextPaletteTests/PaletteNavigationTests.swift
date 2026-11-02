@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// prefix matches first and the recently used next, and choosing a row goes
 /// there through the source.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteNavigationTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = []
@@ -135,7 +136,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "t1", kind: .tab(.browser), title: "Release notes", workspaceTitle: "frontend"),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         await palette.model.settle()
         #expect(Set(Self.ids(palette)) == ["workspace:w1", "workspace:w2"])
@@ -158,7 +159,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "new", kind: .tab(.terminal), title: "deploy", lastUsed: Self.now),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ranked = await Self.search(palette, "deploy")
         #expect(Set(ranked).isSuperset(of: ["workspace:w1", "tab:new", "tab:old"]))
@@ -170,7 +171,7 @@ struct PaletteNavigationTests {
         let navigation = Navigation()
         navigation.entries = [PaletteNavigationEntry(id: "g1", kind: .group(workspaceCount: 1), title: "Infra")]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         #expect(await Self.search(palette, "infra").first == "group:g1")
         _ = palette.model.handle(.submit)
@@ -194,7 +195,7 @@ struct PaletteNavigationTests {
         #expect(items[2].secondary.isEmpty)
 
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         // The acpmux handle, its bare id, and a Claude session UUID each find their row.
         #expect(await Self.search(palette, "acp:s_3f9a").first == "tab:chat")
@@ -215,6 +216,26 @@ struct PaletteNavigationTests {
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: false, registry: palette.registry) == .toggleActions)
     }
 
+    /// Cmd-P (`goToWorkspace`, the Workspaces scope) and Cmd-Shift-A (`search.chats`, the
+    /// Search scope) both open a page where Cmd-K on an agent row offers Copy Session ID.
+    @Test(arguments: ["goToWorkspace", "search.chats"])
+    func cmdKCopiesTheSessionIDFromEachPaletteEntryPoint(_ action: String) async throws {
+        let workspaces = Workspaces()
+        let navigation = Navigation()
+        navigation.entries = [
+            PaletteNavigationEntry(id: "chat", kind: .tab(.agentChat), title: "Fix CI", workspaceTitle: "api", sessionID: "acp:s_3f9a"),
+        ]
+        let palette = Self.palette(workspaces, navigation)
+        palette.bindRegistryActions()
+        defer { palette.closeForTest() }
+        for task in palette.registry.capturingWork({ #expect(palette.registry.perform(ActionID(rawValue: action))) }) { _ = await task.value }
+        #expect(palette.isVisible)
+        #expect(await Self.search(palette, "s_3f9a").first == "tab:chat")
+        #expect(palette.model.handle(.toggleActions))
+        #expect(palette.model.actionsMenu?.itemID == "tab:chat")
+        #expect(palette.model.actionsMenu?.commands.map(\.id).contains("copySessionID") == true)
+    }
+
     /// 5,000 tabs rank without the palette rebuilding them per keystroke: no new read of the
     /// source and no new search index after the first key. Counted, not timed: a 5 s wall-clock
     /// limit failed on a loaded fleet host (9.27 s on aws-m4pro-4, 2026-10-21) with nothing wrong.
@@ -227,7 +248,7 @@ struct PaletteNavigationTests {
                                    cwd: "/Users/me/src/project-\(index)")
         }
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let query = "tab 4321"
         _ = await Self.search(palette, String(query.prefix(1)))

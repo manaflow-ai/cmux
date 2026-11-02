@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { cardOf } from "../src/chief-brain-cc/github.ts"
 import { systemPrompt } from "../src/chief-brain/prompts.ts"
+import { linkIds } from "../src/chief-brain/brain-text.ts"
 
 /**
  * Lawrence 2026-10-23: the Cloud Chief could not send him links. Its prompt had none of the local
@@ -28,5 +29,33 @@ describe("Cloud Chief links", () => {
     expect(card).toContain("[github.com/login/device](https://github.com/login/device)")
     // No bare URL outside the link's parentheses.
     expect(card.replace("(https://github.com/login/device)", "")).not.toContain("https://")
+  })
+})
+
+/**
+ * Lawrence 2026-10-26: "reply with links to stuff properly". The Cloud Chief's reply goes through
+ * the same last pass as the local Chief's (optchat-chief reply_links.rs): a bare cmux id the model
+ * still wrote becomes its cmux:// link. Paths stay: they are the VM's, not the person's Mac's.
+ */
+describe("Cloud Chief reply links", () => {
+  const WS = "ws_4190e34695946139e454022d54b3bcf7"
+  const TAB = "tab_8167aba764916990ee8959f617ea3d9d"
+
+  it("links a bare workspace, tab or pane id", () => {
+    expect(linkIds(`Opened ${WS} and ${TAB}.`)).toBe(`Opened [workspace](cmux://workspace/${WS}) and [tab](cmux://tab/${TAB}).`)
+    expect(linkIds(`- **${WS}**: done`)).toBe(`- **[workspace](cmux://workspace/${WS})**: done`)
+  })
+
+  it("leaves code, existing links, URLs and longer words as written", () => {
+    for (const text of [
+      `\`cmux workspace ${WS} move\``,
+      `[ticket](cmux://workspace/${WS})`,
+      `cmux://workspace/${WS}`,
+      `x${WS}`,
+      `${WS}x`,
+      "```\n" + TAB + "\n```",
+      "ws_short",
+      "/home/chief/work/notes.md"
+    ]) expect(linkIds(text)).toBe(text)
   })
 })

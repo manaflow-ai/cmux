@@ -318,6 +318,22 @@ describe("pauseVm", () => {
     expect(recorded.statuses).toEqual([]);
   });
 
+  test("a sandboxed run's machine is refused before any provider call (hq#3367)", async () => {
+    const key = "sandbox-run:run-1:attempt:attempt-1";
+    const { recorded, layer } = fakes({ row: machineRow({ idempotencyKey: key, providerMetadata: { cmuxSandboxRun: key } }) });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationUnsupportedError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statusProbes).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a machine that only carries the sandbox key prefix, without the server's marker, still pauses", async () => {
+    const { recorded, layer } = fakes({ row: machineRow({ idempotencyKey: "sandbox-run:run-1:attempt:attempt-1" }) });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual(["fs-1"]);
+  });
+
   test("a machine the caller does not own is not found", async () => {
     const { layer } = fakes({ row: machineRow() });
     expect(await failureTag(pauseVm({ ...caller, providerVmId: "fs-other" }), layer)).toBe("VmNotFoundError");
@@ -387,5 +403,30 @@ describe("resumeVm", () => {
     expect(await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(running.layer)))).toEqual({ id: "fs-1", status: "running" });
     const paused = fakes({ row: machineRow({ status: "paused" }), withResume: false });
     expect(await failureTag(resumeVm(resumeCaller), paused.layer)).toBe("VmOperationUnsupportedError");
+  });
+});
+
+describe("the sandbox key namespace in createVm", () => {
+  test("a create under a sandbox-run key without the matching marker is refused before any repository or provider call", async () => {
+    const { createVm } = await import("../services/vms/workflows");
+    const { VmBillingGateway, noOpVmBillingGateway } = await import("../services/vms/billingGateway");
+    let touched = false;
+    const touch = () => { touched = true; return Effect.die("unexpected call"); };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, new Proxy({}, { get: () => touch }) as unknown as VmRepositoryShape),
+      Layer.succeed(VmProviderGateway, new Proxy({}, { get: () => touch }) as unknown as VmProviderGatewayShape),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+    const program = createVm({
+      userId: "user-1", billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "pro", maxActiveVms: 5,
+      provider: "freestyle", image: "snapshot", idempotencyKey: "sandbox-run:run-1:attempt:a-1",
+    });
+    const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layer)));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(failure._tag === "Some" ? (failure.value as { _tag?: string })._tag : "die").toBe("VmOperationUnsupportedError");
+    }
+    expect(touched).toBe(false);
   });
 });

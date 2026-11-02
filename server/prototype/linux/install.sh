@@ -467,6 +467,7 @@ render_unit() {
 [Unit]
 Description=cmux server (session host and server roles)
 Wants=cmux-server-inhibit.service
+StartLimitIntervalSec=0
 
 [Service]
 # PROTOTYPE: cmux-host-run stands in for the frozen \`cmux host run\`. It
@@ -480,7 +481,9 @@ Environment=CMUX_SERVER_STATE=$state_dir
 # stay alive for the next owner to adopt (docs/cloud-guest-upgrades.md).
 KillMode=process
 Restart=on-failure
-RestartSec=1
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 TimeoutStartSec=60
 NoNewPrivileges=yes
 

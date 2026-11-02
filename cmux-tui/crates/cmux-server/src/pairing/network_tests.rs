@@ -68,6 +68,7 @@ fn http(status: u16, body: String, extra: String) -> (String, JoinHandle<Vec<u8>
 fn loopback_http() -> Network {
     let _ = rustls::crypto::ring::default_provider().install_default();
     Network {
+        client_version: "1.2.3".into(),
         http: reqwest::blocking::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -75,6 +76,54 @@ fn loopback_http() -> Network {
             .build()
             .unwrap(),
     }
+}
+
+#[test]
+fn server_pairing_backend_http_sends_the_install_token_only_to_the_selected_api() {
+    let (api, worker) = http(200, r#"{"ok":true}"#.into(), String::new());
+    let network = loopback_http();
+    network
+        .backend_post(
+            &api,
+            "/v1/ops",
+            &serde_json::json!({"op":"server.network.confirm"}),
+            Some("fixture-daemon-access"),
+        )
+        .unwrap();
+    let request = String::from_utf8(worker.join().unwrap()).unwrap();
+    assert!(request.starts_with("POST /v1/ops HTTP/1.1\r\n"));
+    let headers = request.to_ascii_lowercase();
+    assert!(headers.contains("authorization: bearer fixture-daemon-access\r\n"));
+    assert!(headers.contains("x-cmux-client-version: 1.2.3\r\n"));
+    let (native, worker) = http(200, "{}".into(), String::new());
+    network
+        .native_post(&native, "/v1/overlay-servers/device/signed/policy", &serde_json::json!({}))
+        .unwrap();
+    let request = String::from_utf8(worker.join().unwrap()).unwrap();
+    assert!(!request.to_ascii_lowercase().contains("authorization:"));
+    assert!(!request.to_ascii_lowercase().contains("x-cmux-client-version:"));
+}
+
+#[test]
+fn server_pairing_backend_http_refuses_redirects_and_cleartext_before_sending_credentials() {
+    let trap = TcpListener::bind("127.0.0.1:0").unwrap();
+    trap.set_nonblocking(true).unwrap();
+    let target = format!("http://{}", trap.local_addr().unwrap());
+    let (api, worker) = http(302, "{}".into(), format!("Location: {target}/v1/ops\r\n"));
+    assert!(
+        loopback_http()
+            .backend_post(&api, "/v1/ops", &serde_json::json!({}), Some("fixture-daemon-access"))
+            .is_err()
+    );
+    worker.join().unwrap();
+    assert_eq!(trap.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert!(
+        Network::new()
+            .unwrap()
+            .backend_post(&target, "/v1/ops", &serde_json::json!({}), Some("fixture-daemon-access"))
+            .is_err()
+    );
+    assert_eq!(trap.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 }
 
 #[test]
@@ -99,6 +148,68 @@ fn server_pairing_http_uses_the_existing_begin_route_without_bearer_credentials(
         serde_json::from_str::<Value>(text.split_once("\r\n\r\n").unwrap().1).unwrap(),
         body
     );
+}
+
+#[test]
+fn server_pairing_native_http_sends_only_the_signed_body_without_account_headers() {
+    let (api, worker) = http(200, r#"{"tenantId":"fixture"}"#.into(), String::new());
+    let body = serde_json::json!({"signedAt":42,"nonce":"fixture","signature":"fixture"});
+    assert_eq!(
+        loopback_http()
+            .native_post(&api, "/v1/overlay-servers/dev_fixture/signed/policy", &body)
+            .unwrap(),
+        Some(serde_json::json!({"tenantId":"fixture"}))
+    );
+    let text = String::from_utf8(worker.join().unwrap()).unwrap();
+    assert!(text.starts_with("POST /v1/overlay-servers/dev_fixture/signed/policy HTTP/1.1\r\n"));
+    assert!(!text.to_ascii_lowercase().contains("authorization:"));
+    assert!(!text.to_ascii_lowercase().contains("cookie:"));
+    assert_eq!(
+        serde_json::from_str::<Value>(text.split_once("\r\n\r\n").unwrap().1).unwrap(),
+        body
+    );
+}
+
+#[test]
+fn server_pairing_native_http_distinguishes_missing_from_refused_and_unavailable() {
+    for (status, expected) in [
+        (404, None),
+        (403, Some(crate::ExitKind::Rejected)),
+        (503, Some(crate::ExitKind::Unreachable)),
+    ] {
+        let (api, worker) = http(status, "fixture-private-response".into(), String::new());
+        let result = loopback_http().native_post(&api, "/v1/fixture", &serde_json::json!({}));
+        worker.join().unwrap();
+        match expected {
+            None => assert!(result.unwrap().is_none()),
+            Some(kind) => {
+                let error = result.unwrap_err();
+                assert_eq!(error.kind, kind);
+                assert!(!error.to_string().contains("fixture-private"));
+            }
+        }
+    }
+}
+
+#[test]
+fn server_pairing_native_http_refuses_cleartext_redirects_and_large_policy() {
+    let forbidden = TcpListener::bind("127.0.0.1:0").unwrap();
+    forbidden.set_nonblocking(true).unwrap();
+    let cleartext = format!("http://{}", forbidden.local_addr().unwrap());
+    assert!(
+        Network::new()
+            .unwrap()
+            .native_post(&cleartext, "/v1/fixture", &serde_json::json!({}))
+            .is_err()
+    );
+    assert_eq!(forbidden.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    let (api, worker) = http(302, "{}".into(), format!("Location: {cleartext}/forbidden\r\n"));
+    assert!(loopback_http().native_post(&api, "/v1/fixture", &serde_json::json!({})).is_err());
+    worker.join().unwrap();
+    assert_eq!(forbidden.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    let (api, worker) = http(200, "x".repeat(65_537), String::new());
+    assert!(loopback_http().native_post(&api, "/v1/fixture", &serde_json::json!({})).is_err());
+    worker.join().unwrap();
 }
 
 #[test]

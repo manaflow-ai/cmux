@@ -77,6 +77,10 @@ public final class BrowserChromeView: NSView {
     /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
+    /// The page entered (true) or left (false) element fullscreen: the host may give it the whole
+    /// screen, as Chrome does (`WindowController+FullScreen`).
+    public var onContentFullscreenChange: ((Bool) -> Void)?
+    private var reportedContentFullscreen = false
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
@@ -416,6 +420,11 @@ public final class BrowserChromeView: NSView {
 
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
+        if state.isContentFullscreen != reportedContentFullscreen {
+            reportedContentFullscreen = state.isContentFullscreen
+            // task-owner: the host's window work runs after this render, outside its observation.
+            Task { @MainActor [weak self, on = reportedContentFullscreen] in self?.onContentFullscreenChange?(on) }
+        }
     }
 
     /// A move to a screen with another scale snaps the toolbar gap again.
@@ -440,10 +449,26 @@ public final class BrowserChromeView: NSView {
     /// Child-window pages draw above this view; tell them where the find
     /// bar, prompt bar, and error page cover them (floating cards are on
     /// the overlay host instead, `PageFloatingOverlays`).
+    ///
+    /// The find and prompt bars are rounded glass: a page that takes rounded
+    /// holes (`BrowserRoundedOcclusionHosting`) gets each bar's glass with its
+    /// corner radius, so the page shows around the corners instead of a square
+    /// of pane ground (Lawrence 2026-10-27, the save-password bar).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let bars = [findBar, promptBar].filter { !$0.isHidden && $0.superview != nil }
-        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
+        let bars: [(bar: NSView, glass: OverlaySurfaceView?)] = [(findBar, findBar.glass), (promptBar, promptBar.glass)]
+            .filter { !$0.bar.isHidden && $0.bar.superview != nil }
+        var squares = pageStatus.shown
+        if let rounded = occluded as? any BrowserRoundedOcclusionHosting {
+            let holes = bars.map { bar, glass in
+                glass.map { CEFClipShape.RoundedRect(rect: $0.convert($0.bounds, to: tab.contentView), radius: $0.cornerRadius) }
+                    ?? CEFClipShape.RoundedRect(rect: convert(bar.frame, to: tab.contentView), radius: 0)
+            }
+            if rounded.roundedOcclusions != holes { rounded.roundedOcclusions = holes }
+        } else {
+            squares = bars.map(\.bar) + squares
+        }
+        let rects = squares.map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 
@@ -455,8 +480,9 @@ public final class BrowserChromeView: NSView {
     /// Surface token in an opaque window, clear over a see-through one (windows.md);
     /// the toolbar takes `appearance.surfaces.browserChrome` over that (R55).
     func updateColors() {
-        let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
         performWithTheme {
+            // In this view's scope: its workspace's picture decides, not the app's (#28867).
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface
             toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? surface

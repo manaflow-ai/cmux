@@ -11,7 +11,8 @@ extension SettingDescriptor {
     /// The stored value when it is valid, else the default (what the app
     /// applies: a bad value keeps the default, with a diagnostic).
     public func effectiveValue(in root: JSONValue) -> JSONValue? {
-        if let stored = storedValue(in: root), accepts(stored) { return stored }
+        if let stored = storedValue(in: root),
+           let value = AgentPaneDisplaySettingsSchema.pageValue(id, stored), accepts(value) { return value }
         return defaultValue
     }
 
@@ -69,6 +70,9 @@ extension SettingDescriptor {
         case .stringMap:
             guard case .object(let members) = value else { return false }
             return members.values.allSatisfy { $0.stringValue != nil }
+        case .soundRules:
+            guard case .object(let members) = value else { return false }
+            return members.values.allSatisfy(NotificationSoundRule.accepts)
         case .stringList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }

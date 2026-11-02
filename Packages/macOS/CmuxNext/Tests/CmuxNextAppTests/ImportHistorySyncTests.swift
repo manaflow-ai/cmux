@@ -1,4 +1,4 @@
-import CmuxNextBrowserImport
+@testable import CmuxNextBrowserImport
 import Foundation
 import SQLite3
 import Testing
@@ -80,6 +80,46 @@ import Testing
         try await store.stopSync(profile: "p1")
         await sync.reconcile()
         #expect(await sync.watched.isEmpty)
+    }
+
+    /// Browser import turned off while a read is being saved: the saved pages still reach the
+    /// profile's history, and on again the catch-up read is not skipped as already read.
+    @Test func pausingWhileAReadIsSavedLosesNoPages() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "history-sync-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = root.appending(path: "Chrome/Default", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let file = profile.appending(path: "History")
+        try Self.history(file, pages: ["https://one.example/"])
+        let store = ImportedDataStore(directory: root.appending(path: "store", directoryHint: .isDirectory))
+        var record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        record.syncedHistoryFile = file
+        try await store.save(ImportBatch(source: record, kinds: [.history]))
+        let delivered = Delivered()
+        let sync = ImportHistorySync(store: store, grants: nil, delay: .milliseconds(50)) { id, pages, gone in await delivered.add(id, pages, gone) }
+        await sync.reconcile()
+        await Self.until { await delivered.pages["p1"]?.count == 1 }
+
+        // The next read pauses sync between its save and its hand-on.
+        await sync.setAfterSave { [weak sync] in
+            await sync?.setAfterSave(nil)
+            await sync?.setPaused(true)
+        }
+        try Self.history(file, pages: ["https://two.example/"])
+        await Self.until { await delivered.pages["p1"]?.count == 2 }
+        #expect(await sync.isPaused)
+        #expect(await delivered.pages["p1"]?.compactMap(\.url.host) == ["one.example", "two.example"], "the saved page was handed on")
+        #expect(await sync.watched.isEmpty)
+
+        // On again: the catch-up read runs (nothing new to hand on), and a later write is followed.
+        await sync.setPaused(false)
+        #expect(await sync.watched == [record.sourceKey])
+        try await Task.sleep(for: .milliseconds(20))
+        try Self.history(file, pages: ["https://three.example/"])
+        await Self.until { await delivered.pages["p1"]?.count == 3 }
+        #expect(await delivered.pages["p1"]?.last?.url.host == "three.example")
+        await sync.stop()
     }
 
     @Test func removingAProfilesImportsKeepsItsMappingAndStopsSync() async throws {

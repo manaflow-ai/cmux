@@ -69,7 +69,7 @@ export const modelInfo = (id: string, upstream: string) => {
 export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [k: string]: Json }
 export interface Usage { input: number; output: number; cache_read: number; cache_write: number }
 export interface Message { id: string; seq: number; author: { id: string; name: string; kind: string }; text: string; thread_root?: string }
-export interface Read { conversation: { id: string; kind: string; title?: string }; messages: ReadonlyArray<Message>; cursor: number }
+export interface Read { conversation: { id: string; kind: string; title?: string; shared?: boolean }; messages: ReadonlyArray<Message>; cursor: number }
 export interface Initialized { chief: { id: string; name: string; owner?: string; role?: string; personality?: string; instructions?: string; model?: string; effort?: string } }
 
 export const NO_REPLY = "NO_REPLY"
@@ -85,7 +85,8 @@ export const BASE = `You are a Chief: an AI agent that works for your owner and 
 conversations (direct messages and channels). You remember this conversation.
 
 Each new message starts with a header line in brackets that names the conversation, its kind
-(chief: your owner's direct line to you; dm; channel; group) and the author. Your final reply is
+(chief: your owner's direct line to you; dm; channel; group) and the author. Your owner may share
+your chief line with teammates: then answer the author of the message by name. Your final reply is
 posted as one message in that conversation (in a channel, in the thread of the message you answer).
 Write only the message itself: no header, no quoting of the brackets. Use your cmux tools when a
 message needs them; other Chiefs are reached only by posting in a conversation they are in.

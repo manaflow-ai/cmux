@@ -1,10 +1,10 @@
-import { runError, runJson, jsonBodyObject } from "../../../../../../../services/runs/http";
+import { runError, runJson, jsonBodyObject, RunUnauthorizedError } from "../../../../../../../services/runs/http";
 import { claimAttemptLease, renewAttemptLease } from "../../../../../../../services/runs/repository";
 import { isRunWorkerAuthorized } from "../../../../../../../services/runs/workerAuth";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; attemptId: string }> }): Promise<Response> {
   const scope = await params;
-  if (!isRunWorkerAuthorized(request, { runId: scope.id, attemptId: scope.attemptId })) return runJson({ error: "unauthorized" }, 401);
+  if (!isRunWorkerAuthorized(request, { runId: scope.id, attemptId: scope.attemptId })) return runError(new RunUnauthorizedError());
   const body = await request.json().catch(() => null);
   const parsed = jsonBodyObject(body) ?? {};
   const { id, attemptId } = scope;

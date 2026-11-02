@@ -304,4 +304,183 @@ char *cmux_focus_export_json(CmuxFocus *focus);
 int32_t cmux_focus_import_json(CmuxFocus *focus, const uint8_t *json, size_t json_len);
 void cmux_focus_string_free(char *text);
 
+/*
+ * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a
+ * workspace's row stands for and is named for, its folder line and Group by
+ * Folder bucket, its kinds, program, status line, unread mark, notice and
+ * progress bar, and each listed tab's shortened title and folder. One handle
+ * per thread; one call per frame maps every changed row (O(changed rows)).
+ * No JSON: a CmuxSidebarFaceRange is a byte range into the call's `strings`
+ * (in a reply, into reply->strings); offset CMUX_SIDEBAR_FACE_NONE means
+ * absent. UTF-8, not NUL-terminated. A workspace's panes, tabs and entries
+ * are runs of the request's arrays; its panes' tab_count values add up to
+ * its tab_count. Each call returns a reply the handle owns, valid until the
+ * next call on that handle; never free it. ok 0: the request did not decode
+ * (a range out of bounds, bytes that are not UTF-8, an unknown code); no
+ * faces then.
+ *
+ * Tab kind: 0 pty 1 browser 2 remoteTerminal 3 conversation 4 other
+ * Tab agent: 0 none 1 working 2 blocked 3 other
+ * Tab progress_state: 0 none 1 normal 2 error 3 indeterminate 4 paused
+ *     (progress_value 0...100 as reported, CMUX_SIDEBAR_FACE_NO_VALUE for no value)
+ * Face tab fields index the workspace's own tabs, entry fields its own
+ * entries; CMUX_SIDEBAR_FACE_NONE for none.
+ * Face kind: 0 terminal 1 browser 2 harness
+ * Face row_kind: 0 terminal 1 browser 2 agent 3 mixed
+ * Face unread: 0 none 1 dot 2 count (the workspace's unread_count)
+ * Face notice: 0 none 1 notice_tab's attention reason 2 notice_tab's unread notification text
+ * Face progress: 0 none 1 a bar (progress_value 0...1, NaN while indeterminate; progress_error)
+ * Listed kind: 0 the record's kind 1 new tab 2 agent chat
+ */
+#define CMUX_SIDEBAR_FACE_NONE UINT32_MAX
+#define CMUX_SIDEBAR_FACE_NO_VALUE INT32_MIN
+#define CMUX_SIDEBAR_FACE_TAB_NAMED 1u
+#define CMUX_SIDEBAR_FACE_TAB_CHAT 2u
+#define CMUX_SIDEBAR_FACE_TAB_COMMAND_RUNNING 4u
+#define CMUX_SIDEBAR_FACE_TAB_TITLE_ACTIVITY 8u
+#define CMUX_SIDEBAR_FACE_TAB_PAGE 16u
+#define CMUX_SIDEBAR_FACE_TAB_APP 32u
+#define CMUX_SIDEBAR_FACE_TAB_NEW_TAB_PAGE 64u
+#define CMUX_SIDEBAR_FACE_TAB_BRANDED 128u
+#define CMUX_SIDEBAR_FACE_TAB_HAS_UNREAD 256u
+#define CMUX_SIDEBAR_FACE_TAB_MARKED_UNREAD 512u
+#define CMUX_SIDEBAR_FACE_TAB_ATTENTION 1024u
+#define CMUX_SIDEBAR_FACE_WORKSPACE_LOCAL 1u
+#define CMUX_SIDEBAR_FACE_WORKSPACE_MARKED_UNREAD 2u
+#define CMUX_SIDEBAR_FACE_WORKSPACE_REPORTED_PROGRESS 4u
+#define CMUX_SIDEBAR_FACE_LISTED_TITLE_CHANGED 1u /* else the tab keeps its list_title */
+#define CMUX_SIDEBAR_FACE_LISTED_BLANK 2u         /* a titled New Tab page: no folder, idle, no host */
+
+typedef struct CmuxSidebarFace CmuxSidebarFace;
+
+typedef struct CmuxSidebarFaceRange {
+    uint32_t offset;
+    uint32_t len;
+} CmuxSidebarFaceRange;
+
+typedef struct CmuxSidebarFaceTab {
+    CmuxSidebarFaceRange title;      /* the reported title (titleText) */
+    CmuxSidebarFaceRange list_title; /* the title the tab list shows before shortening */
+    CmuxSidebarFaceRange cwd;
+    uint32_t flags;
+    uint8_t kind;
+    uint8_t agent;
+    uint8_t progress_state;
+    uint8_t reserved;
+    int32_t progress_value;
+    uint32_t reserved2;
+    uint64_t notification;           /* its notification id, 0 for none */
+    uint64_t attention_at_ms;        /* read only with ..._TAB_ATTENTION */
+    uint64_t agent_updated_ms;
+    uint64_t notification_created_ms;
+} CmuxSidebarFaceTab;
+
+typedef struct CmuxSidebarFacePane {
+    uint64_t focused_at;
+    int64_t default_tab;
+    uint32_t tab_count;
+    uint32_t selected; /* the window's selection among the pane's tabs; NONE: the daemon's default */
+} CmuxSidebarFacePane;
+
+typedef struct CmuxSidebarFaceEntry {
+    CmuxSidebarFaceRange key;
+    CmuxSidebarFaceRange text;
+} CmuxSidebarFaceEntry;
+
+typedef struct CmuxSidebarFaceWorkspace {
+    uint32_t pane_start;
+    uint32_t pane_count;
+    uint32_t tab_start;
+    uint32_t tab_count;
+    uint32_t entry_start;
+    uint32_t entry_count;
+    uint32_t flags;
+    uint32_t reserved;
+    uint64_t unread_count;
+    double reported_progress;    /* read only with ..._WORKSPACE_REPORTED_PROGRESS; NaN: indeterminate */
+    CmuxSidebarFaceRange status; /* the hooks' status line */
+} CmuxSidebarFaceWorkspace;
+
+typedef struct CmuxSidebarFaceRequest {
+    const CmuxSidebarFaceWorkspace *workspaces;
+    const CmuxSidebarFacePane *panes;
+    const CmuxSidebarFaceTab *tabs;
+    const CmuxSidebarFaceEntry *entries;
+    uint32_t workspace_count;
+    uint32_t pane_count;
+    uint32_t tab_count;
+    uint32_t entry_count;
+    CmuxSidebarFaceRange home; /* this Mac's home folder */
+    uint8_t shows_unread;
+    uint8_t new_tab_titled;
+    uint8_t reserved[6];
+} CmuxSidebarFaceRequest;
+
+typedef struct CmuxSidebarFaceRow {
+    uint32_t front;
+    uint32_t label;
+    uint32_t face;
+    uint32_t chat;
+    uint32_t folder_tab;
+    uint32_t bucket_tab;
+    uint32_t agent;
+    uint32_t notice_tab;
+    uint8_t kind;
+    uint8_t row_kind;
+    uint8_t unread;
+    uint8_t notice;
+    uint8_t progress;
+    uint8_t progress_error;
+    uint8_t reserved[2];
+    uint32_t listed_start;     /* index into reply->listed: one per tab of the workspace */
+    uint32_t kept_entry_start; /* index into reply->kept_entries: the status block's entries */
+    uint32_t kept_entry_count;
+    uint32_t ports;
+    uint32_t pull_request;
+    uint32_t work;             /* the work a browser front tab yields its name to (workTab) */
+    CmuxSidebarFaceRange directory;
+    CmuxSidebarFaceRange bucket;
+    CmuxSidebarFaceRange process;
+    CmuxSidebarFaceRange status_line;
+    uint64_t last_activity_ms;
+    double progress_value;
+} CmuxSidebarFaceRow;
+
+typedef struct CmuxSidebarFaceListedTab {
+    CmuxSidebarFaceRange title; /* read only with ..._LISTED_TITLE_CHANGED */
+    CmuxSidebarFaceRange folder;
+    uint64_t last_activity_ms;
+    uint8_t kind;
+    uint8_t flags;
+    uint8_t reserved[6];
+} CmuxSidebarFaceListedTab;
+
+typedef struct CmuxSidebarFaceReply {
+    uint8_t ok;
+    uint8_t reserved[7];
+    const CmuxSidebarFaceRow *faces;
+    const CmuxSidebarFaceListedTab *listed;
+    const uint32_t *kept_entries;
+    const uint8_t *strings;
+    uint32_t face_count;
+    uint32_t listed_count;
+    uint32_t kept_entry_count;
+    uint32_t strings_len;
+} CmuxSidebarFaceReply;
+
+typedef struct CmuxSidebarFaceText {
+    uint8_t ok;
+    uint8_t reserved[7];
+    const uint8_t *bytes;
+    uint32_t len;
+    uint32_t reserved2;
+} CmuxSidebarFaceText;
+
+CmuxSidebarFace *cmux_sidebar_face_new(void);
+void cmux_sidebar_face_free(CmuxSidebarFace *faces);
+const CmuxSidebarFaceReply *cmux_sidebar_face_rows(CmuxSidebarFace *faces, const CmuxSidebarFaceRequest *request, const uint8_t *strings, size_t strings_len);
+/* The daemon's next default workspace name: names[0 ..< existing_count] are the
+ * machine's listed names (its home left out), the rest the reserved ones. */
+const CmuxSidebarFaceText *cmux_sidebar_face_default_name(CmuxSidebarFace *faces, const CmuxSidebarFaceRange *names, uint32_t count, uint32_t existing_count, const uint8_t *strings, size_t strings_len);
+
 #endif

@@ -144,6 +144,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
+            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {
@@ -168,4 +169,88 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert!(!names.iter().any(|n| n == crate::cua_v2::SERVER_NAME), "{names:?}");
     assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn cloud_repo_tools_receive_complete_protected_caller_identity() {
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.to_owned(),
+            command: "/bin/acpmux".into(),
+            args: vec!["repo-mcp".into()],
+            env: vec![
+                ("ACPMUX_SESSION_ID".into(), "foreign".into()),
+                ("CMUX_BIN".into(), "/bin/cmux".into()),
+            ],
+        }],
+        ..Default::default()
+    }
+    .for_session("own-chat");
+    let env: std::collections::HashMap<_, _> = tools.servers[0].env.iter().cloned().collect();
+    assert_eq!(env["ACPMUX_SESSION_ID"], "own-chat");
+    assert_eq!(env[crate::cloud_repo_mcp::SESSION_ENV], "own-chat");
+    assert_eq!(
+        env[crate::hub::person::CALLER_TOKEN_ENV],
+        crate::hub::person::caller_token("own-chat")
+    );
+    assert_eq!(env[crate::hub::person::CALLER_SOCKET_ENV], env["ACPMUX_SOCKET"]);
+    assert_eq!(env["CMUX_BIN"], "/bin/cmux");
+}
+
+/// The session's tool allowlist reaches the `acpmux` server as well as `cmux`, so with
+/// no `cmux` to fold into (cmux.json turns MCP off) the standalone server still filters
+/// its own tools, after `for_session` too (#30082 review).
+#[test]
+fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        (super::SERVERS_ENV.to_owned(), "cmux,acpmux".to_owned()),
+        (super::MCP_TOOLS_ENV.to_owned(), super::CHIEF_TURN_TOOLS.to_owned()),
+    ]);
+    // As production builds them: `for_session` resets the server's env to its credentials.
+    let folded = tools.scoped(&env).for_session("s-allowlist").folded();
+    assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
+    let acpmux = &folded.servers[0];
+    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert!(
+        acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
+        "{:?}",
+        acpmux.env
+    );
 }

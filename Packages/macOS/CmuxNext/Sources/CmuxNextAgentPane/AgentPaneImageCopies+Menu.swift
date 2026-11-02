@@ -28,6 +28,14 @@ extension AgentPaneImageCopies {
         return NSPasteboard.general.writeObjects([item])
     }
 
+    /// The composer's Copy and Cut (`composer.copy`): replaces the general pasteboard's contents
+    /// with `items`, in order (the selection's text, then one item per attachment).
+    @discardableResult
+    static func writeGeneral(_ items: [NSPasteboardItem]) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.writeObjects(items)
+    }
+
     /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's
     /// `data` under its type and as TIFF.
     @MainActor static func pasteboardItem(_ file: URL, data: Data?) -> NSPasteboardItem {
@@ -59,13 +67,14 @@ extension AgentPaneImageCopies {
     /// Save Image As…: the system save panel under `name`, then a copy of `file` where the person
     /// chose (an older file there is replaced: the panel asked); a failed write beeps (the panel
     /// only offers folders the person can write, so this is a full disk or a vanished volume).
-    @MainActor static func askToSave(_ file: URL, name: String) {
+    /// `allowed` is checked again when the panel answers (a path menu's: the chat is still local).
+    @MainActor static func askToSave(_ file: URL, name: String, allowed: @escaping @MainActor () -> Bool = { true }) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         panel.begin { response in
-            guard response == .OK, let destination = panel.url else { return }
+            guard response == .OK, allowed(), let destination = panel.url else { return }
             do {
                 let files = FileManager.default
                 if files.fileExists(atPath: destination.path) {

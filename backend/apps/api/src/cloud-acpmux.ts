@@ -79,7 +79,7 @@ const sessionFor = async (request: Request, env: Env): Promise<Principal | Respo
 }
 
 /** Reads at most `max` bytes of the body; null once it passes `max` (stops reading there). */
-const readBody = async (request: Request, max: number): Promise<Uint8Array | null> => {
+export const readBody = async (request: Request, max: number): Promise<Uint8Array | null> => {
   if (!request.body) return new Uint8Array(0)
   const reader = request.body.getReader()
   const out = new Uint8Array(max)

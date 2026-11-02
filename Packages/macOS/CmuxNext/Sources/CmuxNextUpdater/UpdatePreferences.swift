@@ -18,7 +18,7 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     /// Previous builds kept for rollback.
     public var keepPreviousVersions: Int
 
-    public init(installOnQuit: Bool = true, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1) {
+    public init(installOnQuit: Bool = false, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1) {
         self.installOnQuit = installOnQuit
         self.notify = notify
         self.keepPreviousVersions = keepPreviousVersions

@@ -1579,6 +1579,270 @@
           }
         }
       }
+    },
+    "daemon.recovery.diskFull": {
+      "comment": "Why cmux-tui is not running: its start failed. %@ is the reason (refusal.daemon.diskFull: the disk is full). Launch window and the window notice beside Restart cmux-tui.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui could not start: %@. Free some space and cmux starts it again by itself."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تشغيل cmux-tui: %@. حرّر بعض المساحة وسيعيد cmux تشغيله تلقائيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui se nije mogao pokrenuti: %@. Oslobodite malo prostora i cmux će ga sam ponovo pokrenuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui kunne ikke starte: %@. Frigør noget plads, så starter cmux den igen af sig selv."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui konnte nicht starten: %@. Gib Speicherplatz frei, dann startet cmux es von selbst neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui no pudo iniciarse: %@. Libera espacio y cmux lo iniciará de nuevo automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui n’a pas pu démarrer : %@. Libérez de l’espace et cmux le redémarrera automatiquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare cmux-tui: %@. Libera spazio e cmux lo riavvierà automaticamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui を起動できませんでした: %@。空き容量を確保すると、cmux が自動的に再起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើម cmux-tui បានទេ៖ %@។ សូមបង្កើនទំហំទំនេរ ហើយ cmux នឹងចាប់ផ្ដើមវាឡើងវិញដោយខ្លួនឯង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui를 시작할 수 없습니다: %@. 공간을 확보하면 cmux가 자동으로 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui kunne ikke starte: %@. Frigjør litt plass, så starter cmux den igjen automatisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można uruchomić cmux-tui: %@. Zwolnij trochę miejsca, a cmux uruchomi go ponownie automatycznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível iniciar o cmux-tui: %@. Libere espaço e o cmux o iniciará novamente sozinho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить cmux-tui: %@. Освободите место, и cmux запустит его снова автоматически."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่ม cmux-tui ได้: %@ เพิ่มพื้นที่ว่าง แล้ว cmux จะเริ่มใหม่ให้เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui başlatılamadı: %@. Biraz yer açın, cmux onu kendiliğinden yeniden başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити cmux-tui: %@. Звільніть місце, і cmux запустить його знову автоматично."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể khởi động cmux-tui: %@. Hãy giải phóng dung lượng, cmux sẽ tự khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 无法启动：%@。释放一些空间后，cmux 会自动重新启动它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 無法啟動：%@。釋放一些空間後，cmux 會自動重新啟動它。"
+          }
+        }
+      }
+    },
+    "daemon.recovery.stopped": {
+      "comment": "Why cmux-tui is not running when its start failed for a reason other than a full disk. Shown in the window notice beside Restart cmux-tui.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui stopped and could not start again. cmux keeps trying."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui が停止し、再起動できませんでした。cmux は再試行を続けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف cmux-tui وتعذّر تشغيله مرة أخرى. يواصل cmux المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui se zaustavio i nije se mogao ponovo pokrenuti. cmux nastavlja pokušavati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui stoppede og kunne ikke starte igen. cmux bliver ved med at prøve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui wurde beendet und konnte nicht neu starten. cmux versucht es weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui se detuvo y no pudo volver a iniciarse. cmux sigue intentándolo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui s’est arrêté et n’a pas pu redémarrer. cmux continue d’essayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui si è arrestato e non è stato possibile riavviarlo. cmux continua a provare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui បានឈប់ ហើយមិនអាចចាប់ផ្ដើមឡើងវិញបានទេ។ cmux នៅតែព្យាយាម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui가 중지되었고 다시 시작할 수 없습니다. cmux가 계속 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui stoppet og kunne ikke starte igjen. cmux fortsetter å prøve."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui zatrzymał się i nie można go ponownie uruchomić. cmux nadal próbuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux-tui parou e não pôde ser iniciado novamente. O cmux continua tentando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui остановился и не смог запуститься снова. cmux продолжает попытки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui หยุดทำงานและเริ่มใหม่ไม่ได้ cmux จะพยายามต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui durdu ve yeniden başlatılamadı. cmux denemeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui зупинився і не зміг запуститися знову. cmux продовжує спроби."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui đã dừng và không thể khởi động lại. cmux vẫn tiếp tục thử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 已停止且无法重新启动。cmux 会继续尝试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 已停止且無法重新啟動。cmux 會繼續嘗試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

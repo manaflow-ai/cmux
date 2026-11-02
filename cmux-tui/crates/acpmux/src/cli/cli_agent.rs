@@ -388,7 +388,11 @@ async fn run_prompt(
         if let Some(e) = stderr.as_mut() {
             let _ = e.read_to_end(&mut buf).await;
         }
-        let text = strip_ansi(&String::from_utf8_lossy(&buf));
+        let text = crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(&buf))
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         let tail: String =
             text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
         tail.trim().to_owned()
@@ -492,6 +496,14 @@ const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Gives `cmd` a new pseudo-terminal (160 by 50) as its stdout and
 /// controlling terminal; the terminal's controller, to read its output.
+///
+/// This terminal is a protocol adapter, not one a person uses: nothing draws
+/// it and nobody selects in it, and its output is parsed into ACP
+/// `agent_message_chunk` updates (hence `NO_COLOR=1` above). So it sets no
+/// terminal identity and is not one of the terminal child paths that apply
+/// `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` (cmux#22585): a Ghostty version
+/// here cannot cost anyone a mouse selection, and changing what the program
+/// sees would change the text this parses.
 #[cfg(unix)]
 fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
     use std::os::fd::{FromRawFd, OwnedFd};

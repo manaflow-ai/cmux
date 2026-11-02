@@ -23,10 +23,14 @@ pub struct Skill {
 }
 
 /// The skills cmux ships, as `(name, SKILL.md text)`.
-pub const BUILTIN: [(&str, &str); 4] = [
+pub const BUILTIN: [(&str, &str); 6] = [
     (
         "chief-auth-escalation",
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
+    ),
+    (
+        "chief-cloud-machines",
+        include_str!("../skills/chief-cloud-machines/SKILL.md"),
     ),
     (
         "cmux-adoption",
@@ -34,6 +38,7 @@ pub const BUILTIN: [(&str, &str); 4] = [
     ),
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
     ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
+    ("whats-new", include_str!("../skills/whats-new/SKILL.md")),
 ];
 
 /// Shipped skills that moved into tool packs (toolpacks.rs): a managed

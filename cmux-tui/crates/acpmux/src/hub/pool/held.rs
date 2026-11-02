@@ -20,8 +20,11 @@ fn is_stderr_note(msg: &Message) -> bool {
 }
 
 /// A tap that holds every line until the entry is taken. Held lines count
-/// as stored: they reach the session log, in order, when it is taken.
-pub(super) fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
+/// as stored: they reach the session log, in order, when it is taken. A
+/// held report of full access then calls `reported` (`StartReports`).
+pub(super) fn holding_tap(
+    reported: impl Fn() + Send + Sync + 'static,
+) -> (Tap, Arc<StdMutex<TapSlot>>) {
     let slot = Arc::new(StdMutex::new(TapSlot::Held(Vec::new())));
     let s = slot.clone();
     let tap: Tap = Arc::new(move |dir, msg, host_seq| {
@@ -30,6 +33,14 @@ pub(super) fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
             TapSlot::Held(held) => {
                 if held.len() < HELD_CAP || !is_stderr_note(msg) {
                     held.push((dir, msg.clone(), host_seq));
+                }
+                drop(guard);
+                if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
+                    (dir, msg)
+                    && m == crate::rpc::method::SESSION_UPDATE
+                    && crate::hub::full_access_bound::StartReports::reports_full_access(params)
+                {
+                    reported();
                 }
                 true
             }

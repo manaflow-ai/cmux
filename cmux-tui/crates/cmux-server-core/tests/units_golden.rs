@@ -37,13 +37,16 @@ Description=cmux server
 Documentation=https://cmux.com/docs/server
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
 NotifyAccess=main
 ExecStart=\"/home/ana/.local/share/cmux/current/bin/cmux\" host run --mode user
 Restart=always
-RestartSec=2
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 # The session host keeps its terminal hosts across a restart: stop only the
 # supervisor process (lane 1 handoff contract).
 KillMode=process
@@ -66,6 +69,7 @@ Description=cmux server
 Documentation=https://cmux.com/docs/server
 Wants=network-online.target cmux-update.path
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
@@ -74,7 +78,9 @@ User=cmux
 Group=cmux
 ExecStart=\"/opt/cmux/current/bin/cmux\" host run --mode system
 Restart=always
-RestartSec=2
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
 StateDirectory=cmux

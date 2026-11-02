@@ -28,100 +28,57 @@ export default async function CloudMachinesPage({
       <p>{t("intro")}</p>
 
       <DocsHeading level={2} id="create">{t("createTitle")}</DocsHeading>
-      <p>{t("createApp")}</p>
       <p>{t("createCli")}</p>
-      <CodeBlock lang="bash">{`cmux vm new
-cmux vm new --size 16g --name "search index"
-cmux vm new --detach --json`}</CodeBlock>
-      <p>{t("createFailed")}</p>
+      <CodeBlock lang="bash">{`cmux cloud new-machine
+cmux cloud new-machine --size large --name search-index
+cmux cloud new-machine --persistent --size medium
+cmux cloud list-machines`}</CodeBlock>
 
       <DocsHeading level={2} id="sizes">{t("sizesTitle")}</DocsHeading>
       <p>{t("sizesDesc")}</p>
       <table>
-        <thead>
-          <tr>
-            <th>{t("sizeColumn")}</th>
-            <th>{t("memoryColumn")}</th>
-            <th>{t("cpuColumn")}</th>
-            <th>{t("diskColumn")}</th>
-            <th>{t("planColumn")}</th>
-          </tr>
-        </thead>
+        <thead><tr><th>{t("sizeColumn")}</th><th>{t("memoryColumn")}</th><th>{t("cpuColumn")}</th></tr></thead>
         <tbody>
-          <tr><td><code>4g</code></td><td>4 GB</td><td>2</td><td>16 GB</td><td>{t("planPaid")}</td></tr>
-          <tr><td><code>8g</code></td><td>8 GB</td><td>4</td><td>32 GB</td><td>{t("planPaid")}</td></tr>
-          <tr><td><code>16g</code></td><td>16 GB</td><td>8</td><td>64 GB</td><td>{t("planPaid")}</td></tr>
-          <tr><td><code>24g</code></td><td>24 GB</td><td>12</td><td>96 GB</td><td>{t("planMax")}</td></tr>
-          <tr><td><code>32g</code></td><td>32 GB</td><td>16</td><td>128 GB</td><td>{t("planMax")}</td></tr>
-          <tr><td><code>64g</code></td><td>64 GB</td><td>32</td><td>128 GB</td><td>{t("planMax")}</td></tr>
+          <tr><td><code>small</code></td><td>4 GB</td><td>2</td></tr>
+          <tr><td><code>medium</code></td><td>8 GB</td><td>4</td></tr>
+          <tr><td><code>large</code></td><td>16 GB</td><td>8</td></tr>
+          <tr><td><code>xlarge</code></td><td>24 GB</td><td>12</td></tr>
         </tbody>
       </table>
-      <p>{t("sizesDefault")}</p>
-
-      <DocsHeading level={2} id="plan-limits">{t("limitsTitle")}</DocsHeading>
-      <p>{t("limitsDesc")}</p>
-      <ul>
-        <li>{t("limitsFree")}</li>
-        <li>{t("limitsPaid")}</li>
-        <li>{t("limitsTeam")}</li>
-        <li>{t("limitsMax")}</li>
-        <li>{t("limitsPoolFull")}</li>
-        <li>{t("limitsOversize")}</li>
-      </ul>
-      <p>{t("limitsPricing")}</p>
-
-      <DocsHeading level={2} id="agent-updates">{t("agentUpdatesTitle")}</DocsHeading>
-      <p>{t("agentUpdatesDesc")}</p>
-      <p>{t("agentUpdatesSource")}</p>
-      <p>{t("agentUpdatesStatus")}</p>
-      <CodeBlock lang="bash">{`cat /etc/cmux/agent-updates.state
-tail /var/log/cmux-agent-updates.log`}</CodeBlock>
-      <p>{t("agentUpdatesToggle")}</p>
-      <CodeBlock lang="bash">{`cmux vm new --agent-updates latest
-cmux vm agent-updates brave-otter
-cmux vm agent-updates brave-otter image`}</CodeBlock>
-      <p>{t("agentUpdatesNetwork")}</p>
 
       <DocsHeading level={2} id="resize">{t("resizeTitle")}</DocsHeading>
       <p>{t("resizeDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm resize brave-otter --memory 16G
-cmux vm resize brave-otter --cpu 8 --disk 128G`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux cloud resize-machine --target 'machine:<id>' --size large`}</CodeBlock>
 
       <DocsHeading level={2} id="pause-and-resume">{t("pauseTitle")}</DocsHeading>
       <p>{t("pauseDesc")}</p>
-      <p>{t("pauseIdle")}</p>
-      <CodeBlock lang="bash">{`cmux vm pause brave-otter
-cmux vm resume brave-otter
-cmux vm wait brave-otter --wake --timeout 180`}</CodeBlock>
-      <p>{t("waitDesc")}</p>
+      <CodeBlock lang="bash">{`cmux cloud pause-machine --target 'machine:<id>'
+cmux cloud resume-machine --target 'machine:<id>'
+cmux cloud set-idle-pause --target 'machine:<id>' --minutes off
+cmux cloud set-idle-pause --target 'machine:<id>' --minutes 30`}</CodeBlock>
 
       <DocsHeading level={2} id="checkpoints-and-forks">{t("snapshotsTitle")}</DocsHeading>
       <p>{t("snapshotsDesc")}</p>
-      <p>{t("snapshotsUse")}</p>
-      <CodeBlock lang="bash">{`cmux vm checkpoint brave-otter --name before-migration
-cmux vm snapshot ls brave-otter
-cmux vm restore <snapshot-id>
-cmux vm fork brave-otter --name try-b
-cmux vm snapshot rm brave-otter <snapshot-id>`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux cloud snapshot-machine --target 'machine:<id>'
+cmux cloud restore-machine --target 'machine:<id>' --snapshot '<snapshot-id>'
+cmux cloud fork-machine --target 'machine:<id>'
+cmux cloud delete-snapshot --target 'machine:<id>' --snapshot '<snapshot-id>' --confirm`}</CodeBlock>
       <p>{t("snapshotsCapability")}</p>
 
       <DocsHeading level={2} id="rename">{t("renameTitle")}</DocsHeading>
       <p>{t("renameDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm rename brave-otter "billing api"
-cmux vm rename brave-otter --clear`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux cloud rename-machine --target 'machine:<id>' --name "billing api"
+cmux cloud rename-machine --target 'machine:<id>' --name ""`}</CodeBlock>
 
       <DocsHeading level={2} id="status">{t("statusTitle")}</DocsHeading>
       <p>{t("statusDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm status brave-otter
-cmux vm stats brave-otter`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux cloud list-machines
+cmux cloud machine-status --target 'machine:<id>'`}</CodeBlock>
 
       <DocsHeading level={2} id="delete">{t("deleteTitle")}</DocsHeading>
       <p>{t("deleteDesc")}</p>
-      <p>{t("deleteCheckpoint")}</p>
-      <CodeBlock lang="bash">{`cmux vm rm brave-otter`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux cloud kill-machine --target 'machine:<id>' --confirm`}</CodeBlock>
 
-      <DocsHeading level={2} id="when-your-plan-ends">{t("accessTitle")}</DocsHeading>
-      <p>{t("accessDesc")}</p>
     </>
   );
 }

@@ -158,6 +158,16 @@ impl Hub {
         self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner()).remove(id);
     }
 
+    /// The startup history fold already reads open chats. Keep its last reported branch
+    /// (or the initial branch when none was reported), including an explicit detached HEAD,
+    /// so the first attach does not start another full history scan. A live read wins.
+    pub(super) fn restore_git_branch(&self, session: &Session, branch: Option<String>) {
+        let mut now = self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner());
+        if !session.purged.load(Ordering::SeqCst) {
+            now.entry(session.id.clone()).or_insert(branch);
+        }
+    }
+
     /// The branch the last `git` record in session `id`'s log told, if any.
     /// Reads the log: call off the runtime.
     fn git_branch_told(&self, id: &str) -> Option<Option<String>> {

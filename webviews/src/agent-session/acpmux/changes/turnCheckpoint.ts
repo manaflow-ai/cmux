@@ -46,6 +46,9 @@ export type TurnDisplay = {
   source: "checkpoint" | "tools";
   /// Why the tool-call view shows when a checkpoint was expected.
   note?: string;
+  /// The loaded checkpoint left files out (`filesOmitted`, `untrackedSkipped`), so the view lists
+  /// only part of the change.
+  partial?: true;
 };
 
 type ReviewCandidate = { key: string; changed: Map<string, number>; lines: Set<number> };
@@ -214,9 +217,16 @@ export function turnDisplay(
     case "error":
       return tools(t("turn.checkpoint.failed"));
     case "incomplete":
-      return tools(t("turn.checkpoint.incomplete"));
+      // The checkpoint left files out, so the turn's changes are only partly known.
+      return { ...tools(t("turn.checkpoint.incomplete")), partial: true };
     case "loaded": {
-      if (pending) return tools(t("turn.checkpoint.pending"));
+      // The checkpoint left files out (`filesOmitted`, `untrackedSkipped`): the view lists only part
+      // of the change, whichever view shows.
+      const partial = (load.changeSet.filesOmitted ?? 0) > 0 || (load.changeSet.untrackedSkipped ?? 0) > 0;
+      if (pending) {
+        const display = tools(t("turn.checkpoint.pending"));
+        return partial ? { ...display, partial: true } : display;
+      }
       const changed = [...toolFiles, ...pathsOnly];
       const files = checkpointFiles(load.changeSet).map((file) => {
         const reviewFile = checkpointReviewFile(file, toolFiles);
@@ -228,7 +238,11 @@ export function turnDisplay(
       });
       // The checkpoint holds only its repository: a file a tool call wrote elsewhere (a new file in
       // /tmp) keeps its tool-call diff, or it would vanish from the card and the view.
-      return { files: [...files, ...outsideRepository(toolFiles, load.changeSet.root, files)], source: "checkpoint" };
+      return {
+        files: [...files, ...outsideRepository(toolFiles, load.changeSet.root, files)],
+        source: "checkpoint",
+        ...(partial ? { partial: true as const } : {}),
+      };
     }
   }
 }

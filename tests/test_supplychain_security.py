@@ -10,6 +10,9 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# The Blacksmith outage failover reads a variable but only ever picks another
+# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
 WORKFLOWS = ROOT / ".github/workflows"
 SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
@@ -119,7 +122,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert smoke.get("environment") is None
     assert "secrets." not in yaml.dump(smoke)
-    assert "vars." not in smoke["runs-on"]
+    assert "vars." not in OVERFLOW_FAILOVER.sub("", smoke["runs-on"])
     assert "https://cmux.com/tui/install.sh" in run_text(smoke)
     assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in smoke["steps"])
@@ -128,7 +131,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert installer.get("needs") == "public-installer-smoke"
     assert (installer.get("permissions") or {}).get("attestations") == "read"
     assert "secrets." not in yaml.dump(installer)
-    assert "vars." not in installer["runs-on"]
+    assert "vars." not in OVERFLOW_FAILOVER.sub("", installer["runs-on"])
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
     assert "--source-ref refs/heads/main" in installer_script
@@ -141,7 +144,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert journey.get("needs") == "installer"
     assert journey.get("environment") == "cloud-vm-${{ inputs.target }}"
-    assert "vars." not in journey["runs-on"]
+    assert "vars." not in OVERFLOW_FAILOVER.sub("", journey["runs-on"])
     assert "STACK_SECRET_SERVER_KEY" not in (journey.get("env") or {})
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
@@ -162,6 +165,22 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
 
     promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
     assert promotion.get("environment") == "cloud-vm-image-promotion"
+
+    image_promote = workflow("cloud-vm-image-promote.yml")
+    assert set(image_promote["on"]) == {"workflow_dispatch"}
+    assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}
+    # production promotes in its own environment; dev keeps the dev one. The gate job that runs
+    # first for production names no environment (a job naming a missing one would create it).
+    assert image_promote["jobs"]["promote"].get("environment") == (
+        "${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_promote["jobs"]["prod-gate"]
+    image_bake = workflow("cloud-vm-image-bake.yml")
+    assert image_bake.get("permissions") == {"contents": "read"}
+    assert image_bake["jobs"]["bake"].get("environment") == (
+        "${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_bake["jobs"]["prod-gate"]
 
     backend_jobs = workflow("backend.yml")["jobs"]
     for job_name in ("migrations-development", "preview", "preview-cleanup"):

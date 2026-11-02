@@ -449,7 +449,16 @@ impl Hub {
                 })
                 .map(|(id, _)| id.clone())
                 .collect();
-            ids.into_iter().filter_map(|id| state.pending.remove(&id).map(|p| (id, p))).collect()
+            let cancelled = json!({"outcome": "cancelled"});
+            let drained: Vec<_> = ids
+                .into_iter()
+                .filter_map(|id| state.pending.remove(&id).map(|p| (id, p)))
+                .collect();
+            // Told to a later answer at once (`permission_settled.rs`), before the settle below.
+            for (id, _) in &drained {
+                state.settled.remember(id, None, &cancelled);
+            }
+            drained
         };
         for (id, pending) in drained {
             let outcome = json!({"outcome": "cancelled"});

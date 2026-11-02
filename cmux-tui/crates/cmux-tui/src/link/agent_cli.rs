@@ -1,5 +1,5 @@
 //! `cmux link agent move --from-socket LOCAL --surface ID --to-socket MACHINE
-//! --cwd FOLDER [--interrupt] [--ask-first]`: moves the agent chat of tab `ID` of the
+//! --cwd FOLDER [--interrupt] [--ask-first] [--vm-kind KIND]`: moves the agent chat of tab `ID` of the
 //! daemon at `LOCAL` to the machine daemon at `MACHINE` (Move to Cloud,
 //! cmuxterm-hq#1874 slice 1c), over `agent-transfer-v1` (spec/commands.md,
 //! "Agent chat transfer"). `FOLDER` is where the chat runs there. Neither
@@ -45,11 +45,53 @@
 //! answers `move_unresolved` with it and `retry_after_seconds` (the source's
 //! lease: a move nobody reads is aborted by the source on its own).
 //!
+//! `--vm-kind KIND`: the caller says the target is a Cloud machine and gives
+//! the Cloud API's `vmKind` for it on its link (Move to Cloud passes `owner`
+//! or `none`). A Cloud VM's daemon takes a chat only on `owner`, never on its
+//! own record: the pump sends it as `vm_kind` on the receive and the finish to
+//! a daemon with `agent-transfer-vm-kind-v1`. An older daemon would trust its
+//! own record, so there the pump refuses any kind but `owner` before the chat
+//! freezes (`agent_session.host_unverified`). Nothing the target advertises
+//! changes that: a guest can hide any sign of being a Cloud VM. Without the
+//! flag the caller says the target is not a Cloud machine (Bring Back
+//! Local's Mac); a current Cloud daemon still refuses a chat with no word.
+//!
+//! `--to-pid PID`: the process the caller read that answer from, which
+//! listens on `--to-socket` (the Cloud link's `cmux-tui remote connect`).
+//! The receive and the finish go over one connection, and with this flag the
+//! pump sends them only when that connection's peer is that process (Linux
+//! `SO_PEERCRED`, macOS `LOCAL_PEERPID`); otherwise the link was replaced
+//! after the caller asked, and the pump refuses before the receive
+//! (`agent_session.host_unverified`) and gives the chat back. A replacement
+//! link keeps the socket path, so a rerun still resolves an unresolved move.
+//!
+//! `--sync push|pull|seed --sync-socket LINK --sync-local LOCAL --sync-remote
+//! REMOTE`: once the chat is frozen (after the begin, before the receive), the
+//! pump copies its folder's last changes, `cmux link sync push LOCAL REMOTE`
+//! (Move to Cloud), `cmux link seed push --since-last LOCAL REMOTE` (Move to
+//! Cloud of a folder `cmux link seed push` put there: a delta bundle, or a
+//! re-push of its copy) or `cmux link seed pull --or-copy LOCAL REMOTE` (Bring
+//! Back Local: a seeded folder's diff, else `cmux link sync pull`) over the
+//! machine link socket `LINK`. A chat moved mid-turn
+//! (`--interrupt`) made changes up to the freeze, after the caller's own sync; this takes
+//! them along, so the turn goes on there with them (acpmux queues its
+//! continuation, cmuxterm-hq#5846 item 1). A sync that fails, or a pull that
+//! conflicts (`sync_conflict` with `conflicts`), gives the chat back. It runs
+//! inside the source's lease (an unread move is aborted after
+//! `SOURCE_LEASE_SECONDS`), so the caller syncs the bulk before the move and
+//! this copies only what changed since.
+//!
+//! `--interrupt` stops a running turn only on a source whose `identify` lists
+//! `agent-transfer-continues-v1` (its acpmux continues the turn where the
+//! chat lands); an older source refuses the move while the turn runs.
+//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...,
 //! "retry_after_seconds"?:N,"side"?:"source"|"target"}` (exit 1); bad usage
 //! exits 64. `side` names the daemon a `machine_outdated` is about.
+
+use cmux_json::JsonSet as _;
 
 mod daemon;
 mod record;
@@ -65,7 +107,8 @@ use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--ask-first] [--state-dir DIR]
+[--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR] \
+[--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
 machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
@@ -82,7 +125,29 @@ struct Args {
     interrupt: bool,
     /// Narrow the chat on the source to an asking policy and mode first.
     ask_first: bool,
+    /// `--vm-kind`: the Cloud API's answer for the caller (module docs).
+    vm_kind: Option<String>,
+    /// `--to-pid`: the process that answer belongs to (module docs).
+    to_pid: Option<u32>,
     state_dir: Option<PathBuf>,
+    /// `--sync`: the folder's last changes, copied once the chat is frozen.
+    sync: Option<Sync>,
+}
+
+/// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs).
+struct Sync {
+    way: Way,
+    socket: PathBuf,
+    local: PathBuf,
+    remote: String,
+}
+
+/// Which way `--sync` copies.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Way {
+    Push,
+    Pull,
+    Seed,
 }
 
 /// A move that failed, as its JSON line reports it.
@@ -94,6 +159,8 @@ struct Failed {
     retry_after_seconds: Option<u64>,
     /// The daemon the failure is about, when it is one side's.
     side: Option<&'static str>,
+    /// `sync_conflict`: the paths changed on both sides (boxed: `Failed` is every call's error).
+    conflicts: Option<Box<[String]>>,
 }
 
 impl Failed {
@@ -104,6 +171,7 @@ impl Failed {
             transfer_id: None,
             retry_after_seconds: None,
             side: None,
+            conflicts: None,
         }
     }
 
@@ -161,13 +229,16 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(transfer_id) = failed.transfer_id {
-                line["transfer_id"] = json!(transfer_id);
+                line.set("transfer_id", json!(transfer_id));
             }
             if let Some(seconds) = failed.retry_after_seconds {
-                line["retry_after_seconds"] = json!(seconds);
+                line.set("retry_after_seconds", json!(seconds));
             }
             if let Some(side) = failed.side {
-                line["side"] = json!(side);
+                line.set("side", json!(side));
+            }
+            if let Some(conflicts) = failed.conflicts {
+                line.set("conflicts", json!(conflicts));
             }
             println!("{line}");
             1
@@ -181,6 +252,8 @@ fn parse(args: &[String]) -> Option<Args> {
         return None;
     }
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
+    let (mut vm_kind, mut to_pid) = (None, None);
+    let (mut sync, mut sync_socket, mut sync_local, mut sync_remote) = (None, None, None, None);
     let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -190,13 +263,45 @@ fn parse(args: &[String]) -> Option<Args> {
             "--to-socket" => to = Some(PathBuf::from(rest.next()?)),
             "--cwd" => cwd = Some(rest.next()?.clone()),
             "--state-dir" => state_dir = Some(PathBuf::from(rest.next()?)),
+            "--vm-kind" => vm_kind = Some(rest.next()?.clone()),
+            "--to-pid" => to_pid = Some(rest.next()?.parse::<u32>().ok()?),
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
+            "--sync" => {
+                sync = Some(match rest.next()?.as_str() {
+                    "push" => Way::Push,
+                    "pull" => Way::Pull,
+                    "seed" => Way::Seed,
+                    _ => return None,
+                });
+            }
+            "--sync-socket" => sync_socket = Some(PathBuf::from(rest.next()?)),
+            "--sync-local" => sync_local = Some(PathBuf::from(rest.next()?)),
+            "--sync-remote" => sync_remote = Some(rest.next()?.clone()),
             _ => return None,
         }
     }
     let cwd = cwd.filter(|cwd| cwd.starts_with('/'))?;
-    Some(Args { from: from?, surface: surface?, to: to?, cwd, interrupt, ask_first, state_dir })
+    // All four or none; the remote folder is absolute, as `cmux link sync` takes it.
+    let sync = match (sync, sync_socket, sync_local, sync_remote) {
+        (None, None, None, None) => None,
+        (Some(way), Some(socket), Some(local), Some(remote)) if remote.starts_with('/') => {
+            Some(Sync { way, socket, local, remote: remote.trim_end_matches('/').to_owned() })
+        }
+        _ => return None,
+    };
+    Some(Args {
+        from: from?,
+        surface: surface?,
+        to: to?,
+        cwd,
+        interrupt,
+        ask_first,
+        vm_kind,
+        to_pid,
+        state_dir,
+        sync,
+    })
 }
 
 fn move_chat(args: &Args) -> Result<Moved, Failed> {
@@ -267,10 +372,14 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             return Err(failed);
         }
     }
+    let vm_kind = target_vm_kind(args)?;
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
-    let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
+    // A running turn stops for the move only where it goes on afterwards: an older source would
+    // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
+    let interrupt = args.interrupt && source_continues(&args.from);
+    let mut params = json!({"surface": args.surface, "interrupt": interrupt});
     if args.ask_first {
-        params["ask_first"] = json!(true);
+        params.set("ask_first", json!(true));
     }
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
@@ -303,8 +412,22 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         cwd: args.cwd.clone(),
         ..Record::default()
     };
+    // The chat is frozen: its folder's last changes go with it. No receive was asked yet, so
+    // the target cannot have the chat, and a sync that fails gives it back.
+    if let Some(sync) = &args.sync
+        && let Err(failed) = {
+            // Recorded first: a run that dies while it copies is resolved by the next one.
+            let _ = records.save(&record);
+            sync_frozen(sync)
+        }
+    {
+        return Err(match give_back(args, records, &mut record) {
+            Ok(()) => failed.with_transfer(&record.transfer_id),
+            Err(stuck) => Failed { error: format!("{}; {}", failed.error, stuck.error), ..stuck },
+        });
+    }
     let (mut target, bytes) =
-        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"]) {
+        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"], &vm_kind) {
             Ok(copied) => copied,
             Err(failed) => {
                 // No finish was sent: the target cannot have the chat.
@@ -318,8 +441,11 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             }
         };
     let receive_id = record.receive_id.clone().unwrap_or_default();
-    let finished =
-        target.call("agent-transfer-finish", json!({"receive_id": receive_id}), FINISH_TIMEOUT);
+    let mut finish = json!({"receive_id": receive_id});
+    if let Some(kind) = &vm_kind {
+        finish.set("vm_kind", json!(kind));
+    }
+    let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
     let (landed, finish_error) = match finished {
         Ok(answer) => {
             if let Some(id) = answer["session"]["sessionId"].as_str() {
@@ -349,6 +475,84 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     }
 }
 
+/// `--sync`'s copy of a frozen chat's folder (module docs).
+fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
+    use super::sync_cli::{self, Back};
+    match sync.way {
+        Way::Push => {
+            return sync_cli::push(&sync.socket, &sync.local, &sync.remote).map(|_| ()).map_err(
+                |e| {
+                    Failed::new(
+                        sync_cli::push_failure_code(&e),
+                        format!("the folder's last changes: {e:#}"),
+                    )
+                },
+            );
+        }
+        Way::Seed => {
+            return super::seed_cli::push_since_last(&sync.socket, &sync.local, &sync.remote)
+                .map(|_| ())
+                .map_err(|e| {
+                    Failed::new(
+                        super::seed_cli::failure_code(&e),
+                        format!("the folder's last changes: {e:#}"),
+                    )
+                });
+        }
+        Way::Pull => {}
+    }
+    // A seeded folder comes back as the seed's diff, a copied one as the copy's pull.
+    match super::seed_cli::bring_back(&sync.socket, &sync.local, &sync.remote) {
+        Back::Done(_) => Ok(()),
+        Back::Conflict(conflicts, reasons) => {
+            let mut error = format!(
+                "{} changed both here and on the machine while the chat ran; nothing was brought \
+                 back",
+                conflicts.join(", ")
+            );
+            if !reasons.is_empty() {
+                error = format!("{error} ({})", reasons.join("; "));
+            }
+            Err(Failed {
+                conflicts: Some(conflicts.into_boxed_slice()),
+                ..Failed::new("sync_conflict", error)
+            })
+        }
+        Back::Failed { code, error } => {
+            Err(Failed::new(code, format!("the folder's last changes: {error}")))
+        }
+    }
+}
+
+/// Whether the source daemon's acpmux continues a turn the move stops; false when it does not
+/// say so, or does not answer `identify`.
+fn source_continues(socket: &std::path::Path) -> bool {
+    let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY;
+    let identity = super::machine_gate::identify(socket);
+    identity.as_ref().and_then(super::machine_gate::served).is_some_and(|s| s.contains(&capability))
+}
+
+/// The `vm_kind` the target is sent (module docs): none without
+/// `--vm-kind` (the caller says it is not a Cloud machine); `--vm-kind` for a
+/// daemon with `agent-transfer-vm-kind-v1`; none for an older one, which
+/// trusts its own record, so it is refused unless the Cloud API said `owner`.
+fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
+    let Some(kind) = &args.vm_kind else { return Ok(None) };
+    let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
+    let identity = super::machine_gate::identify(&args.to);
+    let served = identity.as_ref().and_then(super::machine_gate::served);
+    if served.is_some_and(|served| served.contains(&capability)) {
+        return Ok(Some(kind.clone()));
+    }
+    if kind == "owner" {
+        return Ok(None);
+    }
+    let error = "the Cloud API did not say this machine is yours, and its cmux-tui cannot check";
+    let mut failed = Failed::new("agent_session.host_unverified", error);
+    failed.side = Some("target");
+    Err(failed)
+}
+
 /// Steps 2 and 3, each step recorded first: the receive on the target, then
 /// every page, then the record that the finish is about to be sent.
 /// Returns the target connection and the bytes copied.
@@ -358,11 +562,23 @@ fn up_to_finish(
     records: &Records,
     record: &mut Record,
     manifest: &Value,
+    vm_kind: &Option<String>,
 ) -> Result<(Daemon, u64), Failed> {
     records.save(record).map_err(|e| Failed::state(&e))?;
     let target_failed = |e: CallError| Failed::call("target", &e);
     let mut target = Daemon::connect(&args.to).map_err(target_failed)?;
-    let params = json!({"manifest": manifest, "cwd": args.cwd});
+    if let Some(pid) = args.to_pid
+        && target.peer_pid() != Some(pid)
+    {
+        let error = "the Cloud link this machine's answer came from has ended; nothing was sent";
+        let mut failed = Failed::new("agent_session.host_unverified", error);
+        failed.side = Some("target");
+        return Err(failed);
+    }
+    let mut params = json!({"manifest": manifest, "cwd": args.cwd});
+    if let Some(kind) = vm_kind {
+        params.set("vm_kind", json!(kind));
+    }
     let received =
         target.call("agent-transfer-receive", params, CALL_TIMEOUT).map_err(target_failed)?;
     let receive_id = received["receive_id"]

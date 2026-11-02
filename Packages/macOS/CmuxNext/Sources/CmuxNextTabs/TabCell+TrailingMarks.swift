@@ -5,8 +5,8 @@ import QuartzCore
 /// indicator for the right side", "nothing should ever be on the left side besides the favicon").
 /// The leading slot draws only the favicon or the tab's icon. Every mark draws in one trailing
 /// cluster at the end of the title, left of the x, in one order, left to right: the presence dot,
-/// the profile dot, the machine badge, the theme swatch, the loading indicator, the speaker, then
-/// the unread or status mark at the far right. The unread dot and a status share one mark
+/// the profile dot, the machine badge, the theme swatch, the loading indicator, the speaker, a zoomed
+/// pane's zoom indicator, then the unread or status mark at the far right. The unread dot and a status share one mark
 /// (`badgeColor`, or a status icon set's glyph), so a tab never draws two.
 ///
 /// A tab too narrow to show its title has no trailing room: there, as before, the loading
@@ -14,7 +14,7 @@ import QuartzCore
 extension TabCell {
     /// The trailing cluster, right to left (the order above, reversed).
     enum TrailingMark: CaseIterable {
-        case state, audio, loading, theme, machine, profile, presence
+        case state, zoom, audio, loading, theme, machine, profile, presence
     }
 
     /// Lays the trailing cluster out from `titleEnd` leftward; returns where the title must end.
@@ -25,6 +25,7 @@ extension TabCell {
         for mark in TrailingMark.allCases {
             switch mark {
             case .state: end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath)
+            case .zoom: end = layoutZoomBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .audio: end = layoutAudioBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .loading: end = layoutTrailingSpinner(end: end, midY: midY)
             case .theme: end = layoutThemeBadge(titleX: titleX, titleEnd: end, midY: midY)

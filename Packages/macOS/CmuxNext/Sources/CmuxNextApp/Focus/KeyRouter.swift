@@ -50,9 +50,10 @@ final class KeyRouter: BrowserKeyRouting {
     var whichKey: WhichKeyController?
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
-    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
-        self.registry = registry
-        self.inputDispatch = inputDispatch
+    let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
+         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
+        (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
@@ -118,6 +119,8 @@ final class KeyRouter: BrowserKeyRouting {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
+            // Another page's window has the key (a chat beside the focused page): it is that page's.
+            if facts.keyInOtherPage { return .deliver }
             // Printable keys, and the keys the primary input claims (a dead key composes where the key
             // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
             let printable = Self.isPrintable(event)
@@ -139,7 +142,7 @@ final class KeyRouter: BrowserKeyRouting {
                 if candidate.tier == .content { return .deliver }
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
-                return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
+                return Self.offersToPage(candidate, event: event, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
             }
         }
         // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.
@@ -179,6 +182,7 @@ final class KeyRouter: BrowserKeyRouting {
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
+        if answersBlockingDialog(event, in: window) { return true }  // never the view's under the dialog
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
@@ -337,13 +341,16 @@ final class KeyRouter: BrowserKeyRouting {
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
-    lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    lazy var creationInputCoordinator = CreationInputCoordinator(router: self, replay: heldKeyReplay)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit()
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
     var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    /// The page whose recorder holds ``keyRecorder`` (one slot for every window's page): only it
+    /// clears the slot, and a page that starts recording ends the holder's capture first.
+    weak var keyRecorderOwner: AnyObject?
     /// Ends the topmost sheet on a window as cancelled; returns whether one
     /// ended. A seam: tests without a window session (no sheets) replace it.
     var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }

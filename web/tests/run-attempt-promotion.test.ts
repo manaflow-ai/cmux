@@ -124,6 +124,12 @@ describe("run attempt promotion service", () => {
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "not-ready-2", dependencies: noEvidence })).rejects.toBeInstanceOf(PromotionNotReadyError);
   });
 
+  test("refuses a sandboxed run before reserving or touching the runtime (hq#3367)", async () => {
+    const { dependencies, calls } = makeDependencies(source({ environment: "sandboxed" }));
+    await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "sandboxed", dependencies })).rejects.toBeInstanceOf(PromotionNotReadyError);
+    expect(calls).toEqual([]);
+  });
+
   test("hides cross-tenant attempts as not found", async () => {
     const { dependencies } = makeDependencies(source({ userId: "other-tenant" }));
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "cross-tenant", dependencies })).rejects.toBeInstanceOf(PromotionNotFoundError);
@@ -154,8 +160,18 @@ mock.module("../services/vms/routeHelpers", () => ({
   withAuthedVmApiRoute: async (_request: Request, _route: string, _attrs: unknown, _failureLog: string, handler: (context: { user: { id: string } }) => Promise<Response>) => handler({ user: { id: "owner" } }),
 }));
 mock.module("../services/runs/http", () => ({
+  RunRequestError: class RunRequestError extends Error {
+    readonly code: string;
+    readonly status: number;
+
+    constructor(code: string, message: string, _action: string, status = 400) {
+      super(message);
+      this.code = code;
+      this.status = status;
+    }
+  },
   runJson: (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }),
-  runError: (error: unknown) => new Response(JSON.stringify({ error: error instanceof Error ? error.constructor.name : "error" }), { status: 500, headers: { "content-type": "application/json" } }),
+  runError: (error: unknown) => new Response(JSON.stringify({ error: error instanceof Error && "code" in error ? String(error.code) : error instanceof Error ? error.constructor.name : "error" }), { status: error instanceof Error && "status" in error ? Number(error.status) : 500, headers: { "content-type": "application/json" } }),
 }));
 const promotionRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/promote/route");
 

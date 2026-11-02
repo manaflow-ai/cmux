@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreFoundation
 
 /// One observer of the main run loop, read from a `CFCopyDescription` dump of a run loop
@@ -42,6 +43,13 @@ public nonisolated struct CommitBoundaryObserver: Sendable, Hashable, Comparable
     /// Whether this observer is on ``reviewedAfterBoundary``.
     public var isReviewedAfterBoundary: Bool {
         Self.reviewedAfterBoundary.contains(callout)
+    }
+
+    /// Whether the observer says it lays out, displays and commits nothing after the commit: cmux's own
+    /// timing, heartbeat and cursor observers (`MainRunLoopObserver.afterCommitObserver`) describe their
+    /// context as `cmux.drawsNothingAfterCommit` in the dump, since their callout names nothing.
+    public var drawsNothingAfterCommit: Bool {
+        dumpText.contains("context = " + MainRunLoopObserver.drawsNothingAfterCommitContext)
     }
 
     /// Whether this is Core Animation's transaction (commit) observer.

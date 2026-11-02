@@ -1,0 +1,18 @@
+/* Animated avatars (AnimatedAvatar.tsx): background steps through one sheet row; no layout moves. */
+.cmux-avatar{display:inline-block;flex:none;background-repeat:no-repeat}
+.cmux-avatar[data-pixel=true]{image-rendering:pixelated}
+.cmux-avatar[data-mirrored=true]{transform:scaleX(-1)}
+.cmux-avatar[data-moving=true]{animation:cmux-avatar-row var(--avatar-duration) steps(var(--avatar-steps),jump-none) var(--avatar-iterations) forwards}
+@keyframes cmux-avatar-row{from{background-position-x:0}to{background-position-x:var(--avatar-end)}}
+@media (prefers-reduced-motion:reduce){.cmux-avatar[data-moving=true]{animation:none}}
+.cmux-avatar-sheet{display:flex;flex-wrap:wrap;gap:16px;padding:16px;color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) var(--font-ui);letter-spacing:var(--text-detail--letter-spacing)}
+.cmux-avatar-sheet h3{margin:0 0 6px;font-weight:600}
+.cmux-avatar-sheet table{border-collapse:collapse}
+.cmux-avatar-sheet th{padding-right:8px;font-weight:400;text-align:left;color:var(--agent-text-secondary,var(--agent-text))}
+.cmux-avatar-sheet td{padding:4px;vertical-align:middle}
+.cmux-avatar-sheet-frames{display:flex;gap:4px}
+.cmux-avatar-sheet figure{display:flex;flex-direction:column;align-items:center;gap:4px;margin:0;padding:8px;border-radius:var(--radius-lg,12px);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.cmux-avatar-sheet figcaption{font-weight:600}
+.cmux-avatar-sheet[data-view=pick]{flex-direction:column}
+.cmux-avatar-sheet[data-view=pick] figure{flex-direction:row;gap:16px}
+.cmux-avatar-sheet[data-view=pick] figcaption{order:-1;width:72px}

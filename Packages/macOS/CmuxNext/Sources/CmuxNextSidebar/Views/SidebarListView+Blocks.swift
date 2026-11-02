@@ -49,9 +49,11 @@ struct SidebarListBlocks: Equatable {
     var appHeights: [LayoutSectionID: CGFloat]
 
     /// Section `id` without `hiding` and with a gap at `gap` (an index among the items left), as wide as the first hidden item.
-    /// `joinsAbove`/`joinsBelow`: a block drawn right before or after it, so the two keep one band's spacing (a section
-    /// gap and its line between them, the band's padding only at the run's ends).
-    func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false, joinsBelow: Bool = false) -> SidebarRegionView.Content? {
+    /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (a section gap and its line between
+    /// them, the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
+    /// spacing (or the next block's top edge) under the last item, so the rows under the pins follow as rows follow
+    /// rows (Leo 2026-10-21).
+    func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false) -> SidebarRegionView.Content? {
         guard var section = sections[id] else { return nil }
         section.items.removeAll { hiding.contains($0.id.rawValue) }
         var infos = infos
@@ -64,7 +66,7 @@ struct SidebarListBlocks: Equatable {
         }
         var edges = metrics
         if joinsAbove { (edges.topPadding, edges.leadingSeparator) = (metrics.sectionGap, true) }
-        if joinsBelow { edges.bottomPadding = 0 }
+        edges.bottomPadding = 0
         return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: edges,
                                          drawsLines: drawsLines, appHeights: appHeights)
     }
@@ -118,16 +120,15 @@ extension SidebarListViewComponents {
     /// Block `id`'s content as drawn (with the drag's or the held drop's gap) or as the hit test's base (without it).
     func blockContent(_ id: String, includeGap: Bool) -> SidebarRegionView.Content? {
         let gap = includeGap ? shownDrag?.blockTarget.flatMap { $0.section == id ? $0.index : nil } : nil
-        let (above, below) = blockJoins(id)
-        return blocks?.content(id, hiding: blockHidden, gap: gap, joinsAbove: above, joinsBelow: below)
+        return blocks?.content(id, hiding: blockHidden, gap: gap, joinsAbove: joinsBlockAbove(id))
     }
 
-    /// Whether block `id` has another block right above or below it in the list (no rows between them), by the
+    /// Whether block `id` has another block right above it in the list (no rows between them), by the
     /// layout's own rules: a collapsed section or one whose groups the filter or the drag leave out lists no rows,
     /// and a section whose items lay out to nothing draws no block.
-    func blockJoins(_ id: String) -> (above: Bool, below: Bool) {
+    func joinsBlockAbove(_ id: String) -> Bool {
         let sections = model.sections
-        guard let index = sections.firstIndex(where: { $0.id == .custom(id) }) else { return (false, false) }
+        guard let index = sections.firstIndex(where: { $0.id == .custom(id) }) else { return false }
         let matches = model.filterMatches
         var excludedGroup: GroupID?
         if case let .group(group)? = shownDrag?.payload { excludedGroup = group }
@@ -146,9 +147,7 @@ extension SidebarListViewComponents {
             guard let id = docID(section), let content = blocks?.content(id, hiding: blockHidden, gap: nil) else { return false }
             return SidebarRegionView.layout(of: content, width: bounds.width).height > 0
         }
-        let above = index > 0 && listsNoRows(sections[index - 1]) && hasBlock(sections[index - 1])
-        let below = listsNoRows(sections[index]) && index + 1 < sections.count && hasBlock(sections[index + 1])
-        return (above, below)
+        return index > 0 && listsNoRows(sections[index - 1]) && hasBlock(sections[index - 1])
     }
 
     /// Ends a settling drop once its move landed (the list's structure or the blocks changed); returns it.
@@ -162,7 +161,7 @@ extension SidebarListViewComponents {
     func blockGapFrame(_ gap: SidebarBlockGap) -> NSRect? {
         guard let row = displayed.row(for: .block(gap.section)), let block = rowViews[row.key] as? SidebarBlockRowView,
               let slot = block.region.itemView(SidebarListBlocks.gapID) else { return nil }
-        return convert(slot.bounds, from: slot)
+        return convert(slot.bounds, from: slot).clippedX(to: bounds) // as `blockSlotFrame`
     }
 
     /// The gap slot's frame in the list as the block lays it out with the gap
@@ -176,7 +175,8 @@ extension SidebarListViewComponents {
             default: false
             }
         }
-        return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y) }
+        // A band row runs past the region's edge by the row trim; the card it morphs to stops at the list's.
+        return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y).clippedX(to: bounds) }
     }
 
     /// Each block's height at the list's width.
@@ -200,17 +200,20 @@ extension SidebarListViewComponents {
     func dragTile(_ id: LayoutItemID, section: String, in region: SidebarRegionView, from start: NSPoint, _ event: NSEvent) -> Bool {
         if drag == nil {
             abandonSettle()
-            guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
+            // An item that cannot move (Home) is refused here too, from its data, whatever view pressed it.
+            guard let doc = model.docDrag, !model.locksReorder, region.isMovable(.item(id)), let view = region.itemView(id) else { return false }
             let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
             guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             endLanding()
             hoverCards.dismiss(.click)
-            let frame = convert(view.bounds, from: view)
+            // Within the list: a block row's frame runs past its edge by the row trim (`rowEdgeGap`), its pill does not.
+            let frame = convert(view.bounds, from: view).clippedX(to: bounds)
+            let shown = view.convert(frame, from: self)
             let card = NSImageView()
             card.imageScaling = .scaleNone
-            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: rep)
-                let image = NSImage(size: view.bounds.size)
+            if let rep = view.bitmapImageRepForCachingDisplay(in: shown) {
+                view.cacheDisplay(in: shown, to: rep)
+                let image = NSImage(size: shown.size)
                 image.addRepresentation(rep)
                 card.image = image
             }
@@ -220,12 +223,12 @@ extension SidebarListViewComponents {
             drag.grabOffsetX = origin.x - frame.minX
             drag.lastY = origin.y
             drag.tileSource = (section, id)
-            drag.restFrame = NSRect(x: inset, y: frame.minY, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            drag.restFrame = NSRect(x: inset, y: frame.minY, width: indentWidth, height: metrics.rowHeight)
             drag.restShaped = false
             drag.tileRegion = region
             region.docPressedItem = id
             drag.docItems = [id.rawValue]
-            drag.docAcceptance = doc.begin([id.rawValue])
+            drag.docAcceptance = keepingFixed(doc.begin([id.rawValue]))
             self.drag = drag
             setHovered(nil)
             showDragLayout() // the tile's slot closes on the drag's spring
@@ -269,14 +272,14 @@ extension SidebarListViewComponents {
         // A group lands at its cut height in its slot; it grows to the whole group when the model shows it.
         if let frame = groupSlotFrame(drag) { return frame }
         if let gap = drag.blockTarget {
-            // A card that keeps its own shape over a block (a group, a workspace with tab rows) is not a tile: the
+            // A card that keeps its own shape over a block (a group) is not a tile: the
             // model draws it as rows, not in the slot. It holds where it is until the model shows it (no flight
             // toward a tile's shape and back; ptr8 group-into-pinned).
             guard drag.morphs || drag.tileSource != nil else { return drag.lift.frame }
             return blockSlotFrame(gap) ?? blockGapFrame(gap)
         }
         if drag.tileSource != nil, let y = displayed.gapY, displayed.gapHeight > 0 {
-            return NSRect(x: inset, y: y, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight)
+            return NSRect(x: inset, y: y, width: indentWidth, height: displayed.gapHeight)
         }
         return nil
     }

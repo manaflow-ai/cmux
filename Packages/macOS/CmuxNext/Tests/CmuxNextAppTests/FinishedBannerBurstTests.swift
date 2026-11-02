@@ -35,6 +35,10 @@ struct FinishedBannerBurstTests {
             store.apply(snapshot: DaemonTree(workspaces: [api, web]))
             service.clock = clock
             service.terminalNotificationsEnabled = { true }
+            // These tests deliver banners microseconds apart. The 1.5 s sound burst cooldown
+            // (`notifications.sounds.cooldownSeconds`) would hold every sound after the first, so it is
+            // off here; NotificationSoundGateTests covers it.
+            service.preferences.sounds.cooldownSeconds = 0
         }
 
         /// Delivers daemon notification `id` from an agent on `surface` as a banner the policy allows.

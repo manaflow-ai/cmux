@@ -37,7 +37,7 @@ extension WindowRootView {
     func layoutTitlebarAccessories(midY: CGFloat) {
         var x = toolbarBand.frame.maxX + Metrics.space2
         if let badge = titlebarBadge {
-            badge.isHidden = !showsTitlebarBadge
+            badge.isHidden = !showsTitlebarBadge || presentsPage
             if showsTitlebarBadge {
                 let size = badge.fittingSize
                 badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)

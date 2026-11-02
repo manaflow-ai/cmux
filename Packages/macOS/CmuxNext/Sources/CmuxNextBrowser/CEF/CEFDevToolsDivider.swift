@@ -7,7 +7,21 @@ import CmuxNextDesign
 /// side items of the DevTools menu.
 final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
-    private var dragging = false
+    private var dragging = false { didSet { updateGlow() } }
+    private var hovered = false { didSet { updateGlow() } }
+    /// The accent band over the line while hovered or dragged (`DividerGlowBand`); it stays
+    /// inside this view, which the page and DevTools windows leave uncovered.
+    let glow = DividerGlowBand()
+    private var trackingArea: NSTrackingArea?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(glow.layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
 
     nonisolated override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -22,6 +36,55 @@ final class CEFDevToolsDivider: NSView {
             ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)
         line.fill()
+    }
+
+    override func layout() {
+        super.layout()
+        let side = devTools?.layout.dock.isSide ?? true
+        let t = CEFDevToolsLayout.lineThickness
+        let line = side
+            ? NSRect(x: bounds.midX - t / 2, y: 0, width: t, height: bounds.height)
+            : NSRect(x: 0, y: bounds.midY - t / 2, width: bounds.width, height: t)
+        glow.place(along: line, vertical: side)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        glow.applyTheme(self)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        glow.applyTheme(self)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true }
+    override func mouseExited(with event: NSEvent) { hovered = false }
+
+    /// Removed mid-hover or mid-drag: no exit or release arrives, so the band goes out with it.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil {
+            dragging = false
+            hovered = false
+        }
+    }
+
+    private func updateGlow() {
+        glow.set(dragging ? .dragging : hovered ? .hovered : .rest)
     }
 
     override func resetCursorRects() {

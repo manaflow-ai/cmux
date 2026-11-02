@@ -1,0 +1,142 @@
+{
+  "title": "New Agent Chat before send \u2014 synthetic signed-out Claude health",
+  "steps": [
+    {
+      "title": "Open New Agent Chat with synthetic signed-out Claude health, without sending",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Wait for the New Agent Chat composer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness",
+          "wait_animations": true
+        }
+      },
+      "record": "file",
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Record the displayed harness before sending",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    },
+    {
+      "title": "Record pre-send harness auth checks",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "acp_log",
+          "limit": 100
+        }
+      },
+      "record": "file",
+      "shot": false,
+      "wait": 0
+    },
+    {
+      "title": "Focus the composer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "focus_composer"
+        }
+      },
+      "shot": false,
+      "wait": 0.1
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "d",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "r",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "a",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "f",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "Type the unsent draft",
+      "key": "t",
+      "pane": "{pane}",
+      "modifiers": [],
+      "shot": false,
+      "wait": 0.05
+    },
+    {
+      "title": "The readiness action and unsent draft remain together",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    }
+  ],
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness",
+        "models": [
+          {
+            "id": "opus",
+            "name": "Opus"
+          }
+        ]
+      }
+    },
+    "health": [
+      {
+        "id": "claude",
+        "program": "claude",
+        "channel": "native",
+        "outdated": false,
+        "auth": "signedOut",
+        "authDetail": "Synthetic signed-out Claude health for capture",
+        "login": "claude auth login",
+        "checkedAt": 1
+      }
+    ]
+  }
+}

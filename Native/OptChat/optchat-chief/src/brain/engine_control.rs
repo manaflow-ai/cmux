@@ -9,7 +9,10 @@
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
 //! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
 //! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
-//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...]}}`, or `{"error": {"code", "message"}}`.
+//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
+//! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
+//! unavailable, unavailableReason?, ...}...]}}` (harness_offer.rs), or
+//! `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
@@ -202,6 +205,19 @@ impl Brain {
             .copied()
             .filter(|speed| crate::engine::check_speed(speed, family).is_ok())
             .collect();
+        // Every engine the picker can switch the next turn to (harness_offer.rs).
+        let harnesses = self
+            .agents
+            .harness_catalog()
+            .map(|answer| {
+                super::harness_offer::offered_harnesses(&answer, &self.settings.families, |h| {
+                    self.family_of(h)
+                })
+            })
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
+                Vec::new()
+            });
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -223,7 +239,7 @@ impl Brain {
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds},
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses},
         })
     }
 
@@ -235,6 +251,25 @@ impl Brain {
     pub(super) fn owner_stop(&mut self) -> Value {
         let turn = self.phase == Phase::Running;
         if turn {
+            if self.turn_side().is_none() {
+                let answers = self
+                    .state
+                    .turn
+                    .as_ref()
+                    .map(|t| t.answers.clone())
+                    .unwrap_or_default();
+                self.state.stopped_reply = Some(crate::state::StoppedReply {
+                    messages: self
+                        .state
+                        .awaiting
+                        .iter()
+                        .filter(|a| answers.contains(&a.id))
+                        .cloned()
+                        .collect(),
+                    requires_approval: self.turn_ask,
+                });
+                self.save();
+            }
             self.owner_stopped = true;
             self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");

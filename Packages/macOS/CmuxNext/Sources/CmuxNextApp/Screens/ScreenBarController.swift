@@ -38,6 +38,9 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        // The screen bar's + is a plain one-click new-screen action. Holding or right-clicking
+        // still exposes the existing screen type menu through the strip's context path.
+        view.opensNewTabMenuOnPress = false
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
@@ -149,7 +152,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute, .toggleZoom:
             break
         }
     }

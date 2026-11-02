@@ -12,6 +12,9 @@ public struct BrowserPageService: Sendable {
     let leases: BrowserTabLeases
     /// The passkey hand-off (`browser.page.passkey`); nil serves no such method.
     let passkeys: BrowserPasskeyRequests?
+    /// Lists a tab in a second pane (`browser.page.mirror`, and the Home mirror of a tab an
+    /// agent starts driving); nil (tests, hosts without strips) mirrors nothing.
+    let mirrors: (any BrowserTabMirrorHost)?
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -24,17 +27,22 @@ public struct BrowserPageService: Sendable {
     ///     banners) leaves `browser.page.passkey` unserved.
     ///   - agentMouse: the person's `browser.agentMouse.*` settings, read per click; nil
     ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
+    ///   - mirrors: lists a tab in a second pane (``BrowserTabMirrorHost``); nil serves
+    ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
-                agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil) {
+                agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
+                mirrors: (any BrowserTabMirrorHost)? = nil) {
         self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
-                  allowsUnsafeCapture: false)
+                  allowsUnsafeCapture: false, mirrors: mirrors)
     }
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
-         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false) {
+         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
+         mirrors: (any BrowserTabMirrorHost)? = nil) {
         self.engine = engine
         self.leases = leases
         self.passkeys = passkeys
+        self.mirrors = mirrors
         self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
         self.allowsUnsafeCapture = allowsUnsafeCapture
     }
@@ -116,6 +124,7 @@ public struct BrowserPageService: Sendable {
         register(rawInputMethods())
         register(browserUseMethods())
         register(cookieAndStorageMethods())
+        register([mirrorMethod()])
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.
@@ -163,7 +172,8 @@ public struct BrowserPageService: Sendable {
     }
 
     /// The tab `params.tab` names (exact id or unique prefix), else the
-    /// focused tab. It must be a browser tab the app shows.
+    /// browser nearest the caller (``BrowserCallerTarget``), else, for a call
+    /// that names no caller, the focused tab. It must be a browser tab the app shows.
     static func tab(_ call: ControlCall) throws -> Tab {
         let tabs = call.snapshot.topology.workspaces.flatMap { $0.screens.flatMap { $0.panes.flatMap(\.tabs) } }
         let requested = call.request.params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces)
@@ -177,6 +187,8 @@ public struct BrowserPageService: Sendable {
                                    data: ["candidates": .array(matches.map { .string($0.id) })])
             }
             found = exact
+        } else if let near = try BrowserCallerTarget.resolve(params: call.request.params, in: call.snapshot.topology) {
+            found = near.tab
         } else {
             guard let focused = call.snapshot.topology.focus.tabID, let tab = tabs.first(where: { $0.id == focused }) else {
                 throw ControlError(code: "not_found", message: ControlStrings.text("control.error.noFocusedBrowser", "No focused browser surface"))

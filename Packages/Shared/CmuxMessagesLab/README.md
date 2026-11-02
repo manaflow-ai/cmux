@@ -46,9 +46,9 @@ and render-server field animation, blurred header and native scrolling.
   - Host hooks B (a293970, asks 1-4, 6, 7): `Vendor/catalyst/ThreadHost.swift`
     is vendored. Home runs the `.tree` thread mode (cx-och3h): `parent` is
     mapped, `replyCount` stays nil, and `demo.hostControl(at:)` is the first
-    stop of the thread click path. The thread header hooks show the daemon's thread
-    object (HomeProjection+ThreadHeader.swift: resolve, rename, assign through
-    `thread.update`). Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
+    stop of the thread click path. Home sets no thread header hook: as in Messages,
+    the thread view starts at its root bubble (cmux#26686); the daemon's thread
+    object stays in Channels. Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
     must check it in the Esc and click paths (host-hooks-b-api.md).
   - Not ported from Host.swift: the live-resize bitmap keep (780934c,
     `MessagesWindowView.setLiveResizing`, `RowCell.liveResizing`). Home never
@@ -108,6 +108,10 @@ and render-server field animation, blurred header and native scrolling.
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
   `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
   row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
+  `HomeFileCard` (a file attachment as a neutral card on either side, close to
+  Messages': the type's system icon and localized kind, the name shortened in
+  the middle with its extension kept; RowDrawing, Layout and `RowDraw.needsFill`
+  hand file rows to it),
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
@@ -125,6 +129,12 @@ and render-server field animation, blurred header and native scrolling.
   (the public view).
 
 ## Blocker patches
+
+Home activity is the Messages typing indicator: three staggered dots that pulse on the
+render server inside a breathing bubble. Reduce Motion and the host's Home motion gate
+(`MessagesLabHomeView.holdsTypingStill`) hold them still; ending typing and recycling a row
+remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual native Home view.
+
 
 | file | why |
 | --- | --- |

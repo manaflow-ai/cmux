@@ -1,0 +1,33 @@
+# cmux-managed: true
+# The Google Docs pack (plans/cmux-next/chief-gdocs-DESIGN.md): read, reformat, insert, comment on
+# and verify Google Docs. Its CLI is the script it ships (`gdocs`). With no token it works through
+# the person's Google session in the agent's own cmux browser tab; with a Drive token
+# (GDOCS_TOKEN) it uses the Drive API and no browser.
+name = "gdocs"
+title = "Google Docs"
+description = "Read, reformat, insert into, comment on and verify Google Docs (browser session, or a Drive token)"
+health = ["gdocs", "md2html", "--text", "# ok"]
+
+[tool]
+bin = "gdocs"
+script = "gdocs"
+url = "https://developers.google.com/drive/api/guides/manage-uploads#import-docs"
+
+# Optional. Google's device-code grant does not allow Drive scopes that reach existing docs
+# (only drive.file), so the sign-in is a pasted access token with a Drive scope, for example
+# `gcloud auth login --enable-gdrive-access` then `gcloud auth print-access-token | chief pack paste gdocs -`
+# (it lasts about an hour). Without it the browser route needs no secret.
+[auth]
+methods = ["paste"]
+token_min = 20
+token_max = 2048
+login_hint = "chief pack paste gdocs -"
+tokens_url = "https://developers.google.com/oauthplayground"
+skill = "gdocs"
+
+[check]
+url = "https://www.googleapis.com/drive/v3/about?fields=user"
+login_field = "user.emailAddress"
+
+[inject]
+env = ["GDOCS_TOKEN"]

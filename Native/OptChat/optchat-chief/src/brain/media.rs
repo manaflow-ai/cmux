@@ -130,12 +130,32 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
     refs
 }
 
-/// The reply without the image syntax of `sent` files: a line left empty by it goes, the
-/// others lose their trailing spaces.
-pub fn without_images(reply: &str, sent: &[&MediaRef]) -> String {
-    let mut ranges: Vec<std::ops::Range<usize>> =
-        sent.iter().filter_map(|r| r.image_syntax.clone()).collect();
-    ranges.sort_by_key(|r| r.start);
+/// The reply once the uploads are done: the image syntax of `sent` files
+/// leaves it (a line left empty by it goes, the others lose their trailing
+/// spaces), and the image syntax of `failed` files becomes a `file://` link
+/// to the file. Home never draws a local picture from Markdown, so image
+/// syntax left in the text showed as `!name` (the user, 2026-10-26).
+pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String {
+    let mut edits: Vec<(std::ops::Range<usize>, Option<String>)> = sent
+        .iter()
+        .filter_map(|r| r.image_syntax.clone().map(|range| (range, None)))
+        .collect();
+    for media in failed {
+        let Some(range) = media.image_syntax.clone() else {
+            continue;
+        };
+        let Ok(url) = url::Url::from_file_path(&media.path) else {
+            continue;
+        };
+        let syntax = &reply[range.clone()];
+        let label = syntax
+            .strip_prefix("![")
+            .and_then(|rest| rest.find("](").map(|end| &rest[..end]))
+            .filter(|label| !label.trim().is_empty())
+            .unwrap_or("file");
+        edits.push((range, Some(format!("[{label}]({url})"))));
+    }
+    edits.sort_by_key(|(range, _)| range.start);
     let mut lines = Vec::new();
     let mut start = 0;
     for line in reply.split('\n') {
@@ -143,10 +163,16 @@ pub fn without_images(reply: &str, sent: &[&MediaRef]) -> String {
         let mut kept = String::new();
         let mut cut = false;
         let mut from = start;
-        for range in ranges.iter().filter(|r| r.start >= start && r.end <= end) {
+        for (range, with) in edits
+            .iter()
+            .filter(|(r, _)| r.start >= start && r.end <= end)
+        {
             kept.push_str(&reply[from..range.start]);
+            match with {
+                Some(link) => kept.push_str(link),
+                None => cut = true,
+            }
             from = range.end;
-            cut = true;
         }
         kept.push_str(&reply[from..end]);
         if !(cut && kept.trim().is_empty()) {

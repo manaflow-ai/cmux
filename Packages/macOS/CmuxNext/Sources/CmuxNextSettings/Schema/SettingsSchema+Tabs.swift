@@ -31,14 +31,13 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
                 SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
-                SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
                 SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
                 SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
+            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -56,17 +55,16 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
-    /// `tabs.terminalFirst`, shown as cmux Classic Mode: every new tab, split, workspace and window a
-    /// person opens is a terminal, as in cmux classic (#23021). The help says how to reach the GUI.
-    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+    /// `tabs.nativeNewTabPage`: the native New Tab page, an alternative to the web one (off by default).
+    static func nativeNewTabPage(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
-            TerminalFirstSetting.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.terminalFirst", "cmux Classic Mode"),
-            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
-                                     "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."),
+            NativeNewTabPageSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
+            help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help",
+                                     "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
             kind: .toggle,
-            default: .bool(TerminalFirstSetting.fallback),
-            keywords: ["terminal", "classic", "classic mode", "cmux classic", "new tab", "split", "workspace", "window", "cmd-t", "cmd-d", "cmd-n", "new tab page", "gui", "default"]
+            default: .bool(NativeNewTabPageSetting.fallback),
+            keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
         )
     }
 

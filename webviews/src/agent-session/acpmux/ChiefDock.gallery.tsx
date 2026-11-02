@@ -77,6 +77,19 @@ const mascotOption = (mascot: ChiefMascot, note: string) => ({
   },
 });
 
+const controlSizeOption = (size: number, note: string) => ({
+  ...mascotOption("orb", note),
+  play: async (ctx: PlayContext) => {
+    await wallpaperGlassPlay(ctx);
+    for (const icon of ctx.document.querySelectorAll<SVGElement>(".acpmux-chief-dock-tool > svg")) {
+      icon.style.width = `${size}px`;
+      icon.style.height = `${size}px`;
+    }
+    // Show the close and move-to-tab marks beside the rail for comparison.
+    ctx.document.querySelector<HTMLButtonElement>(".acpmux-chief-card-main")?.focus();
+  },
+});
+
 export default componentEntry({
   id: "agent-pane.chief-dock",
   title: "Chief Dock",
@@ -94,6 +107,15 @@ export default componentEntry({
   styles: () => import("./styles.css"),
   load: async () => ChiefDock,
   variants: {
+    "controls-compact": controlSizeOption(
+      18,
+      "Compact: 18px pack icons, quieter but small beside the wide glass slots.",
+    ),
+    "controls-balanced": controlSizeOption(
+      20,
+      "Selected: 20px pack icons across the rail and card actions; clear silhouettes with room inside the glass slots.",
+    ),
+    "controls-large": controlSizeOption(22, "Large: 22px rail icons, more prominent than the card actions."),
     baseline: {
       note: "The default Chief orb with a stacked set of working, attention and quiet agent chats; spawned child chats stay folded.",
       props: {
@@ -134,6 +156,13 @@ export default componentEntry({
     ),
     "mascot-moon-blue": mascotOption("moon-blue", "Mascot option: a blue cloud companion with a simple star antenna."),
     "mascot-fox": mascotOption("fox", "Mascot option: a warm pixel fox Chief with a clear, expressive silhouette."),
+    "mascot-fox-arctic": mascotOption("fox-arctic", "Series 2: the fox in arctic silver-blue with an indigo cape."),
+    "mascot-machine-violet": mascotOption(
+      "machine-violet",
+      "Series 2: the machine with violet leaves and pink lights.",
+    ),
+    "mascot-machine-gold": mascotOption("machine-gold", "Series 2: the machine with gold leaves and sky-blue lights."),
+    "mascot-moon-rose": mascotOption("moon-rose", "Series 2: the moon-moth with rose and orchid wings."),
     "attention-stack": {
       note: "Two agents need input; the badge and attention dots keep the important work visible first.",
       props: {

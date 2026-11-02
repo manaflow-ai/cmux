@@ -13,7 +13,7 @@ import CmuxNextDesignTokens
     private let row = CGRect(x: 8, y: 600, width: 224, height: 32)
     private let size = CGSize(width: 280, height: 160)
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-    /// A wide gap, so the gap zone is easy to aim at; the sidebar's own is one device pixel.
+    /// A wide gap, so the gap zone is easy to aim at. The default sidebar row gap is zero.
     private let gap: CGFloat = 10
 
     @Test func theCardSitsRightOfTheRowWithItsTopOnTheRowsMiddle() {
@@ -99,20 +99,21 @@ import CmuxNextDesignTokens
         #expect(g.zone(at: CGPoint(x: right.minX - gap - 4, y: right.minY + 2)) == .card)
     }
 
-    /// Lawrence 2026-10-21: "horizontally only 1 pixel gap". At every scale the card's near edge is
-    /// exactly one device pixel past the device pixel the sidebar's edge falls on, on both sides.
+    /// Sidebar row cards touch the sidebar edge at every display scale. Non-sidebar `.beside`
+    /// cards retain their one-device-pixel breathing room (`edgeGap`).
     @Test(arguments: [1, 2, 3] as [CGFloat])
-    func theNearEdgeIsOnePixelPastTheEdgesPixel(scale: CGFloat) {
+    func theNearEdgeTouchesTheSidebarAtEveryScale(scale: CGFloat) {
         let fractional = CGRect(x: 8.3, y: 600.3, width: 224.1, height: 31.7)
         let g = HoverCardEscapeGeometry(anchor: fractional, cardSize: size, visible: screen, scale: scale)
-        let edge = (fractional.maxX * scale).rounded() / scale
-        #expect(abs(g.card.minX - (edge + 1 / scale)) < 0.0001, "@\(scale)x: \(g.card.minX - edge) pt off the edge's pixel")
+        let gap = g.card.minX - fractional.maxX
+        #expect(gap <= 0.0001 && gap > -1 / scale, "@\(scale)x: \(gap) pt between row and preview")
+        #expect(abs((g.card.minX * scale).rounded() - g.card.minX * scale) < 0.0001)
         #expect(HoverCardEscapeGeometry.edgeGap(scale: scale) == 1 / scale)
         let right = CGRect(x: 1440 - 240.3, y: 600, width: 240.3, height: 32)
         let leading = HoverCardEscapeGeometry(anchor: right, cardSize: size, visible: screen, scale: scale)
-        let leftEdge = (right.minX * scale).rounded() / scale
         #expect(leading.isLeading)
-        #expect(abs(leading.card.maxX - (leftEdge - 1 / scale)) < 0.0001, "@\(scale)x leading: \(leftEdge - leading.card.maxX) pt")
+        let leadingGap = right.minX - leading.card.maxX
+        #expect(leadingGap <= 0.0001 && leadingGap > -1 / scale, "@\(scale)x leading: \(leadingGap) pt")
     }
 
     /// A row's anchor is its height across the whole sidebar column: a row's inset, trim or group
@@ -123,7 +124,7 @@ import CmuxNextDesignTokens
         let band = HoverCardEscapeGeometry.rowBand(row: nested, column: column)
         #expect(band == CGRect(x: 0, y: 500, width: 260, height: 28))
         let top = HoverCardEscapeGeometry(anchor: band, cardSize: size, visible: screen, scale: 2)
-        #expect(top.card.minX == 260.5)
+        #expect(top.card.minX == 260)
         #expect(top.card.maxY == nested.maxY)
     }
 }

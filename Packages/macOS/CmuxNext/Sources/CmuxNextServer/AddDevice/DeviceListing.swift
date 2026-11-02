@@ -70,14 +70,30 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
         public var os: String
         /// The same person's computer (same login, not tagged, not shared in).
         public var mine: Bool
+        /// A `Host` of the person's `~/.ssh/config` (`"found": "ssh-config"`), not a network node.
+        public var fromSSHConfig: Bool
 
         public var id: String { address }
 
-        public init(name: String, address: String, os: String, mine: Bool) {
+        public init(name: String, address: String, os: String, mine: Bool, fromSSHConfig: Bool = false) {
             self.name = name
             self.address = address
             self.os = os
             self.mine = mine
+            self.fromSSHConfig = fromSSHConfig
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, address, os, mine, found
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            address = try container.decode(String.self, forKey: .address)
+            os = try container.decodeIfPresent(String.self, forKey: .os) ?? ""
+            mine = try container.decodeIfPresent(Bool.self, forKey: .mine) ?? false
+            fromSSHConfig = try container.decodeIfPresent(String.self, forKey: .found) == "ssh-config"
         }
     }
 

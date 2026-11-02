@@ -2,6 +2,8 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { readRetry, type RetryState } from "./subagents/retryState";
+import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -14,6 +16,8 @@ export type AcpmuxSessionEntry = {
   agentSessionId?: string;
   status?: string;
   model?: string;
+  /** The harness's thinking effort, when a summary producer supplies it. */
+  effort?: string;
   cwd?: string;
   /** acpmux's last write to the session: any logged record, a warm, resume or stop of its agent too. */
   updatedAt?: number;
@@ -46,6 +50,8 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** The latest message text from acpmux's summary, when present. */
+  lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
   /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
@@ -53,6 +59,8 @@ export type AcpmuxSessionEntry = {
   /** A sub-session: the chat whose agent started it with its `start_session` tool (acpmux
    *  `startedBy`, kept at any depth and after that chat closes). */
   startedBy?: string;
+  /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
+  chiefChild?: true;
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
   /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
@@ -65,6 +73,9 @@ export type AcpmuxSessionEntry = {
   /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
    *  to the parent's agent (`doing`). */
   doing?: string;
+  /** The tool part of `doing` (acpmux `turn.activity`, its latest tool call's title), when it has
+   *  one: the tray reads a shell call's title, the command as typed, as "Running <command>". */
+  doingTool?: string;
   /** What it waits on the person for, while it does: an agent question (with its first prompt)
    *  or a tool's permission. acpmux names it on a sub-session's family rows (`waitingOn`,
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
@@ -83,6 +94,16 @@ export type AcpmuxSessionEntry = {
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
    *  it (acpmux tag `trust.pending:<name>`, hub/trust_wait.rs): the row says "Needs trust". */
   trustPending?: string;
+  /** acpmux's retry of its failed turn while one waits (session/list `retry`, subagents/retryState.ts). */
+  retry?: RetryState;
+  /** acpmux is settling whether its failed turn is retried, or that retry starts or runs
+   *  (session/list `retryDeciding`): no Retry is offered meanwhile. */
+  retryDeciding?: true;
+  /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
+   *  a retry acpmux refused before its turn started leaves it failed with this. */
+  laneError?: string;
+  /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
+  usageStats?: SessionUsageStats;
 };
 
 export type LifecycleReceipt = {
@@ -128,14 +149,34 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
   return entries.filter((entry) => !folded(entry, parents));
 }
 
-/** Whether `entry` folds under a parent in `parents`: it has one there and needs no answer. */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) =>
-  Boolean(entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input");
+/** A child with a live ask remains independently discoverable even while its dot says "working".
+ * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
+ * or question before its indicator moves to "input". A lost host cannot answer its old asks.
+ */
+export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+  const needsPerson =
+    entry.indicator !== "lost" &&
+    ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
+  return Boolean(
+    entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input" && !needsPerson,
+  );
+};
 
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
   if (Array.isArray(tags)) return tags.includes(tag);
   return typeof tags === "object" && tags !== null && tag in tags;
+}
+
+/** The tag a Chief puts on every session it starts (cmux_chief::rules::PARENT_TAG), valued
+ *  `optchat-chief` or `optchat-chief:<home id>`. */
+const CHIEF_PARENT_TAG = "mux.parent";
+
+/** Whether acpmux's tags say a Chief started the session. */
+function chiefParent(tags: unknown): boolean {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return false;
+  const value = (tags as Record<string, unknown>)[CHIEF_PARENT_TAG];
+  return typeof value === "string" && /^optchat-chief(?::|$)/.test(value);
 }
 
 /** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
@@ -195,6 +236,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     agentSessionId: text(session.agentSessionId),
     status: session.status,
     model: text(session.model),
+    effort: text(session.effort),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     activityAt: summaryActivityAt(session),
@@ -214,14 +256,17 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pullRequest: pullRequest(session.pullRequest),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
     preview: text(session.preview),
+    lastMessage: text(session.lastMessage?.text) ?? text(session.preview),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
+    ...(chiefParent(session.tags) && { chiefChild: true as const }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
     ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
+    doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
@@ -238,6 +283,10 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
+    retry: readRetry(session.retry) ?? undefined,
+    ...(session.retryDeciding === true && { retryDeciding: true as const }),
+    laneError: text(session.lane?.error),
+    usageStats: usageStatsOf(session.usageStats),
   };
 }
 

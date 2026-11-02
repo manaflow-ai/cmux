@@ -37,6 +37,13 @@ pub(crate) enum EffectSend {
 pub(crate) struct PendingRegistryReceipt(Receiver<Result<RegistryReceipt, String>>);
 
 impl PendingRegistryReceipt {
+    /// A receipt the test answers itself through the returned sender.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> (std::sync::mpsc::Sender<Result<RegistryReceipt, String>>, Self) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        (sender, Self(receiver))
+    }
+
     /// The receipt once the writer answered, `None` while it has not. A
     /// writer that dropped the channel without an answer reports an error.
     pub(crate) fn try_take(&self) -> Option<Result<RegistryReceipt, String>> {
@@ -84,6 +91,10 @@ impl JournalIngressSender {
         let Some(sender) = &self.durable_sender else { return EffectSend::NotQueued(intent) };
         if !self.accepts_effects() {
             return EffectSend::NotQueued(intent);
+        }
+        if self.state.disk_full.is_full() {
+            self.state.disk_full.refused_waiter(&self.state);
+            return EffectSend::Sent(Err(anyhow::anyhow!(super::disk_full::WAITER_ERROR)));
         }
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();

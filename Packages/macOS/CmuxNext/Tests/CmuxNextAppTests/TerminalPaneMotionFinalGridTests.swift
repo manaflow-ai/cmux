@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 /// The IO's grid requests come through the session's ordered input stream. A focus report sent after
 /// a step is a marker: once the IO has it, every request sent before it has arrived, so the test reads
 /// what was sent by each point without waiting on a clock.
-@MainActor @Suite(.serialized) struct TerminalPaneMotionFinalGridTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalPaneMotionFinalGridTests {
     final class Panes: LayoutPaneContentProvider {
         var views: [PaneID: NSView] = [:]
         func makeContentView(for pane: PaneID) -> NSView { views[pane] ?? NSView() }
@@ -101,6 +102,105 @@ import Testing
         #expect(frames > 3, "the split did not spring")
         #expect(final != before, "the split did not change the terminal's grid")
         #expect(atStart == [final], "the key's turn asked for \(atStart), not the final grid \(final)")
+        #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
+    }
+
+    /// A split's spring retargeted mid-flight (the window resizes while it springs, 95870e0f9d5): the
+    /// terminal sends the grid of its new rest size at the retarget, not its held size plus the change
+    /// against the pane's live size, and the landing sends nothing more (two resizes in all).
+    @Test(arguments: [Self.pair, Self.stack])
+    func aSplitRetargetedMidSpringSendsTheNewRestGridAtTheRetargetAndNothingAtTheLanding(split: SplitNode) async throws {
+        let screen = Screen(.leaf("p1"), terminal: "p1")
+        defer { screen.close() }
+        try #require(screen.surface.surface != nil, "libghostty created no surface")
+        _ = await screen.grids()
+
+        screen.show(split)
+        let atStart = await screen.grids()
+        for _ in 1...3 {
+            #expect(screen.root.advanceFrame(1.0 / 120), "the split stopped springing within 3 frames")
+            screen.root.layoutSubtreeIfNeeded()
+        }
+        screen.window.setContentSize(NSSize(width: 1600, height: 1000))
+        screen.root.layoutSubtreeIfNeeded()
+        // The retargeted spring's next frame presents the new rest size (`announceRest`).
+        #expect(screen.root.advanceFrame(1.0 / 120), "the resize snapped the spring to its end")
+        screen.root.layoutSubtreeIfNeeded()
+        let atRetarget = await screen.grids()
+        let frames = screen.settle()
+        let atLanding = await screen.grids()
+        // The grid `ghostty_surface_fit_grid` gives the surface at the size it landed at: the new rest size.
+        let final = try #require(screen.restGrid)
+
+        #expect(frames > 3, "the retargeted split did not spring")
+        #expect(atStart.count == 1 && atStart != [final], "the key's turn asked for \(atStart); the retarget must change the grid")
+        #expect(atRetarget == [final], "the retarget asked for \(atRetarget), not the new rest grid \(final)")
+        #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the retarget")
+        #expect(atStart.count + atRetarget.count + atLanding.count == 2, "the PTY was resized \(atStart + atRetarget + atLanding)")
+    }
+
+    /// A hidden terminal (an unselected tab, a parked workspace) does no resize work during a split's spring
+    /// or its retarget (d9b3e832d5b: "hidden terminals do no resize work"); shown after the landing, it sends
+    /// the grid it rests at, once.
+    @Test func aHiddenTerminalSendsNoGridDuringASplitOrItsRetargetAndItsRestGridWhenShown() async throws {
+        let screen = Screen(.leaf("p1"), terminal: "p1")
+        defer { screen.close() }
+        try #require(screen.surface.surface != nil, "libghostty created no surface")
+        _ = await screen.grids()
+        screen.session.view.isHidden = true
+        try #require(!screen.surface.isShown, "hiding the terminal's host did not hide the terminal")
+
+        screen.show(Self.pair)
+        for _ in 1...3 {
+            #expect(screen.root.advanceFrame(1.0 / 120), "the split stopped springing within 3 frames")
+            screen.root.layoutSubtreeIfNeeded()
+        }
+        let atStart = await screen.grids()
+        screen.window.setContentSize(NSSize(width: 1600, height: 1000))
+        screen.root.layoutSubtreeIfNeeded()
+        #expect(screen.root.advanceFrame(1.0 / 120), "the resize snapped the spring to its end")
+        screen.root.layoutSubtreeIfNeeded()
+        let atRetarget = await screen.grids()
+        #expect(screen.settle() > 3, "the retargeted split did not spring")
+        let atLanding = await screen.grids()
+
+        #expect(atStart.isEmpty, "the hidden terminal asked for \(atStart) at the split's start")
+        #expect(atRetarget.isEmpty, "the hidden terminal asked for \(atRetarget) at the retarget")
+        #expect(atLanding.isEmpty, "the hidden terminal asked for \(atLanding) at the landing")
+
+        screen.session.view.isHidden = false
+        screen.root.layoutSubtreeIfNeeded()
+        let shown = await screen.grids()
+        let final = try #require(screen.restGrid)
+        #expect(shown == [final], "shown after the landing, the terminal asked for \(shown), not its rest grid \(final)")
+    }
+
+    /// A composer taller than a short pane (the accessory takes the whole pane) in a pane that grows on a
+    /// close: the spring's start sends the grid the landing fits, measuring the accessory against the size the
+    /// host rests at, and the landing sends nothing more.
+    @Test func aTallAccessoryInAShortPaneThatGrowsSendsTheLandingGridAtTheStart() async throws {
+        final class TallAccessory: NSView {
+            override var fittingSize: NSSize { NSSize(width: 100, height: 500) }
+        }
+        let screen = Screen(Self.stack, terminal: "p1")
+        defer { screen.close() }
+        try #require(screen.surface.surface != nil, "libghostty created no surface")
+        screen.session.view.bottomAccessory = TallAccessory()
+        screen.session.view.needsLayout = true
+        screen.root.layoutSubtreeIfNeeded()
+        _ = await screen.grids()
+        try #require(screen.session.view.bounds.height < 500, "the pane is \(screen.session.view.bounds.height) pt tall, not shorter than the accessory")
+
+        _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
+        screen.root.syncWithModel()
+        let atStart = await screen.grids()
+        let frames = screen.settle()
+        let atLanding = await screen.grids()
+        let final = try #require(screen.restGrid)
+
+        #expect(frames > 3, "the close did not spring")
+        #expect(screen.session.view.bounds.height > 500, "the pane did not grow past the accessory")
+        #expect(atStart == [final], "the close's start asked for \(atStart), not the landing's grid \(final)")
         #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
     }
 

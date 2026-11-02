@@ -85,6 +85,29 @@ extension TabContentCache {
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
+    /// Whether tab `key` holds memory here: a terminal surface or a live page (not a hibernated one).
+    func holdsMemory(_ key: String) -> Bool {
+        terminals[key] != nil || browsers[key].map { !($0.tab is HibernatedBrowserTab) } == true
+    }
+
+    /// The tabs of a hibernated workspace (plans/cmux-next/workspace-hibernation-DESIGN.md), after its
+    /// panes left: terminal surfaces go now, pages are discarded after their own checks, chat pages
+    /// go keeping their session.
+    func hibernateTabs(_ keys: [String]) {
+        for key in keys {
+            evictHiddenTerminal(key)
+            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key) }
+            hibernation?.agentPages?.releaseForWorkspace(key)
+        }
+    }
+
+    /// Destroys hidden terminal `key`'s surface now (its workspace hibernated); its last frame stays
+    /// and it re-attaches from the terminal host's replay when shown. A presented one stays.
+    func evictHiddenTerminal(_ key: String) {
+        guard terminals[key] != nil else { return }
+        apply(ledger.evictHidden(key))
+    }
+
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
         lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
@@ -96,7 +119,9 @@ extension TabContentCache {
 
     /// Content for `key` now exists: answers an outstanding `mount`.
     func contentDidMount(_ key: String) {
-        guard let token = pendingMounts.removeValue(forKey: key) else { return }
+        // Created with no pane showing it (a tab opened in the background): live and hidden, so
+        // hibernation may release it and its first show restores it.
+        guard let token = pendingMounts.removeValue(forKey: key) else { return applyLifecycle(lifecycle.send(.adopted(key))) }
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 

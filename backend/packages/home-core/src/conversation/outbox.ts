@@ -1,6 +1,6 @@
 import { summary } from "./create.ts"
 import type { OutboxItem } from "./engine-types.ts"
-import { fanOut, type FanOut, type UnreadCounts } from "./fanout.ts"
+import { fanOut, rowKind, type FanOut, type UnreadCounts } from "./fanout.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, Invite, Participant } from "./types.ts"
 
@@ -145,7 +145,7 @@ export const createOutbox = (head: ConversationHead): Array<OutboxItem> => {
         user: participant.id,
         conversation: head.id,
         rev: head.rev,
-        kind: head.kind ?? "group",
+        kind: rowKind(head, participant.id),
         title: head.title,
         last_seq: 0,
         last_at: head.created_at,

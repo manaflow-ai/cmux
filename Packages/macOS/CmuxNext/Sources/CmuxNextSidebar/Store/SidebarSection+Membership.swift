@@ -2,27 +2,44 @@
 /// `SidebarMembership`, which keeps the daemon-order mapping): pure
 /// functions over the sections, so the App target stays under its size cap.
 nonisolated extension SidebarSection {
-    /// `sections` with only `members`' workspaces. A group stays when it
-    /// holds a member here, or when it is empty everywhere (an empty group
-    /// belongs to no window, so every window can drop into it). Section
-    /// headers always stay: they carry the machine's "new workspace".
+    /// `sections` with only `members`' workspaces. A group belongs to the
+    /// window that lists its workspaces (#25776, as in cmux classic): it
+    /// stays when it, or a group under it, holds a member here, or when none
+    /// of its tree holds a workspace at all (an empty group, or one of links
+    /// only, belongs to no window, so every window can drop into it). A group
+    /// whose workspaces only another window lists leaves with its link
+    /// members. Section headers always stay: they carry the machine's "new workspace".
     public static func filter(_ sections: [SidebarSection], members: Set<String>) -> [SidebarSection] {
-        sections.map { section in
+        let groups = sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in if case let .group(group) = node { group } else { nil } }
+        let anywhere = holding(groups) { !$0.workspaces.isEmpty }
+        let here = holding(groups) { $0.workspaces.contains { members.contains($0.id.rawValue) } }
+        return sections.map { section in
             var section = section
             section.nodes = section.nodes.compactMap { node in
                 switch node {
                 case let .workspace(workspace):
                     return members.contains(workspace.id.rawValue) ? node : nil
                 case var .group(group):
-                    let wasEmpty = group.workspaces.isEmpty
+                    guard here.contains(group.id) || !anywhere.contains(group.id) else { return nil }
                     group.workspaces.removeAll { !members.contains($0.id.rawValue) }
-                    return group.workspaces.isEmpty && !wasEmpty && group.items.isEmpty ? nil : .group(group)
+                    return .group(group)
                 case .item:
                     return node
                 }
             }
             return section
         }
+    }
+
+    /// The groups for which `holds` is true, with every group above one.
+    private static func holding(_ groups: [SidebarGroup], _ holds: (SidebarGroup) -> Bool) -> Set<GroupID> {
+        let parents = Dictionary(groups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+        var result = Set<GroupID>()
+        for group in groups where holds(group) {
+            var id: GroupID? = group.id
+            while let current = id, result.insert(current).inserted { id = parents[current] ?? nil }
+        }
+        return result
     }
 
     /// `sections` with the `pinned` workspaces (`workspace-pin-v1`) moved,
