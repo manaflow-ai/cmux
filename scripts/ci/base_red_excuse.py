@@ -726,6 +726,32 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
                 yield run, found
 
 
+# A stale base pass (2026-11-02): base_red_excuse.py read only completed base runs, and a base run completes when its
+# slowest job does. Between 09:13Z and 09:23Z every feat-cmux-next run from #31930 on was still running, so the newest
+# completed run was 41418052327 at c47a99fcb9, before #31930 and before cmux#31338's merge-base e3c495d3 (#31931). Its
+# 'cmux-next guards / defaults-snapshot' passed, and the real base red #31930 caused there was refused as the PR's own.
+# So the base window lists runs of every status, and a finished job in a running run is a verdict. And a pass that
+# tested a commit before the PR's merge-base says nothing about the base the PR was built on: a red then waits for a
+# newer verdict (before_merge_base) instead of being called the PR's own.
+
+
+def before_merge_base(repo: str, base: str, sha: str, base_run: dict, github, cache: dict[str, str]) -> str | None:
+    """Why BASE_RUN tested a commit older than the merge-base of SHA with BASE, or None when it did not (or that
+    cannot be told). CACHE holds the merge-base, read once per judge."""
+    if sha not in cache:
+        diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+        cache[sha] = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
+    merge_base, tested = cache[sha], tested_sha(base_run)
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not re.fullmatch(r"[0-9a-f]{40}", tested):
+        return None
+    if tested == merge_base:
+        return None
+    status = github.json(f"repos/{repo}/compare/{merge_base}...{tested}?per_page=1").get("status")
+    if status in ("ahead", "identical"):
+        return None
+    return f"tested {tested[:12]}, which is {status or 'not after'} the merge-base {merge_base[:12]}"
+
+
 def created(run: dict) -> datetime | None:
     try:
         return datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
@@ -1006,6 +1032,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
     job_reads: dict[int, int] = {}
+    merge_bases: dict[str, str] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
@@ -1039,7 +1066,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
+            # Every status: a job's verdict is final once the job completes, so a base run still running its slower
+            # jobs already answers for its finished ones (before_merge_base's note).
+            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
                                  f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
@@ -1057,6 +1086,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github))
             except Refused as why:
+                if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
+                    raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
+                                  f"a pass in run {base_run['id']}, {stale}; re-check once a {base} run at or after "
+                                  "the merge-base has a verdict for it") from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
