@@ -73,9 +73,9 @@ impl Mux {
         // neither writes an older snapshot over the other's. The write takes
         // the registry connection alone, never the workspace registry lock,
         // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap();
+        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
         let retired = {
-            let mut host = self.agent_roster.lock().unwrap();
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
