@@ -41,9 +41,23 @@ impl Daemon {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
         let root = std::fs::canonicalize(&root).unwrap();
+        // Snapshot the actual child environment independently of reply streaming:
+        // a turn can finish before the CLI receives its final notification.
+        let capture = root.join("capture.py");
+        std::fs::write(
+            &capture,
+            r#"import json, os, pathlib, runpy, sys
+sid = os.environ.get("ACPMUX_SESSION_ID", "probe")
+pathlib.Path(__file__).with_name("env-" + sid + ".json").write_text(json.dumps({
+    "ACPMUX_SESSION_EPHEMERAL": os.environ.get("ACPMUX_SESSION_EPHEMERAL", "")
+}))
+runpy.run_path(sys.argv[1], run_name="__main__")
+"#,
+        )
+        .unwrap();
         std::fs::write(
             root.join("amx").join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": ["python3", capture, FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         let mut daemon = Self { root, child: None };
@@ -242,7 +256,12 @@ fn ephemeral_run_exports_its_own_hook_marker_only() {
             .expect("run");
         assert!(out.status.success(), "{args:?}: {}", text(&out));
         let reply: Value = serde_json::from_slice(&out.stdout).expect("CLI reply");
-        let env: Value = serde_json::from_str(reply["reply"].as_str().expect("reply"))
+        let id = reply["sessionId"].as_str().expect("sessionId");
+        let snapshot = daemon.root.join(format!("env-{id}.json"));
+        let env: Value =
+            serde_json::from_slice(&std::fs::read(&snapshot).unwrap_or_else(|e| {
+                panic!("{args:?}: missing child environment {snapshot:?}: {e}")
+            }))
             .expect("agent environment");
         assert_eq!(env[MARKER], expected, "{args:?}: wrong hook context");
     }
