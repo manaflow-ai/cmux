@@ -155,7 +155,8 @@ pub struct CFace {
     pub kept_entry_count: u32,
     pub ports: u32,
     pub pull_request: u32,
-    pub reserved2: u32,
+    /// The work tab (`workTab`).
+    pub work: u32,
     pub directory: CRange,
     pub bucket: CRange,
     pub process: CRange,
@@ -428,7 +429,7 @@ impl Faces {
                 kept_entry_count: u32::try_from(face.status_entries.len()).unwrap_or(0),
                 ports: index(face.ports),
                 pull_request: index(face.pull_request),
-                reserved2: 0,
+                work: index(face.work),
                 directory,
                 bucket,
                 process,
@@ -466,6 +467,27 @@ impl Faces {
             listed_count: u32::try_from(self.listed.len()).unwrap_or(0),
             kept_entry_count: u32::try_from(self.kept.len()).unwrap_or(0),
             strings_len: u32::try_from(self.strings.len()).unwrap_or(0),
+        })
+    }
+
+    /// `path` with this Mac's home `home` as `~`.
+    pub fn abbreviate(&mut self, path: CRange, home: CRange, strings: &[u8]) -> *const CText {
+        let ok = match (required(strings, path), required(strings, home)) {
+            (Ok(path), Ok(home)) => {
+                self.name = rules::abbreviate(path, home).into_owned();
+                true
+            }
+            _ => {
+                self.name.clear();
+                false
+            }
+        };
+        self.text.insert(CText {
+            ok: u8::from(ok),
+            reserved: [0; 7],
+            bytes: self.name.as_ptr(),
+            len: u32::try_from(self.name.len()).unwrap_or(0),
+            reserved2: 0,
         })
     }
 
@@ -649,4 +671,31 @@ pub unsafe extern "C" fn cmux_sidebar_face_default_name(
         (Ok(names), Some(strings)) => faces.default_name(names, existing_count as usize, strings),
         _ => faces.default_name(&[], 1, &[]),
     }
+}
+
+/// A folder of this Mac with its home folder as `~`
+/// (`sidebar_face::abbreviate`). `path` and `home` are UTF-8 byte ranges of
+/// `strings`.
+///
+/// # Safety
+///
+/// `faces` is a live handle used by one thread; `strings` points to
+/// `strings_len` readable bytes (or is null with length 0). The reply
+/// belongs to the handle: read it before the next call on it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_sidebar_face_abbreviate(
+    faces: *mut Faces,
+    path: CRange,
+    home: CRange,
+    strings: *const u8,
+    strings_len: usize,
+) -> *const CText {
+    if faces.is_null() {
+        return std::ptr::null();
+    }
+    // SAFETY: a live handle, used by one thread.
+    let faces = unsafe { &mut *faces };
+    // SAFETY: the caller's buffer holds `strings_len` bytes.
+    let strings = unsafe { bytes(strings, strings_len) }.unwrap_or(&[]);
+    faces.abbreviate(path, home, strings)
 }
