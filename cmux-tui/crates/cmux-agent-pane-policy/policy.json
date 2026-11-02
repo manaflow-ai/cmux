@@ -138,8 +138,8 @@
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
   },
   "reply_shapes": {
-    "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}},
-    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "error": "string"}}}}},
+    "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}}}}}}}},
+    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}},
     "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
