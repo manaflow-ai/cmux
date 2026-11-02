@@ -483,34 +483,6 @@ impl Faces {
         })
     }
 
-    /// `path` with this Mac's home `home` as `~`.
-    /// `strings` none: the caller's buffer did not decode (`ok` 0).
-    pub fn abbreviate(
-        &mut self,
-        path: CRange,
-        home: CRange,
-        strings: Option<&[u8]>,
-    ) -> *const CText {
-        let decoded = strings.map(|strings| (required(strings, path), required(strings, home)));
-        let ok = match decoded {
-            Some((Ok(path), Ok(home))) => {
-                self.name = rules::abbreviate(path, home).into_owned();
-                true
-            }
-            _ => {
-                self.name.clear();
-                false
-            }
-        };
-        self.text.insert(CText {
-            ok: u8::from(ok),
-            reserved: [0; 7],
-            bytes: self.name.as_ptr(),
-            len: u32::try_from(self.name.len()).unwrap_or(0),
-            reserved2: 0,
-        })
-    }
-
     /// The daemon's next default workspace name; `names` are the listed
     /// names, then the reserved ones.
     pub fn default_name(
@@ -676,30 +648,4 @@ pub unsafe extern "C" fn cmux_sidebar_face_default_name(
         (Ok(names), Some(strings)) => faces.default_name(names, existing_count as usize, strings),
         _ => faces.default_name(&[], 1, &[]),
     }
-}
-
-/// A folder of this Mac with its home folder as `~`
-/// (`sidebar_face::abbreviate`). `path` and `home` are UTF-8 byte ranges of
-/// `strings`.
-///
-/// # Safety
-///
-/// `faces` is a live handle used by one thread; `strings` points to
-/// `strings_len` readable bytes (or is null with length 0). The reply
-/// belongs to the handle: read it before the next call on it.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_sidebar_face_abbreviate(
-    faces: *mut Faces,
-    path: CRange,
-    home: CRange,
-    strings: *const u8,
-    strings_len: usize,
-) -> *const CText {
-    if faces.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle, used by one thread.
-    let faces = unsafe { &mut *faces };
-    // SAFETY: the caller's buffer holds `strings_len` bytes.
-    faces.abbreviate(path, home, unsafe { bytes(strings, strings_len) })
 }
