@@ -259,6 +259,9 @@ def kit_tar(specs):
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
+        for kit_file in sorted((HERE / "tui-kit").glob("*.py")):  # the HEAVY profile (ext_reopen heavy_profile)
+            if not kit_file.name.startswith("test_"):
+                tar.add(kit_file, arcname=f"tui-kit/{kit_file.name}")
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")

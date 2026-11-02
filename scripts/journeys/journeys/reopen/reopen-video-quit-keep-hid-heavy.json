@@ -1,0 +1,44 @@
+{
+ "id": "reopen-video-quit-keep-hid-heavy",
+ "priority": "P1",
+ "title": "REOPEN VIDEO, HEAVY profile (40 workspaces, 200 tabs, 12 TUI panes, a browser and an agent pane): a real Cmd-Q (Keep Sessions), then reopen; the display filmed",
+ "why": "Lawrence 2026-11-02 via cmux-ad: reopen must be super fast with video evidence of every terminal restoring; the HEAVY profile is owner 3's (tui-kit heavy_profile.py). TUI panes are judged for content on screen (no blank) from main(); keys are typed only where a shell waits (none in HEAVY), so (3) is not judged here.",
+ "source": "REOPEN VIDEO (STATUS 4269, 4276)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 4
+  },
+  {
+   "do": "heavy_profile",
+   "seed": 7,
+   "workspaces": 40,
+   "tabs": 200,
+   "visible": 12,
+   "duration": 900,
+   "timeout": 150,
+   "title": "set-up: the HEAVY profile"
+  },
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "set-up: the TUIs run"
+  },
+  {
+   "do": "reopen_video",
+   "count": 5,
+   "how": "quit-keep-hid",
+   "type_keys": false,
+   "title": "filmed: a real Cmd-Q (Keep) and reopen, 5 cycles"
+  }
+ ],
+ "finally": [
+  {
+   "do": "heavy_teardown"
+  }
+ ]
+}

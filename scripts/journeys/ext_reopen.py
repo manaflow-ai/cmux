@@ -798,5 +798,39 @@ def step_reopen_video(j, step):
     return {"how": how, "cycles": rows, "screen": screen}
 
 
-STEPS = {"reopen_video": step_reopen_video}
+def step_heavy_profile(j, step):
+    """Set-up, not under test: the HEAVY profile (owner 3's tui-kit heavy_profile.py build: WORKSPACES workspaces,
+    TABS tabs, one shown workspace with VISIBLE TUI panes in columns and rows, a browser and an agent pane) on this
+    app, through its socket and bundled CLI; its manifest is kept for the teardown (a `finally` step
+    heavy_teardown). The marker keys and the content judge read the panes that run a shell; TUI panes are judged
+    for content (no blank), not for an echo."""
+    kit = Path(__file__).resolve().parent / "tui-kit" / "heavy_profile.py"
+    out = Path(j.out) / "heavy"
+    argv = ["/usr/bin/python3", str(kit), "build", "--seed", str(step.get("seed", 7)),
+            "--workspaces", str(step.get("workspaces", 40)), "--tabs", str(step.get("tabs", 200)),
+            "--visible", str(step.get("visible", 12)), "--duration", str(step.get("duration", 900)),
+            "--app-socket", j.app.sock, "--home", j.app.home, "--cli", j.app.cli, "--out", str(out)]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=float(step.get("timeout", 180)))
+    j.heavy_manifest = out / "heavy.json"
+    if done.returncode not in (0, 1):
+        raise D.StepError(f"heavy_profile build exited {done.returncode}: {(done.stderr or done.stdout)[-400:]}")
+    try:
+        manifest = json.loads(j.heavy_manifest.read_text())
+    except (OSError, ValueError):
+        manifest = {}
+    return {"exit": done.returncode, "check": manifest.get("check"), "refusals": len(manifest.get("refusals") or []),
+            "tail": (done.stdout or "")[-300:]}
+
+
+def step_heavy_teardown(j, step):
+    manifest = getattr(j, "heavy_manifest", None)
+    if not manifest or not Path(manifest).exists():
+        return {"skipped": "no heavy profile"}
+    kit = Path(__file__).resolve().parent / "tui-kit" / "heavy_profile.py"
+    done = subprocess.run(["/usr/bin/python3", str(kit), "teardown", "--manifest", str(manifest), "--app-socket", j.app.sock,
+                           "--home", j.app.home, "--cli", j.app.cli], capture_output=True, text=True, timeout=180)
+    return {"exit": done.returncode, "tail": (done.stdout or done.stderr or "")[-300:]}
+
+
+STEPS = {"reopen_video": step_reopen_video, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {}

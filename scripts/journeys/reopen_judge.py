@@ -248,22 +248,29 @@ def judge_cycle(record, movie, frames_out=None):
         bg = int(np.bincount(ref_pane.ravel()).argmax())
         bgs[pane] = bg
         ref_ink = float((np.abs(ref_pane.astype(np.int16) - bg) > DIFF)[mask].mean())
+        # A pane whose program draws all the time (a TUI animation) has no fixed last frame: it counts as back
+        # once its ink is on screen (no blank), not once it matches the last frame before the end.
+        lead = [f for p, f in frames if f_end - 0.8 <= p <= f_end - 0.02]
+        moving = max([changed_share(b[sl], a[sl], mask) for a, b in zip(lead, lead[1:])], default=0.0)
+        animated = moving > 0.02
         visible, exact, lost_after, worst, inks = None, None, [], None, []
         for i, p, f in after_launch:
             part = f[sl]
             share = changed_share(part, ref_pane, mask)
             ink = float((np.abs(part.astype(np.int16) - bg) > DIFF)[mask].mean())
-            if visible is None and ref_ink > 0 and ink >= 0.8 * ref_ink and share < 0.25:
+            if visible is None and ref_ink > 0 and ink >= (0.6 if animated else 0.8) * ref_ink and (animated or share < 0.25):
                 visible = p
             if exact is None:
                 worst = share if worst is None else min(worst, share)
                 if share < MATCH_SHARE:
                     exact = p
-            elif share >= MATCH_SHARE and (first_key is None or p < first_key):
+            elif not animated and share >= MATCH_SHARE and (first_key is None or p < first_key):
+                lost_after.append(ms_of(p))
+            if animated and visible is not None and ink < 0.3 * ref_ink and (first_key is None or p < first_key):
                 lost_after.append(ms_of(p))
             if len(inks) < 40:
                 inks.append([ms_of(p), round(ink / ref_ink, 2) if ref_ink else None, round(share, 3)])
-        panes[pane] = {"content_ms": ms_of(visible) if visible is not None else None,
+        panes[pane] = {"content_ms": ms_of(visible) if visible is not None else None, "animated": animated,
                        "exact_ms": ms_of(exact) if exact is not None else None,
                        "ref_ink": round(ref_ink, 4), "best_share_before_match": round(worst, 4) if worst is not None else None,
                        "lost_after_shown_ms": lost_after[:6], "lost_after_shown_frames": len(lost_after),
