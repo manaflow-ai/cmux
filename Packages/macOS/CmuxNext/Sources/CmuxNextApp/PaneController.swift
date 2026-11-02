@@ -473,8 +473,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
-    /// A visible terminal waiting for its surface (one per frame) shows its last frame now (REOPEN-F1); `showSelected` hands it over.
-    func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (each visible pane that waits for its surface)
+    func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
         launchFrames.showAhead(key, in: view.contentHost)
     }
