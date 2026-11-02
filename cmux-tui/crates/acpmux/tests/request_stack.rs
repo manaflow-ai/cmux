@@ -93,10 +93,13 @@ fn every_request_kind_of_dispatch_request_is_served_on_a_default_tokio_worker_st
         let cwd = std::env::temp_dir().to_string_lossy().into_owned();
         let mut wrong = Vec::new();
         for (method, ask) in arms::table() {
-            let (params, reached) = match ask {
-                Ask::Run(params) => (params, true),
-                Ask::Any(params, _) => (params, false),
-                Ask::Skip(_) => continue,
+            let (params, why) = match ask {
+                Ask::Run(params) => (params, None),
+                Ask::Any(params, why) => (params, Some(why)),
+                Ask::Skip(why) => {
+                    eprintln!("request_stack: {method} not sent: {why}");
+                    continue;
+                }
             };
             // A request that ends or deletes a chat gets a new one of its own.
             let text = params.to_string();
@@ -108,12 +111,16 @@ fn every_request_kind_of_dispatch_request_is_served_on_a_default_tokio_worker_st
                 .replace("$FAKE", FAKE);
             let params: Value = serde_json::from_str(&text).unwrap();
             // Before the request: a stack overflow aborts the process, and nextest shows this.
-            eprintln!("request_stack: {method} {params}");
+            let expect = match why {
+                None => "reaches its work".to_owned(),
+                Some(why) => format!("any reply: {why}"),
+            };
+            eprintln!("request_stack: {method} {params} ({expect})");
             match client.reply(method, params).await {
-                None => wrong.push(format!("{method}: no reply in {REPLY_WAIT:?}")),
+                None => wrong.push(format!("{method}: no reply in {REPLY_WAIT:?} ({expect})")),
                 Some(reply) => {
                     let code = reply.pointer("/error/code").and_then(Value::as_i64);
-                    if reached && code.is_some_and(|code| NOT_REACHED.contains(&code)) {
+                    if why.is_none() && code.is_some_and(|code| NOT_REACHED.contains(&code)) {
                         wrong.push(format!("{method}: did not reach its work: {reply}"));
                     }
                 }

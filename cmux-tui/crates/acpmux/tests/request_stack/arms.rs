@@ -4,7 +4,7 @@
 //!
 //! Rows run in this order on one connection, after one chat (`$S`) was made and prompted. Some
 //! rows need an earlier one: `steer` and `report` need `dispatch`'s brief `brief-t1`, the harness
-//! rows need `harness/add`, the route rows `route/add`, `import` needs `export`; `view`, `typing`
+//! rows need `harness/add`, the route rows `route/add`; `view`, `typing`
 //! and `mail/send` need the connection still attached, so `detach` comes after them. A row whose
 //! params name `$T` ends or deletes a chat, and gets a new chat of its own. `$CWD` is the
 //! process's temp folder and `$FAKE` the stand-in agent.
@@ -394,13 +394,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_PERMISSION_CHAT_REVOKE, Run(json!({"sessionId": "$S"}))),
         (method::MUX_PERMISSION_RESPOND, Run(json!({"sessionId": "$S", "permissionId": "p1"}))),
         (method::MUX_SET_POLICY, Run(json!({"sessionId": "$S", "policy": "ask"}))),
-        (method::MUX_EXPORT, Run(json!({"sessionId": "$S", "dest": "$CWD/bundles"}))),
+        (method::MUX_EXPORT, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_IMPORT,
-            Any(
-                json!({"path": "$CWD/bundles/$S"}),
-                "the exported chat is still live here (invalid params)",
-            ),
+            Any(json!({"path": "$CWD/no-such-bundle"}), "no bundle at the path (invalid params)"),
         ),
         (
             method::MUX_FILE_PUT,

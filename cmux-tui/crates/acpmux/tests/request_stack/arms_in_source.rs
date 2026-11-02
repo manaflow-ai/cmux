@@ -72,14 +72,17 @@ fn arm_heads() -> Vec<String> {
         if line == "    }" {
             break;
         }
+        // An arm head is at 8 spaces; deeper lines are arm bodies.
         let Some(code) = line.strip_prefix("        ") else { continue };
-        let starts_head =
-            ["method::", "| ", "\"", "super::", "crate::", "m if ", "name if ", "other"]
-                .iter()
-                .any(|p| code.starts_with(p));
-        if starts_head {
-            heads.push(code.split("=>").next().unwrap_or_default().to_owned());
+        if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
+            continue;
         }
+        let known = ["method::", "| ", "\"", "super::", "crate::", "m if ", "name if ", "other"];
+        assert!(
+            known.iter().any(|p| code.starts_with(p)),
+            "an arm head this test cannot read (teach arms_in_source.rs): {code:?}"
+        );
+        heads.push(code.split("=>").next().unwrap_or_default().to_owned());
     }
     assert!(heads.len() > 100, "read only {} arm heads of dispatch_request", heads.len());
     heads
