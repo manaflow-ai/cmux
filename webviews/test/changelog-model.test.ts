@@ -42,10 +42,7 @@ test("a summary that repeats its title is dropped", () => {
 });
 
 test("a quoted summary that repeats its title is dropped", () => {
-  const view = releaseView(
-    notes([entry("tabs", "Tabs stay put", '"Tabs stay put."')]),
-    "en",
-  );
+  const view = releaseView(notes([entry("tabs", "Tabs stay put", '"Tabs stay put."')]), "en");
   expect(summaries(view)).toEqual({ tabs: "" });
 });
 
