@@ -821,6 +821,8 @@ def _settle(j, timeout=20):
             shown = [p for p in j.app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]
             if shown and all(p.get("attach") == "live" for p in shown):
                 return True
+            if not shown and j.topology().get("loaded"):
+                return "no visible terminal"
         except (D.StepError, OSError, ValueError):
             pass
         time.sleep(0.2)
@@ -1300,6 +1302,7 @@ def step_reopen_browser_keys(j, step):
     if main_wall:
         record["cmdl_ms_from_main_provisional"] = round((record["cmdl_wall"][0] - main_wall) * 1000, 1)
         record["window_ms"] = round(marks.get("first_window_frame_committed", 0) - marks["main_start"], 1)
+        record["window_listed_ms_from_main_provisional"] = round((record["window_listed_wall"] - main_wall) * 1000, 1)
     # The named terminals: look them up again in the restored topology (the driver's relaunch does the same).
     topo = j.topology()
     for alias in j.aliases.values():
@@ -1307,9 +1310,13 @@ def step_reopen_browser_keys(j, step):
         if place:
             alias["pane"] = place[1].get("id")
     j.hold_from = D.now()
+    j.known_views = {p.get("terminal_id") for p in j.app.panes() if p.get("terminal_id")}
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
     if not record["pid_matches"]:
         raise D.StepError(f"reopen_browser_keys: the app that answers is not the reopened process: {record.get('new_pid')} vs {j.app.pid}")
-    return {k: record.get(k) for k in ("new_pid", "settled", "window_ms", "cmdl_ms_from_main_provisional", "dialog")}
+    return {k: record.get(k) for k in ("new_pid", "settled", "window_ms", "window_listed_ms_from_main_provisional",
+                                       "cmdl_ms_from_main_provisional", "dialog")}
 
 
 def cond_key_window_focus(j, want, cache):
