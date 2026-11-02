@@ -3,7 +3,7 @@ import Foundation
 /// A notice the pane's native side raises about the chat's agent service: another cmux install's
 /// daemon (cx-fcaq), remote approvals off there (cx-0q7o), a peer that did not count this Mac's
 /// allow. The page draws it in its notice slot above the composer (`paneNotices`, webviews
-/// paneNotices.ts), in the flow with its other notices. It was a background-less native label laid
+/// paneNoticeStore.ts), in the flow with its other notices. It was a background-less native label laid
 /// over the page, which floated over the transcript's first message (Leo, 2026-11-01: "yuck more
 /// garbage"); the pane now adds no view of its own for it.
 @MainActor final class AgentPaneNotice {
