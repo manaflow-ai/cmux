@@ -148,7 +148,13 @@ def step_xtp_stop(j, step):
     return {"export": str(out), "bytes": size, "record_exit": rec["proc"].returncode, "record_said": rest.strip()[-200:]}
 
 
+def _journal(j, last=400):
+    reply = j.app.rpc("debug.journal", {"last": last}) or {}
+    return [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
+
+
 def step_trace_only_start(j, step):
+    j.rv_journal_seq = max([int(e.get("seq") or 0) for e in _journal(j, 5)] or [0])
     reply = j.app.rpc("debug.motion", {"action": "trace_start", "window": 0}) or {}
     if isinstance(reply, dict) and reply.get("error"):
         raise D.StepError(f"trace_start: {reply['error']}")
@@ -157,6 +163,9 @@ def step_trace_only_start(j, step):
 
 def step_trace_only_stop(j, step):
     reply = j.app.rpc("debug.motion", {"action": "trace_stop"}) or {}
+    # The app's input journal since trace_start (each key-down with the app's own uptimeNanos): the key times.
+    seq = int(getattr(j, "rv_journal_seq", 0))
+    reply["journal"] = [e for e in _journal(j) if int(e.get("seq") or 0) > seq]
     path = j.out / f"diag-{step['name']}trace.json"
     path.write_text(json.dumps(reply))
     return {"path": str(path), "samples": len(reply.get("samples") or []), "refresh_ms": reply.get("refresh_ms")}

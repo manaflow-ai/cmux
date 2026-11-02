@@ -238,6 +238,35 @@ case("f1-split-1pane", "F1 proof: Cmd-D in a single pane; recorder with 1 s lead
      lambda h: [], [kit_key("d", ["cmd"], "split", "Cmd-D")], variants=(("idle", "dark"),), probes=False)
 case("f1-close-in-row-norec", "F1 control: close the middle of 3 splits in a row; NO recorder (trace only), no probes",
      lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("idle", "dark"),), probes=False, recorder=False)
+# Before/after of the merged F1, Z1 fixes (lead 09:0xZ): xctrace Time Profiler, NO recorder, no probes, idle. The profile is
+# placed on the app's clock afterwards (xtp_align.py): a 60 ms debug.stall leaves a gap in the display-link trace and a
+# run of stall samples in the profile; the trace's per-tick samples refine the offset; the key comes from the input journal.
+def xtp_case(cid, title, build, keys_play, after_s):
+    jid = f"rv-{cid}-idle-dark"
+    steps = [theme(True)] + first_pane(jid, False) + build(False)
+    lead = 0
+    while lead < len(keys_play) and keys_play[lead]["do"] == "use_pane":
+        lead += 1
+    steps += keys_play[:lead] + [settle(1.5),
+              {"do": "trace_only_start", "name": "close", "title": "the geometry trace (display-link ticks), no recorder"},
+              {"do": "xtp_start", "name": "xtp", "seconds": 4.0 + after_s, "wait_first_sample": True, "first_sample_wait": 1.0,
+               "title": "xctrace Time Profiler on the app"},
+              {"do": "rpc", "method": "debug.stall", "params": {"ms": 60}, "title": "clock mark: a 60 ms main-thread stall"},
+              {"do": "wait", "seconds": 0.5, "title": "the mark's frames pass"}]
+    steps += keys_play[lead:] + [{"do": "wait", "seconds": after_s, "title": "the motion lands"},
+              {"do": "trace_only_stop", "name": "close"}, {"do": "xtp_stop", "name": "xtp"}] + after_check()
+    CASES.append({"id": jid, "priority": "P1", "title": title + " (idle, dark)",
+                  "why": "Lead 2026-11-02 09:0xZ: before/after main-thread time per close and per zoom of the merged fixes #31756, #31811, #31810.",
+                  "source": "RESIZE VIDEOS suite (handoff/resize-videos/FINDINGS.md)", "budget_seconds": 240,
+                  "options": {"key_path": "real"}, "steps": steps})
+
+
+xtp_case("xtpa-close-in-row", "xctrace, app clock: close the middle of 3 splits in a row",
+         lambda h: splits_in_row(3, h), close("p1", "close"), 1.2)
+xtp_case("xtpa-zoom-12", "xctrace, app clock: zoom one of 12 panes, unzoom 1.2 s later",
+         lambda h: columns(3, h, rows=4),
+         [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
+          {"do": "wait", "seconds": 1.2}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out")], 1.2)
 # 2. Close a pane in a column (3 stacked): the other two grow.
 case("close-in-column", "Close the middle of 3 panes stacked in one column: the other two grow to fill",
      lambda h: splits_in_column(3, h), close("p1", "close"), variants=ALL)
