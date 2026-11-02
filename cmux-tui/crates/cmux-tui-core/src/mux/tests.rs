@@ -34,6 +34,7 @@ mod registry_reads;
 mod resource_effects;
 mod resource_restore;
 mod resource_selectors;
+mod respawn_gate_jump;
 mod restart;
 mod rows;
 mod signaled_mutex;
