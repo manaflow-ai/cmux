@@ -1,0 +1,97 @@
+{
+  "schema": "cmux-remote-host-v1-conformance",
+  "description": "Supervisor exchanges (docs/cmux-remote.md, IPC) every cmux Remote host passes: the Swift host on macOS and the Rust host on Windows and Linux. A runner starts a host core with `bootstrap`, opens one supervisor connection whose peer is (`peer_is_daemon`) or is not the daemon, and plays `steps` in order. `send` writes one JSON line (the string \"$SECRET\" becomes the bootstrap secret in hex). `expect` reads lines, skipping `{\"type\":\"event\"}` pushes, until one arrives, which must match: every expected key present with an equal value (objects compared the same way, recursively; arrays element by element with equal length), and \"$ANY\" matches any present value. `expect_event` reads until a push with that `event` name. `expect_closed` requires end of stream.",
+  "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "bootstrap": {"computer_use": false, "screen_sharing": false, "headless": true},
+  "cases": [
+    {
+      "name": "hello picks the highest common protocol and carries the status",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 7}},
+        {"expect": {"type": "hello", "protocol": 1, "busy": false, "workers": "$ANY",
+                    "config": {"computer_use": false, "screen_sharing": false, "headless": true}}}
+      ]
+    },
+    {
+      "name": "a wrong secret is refused and the link closes",
+      "steps": [
+        {"send": {"type": "hello", "secret": "ffffffffffffffffffffffffffffffff", "min": 1, "max": 1}},
+        {"expect": {"id": null, "ok": false, "error": {"code": "refused"}}},
+        {"expect_closed": true}
+      ]
+    },
+    {
+      "name": "the right secret from a process that is not the daemon is refused",
+      "peer_is_daemon": false,
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 1}},
+        {"expect": {"id": null, "ok": false, "error": {"code": "refused"}}},
+        {"expect_closed": true}
+      ]
+    },
+    {
+      "name": "a first line that is not a hello is refused",
+      "steps": [
+        {"send": {"id": 1, "method": "status", "params": {}}},
+        {"expect": {"id": null, "ok": false, "error": {"code": "refused"}}},
+        {"expect_closed": true}
+      ]
+    },
+    {
+      "name": "no common protocol is refused",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 2, "max": 3}},
+        {"expect": {"id": null, "ok": false, "error": {"code": "protocol"}}},
+        {"expect_closed": true}
+      ]
+    },
+    {
+      "name": "status, config and their echoes",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 1}},
+        {"expect": {"type": "hello", "protocol": 1}},
+        {"send": {"id": 1, "method": "status", "params": {}}},
+        {"expect": {"id": 1, "ok": true, "result": {"protocol": 1, "busy": false,
+                    "workers": {"computer-use": "$ANY", "screen-sharing": "$ANY"},
+                    "config": {"computer_use": false, "screen_sharing": false, "headless": true}}}},
+        {"send": {"id": "req-2", "method": "status"}},
+        {"expect": {"id": "req-2", "ok": true, "result": "$ANY"}},
+        {"send": {"id": 3, "method": "config", "params": {"headless": false}}},
+        {"expect": {"id": 3, "ok": true, "result": {"config": {"computer_use": false, "headless": false}}}},
+        {"send": {"id": 4, "method": "refresh", "params": {}}},
+        {"expect": {"id": 4, "ok": true, "result": {"busy": false}}}
+      ]
+    },
+    {
+      "name": "a config change pushes a status event",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 1}},
+        {"expect": {"type": "hello", "protocol": 1}},
+        {"send": {"id": 1, "method": "config", "params": {"headless": false}}},
+        {"expect_event": "status"}
+      ]
+    },
+    {
+      "name": "bad requests name their error codes",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 1}},
+        {"expect": {"type": "hello"}},
+        {"send": {"id": 10, "method": "restart", "params": {"worker": "printer"}}},
+        {"expect": {"id": 10, "ok": false, "error": {"code": "bad_request", "message": "$ANY"}}},
+        {"send": {"id": 11, "method": "request", "params": {"permission": "camera"}}},
+        {"expect": {"id": 11, "ok": false, "error": {"code": "bad_request"}}},
+        {"send": {"id": 12, "method": "no.such.method", "params": {}}},
+        {"expect": {"id": 12, "ok": false, "error": {"code": "unknown_method"}}}
+      ]
+    },
+    {
+      "name": "drain answers whether a session keeps the host busy",
+      "steps": [
+        {"send": {"type": "hello", "secret": "$SECRET", "min": 1, "max": 1}},
+        {"expect": {"type": "hello"}},
+        {"send": {"id": 20, "method": "drain", "params": {}}},
+        {"expect": {"id": 20, "ok": true, "result": {"busy": false}}}
+      ]
+    }
+  ]
+}
