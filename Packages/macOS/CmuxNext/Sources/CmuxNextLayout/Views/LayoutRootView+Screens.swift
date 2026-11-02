@@ -35,7 +35,10 @@ extension LayoutRootView {
         for (id, frame) in screenFrames {
             guard let view = screenViews[id] else { continue }
             let shown = (view.frame, view.alphaValue, view.isHidden)
-            if view.frame.origin != frame.rect.origin { view.setFrameOrigin(frame.rect.origin) }
+            // A sliding screen's origin is a spring value: on the device-pixel grid, or every pane in it shows
+            // off the grid (resampled) for the whole slide.
+            let origin = frame.rect.pixelEdges(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2).origin
+            if view.frame.origin != origin { view.setFrameOrigin(origin) }
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
             if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {

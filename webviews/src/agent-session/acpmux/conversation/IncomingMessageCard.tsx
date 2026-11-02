@@ -12,6 +12,8 @@
 // transcript holds it, foldAnchor.ts). Whether it is open lasts while the page does
 // (incomingOpened.ts), so the virtualized transcript keeps it, and the row estimator reads it; Find
 // opens a message that holds its match without the hold, so Find can scroll to it.
+// A sender on another machine names that machine after its name, muted ("review-lane ·
+// studio-mac"), so a lane's message never reads as this Mac's own.
 // The sender's name is its own control at the line's start: a click opens the sender's chat beside
 // this one, or its tab when one shows it (its id from the message, else the listed chat with its
 // name), and its hover highlight is the name's alone, never the row's (Leo, 2026-10-29: "why the
@@ -126,7 +128,7 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       : "";
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon = <SenderMark message={message} />;
-  // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
+  // "Open chief-ui (studio-mac)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
     ? t("subagents.openOnHost", { name, host: sender.host })
     : t("subagents.open", { name });
@@ -147,6 +149,10 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       ) : (
         <AgentTag name={from} className="cv-received__from" />
       )}
+      {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
+          tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
+          even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
+      {sender.host && <span className="cv-received__host">{sender.host}</span>}
     </span>
   );
 }

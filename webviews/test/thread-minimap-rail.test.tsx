@@ -1,4 +1,4 @@
-// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
+// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from one
 // prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
 // the Dock and opens a preview card at once; every row is a tab stop whose focus opens
 // the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
@@ -163,9 +163,12 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, at any pane width", async () => {
+test("the rail shows from one prompt, at any pane width", async () => {
   for (const [prompts, width, shown] of [
-    [3, 1040, false],
+    [0, 1040, false],
+    [1, 1040, true],
+    [1, 800, true],
+    [3, 1040, true],
     [4, 1040, true],
     // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
     [6, 800, true],
