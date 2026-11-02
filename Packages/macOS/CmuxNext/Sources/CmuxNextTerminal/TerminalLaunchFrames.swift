@@ -306,6 +306,12 @@ public final class TerminalLaunchFrames {
         shown.view.removeFromSuperview()
     }
 
+    /// The terminals whose saved frame a pane shows ahead of their surface now (#32274): on screen with no session
+    /// shown yet, so no quit snapshot or keeper save covers them, and their saved frame is the one the pane shows.
+    var keysShownAhead: Set<String> {
+        Set(ahead.values.filter { $0.content?.window != nil && $0.view.superview != nil }.map(\.key))
+    }
+
     /// Whether `content` shows a frame ahead of its terminal's surface (tests).
     func showsAhead(in content: NSView) -> Bool {
         aheadEntry(in: content).map { $0.view.superview === content } ?? false
@@ -377,10 +383,10 @@ public final class TerminalLaunchFrames {
     public func keep(_ key: String, session: TerminalSession, work: BackgroundWork) {
         guard let directory else { return }
         if keeper == nil {
-            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work) { [weak self] in
+            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work, readEnded: { [weak self] in
                 guard let self else { return false }
                 return self.readDropped || self.read?.value != nil || self.read == nil
-            }
+            }, shownAhead: { [weak self] in self?.keysShownAhead ?? [] })
         }
         keeper?.keep(key, session: session)
     }
@@ -392,12 +398,16 @@ public final class TerminalLaunchFrames {
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
+    ///
+    /// Issue #32274 (3 of 20 STRESS reopens showed a visible pane empty): a terminal on screen with no new frame keeps
+    /// the one saved for it. A pane that still shows its saved frame ahead of its surface (its surface had not come, or
+    /// its session was not presented yet) has no frame to take here; its saved frame is exactly what it shows. A shown
+    /// terminal whose snapshot gave nothing keeps the keeper's last frame. Only terminals no pane shows lose theirs.
     public func save(_ sessions: [String: TerminalSession]) async {
         keeper?.stop()
         var frames: [String: NSImage] = [:]
-        for entry in ahead.values where entry.content?.window?.isVisible == true {
-            mark("quit.terminal_frame.\(entry.key).ahead") // shown ahead of a surface that has not come (#32274)
-        }
+        var kept = keysShownAhead
+        for key in kept { mark("quit.terminal_frame.\(key).ahead") }
         for (key, session) in sessions {
             guard !session.isRenderingSuspended else {
                 mark("quit.terminal_frame.\(key).suspended")
@@ -414,17 +424,19 @@ public final class TerminalLaunchFrames {
             // What the pane shows: a terminal still held over its slow attach saves its held frame.
             guard let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else {
                 mark("quit.terminal_frame.\(key).no_snapshot")
+                kept.insert(key) // on screen: its last kept frame beats none
                 continue
             }
             mark("quit.terminal_frame.\(key).snapshot")
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
-        await save(images: frames)
+        await save(images: frames, keeping: kept.subtracting(frames.keys))
         mark("quit.terminal_frames.written")
     }
 
-    /// Replaces the saved frames with `images` (by tab key, at their point size).
-    func save(images: [String: NSImage]) async {
+    /// Replaces the saved frames with `images` (by tab key, at their point size); the files of the keys in `keeping`
+    /// stay as they are (terminals on screen with no new frame).
+    func save(images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -432,7 +444,7 @@ public final class TerminalLaunchFrames {
             guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { Self.write(frames, to: directory) }.value
+        await Task.detached { Self.write(frames, keeping: keeping, to: directory) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
@@ -452,10 +464,11 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
-    private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
+    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            guard !keeping.contains(owner(of: old)) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
@@ -478,8 +491,8 @@ public final class TerminalLaunchFrames {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            let owner = old.split(separator: "@", maxSplits: 1).first.map(String.init) ?? old
-            guard owner == key || keeping.map({ !$0.contains(owner) }) == true else { continue }
+            let tab = owner(of: old)
+            guard tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -490,6 +503,11 @@ public final class TerminalLaunchFrames {
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
             try? manager.removeItem(at: directory.appending(path: old))
         }
+    }
+
+    /// The tab key a frame file belongs to (`<key>@<scale>x.jpg`).
+    nonisolated static func owner(of file: String) -> String {
+        file.split(separator: "@", maxSplits: 1).first.map(String.init) ?? file
     }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
