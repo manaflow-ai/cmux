@@ -99,9 +99,9 @@ enum NewTabSlot {
     /// `then` for the terminal or browser a New Tab page turns into: it takes
     /// the page's slot, so a page opened after the current tab stays there.
     /// The page's left neighbour is read now, as the page closes meanwhile.
-    static func placing(replacing page: String, services: AppServices,
+    static func placing(replacing page: String, onMachine machineID: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
+        guard let located = services.locateTab(page, onMachine: machineID), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
         // Shown in the page's slot from its first frame, whatever the daemon reports meanwhile.
         let open = NewTabSuccession.begin(replacing: page, in: pane, services: services)
         let then: @MainActor (SurfaceID) -> Void = { surface in
@@ -122,7 +122,7 @@ enum NewTabSlot {
     /// The pane `tab` is in, on any machine (surface ids are per daemon, so
     /// a new tab is looked for in this pane only).
     private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? {
-        services.machines.allWorkspaces.lazy.flatMap(\.0.screens).flatMap(\.panes).first { $0.tabs.contains { $0 === tab } }
+        services.locateTab(model: tab)?.1
     }
 
     /// Moves the tab `find` returns from `pane` to the final index `index`

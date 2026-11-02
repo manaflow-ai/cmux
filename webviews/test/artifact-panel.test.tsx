@@ -138,7 +138,7 @@ test("Save hands the document to the host's save panel under its title, and says
     asked.push([text, suggestedName, kind]);
     return answer;
   };
-  const draw = (artifact: { kind: "html" | "svg" | "markdown"; lang: string; code: string }) => {
+  const draw = (artifact: { kind: "html" | "svg" | "markdown"; lang: string; code: string; path?: string }) => {
     act(() => root?.unmount());
     root = createRoot(host);
     act(() => root!.render(<ArtifactPanel artifact={artifact} onClose={() => {}} onSave={save} />));
@@ -162,6 +162,11 @@ test("Save hands the document to the host's save panel under its title, and says
   draw({ kind: "svg", lang: "svg", code: "<svg/>" });
   await act(async () => button("Save")!.click());
   expect(asked.at(-1)).toEqual(["<svg/>", "", "svg"]);
+
+  // A completed file write keeps its filename when the document has no title.
+  draw({ kind: "html", lang: "html", code: "<p>Counter</p>", path: "/project/previews/counter.html" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)).toEqual(["<p>Counter</p>", "counter.html", "html"]);
 
   // A `#` line in a code fence is not the title; a heading keeps a real trailing `#`; a title's
   // entities read as text.
@@ -301,4 +306,41 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   root = undefined;
   expect(window.document.activeElement).toBe(opener);
   opener.remove();
+});
+
+test("the preview's Pin control follows its parent state, and galleries stay opt-in", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const artifact = { kind: "markdown" as const, lang: "md", code: "# Review\n\nTwo warnings." };
+  const changes: boolean[] = [];
+
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const draw = (pinned: boolean, allowPin = true) =>
+    act(() =>
+      root!.render(
+        <ArtifactPanel
+          artifact={artifact}
+          pinned={pinned}
+          sourceTitle="Chat A"
+          onPinChange={allowPin ? (value) => changes.push(value) : undefined}
+          onClose={() => {}}
+        />,
+      ),
+    );
+
+  draw(false);
+  expect(button("Pin")?.getAttribute("aria-pressed")).toBe("false");
+  act(() => button("Pin")!.click());
+  expect(changes).toEqual([true]);
+  draw(true);
+  expect(button("Unpin")?.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector(".acpmux-artifact-source")?.textContent).toBe("Pinned · Chat A");
+  act(() => button("Unpin")!.click());
+  expect(changes).toEqual([true, false]);
+
+  draw(false, false);
+  expect(host.querySelector(".acpmux-artifact-source")).toBeNull();
+  expect(button("Pin")).toBeUndefined();
+  expect(button("Unpin")).toBeUndefined();
 });

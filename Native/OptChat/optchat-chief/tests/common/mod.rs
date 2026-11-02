@@ -120,6 +120,10 @@ pub struct Owner {
     pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
+    /// Rejections for report appends, after recording the attempted write.
+    pub run_append_rejects: VecDeque<Option<OpError>>,
+    /// Models a Cloud or older owner that never supports run storage.
+    pub runs_unsupported: bool,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -143,6 +147,7 @@ pub struct Owner {
     pub no_link_previews: bool,
     /// Every run record summary the brain appended (`run_append`'s run).
     pub runs: Vec<Value>,
+    pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
     /// An attachment upload waits for a message here first (a slow upload).
@@ -455,8 +460,27 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
-    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
-        self.0.lock().unwrap().runs.push(run);
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .run_steps
+            .push((conversation.to_owned(), run.clone(), steps));
+        if owner.runs_unsupported {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
+        if run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))
+            && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
+        {
+            return Err(reason);
+        }
+        owner.runs.push(run);
         Ok(())
     }
 
@@ -815,13 +839,14 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec
-            .env
-            .keys()
-            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
-        {
+        if let Some(key) = spec.env.keys().find(|k| {
+            !matches!(
+                k.as_str(),
+                "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL" | "CMUX_CHIEF_PARTICIPANT"
+            )
+        }) {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL, CMUX_CHIEF_PARTICIPANT)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -1119,6 +1144,8 @@ pub fn settings(dir: &Path) -> Settings {
         home_view: None,
         membership: Default::default(),
         keep_turn_session: false,
+        chief_inbox: None,
+        screen_share: Some(dir.join("screen")),
     }
 }
 

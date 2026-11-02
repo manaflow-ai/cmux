@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -106,6 +107,8 @@ enum WorkspaceBulkClose {
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
+        // The groups these closes may empty (Close Others in Group's whole groups go as `PersonalGroupPin` says).
+        let cleanups = WorkspaceGroupClose.closeCleanups(id == "workspaceGroup.closeOthers" ? [] : members.map(\.0.id), services)
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
@@ -119,8 +122,11 @@ enum WorkspaceBulkClose {
         } else {
             WorkspaceClose.close(members)
         }
+        // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
+        for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
         guard invocation.origin == .user, members.count > 1, let window else { return }
-        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
+        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
+                                      cleanups: cleanups)
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
@@ -129,7 +135,7 @@ enum WorkspaceBulkClose {
     /// the workspaces section.
     static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let layout = context.services.sidebarLayout
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = context.services.sidebarDoc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .items:
@@ -166,6 +172,23 @@ enum WorkspaceBulkClose {
         guard let (members, window) = try? plan(id, invocation, context) else { return nil }
         let incognito = members.contains { context.services.windows.isIncognito(workspace: $0.0.id) }
         return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
+    }
+
+    /// Whether `prompt` will likely ask about `members`, read from the store without the daemon: two
+    /// or more close with nothing to undo it, or (`warn`) one has a live terminal on a connected
+    /// machine that is not known to sit at its shell prompt (OSC 133, `TabModel.promptSinceMs`).
+    /// True: the rows stay until the answer. False: they leave at the press, and the terminals are
+    /// still asked behind them (a prompt can show while ssh or a nested shell runs, `WorkspaceCloseFlow`).
+    static func mayAsk(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false) -> Bool {
+        if askWithoutUndo, members.count > 1 { return true }
+        return warn && members.contains { workspace, daemon in
+            daemon.isLive && workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: mayRunProgram)
+        }
+    }
+
+    /// A live terminal whose shell may be running a program: a command runs, or no prompt was seen.
+    static func mayRunProgram(_ tab: TabModel) -> Bool {
+        tab.kind == .pty && !tab.dead && (tab.commandSinceMs != nil || tab.promptSinceMs == nil)
     }
 
     /// Asks when a terminal in `members` runs a program (`warn`), or when two

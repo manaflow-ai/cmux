@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // The transcript's end under the queue and the composer (Leo 2026-10-21: "there's something just a
 // bit awkward about the UI of this queuing and steering and expanding and, like, scrolling. It
@@ -165,7 +166,9 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
               fromEnd: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
               gap: dock.getBoundingClientRect().top - rows[rows.length - 1].getBoundingClientRect().bottom,
             });
-            if (frame - start < ms) return true;
+            // At least the frames expectAtRest reads (6): a starved runner paints 3 in 300 ms (the
+            // CI runner's WebKit, run 40699648618), too few to judge, not a layout fault.
+            if (frame - start < ms || out.length < 6) return true;
             resolve(out);
             return false;
           });

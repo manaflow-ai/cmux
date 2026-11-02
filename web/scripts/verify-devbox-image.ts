@@ -44,11 +44,14 @@ import {
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
+  DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
   DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
   DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+  devboxAgentDesktopVersion,
   devboxAgentPins,
+  devboxBubblewrapCheckCommand,
   devboxMachineHealthRearmProblems,
   devboxMachineHealthResumeProblems,
   devboxDir,
@@ -83,6 +86,8 @@ const hexPort = (port: number): string => port.toString(16).toUpperCase().padSta
 const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
+  ["agent-auth.sh", "/etc/cmux/agent-auth.sh"],
+  ["claude-onboarding.py", "/etc/cmux/claude-onboarding.py"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
@@ -112,10 +117,10 @@ const CHECKS: readonly string[] = [
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
+  `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
-  // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns
-  // on every launch that it is falling back to its bundled copy.
-  "bwrap --version && echo bubblewrap-ok",
+  // Prove the current upstream binary is selected and can sandbox as cmux.
+  devboxBubblewrapCheckCommand(),
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
@@ -154,6 +159,7 @@ const CHECKS: readonly string[] = [
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
+  `python3 -c 'import json, pathlib; homes = ["/root", "${DEVBOX_WORK_HOME}"]; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`,
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 
@@ -238,6 +244,9 @@ const desktopChecks = (): readonly string[] => [
   // The accessibility bus itself answers a client (the registry activates on demand).
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'gdbus introspect --session --dest org.a11y.Bus --object-path /org/a11y/bus >/dev/null && gdbus call --address "$AT_SPI_BUS_ADDRESS" --dest org.a11y.atspi.Registry --object-path /org/a11y/atspi/accessible/root --method org.a11y.atspi.Accessible.GetChildren >/dev/null')} && echo accessibility-bus-answers`,
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "cua-driver doctor")} 2>&1 | tee /tmp/cua-doctor.txt | grep -q 'X11 connection: connected' && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt && echo cua-driver-sees-desktop`,
+  // agent-desktop reads the desktop's accessibility tree: a snapshot of a
+  // window it launched (DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).
+  `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE)} && echo agent-desktop-sees-desktop`,
   "ghostty +version | head -1",
   `test -f '${DEVBOX_DESKTOP_HOME}/.config/google-chrome/First Run' && echo chrome-first-run-ok`,
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",

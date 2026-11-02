@@ -32,6 +32,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
     /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// The composer's Copy and Cut (`composer.copy`): replaces the general pasteboard's contents
+    /// with the items, in order; tests record them instead.
+    public var copyItems: @MainActor ([NSPasteboardItem]) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
     /// A path menu's Save As…: the save panel, whose answer copies `file` only while `allowed()`
@@ -71,7 +74,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The same answer from the cache alone, never starting a read (`pr.inspect` with `cached`):
-    /// the Inspector's Changes asks it for many links, whose reads its batched registration starts.
+    /// Session Info's Changes asks it for many links, whose reads its batched registration starts.
     public var cachedPullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
@@ -121,8 +124,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
-             .quickLookImage, .dragImage, .dragFile, .previewPath:
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+             .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -156,7 +159,9 @@ extension AgentPaneModel {
                                              primary: AgentPanePrimaryRoot(answered: true, candidates: []), home: replyLinks.home)
         }
         let session = sessionId.flatMap { transport.sessions.contains($0) ? transport.sessions.folder(of: $0) : nil }
-        return AgentPaneReplyPaths.Scope(local: true, roots: roots() + transport.addedRoots, session: session,
+        // The person's retained recording drops (``AgentPaneDroppedPaths/retainedPaths``): exact
+        // files, never their folders, so a chip's drag and open still reach them (as `file.open`).
+        return AgentPaneReplyPaths.Scope(local: true, roots: roots() + transport.addedRoots + droppedPaths.retainedPaths, session: session,
                                          primary: primaryRootChoice(), home: replyLinks.home)
     }
 
@@ -168,6 +173,7 @@ extension AgentPaneModel {
             // place (it stays a chip, never plain text), except a remote chat's raster image,
             // which `image.load` reads on that machine (``AgentPaneReplyLinks/remoteImageLoader``).
             let resolver = chatIsElsewhere ? nil : replyPaths()
+            let setting = replyLinks.settings()
             var places: [String: Any] = [:]
             for path in paths {
                 let image = AgentPaneReplyPaths.isImagePath(path)
@@ -176,7 +182,14 @@ extension AgentPaneModel {
                 } else {
                     remoteChat && image ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false) : nil
                 }
-                guard let resolved else { continue }
+                guard var resolved else { continue }
+                // Under `outsideRoots = open` an outside chip opens (and its text previews) without
+                // asking, so whether it exists is no secret: a path that is not there is `missing`,
+                // plain text with no dead Open, never a locked chip that does nothing.
+                if resolver != nil, resolved.place == .outside, setting.outsideRoots == .open,
+                   AcpmuxPathPolicy.canonical(resolved.path) == nil {
+                    resolved.place = .missing
+                }
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
             let parsed = urls.compactMap { text in AgentPaneReplyRequest.webURL(text).map { (text, $0) } }
@@ -192,7 +205,6 @@ extension AgentPaneModel {
             // The reply's pull request links are read now, in the background, so a card has them
             // before the pointer arrives and no hover ever waits on GitHub.
             replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
-            let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
                 "policy": [
@@ -208,11 +220,15 @@ extension AgentPaneModel {
             return await loadReplyMedia(src)
         case .videoInfo(let src):
             return await videoInfo(src)
+        case .videoTranscript(let src):
+            return await videoTranscript(src)
+        case .videoFrames(let src, let times):
+            return await videoFrames(src, times: times)
         case .quickLookVideo(let src):
             return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
-        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
         }
@@ -311,7 +327,17 @@ extension AgentPaneModel {
         // pane's own roots, as before #24619 narrowed this to raster types.
         let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
         guard let resolved else { return Self.replyFailure(.pathInvalid) }
+        // Outside the folders, an image previews where its chip would open without asking
+        // (`outsideRoots = open`, the default): the preview needs no click (Leo, 2026-10-31).
+        let outsideShows = resolved.place == .outside && replyLinks.settings().outsideRoots == .open
         switch resolved.place {
+        case .outside where outsideShows:
+            guard let canonical = AcpmuxPathPolicy.canonical(resolved.path), !paths.isDenied(canonical) else {
+                return Self.replyFailure(.pathInvalid)
+            }
+            let image = await replyLinks.readLocalImage(canonical)
+            guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
+            return Self.replyImage(image)
         case .root:
             // The read runs off the main actor, right after the check above; a chat that turned
             // remote while it ran gets none of its bytes (cx-k21v).

@@ -238,9 +238,10 @@ fn service_env(printed: &str) -> (String, String) {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("printed"), printed).unwrap();
     let systemctl = dir.join("systemctl");
-    std::fs::write(&systemctl, "#!/bin/sh\ncat \"$(dirname \"$0\")/printed\"\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(
+        &systemctl,
+        "#!/bin/sh\ncat \"$(dirname \"$0\")/printed\"\n",
+    );
     let script = format!(
         "{SERVICE_ENV}printf '%s\\n%s' \"${{ACPMUX_HOME-unset}}\" \"${{ACPMUX_SOCKET-unset}}\""
     );

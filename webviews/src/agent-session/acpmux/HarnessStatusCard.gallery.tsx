@@ -32,6 +32,15 @@ const details: Record<Props["harness"], { version: string; model: string; effort
   },
 };
 
+// acpmux's own shape for a Claude Code chat's plan limits (claude_stdio/usage_limits.rs). The weekly
+// window has no reset time, as when Claude Code does not report one. A fixed instant keeps captures stable.
+const CLAUDE_USAGE_LIMITS = {
+  windows: [
+    { id: "session", usedPercent: 38, resetsAt: Date.UTC(2026, 9, 31, 22, 0, 0) / 1000 },
+    { id: "weekly", usedPercent: 12.5 },
+  ],
+};
+
 function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
   const detail = details[harness];
   return {
@@ -45,12 +54,14 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
     model: detail.model,
     effort: detail.effort,
     usage: { used: 132_000, size: 400_000 },
+    // acpmux reports limits only for Claude Code; Codex's are not mapped yet.
+    ...(harness === "claude" ? { usageLimits: CLAUDE_USAGE_LIMITS } : {}),
     agentInfo: {
       version: detail.version,
       authSource: harness === "opencode" ? "environment route" : "managed login",
       routeName: detail.route,
       settingsSources: ["user", "project", "acpmux policy"],
-      usageLimits: harness === "opencode" ? "Not reported by ACP" : "Weekly: 62% remaining",
+      ...(harness === "opencode" ? { usageLimits: "Not reported by ACP" } : {}),
     },
   };
 }
@@ -137,6 +148,23 @@ const copyValue: Play = async (ctx) => {
     throw new Error("Copy feedback replaced or made the value unselectable");
 };
 
+const headerActionAlignment: Play = async (ctx) => {
+  const header = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__head");
+  const copy = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__copy-all");
+  const close = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__close");
+  const visibleCopy = copy?.querySelector<HTMLElement>('span[aria-hidden="false"]');
+  if (!header || !copy || !close || !visibleCopy) throw new Error("Session status header actions are missing");
+  const center = (rect: DOMRect) => rect.top + rect.height / 2;
+  const actionDelta = Math.abs(center(copy.getBoundingClientRect()) - center(close.getBoundingClientRect()));
+  if (actionDelta > 0.5) throw new Error(`Session status action centers differ by ${actionDelta.toFixed(2)} px`);
+  const copyRange = ctx.document.createRange();
+  copyRange.selectNodeContents(visibleCopy);
+  const closeRange = ctx.document.createRange();
+  closeRange.selectNodeContents(close);
+  const textDelta = Math.abs(center(copyRange.getBoundingClientRect()) - center(closeRange.getBoundingClientRect()));
+  if (textDelta > 0.5) throw new Error(`Session status action text centers differ by ${textDelta.toFixed(2)} px`);
+};
+
 const overlayPriority: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Open status test image" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer") !== null);
@@ -175,7 +203,7 @@ export default componentEntry<Props>({
   load: async () => GalleryStatusCard,
   variants: {
     claude: {
-      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and usage limit.",
+      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and the usage limits acpmux reports: each window's share used, and its reset time with time zone only when reported.",
       props: { harness: "claude" },
     },
     codex: {
@@ -195,6 +223,11 @@ export default componentEntry<Props>({
       note: "A copied Session value keeps its selectable text beside a quiet Copied confirmation, with all 11 status rows intact.",
       props: { harness: "claude" },
       play: copyValue,
+    },
+    "header-action-alignment": {
+      note: "Copy all and close share one centered action line in the Session status header.",
+      props: { harness: "claude" },
+      play: headerActionAlignment,
     },
     "overlay-escape-priority": {
       note: "The real image viewer, Summary popover and interactive Context ring card take Escape before Session status; the next press closes status.",

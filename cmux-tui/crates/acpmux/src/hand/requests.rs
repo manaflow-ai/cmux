@@ -50,6 +50,26 @@ where
     F: FnOnce(Value) -> Fut,
     Fut: Future<Output = Result<bool, HandError>>,
 {
+    handle_with_consent(ctx, action, p, approve, || {
+        crate::cli::cloud_join::require_joined_consent("control")
+            .map_err(|_| HandError::new("consent_required", "local control consent is required"))
+    })
+    .await
+}
+
+async fn handle_with_consent<F, Fut, C>(
+    ctx: &Ctx<'_>,
+    action: &str,
+    p: &Value,
+    approve: F,
+    consent: C,
+) -> Result<Value, HandError>
+where
+    F: FnOnce(Value) -> Fut,
+    Fut: Future<Output = Result<bool, HandError>>,
+    C: Fn() -> Result<(), HandError>,
+{
+    consent()?;
     let cwd = cwd_of(p)?;
     let cwd_ref = cwd.as_deref();
     // The paths each action touches; the policy sees all of them.
@@ -114,6 +134,9 @@ where
             }
         }
     }
+    // Approval may have suspended this request for minutes. A later answer
+    // authorizes this action, never a grant revoked while the owner was away.
+    consent()?;
     let path = paths.first().cloned().unwrap_or_default();
     match action {
         "fs.read" => fsops::read(&path, opt_u(p, "start_line"), opt_u(p, "end_line")),
@@ -278,4 +301,48 @@ fn apply_patch(files: Vec<Planned>) -> Result<Value, HandError> {
         }
     }
     Ok(json!({ "files": result }))
+}
+
+#[cfg(test)]
+mod consent_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn revocation_during_owner_approval_prevents_execution() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("must-not-exist");
+        let cfg = HandConfig {
+            api: "https://example.com".into(),
+            hand: "test".into(),
+            key: "test".into(),
+            profile: super::super::config::Profile::Mac,
+            roots: vec![root.path().to_owned()],
+            allow: vec![],
+            agent_policy: "ask".into(),
+        };
+        let agents = Agents::default();
+        let ctx = Ctx { cfg: &cfg, agents: &agents, sink: tokio::sync::mpsc::channel(1).0 };
+        let granted = AtomicBool::new(true);
+        let result = handle_with_consent(
+            &ctx,
+            "fs.write",
+            &json!({"path":destination,"text":"forbidden","_level":"ask"}),
+            |_| async {
+                tokio::task::yield_now().await;
+                granted.store(false, Ordering::SeqCst);
+                Ok(true)
+            },
+            || {
+                if granted.load(Ordering::SeqCst) {
+                    Ok(())
+                } else {
+                    Err(HandError::new("consent_required", "revoked"))
+                }
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err().code, "consent_required");
+        assert!(!destination.exists());
+    }
 }

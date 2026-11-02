@@ -28,6 +28,8 @@ extension CloudStrings {
         case .timedOut: apiTimedOut
         case .transport(let detail): apiUnreachable(detail)
         case .decoding: apiUnreadable
+        // The server's own (localized) refusal, else the app's Pro copy.
+        case let .planRequired(message, _, plan): message ?? (plan == "pro" ? proRequiredBody : error.text())
         case let .http(status, code, message, action, traceId):
             CloudAPIError.http(status: status, code: code, message: message,
                                action: action.flatMap { isCallerOnly($0) ? nil : $0 }, traceId: traceId)

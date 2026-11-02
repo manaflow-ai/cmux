@@ -22,6 +22,10 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(vite, entry, { browser, params: { variant: "mixed" } });
+    // The copy test opens its own entry. Unwarmed, the dev server's dependency optimizer bundles
+    // what that entry's first load discovered and reloads the page about a second in: after the
+    // test has opened the tool row, so the box it hovers detaches and the row comes back closed.
+    await warmGalleryFrame(vite, "agent-pane.copy-controls", { browser, params: { variant: "output" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -100,5 +104,38 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
     console.log("tool-group overlap painted frames:", JSON.stringify(overlaps));
     await context.close();
     expect(overlaps).toEqual([]);
+  });
+  test("tool output has no floating duplicate and its copy stays clear of text", async () => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 520 } });
+    try {
+      await page.addInitScript(() => {
+        globalThis.cmuxExperiments = { "hover-actions": "all" };
+      });
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.copy-controls", { variant: "output" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const codeCopy = page.locator(".cv-codeblock").getByRole("button", { name: "Copy code", exact: true });
+      await codeCopy.waitFor();
+      const row = page.locator('[data-row-id="copy-tool"]');
+      await row.locator("button.cv-tool").click();
+      await row.locator(".cv-tool-output-card").waitFor();
+      await row.locator("button.cv-tool").focus();
+      // Output actions reveal when the output block is hovered; hovering the row header leaves them hidden.
+      await row.locator(".cv-tool-output__box").hover();
+      const capture = process.env.CMUX_COPY_CAPTURE ?? path.resolve(import.meta.dir, "../artifacts/copy-controls.jpg");
+      mkdirSync(path.dirname(capture), { recursive: true });
+      await page.screenshot({ path: capture, type: "jpeg", quality: 75 });
+      expect(await row.locator(".acpmux-row__copy").count()).toBe(0);
+      expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
+      const overlap = await row.evaluate((node) => {
+        const text = node.querySelector(".cv-tool-output")!.getBoundingClientRect();
+        const copy = node.querySelector('.cv-tool-output__actions button[aria-label="Copy"]')!.getBoundingClientRect();
+        return text.left < copy.right && text.right > copy.left && text.top < copy.bottom && text.bottom > copy.top;
+      });
+      expect(overlap).toBe(false);
+      expect(await codeCopy.count()).toBe(1);
+    } finally {
+      await page.close();
+    }
   });
 });

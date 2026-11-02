@@ -57,6 +57,15 @@ public final class LayoutModel {
     public var scrollModifier: LayoutScrollModifier {
         scrollModifierOverride ?? (followsDesignMetrics ? DesignSettings.shared.layoutScrollModifier : .command)
     }
+    /// Pins `layout.pagesHandleCommandScroll` (tests, the demo); nil follows cmux.json.
+    public var pagesHandleCommandScrollOverride: Bool?
+    /// A web page that cancels Command + wheel keeps a Command scroll that starts over it (Figma and
+    /// Excalidraw zoom with it); the layout moves the columns otherwise (cmux.json
+    /// `layout.pagesHandleCommandScroll`, `LayoutRootView+PageScroll`): the override, else the live
+    /// setting while `followsDesignMetrics` is on, else on.
+    public var pagesHandleCommandScroll: Bool {
+        pagesHandleCommandScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.pagesHandleCommandScroll : true)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -186,7 +195,7 @@ public final class LayoutModel {
     static let explicitReflowWindow: TimeInterval = 0.6
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
-    @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
+    @ObservationIgnored var widthOverrides: [ColumnID: Override] = [:]
     /// A pane whose shown content the next structural change moves into the pane it adds, until an
     /// uptime (`handOffContent(of:)`).
     @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?

@@ -32,14 +32,16 @@ struct CloudLinkReconnectingTests {
         override func stopLoading() {}
     }
 
-    /// A short temp root with a stand-in `cmux-tui`: `wg hub` reports ready, and `remote connect`
-    /// prints the link's snapshots: connected, reconnecting once `drop` exists, connected once
-    /// `back` exists; it ends once `gone` exists before `drop`. The attach answer says the
-    /// caller owns the machine.
+    /// A short temp root with a stand-in `cmux-tui`: `wg hub` takes its client token and config on
+    /// stdin (kept as `hub-token` and `hub-stdin` for the test), and `remote connect`, which must
+    /// read the same token on stdin, prints the link's snapshots: connected, reconnecting once
+    /// `drop` exists, connected once `back` exists; it ends once `gone` exists before `drop`.
+    /// The attach answer says the caller owns the machine.
     struct Fixture {
         let root: URL
         let hub: CloudTunnelHub
         let link: CloudMachineLink
+        let cloudRoot: URL
 
         init() throws {
             root = URL(fileURLWithPath: "/tmp/clr-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -49,7 +51,16 @@ struct CloudLinkReconnectingTests {
                 #!/bin/sh
                 case "$1" in
                 wg)
-                  while [ $# -gt 0 ]; do [ "$1" = --socket ] && H=$2; shift; done
+                  while [ $# -gt 0 ]; do
+                    [ "$1" = --socket ] && H=$2
+                    [ "$1" = --config ] && C=$2
+                    [ "$1" = --client-token-stdin ] && T=1
+                    shift
+                  done
+                  [ "$C" = - ] && [ -n "$T" ] || exit 40
+                  read -r token || exit 43
+                  printf '%s\\n' "$token" > '\(root.path)/hub-token'
+                  cat > '\(root.path)/hub-stdin'
                   : > "$H"
                   printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
                   exec sleep 60 ;;
@@ -57,9 +68,11 @@ struct CloudLinkReconnectingTests {
                   while [ $# -gt 0 ]; do
                     [ "$1" = --local-socket ] && S=$2
                     [ "$1" = --invite-file ] && I=$2
+                    [ "$1" = --wireguard-hub-token-stdin ] && T=1
                     shift
                   done
                   [ -n "$I" ] && grep -q 'cmux://enroll/inv_test' "$I" || exit 41
+                  [ -n "$T" ] && read -r token && [ "$token" = "$(cat '\(root.path)/hub-token')" ] || exit 42
                   : > "$S"
                   snap() { printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"%s","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S" "$1"; }
                   snap connected
@@ -76,7 +89,8 @@ struct CloudLinkReconnectingTests {
             urlSession.protocolClasses = [StandInVMAPI.self]
             let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { nil },
                                      session: URLSession(configuration: urlSession))
-            let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
+            cloudRoot = root.appendingPathComponent("cloud", isDirectory: true)
+            let paths = CloudPaths(root: cloudRoot)
             hub = CloudTunnelHub(api: api, paths: paths, binary: tui, deviceName: "cn-redial-test")
             link = CloudMachineLink(machineID: "vm-redial", api: api, hub: hub, paths: paths, binary: tui, deviceName: "cn-redial-test")
         }
@@ -130,6 +144,58 @@ struct CloudLinkReconnectingTests {
 
         fixture.mark("back")
         #expect(await fixture.waitFor { $0 == .connected } == .connected)
+        await fixture.remove()
+    }
+
+    /// A hub that ends and starts again gets the same client token and WireGuard key (both live
+    /// for the app launch), so a link that already holds the token keeps working through the
+    /// restart instead of redialing into a refusal.
+    @Test func aRestartedHubKeepsTheTokenItsLinksHold() async throws {
+        let fixture = try Fixture()
+        let first = try await fixture.hub.endpoint()
+        let firstConfig = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
+        await fixture.hub.stop()
+        let second = try await fixture.hub.endpoint()
+        let secondConfig = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
+        #expect(first.clientToken == second.clientToken)
+        #expect(firstConfig == secondConfig, "the per-launch WireGuard key survives a hub restart")
+        #expect(!String(describing: second).contains(second.clientToken), "a description never shows the token")
+        await fixture.remove()
+    }
+
+    /// The hub's config carries this Mac's WireGuard private key: it reaches the hub on stdin and
+    /// never lands in a file, and an earlier build's config file is removed. The hub's client
+    /// token reaches the link on stdin (the stand-in exits 42 otherwise) and is never written.
+    @Test func theHubConfigAndTokenTravelOnStdinNeverOnDisk() async throws {
+        let fixture = try Fixture()
+        try FileManager.default.createDirectory(at: fixture.cloudRoot, withIntermediateDirectories: true)
+        let legacy = fixture.cloudRoot.appendingPathComponent("wireguard.conf")
+        try "PrivateKey = old\n".write(to: legacy, atomically: true, encoding: .utf8)
+        let legacyKey = fixture.cloudRoot.appendingPathComponent("wireguard.private.key")
+        let oldKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+        try (oldKey + "\n").write(to: legacyKey, atomically: true, encoding: .utf8)
+
+        _ = try await fixture.link.socketPath()
+        let hubInput = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
+        let keyLine = hubInput.split(separator: "\n").first { $0.hasPrefix("PrivateKey = ") }
+        let privateKey = try #require(keyLine)
+        let key = String(privateKey.dropFirst("PrivateKey = ".count))
+        #expect(!key.isEmpty)
+        #expect(key != oldKey, "an earlier build's key file is never reused: each launch makes its own key")
+        let token = try String(contentsOf: fixture.root.appendingPathComponent("hub-token"), encoding: .utf8)
+            .trimmingCharacters(in: .newlines)
+        #expect(token.count == 64, "a 32-byte token, hex")
+        #expect(!FileManager.default.fileExists(atPath: legacy.path), "an earlier build's config file is removed")
+        #expect(!FileManager.default.fileExists(atPath: legacyKey.path), "an earlier build's key file is removed")
+
+        let files = FileManager.default.enumerator(at: fixture.cloudRoot, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []
+        for file in files {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            #expect(!text.contains("[Interface]"), "\(file.lastPathComponent) holds a WireGuard config")
+            #expect(!text.contains(token), "\(file.lastPathComponent) holds the hub's client token")
+            #expect(!text.contains(key), "\(file.lastPathComponent) holds the WireGuard private key")
+        }
         await fixture.remove()
     }
 

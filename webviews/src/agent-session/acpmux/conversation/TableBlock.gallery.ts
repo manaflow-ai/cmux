@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A reply's Markdown table (TableBlock.tsx): columns as wide as their text, an empty top-left
-// corner labeling the rows, and Open and Copy over its corner on hover.
+// corner labeling the rows, and Open and Copy aligned at its top-right corner on hover.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -48,7 +48,7 @@ export default agentPaneEntry({
       snapshot,
     },
     hover: {
-      note: "Hovering a table shows Open and Copy just right of its header row.",
+      note: "Hovering a table shows same-size Open and Copy controls on one centered line at its top-right corner.",
       snapshot: chat([
         user("How many tooltips are left?", 5),
         assistant(audit, 4.9),
@@ -59,7 +59,7 @@ export default agentPaneEntry({
       },
     },
     "first-block": {
-      note: "A reply that opens with a wide table: Open and Copy sit right of its header row, uncut.",
+      note: "A reply that opens with a wide table: the top-right Open and Copy pair stays aligned while the table scrolls.",
       snapshot: chat([
         user("CI times?", 2),
         assistant(wide, 1.9),

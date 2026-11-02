@@ -150,6 +150,10 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 260,
   variants: {
+    "grid-pending": {
+      note: "Grid measurement: pending permission without a play that answers it.",
+      props: { permission: shortRule, harness: "claude" },
+    },
     "long-rule": {
       note: "Leo 2026-10-25: a long Claude session rule. Compact buttons sized to their labels, grouped at the leading edge, each with a light ⌥⌘ hint; the rule is one muted line under them, cut, whole on hover.",
       props: { permission: longRule, harness: "claude" },

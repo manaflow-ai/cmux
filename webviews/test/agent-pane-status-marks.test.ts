@@ -103,8 +103,13 @@ await requireBrowserLane("agent-pane-status-marks.test.ts", async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=open`);
-      await page.locator(".acpmux-home-title", { hasText: "Asks a question" }).waitFor();
-      expect(await page.locator(".acpmux-home-title").allInnerTexts()).toEqual(["Asks a question"]);
+      // The home's waiting list is the inbox (66f0a85e43f0, #25325): a row per ask, naming its chat.
+      const rows = page.locator(".acpmux-home-inbox-row");
+      await rows.filter({ hasText: "Asks a question" }).waitFor();
+      // The stranded chat's ask waits on nobody: its machine is unreachable (indicator `lost`).
+      const listed = await rows.locator(".acpmux-home-inbox-where").allInnerTexts();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toContain("Asks a question");
       await page.close();
     });
   });

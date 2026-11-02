@@ -41,6 +41,9 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var sections: [AppImplementation] { implementations.filter(\.isSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
+    /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
+    /// deployed instance (docs/app-store-platonic-ideal.md 7).
+    public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }
 
     /// Reads a manifest object; nil when it has no id.
     public init?(json: AppJSON) {

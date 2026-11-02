@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
@@ -37,6 +38,8 @@ final class HomeService {
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
+    /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
+    @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.
@@ -111,6 +114,8 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
+    @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
@@ -166,16 +171,27 @@ final class HomeService {
             guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body, team: team)
         },
+        activeTeam: { [weak self] in self?.activeWorkerTeam },
         me: { [weak self] in
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
+    var activeWorkerTeam: String? {
+        let auth = services.cloud.auth
+        guard auth.isSignedIn, let team = auth.activeTeam.id else { return nil }
+        return CloudIdentity.workerTeamID(stackProjectID: auth.configuration.stackProjectID, stackTeamID: team)
+    }
     /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
     /// as every Home list, so a mute from the palette or the CLI reaches the row's owner.
     @ObservationIgnored private(set) lazy var groupMuting = makeSidebarSource()
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
+    @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
+    /// The Chat Colors… panel (one for the app).
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
@@ -227,6 +243,14 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeFeedRows()
+        // The active team behind the list's teammate rows and New Message's To:, read again once
+        // the launch restore signs in, on another account, on another active team, and when the
+        // account's teams change.
+        directory.follow { [weak auth] in
+            guard let auth, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return user + "|" + (auth.activeTeam.id ?? "") + "|" + auth.activeTeam.teams.map(\.id).sorted().joined(separator: ",")
+        }
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()

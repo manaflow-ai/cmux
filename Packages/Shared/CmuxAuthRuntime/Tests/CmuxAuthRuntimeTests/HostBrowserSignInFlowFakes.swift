@@ -118,15 +118,43 @@ actor FlowFakeAuthClient: AuthClient {
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }
 
-/// In-memory ``StackAuthTokenStoreProtocol`` fake.
+/// In-memory ``StackAuthTokenStoreProtocol`` fake, with a one-shot gate on
+/// `setTokens` so tests can park a callback while it seeds its tokens.
 actor FlowInMemoryTokenStore: StackAuthTokenStoreProtocol {
     private var accessToken: String?
     private var refreshToken: String?
+    private var setTokensGateArmed = false
+    private var setTokensParked: [CheckedContinuation<Void, Never>] = []
+    private var setTokensParkWaiters: [CheckedContinuation<Void, Never>] = []
 
     func getStoredAccessToken() async -> String? { accessToken }
     func getStoredRefreshToken() async -> String? { refreshToken }
 
+    /// Parks the next `setTokens` call until ``releaseSetTokensGate()``.
+    func armSetTokensGate() { setTokensGateArmed = true }
+
+    /// Suspends until a `setTokens` call is parked on the armed gate.
+    func setTokensDidPark() async {
+        if !setTokensParked.isEmpty { return }
+        await withCheckedContinuation { setTokensParkWaiters.append($0) }
+    }
+
+    func releaseSetTokensGate() {
+        let parked = setTokensParked
+        setTokensParked = []
+        for continuation in parked { continuation.resume() }
+    }
+
     func setTokens(accessToken: String?, refreshToken: String?) async {
+        if setTokensGateArmed {
+            setTokensGateArmed = false
+            await withCheckedContinuation { continuation in
+                setTokensParked.append(continuation)
+                let waiters = setTokensParkWaiters
+                setTokensParkWaiters = []
+                for waiter in waiters { waiter.resume() }
+            }
+        }
         self.accessToken = accessToken
         self.refreshToken = refreshToken
     }

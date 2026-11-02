@@ -160,10 +160,6 @@
   row-gap: 2px;
 }
 
-.pw-row:hover {
-  background: var(--page-hover);
-}
-
 .pw-site .pw-row {
   padding-left: 38px;
 }

@@ -3,7 +3,7 @@
 // card with its stacked bar and Details link. Both use the shared glass hover card (.ui-card.ui-glass).
 import "./contextCard.css";
 import { useT } from "./i18n";
-import { contextBreakdown, type Breakdown, type BreakdownRow } from "./inspector/ContextSection";
+import { contextBreakdown, type Breakdown, type BreakdownRow } from "./session-info/ContextSection";
 
 /// One stretch of the stacked bar, as a share of the whole window (0-100).
 export type ContextSegment = {
@@ -35,26 +35,27 @@ export function contextSegments(used: number, size: number, setup?: number): Con
     });
 }
 
-type CompactBreakdownRow = { name: string; tokens: number; share: number; tone: number };
+/// `group`: one of the card's three headline groups, which the card names in the pane's language;
+/// a row without one is the harness's own category, drawn under the name it reported.
+type CompactGroup = "messages" | "tools" | "system";
+type CompactBreakdownRow = { name: string; group?: CompactGroup; tokens: number; share: number; tone: number };
 
 /**
- * Pick the three useful headline categories for the small composer card. The Inspector keeps the
+ * Pick the three useful headline categories for the small composer card. Session Info keeps the
  * complete `/context` report; the card only needs enough signal to answer what is using the window.
  */
 export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[] {
   const used = breakdown.rows.filter((row) => row.kind === "used");
-  const grouped: Array<{ name: string; rows: BreakdownRow[] }> = [
-    { name: "Messages", rows: used.filter((row) => /message/i.test(row.name)) },
-    { name: "Tools", rows: used.filter((row) => /tool/i.test(row.name)) },
-    {
-      name: "System",
-      rows: used.filter((row) => !/message|tool/i.test(row.name)),
-    },
+  const grouped: Array<{ group: CompactGroup; rows: BreakdownRow[] }> = [
+    { group: "messages", rows: used.filter((row) => /message/i.test(row.name)) },
+    { group: "tools", rows: used.filter((row) => /tool/i.test(row.name)) },
+    { group: "system", rows: used.filter((row) => !/message|tool/i.test(row.name)) },
   ];
   const rows = grouped
     .filter((group) => group.rows.length > 0)
     .map((group, tone) => ({
-      name: group.name,
+      name: group.group,
+      group: group.group,
       tokens: group.rows.reduce((sum, row) => sum + row.tokens, 0),
       share: group.rows.reduce((sum, row) => sum + (row.share ?? 0), 0),
       tone,
@@ -71,16 +72,12 @@ export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[
 export function ContextCardBody({
   used,
   size,
-  working,
-  onCompact,
   onOpenDetails,
   breakdown: reported,
 }: {
   used: number;
   size: number;
   setup?: number;
-  working: boolean;
-  onCompact?(): void;
   onOpenDetails?(): void;
   breakdown?: unknown;
 }) {
@@ -94,49 +91,63 @@ export function ContextCardBody({
   const compactRows = breakdown ? compactBreakdownRows(breakdown) : [];
   return (
     <>
-      <div className="acpmux-context-card-title">{t("context.title")}</div>
-      <div className="acpmux-context-card-line">
-        <span className="acpmux-context-card-compact-tokens">
-          {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        </span>
+      {/* The summary sits on the card's text inset; Details below runs edge to edge (contextCard.css). */}
+      <div className="acpmux-context-card-body">
+        <div className="acpmux-context-card-title">{t("context.title")}</div>
+        <div className="acpmux-context-card-line">
+          <span className="acpmux-context-card-compact-tokens">
+            {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          </span>
+        </div>
+        <progress
+          className="acpmux-context-card-bar"
+          aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          value={percent}
+          max={100}
+        />
+        {compactRows.length > 0 && (
+          <ul className="acpmux-context-card-parts">
+            {compactRows.map((row) => (
+              <li className="acpmux-context-card-part" key={row.name}>
+                <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
+                <span>
+                  {row.group === "messages"
+                    ? t("context.messages")
+                    : row.group === "tools"
+                      ? t("sessionInfo.context.mcpTools")
+                      : row.group === "system"
+                        ? t("context.setup")
+                        : row.name}
+                </span>
+                <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      <progress
-        className="acpmux-context-card-bar"
-        aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        value={percent}
-        max={100}
-      />
-      {compactRows.length > 0 && (
-        <ul className="acpmux-context-card-parts">
-          {compactRows.map((row) => (
-            <li className="acpmux-context-card-part" key={row.name}>
-              <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
-              <span>
-                {row.name === "Tools"
-                  ? t("chatInspector.context.mcpTools")
-                  : row.name === "System"
-                    ? t("context.setup")
-                    : row.name}
-              </span>
-              <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {(onCompact || onOpenDetails) && (
+      {onOpenDetails && (
         <div className="acpmux-context-card-foot">
-          {onCompact && (
-            <button type="button" className="acpmux-context-card-compact" disabled={working} onClick={onCompact}>
-              {t("context.compact")}
-            </button>
-          )}
-          {onOpenDetails && (
-            <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
-              {t("context.details")}
-              <span aria-hidden="true">›</span>
-            </button>
-          )}
+          <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
+            {t("context.details")}
+            {/* The composer's chevron-right path (ComposerPickers ChevronRightIcon), drawn as an icon so
+                its box, not a font's › glyph, centres on the label. */}
+            <svg
+              className="acpmux-context-card-details-chevron"
+              width={14}
+              height={14}
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
+            </svg>
+          </button>
         </div>
       )}
     </>
