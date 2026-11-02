@@ -34,7 +34,8 @@ pub struct Member {
     pub activity: Activity,
     /// Unread items (a dot counts as one); below zero counts as zero.
     pub unread: i64,
-    /// When the member last changed, seconds since 1970; none when unknown.
+    /// When the member last changed, in seconds since the epoch `now` uses (the app
+    /// sends Foundation's reference date); none when unknown.
     pub last_activity: Option<f64>,
     pub branch: Option<String>,
     /// Listening ports as the member reports them (":3000, :5173").
@@ -116,7 +117,7 @@ pub struct Request {
     pub members: Vec<Member>,
     pub sections: Vec<Section>,
     pub max_members: i64,
-    /// Seconds since 1970.
+    /// Now, in seconds since the same epoch as `Member::last_activity`.
     pub now: f64,
 }
 

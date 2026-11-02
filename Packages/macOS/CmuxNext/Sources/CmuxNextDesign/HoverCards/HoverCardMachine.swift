@@ -1,9 +1,14 @@
+import CCmuxMotionFFI
 public import Foundation
 public import CmuxNextDesignTokens
 
 /// The hover card state machine (plans/cmux-next/hovercards.md). One per
-/// app: there is one phase, so at most one card is pending or shown.
-/// Pure: the coordinator feeds it events and runs its effects.
+/// app: there is one phase, so at most one card is pending or shown. The rule
+/// is cmux-motion's (`hover::HoverCardMachine`: phases, delays, aiming,
+/// bridging, pins, an owner's card), called in process per event through
+/// `cmux_hover_card_reduce`; this value keeps the rule's state as the C
+/// struct and maps each target id to the 64-bit handle the rule sees. The
+/// coordinator feeds it events and runs its effects.
 public nonisolated struct HoverCardMachine: Hashable, Sendable {
     public enum Phase: Hashable, Sendable {
         case idle
@@ -16,56 +21,93 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         /// its lifetime (`token`) ends it.
         case pinned(HoverTarget, token: Int)
         /// The card still shows `target`, but the pointer left every target,
-        /// or heads into the card across another one (the safe triangle);
-        /// another target before `token` fires slides the card over (no fade
-        /// gap crossing a header or a gap between rows), else it hides. A
-        /// pointer resting on the card keeps it.
+        /// or heads into the card across another one (the safe triangle).
         case leaving(HoverTarget, token: Int)
-        /// A card just hid; a hover before `token` fires shows at once
-        /// (quick reshow).
+        /// A card just hid; a hover before `token` fires shows at once.
         case grace(token: Int)
     }
 
-    public private(set) var phase: Phase = .idle
-    /// Active suppressions; no card is pending or shown while any lasts.
-    public private(set) var suppressions: Set<HoverSuppression> = []
-    /// What the last hit test found under the pointer.
-    public private(set) var lastHit: HoverTarget?
-    /// After a dismissal or suppression, a still pointer starts no card on
-    /// the target it is already on; a pointer move clears it.
-    public private(set) var quiet = false
-    /// The next timer token; every token is used once.
-    public private(set) var nextToken = 1
-    /// How long after a card hides a new hover shows at once.
-    public var reshowWindow: Duration
-    /// How long a pinned card stays without a dismissal.
-    public var pinLifetime: Duration
-    /// How long a card stays after the pointer leaves every target and the
-    /// card (`HoverIntentTiming.cardGrace`).
-    public var leaveWindow: Duration
-    /// How long a pointer heading into the shown card may pause on another
-    /// target it crosses before that target takes the card over
-    /// (`HoverIntentTiming.cardAim`).
-    public var aimWindow: Duration
-    /// The pointer rests on the shown card (the coordinator says so before each deadline).
-    public private(set) var pointerOnCard = false
-    /// A card its owner shows has the one card window (`HoverCardEvent.owned`).
-    public private(set) var ownedCardShown = false
-    /// The last deadline found the pointer on the card: when it leaves, the full grace starts then.
-    private var wasOnCard = false
-    /// How long a target with no delay waits when it arrives under a still
-    /// pointer (a scroll, rows reflowing): only a moving pointer gets the
-    /// instant card, so content passing under it flashes none.
-    public var stillPointerDelay: Duration
+    private var state = CmuxHoverCardMachine()
+    /// The handle of each target id the state may still name, and back.
+    private var handles: [HoverTargetID: UInt64] = [:]
+    private var ids: [UInt64: HoverTargetID] = [:]
+    private var nextHandle: UInt64 = 1
 
-    public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
+    public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = HoverCardTiming.pinLifetime,
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
-                stillPointerDelay: Duration = .milliseconds(300)) {
-        self.reshowWindow = reshowWindow
-        self.pinLifetime = pinLifetime
-        self.leaveWindow = leaveWindow
-        self.aimWindow = aimWindow
-        self.stillPointerDelay = stillPointerDelay
+                stillPointerDelay: Duration = HoverCardTiming.stillPointerDelay) {
+        _ = cmux_hover_card_machine_init(&state)
+        state.reshow_window = reshowWindow.hoverNanoseconds
+        state.pin_lifetime = pinLifetime.hoverNanoseconds
+        state.leave_window = leaveWindow.hoverNanoseconds
+        state.aim_window = aimWindow.hoverNanoseconds
+        state.still_pointer_delay = stillPointerDelay.hoverNanoseconds
+    }
+
+    // MARK: State
+
+    /// The rule's phase (`state.phase`: 0 idle, 1 pending, 2 shown, 3 pinned, 4 leaving, 5 grace).
+    public var phase: Phase {
+        let token = Int(truncatingIfNeeded: state.token)
+        let held = target(state.target)
+        switch state.phase {
+        case 1: return held.map { .pending($0, token: token) } ?? .idle
+        case 2: return held.map { .shown($0) } ?? .idle
+        case 3: return held.map { .pinned($0, token: token) } ?? .idle
+        case 4: return held.map { .leaving($0, token: token) } ?? .idle
+        case 5: return .grace(token: token)
+        default: return .idle
+        }
+    }
+
+    /// Active suppressions; no card is pending or shown while any lasts.
+    public var suppressions: Set<HoverSuppression> {
+        Set(Self.suppressionOrder.enumerated().filter { state.suppressions & (1 << $0.offset) != 0 }.map(\.element))
+    }
+
+    /// What the last hit test found under the pointer.
+    public var lastHit: HoverTarget? { state.has_last_hit ? target(state.last_hit) : nil }
+    /// After a dismissal or suppression, a still pointer starts no card on the target it is
+    /// already on; a pointer move clears it.
+    public var quiet: Bool { state.quiet }
+    /// The next timer token; every token is used once.
+    public var nextToken: Int { Int(truncatingIfNeeded: state.next_token) }
+    /// The pointer rests on the shown card (the coordinator says so before each deadline).
+    public var pointerOnCard: Bool { state.pointer_on_card }
+    /// A card its owner shows has the one card window (`HoverCardEvent.owned`).
+    public var ownedCardShown: Bool { state.owned_card_shown }
+
+    /// How long after a card hides a new hover shows at once.
+    public var reshowWindow: Duration {
+        get { Duration(hoverNanoseconds: state.reshow_window) }
+        set { state.reshow_window = newValue.hoverNanoseconds }
+    }
+
+    /// How long a pinned card stays without a dismissal.
+    public var pinLifetime: Duration {
+        get { Duration(hoverNanoseconds: state.pin_lifetime) }
+        set { state.pin_lifetime = newValue.hoverNanoseconds }
+    }
+
+    /// How long a card stays after the pointer leaves every target and the card
+    /// (`HoverIntentTiming.cardGrace`).
+    public var leaveWindow: Duration {
+        get { Duration(hoverNanoseconds: state.leave_window) }
+        set { state.leave_window = newValue.hoverNanoseconds }
+    }
+
+    /// How long a pointer heading into the shown card may pause on another target it crosses
+    /// before that target takes the card over (`HoverIntentTiming.cardAim`).
+    public var aimWindow: Duration {
+        get { Duration(hoverNanoseconds: state.aim_window) }
+        set { state.aim_window = newValue.hoverNanoseconds }
+    }
+
+    /// How long a target with no delay waits when it arrives under a still pointer (a scroll,
+    /// rows reflowing): only a moving pointer gets the instant card.
+    public var stillPointerDelay: Duration {
+        get { Duration(hoverNanoseconds: state.still_pointer_delay) }
+        set { state.still_pointer_delay = newValue.hoverNanoseconds }
     }
 
     /// The target whose card is pending or shown.
@@ -92,253 +134,131 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         }
     }
 
+    // MARK: Events
+
+    /// Applies one event in the Rust rule and returns what the coordinator does, in order.
     public mutating func reduce(_ event: HoverCardEvent) -> [HoverCardEffect] {
-        switch event {
-        case .hit(let target, let moved, let aiming, let bridging):
-            return hit(target, moved: moved, aiming: aiming, bridging: bridging)
-        case .pointerOnCard(let on):
-            pointerOnCard = on
-            return []
-        case .deadline(let token):
-            switch phase {
-            case .pending(let target, let armed) where armed == token:
-                phase = .shown(target)
-                return [.show(target, sliding: false)]
-            case .grace(let armed) where armed == token:
-                phase = .idle
-                return []
-            case .leaving(let shown, let armed) where armed == token:
-                // The pointer rests on the card: it stays, and looks again
-                // after the grace. Just off it: the full grace starts now. A
-                // card that hides on leave stays only while the pointer is on
-                // it (it touches its tab, Lawrence 2026-10-19), and looks again
-                // after its reshow window.
-                let hides = shown.leave.hidesAtOnce
-                if pointerOnCard || (!hides && wasOnCard) {
-                    wasOnCard = pointerOnCard
-                    let again = takeToken()
-                    phase = .leaving(shown, token: again)
-                    let after = if case .hides(let reshow) = shown.leave { reshow } else { leaveWindow }
-                    return [.schedule(token: again, after: after)]
-                }
-                // The pointer stopped aiming on another target: it takes the card over.
-                if suppressions.isEmpty, let target = lastHit, target.id != shown.id {
-                    phase = .shown(target)
-                    return [.show(target, sliding: true)]
-                }
-                // No target took the card over: it hides, and a quick
-                // return still shows at once.
-                let grace = takeToken()
-                phase = .grace(token: grace)
-                let reshow = if case .hides(let reshow) = shown.leave { reshow } else { reshowWindow }
-                return [.hide, .schedule(token: grace, after: reshow)]
-            case .pinned(let target, let armed) where armed == token:
-                // The pinned card's lifetime ended (its timer is spent). With
-                // the pointer still on its target it stays as a hover card.
-                if suppressions.isEmpty, lastHit?.id == target.id {
-                    phase = .shown(lastHit ?? target)
-                    return []
-                }
-                phase = .idle
-                return [.hide] + resume()
-            default:
-                // A stale token (its state was left before it fired) does nothing.
-                return []
-            }
-        case .dismiss:
-            quiet = true
-            return end()
-        case .suppress(let reason):
-            suppressions.insert(reason)
-            quiet = true
-            return end()
-        case .unsuppress(let reason):
-            suppressions.remove(reason)
-            // A pointer that moved during the drag or scroll gets its card.
-            return resume()
-        case .targetRemoved(let id):
-            if lastHit?.id == id { lastHit = nil }
-            guard activeTarget?.id == id else { return [] }
-            return end() + resume()
-        case .owned(let shown):
-            ownedCardShown = shown
-            guard shown else { return [] }
-            // The owner's card takes the window: no card of a target is pending or shown, and
-            // nothing hides (the window morphs to the owner's content).
-            quiet = false
-            let hadTimer = armedToken != nil
-            phase = .idle
-            return hadTimer ? [.cancelTimer] : []
-        case .pin(let target):
-            // No card during a drag or scroll, pinned or not.
-            guard suppressions.isEmpty else { return [] }
-            quiet = false
-            let wasShown = shownTarget != nil
-            let token = takeToken()
-            phase = .pinned(target, token: token)
-            return [.schedule(token: token, after: pinLifetime), .show(target, sliding: wasShown)]
+        var raw = cEvent(event)
+        var buffer = (CmuxHoverCardEffect(), CmuxHoverCardEffect(), CmuxHoverCardEffect())
+        var count = 0
+        // One event yields at most 3 effects (cmux-motion `MAX_EFFECTS_PER_EVENT`).
+        withUnsafeMutableBytes(of: &buffer) { bytes in
+            _ = cmux_hover_card_reduce(&state, &raw, 1, bytes.baseAddress?.assumingMemoryBound(to: CmuxHoverCardEffect.self), 3, &count)
         }
-    }
-
-    private mutating func hit(_ target: HoverTarget?, moved: Bool, aiming: Bool, bridging: Bool = false) -> [HoverCardEffect] {
-        let previous = lastHit
-        lastHit = target
-        if target != nil { wasOnCard = false }
-        // Quiet covers only the target the pointer already rested on: another
-        // target arriving under it ends it, and so does a pointer move, except
-        // on a target whose card hides on leave (a browser's tab preview: a
-        // click or Esc lasts until the pointer leaves the tab).
-        if target?.id != previous?.id || (moved && target?.leave.hidesAtOnce != true) { quiet = false }
-        if !suppressions.isEmpty {
-            return phase == .idle ? [] : end()
+        let effects = [buffer.0, buffer.1, buffer.2].prefix(count).compactMap { (effect: CmuxHoverCardEffect) -> HoverCardEffect? in
+            switch effect.kind {
+            case 0: .schedule(token: Int(truncatingIfNeeded: effect.token), after: Duration(hoverNanoseconds: effect.after))
+            case 1: .cancelTimer
+            case 2: target(effect.target).map { .show($0, sliding: effect.sliding) }
+            case 3: .hide
+            default: nil
+            }
         }
-        // A still pointer after a dismissal starts nothing on the target it
-        // was already on; a different target moving under it may.
-        if quiet, target?.id == previous?.id {
-            if let shown = shownTarget, shown.id == target?.id { return [] }
-            return phase == .idle ? [] : end()
-        }
-        switch phase {
-        case .idle:
-            guard let target else { return [] }
-            // The owner's card shows: the next target takes the one card at once (it morphs).
-            if ownedCardShown {
-                phase = .shown(target)
-                return [.show(target, sliding: true)]
-            }
-            return arm(target, moved: moved)
-        case .pending(let pending, _):
-            guard let target else { return end() }
-            if target.id == pending.id { return [] }
-            return arm(target, moved: moved)
-        case .grace:
-            guard let target else { return [] }
-            phase = .shown(target)
-            return [.cancelTimer, .show(target, sliding: false)]
-        case .shown(let shown):
-            if case .hides(let reshow) = shown.leave, target?.id != shown.id {
-                guard let target else {
-                    if bridging {
-                        // Between targets: the card stays for the reshow window, and the
-                        // next target slides it over (no hide and show crossing a gap).
-                        let token = takeToken()
-                        phase = .leaving(shown, token: token)
-                        return [.schedule(token: token, after: reshow)]
-                    }
-                    let grace = takeToken()
-                    phase = .grace(token: grace)
-                    return [.hide, .schedule(token: grace, after: reshow)]
-                }
-                if aiming {
-                    // Heading into a card beside its row across another row (the safe
-                    // triangle): that row takes the card only if the pointer stops on it
-                    // (Leo 2026-11-01: "for my mouse to be able to reliably go across them").
-                    let token = takeToken()
-                    phase = .leaving(shown, token: token)
-                    return [.schedule(token: token, after: aimWindow)]
-                }
-                // Otherwise it swaps at once.
-                phase = .shown(target)
-                return [.show(target, sliding: true)]
-            }
-            guard let target else {
-                let token = takeToken()
-                phase = .leaving(shown, token: token)
-                return [.schedule(token: token, after: aiming ? aimWindow : leaveWindow)]
-            }
-            if target.id == shown.id {
-                // The target moved or resized: the coordinator moves the card.
-                phase = .shown(target)
-                return []
-            }
-            if aiming {
-                // Heading into the card across another target: that target
-                // takes the card over only if the pointer stops on it.
-                let token = takeToken()
-                phase = .leaving(shown, token: token)
-                return [.schedule(token: token, after: aimWindow)]
-            }
-            phase = .shown(target)
-            return [.show(target, sliding: true)]
-        case .leaving(let shown, _):
-            if case .hides(let reshow) = shown.leave {
-                guard let target else {
-                    // Still between targets or on the card: the window runs on.
-                    // Off them and off the card: it hides now.
-                    if bridging { return [] }
-                    let grace = takeToken()
-                    phase = .grace(token: grace)
-                    return [.hide, .schedule(token: grace, after: reshow)]
-                }
-                if aiming, target.id != shown.id {
-                    // Still heading into the card: the aim restarts.
-                    let token = takeToken()
-                    phase = .leaving(shown, token: token)
-                    return [.schedule(token: token, after: aimWindow)]
-                }
-                phase = .shown(target)
-                return target.id == shown.id ? [.cancelTimer] : [.cancelTimer, .show(target, sliding: true)]
-            }
-            if aiming, target?.id != shown.id {
-                // Still heading for the card: the aim restarts.
-                let token = takeToken()
-                phase = .leaving(shown, token: token)
-                return [.schedule(token: token, after: aimWindow)]
-            }
-            guard let target else { return [] }
-            phase = .shown(target)
-            return target.id == shown.id ? [.cancelTimer] : [.cancelTimer, .show(target, sliding: true)]
-        case .pinned(let shown, let token):
-            // The pointer leaving keeps a pinned card, and so does content
-            // moving under a still pointer; a pointer that moves onto
-            // another target takes over.
-            guard let target else { return [] }
-            if target.id == shown.id {
-                phase = .pinned(target, token: token)
-                return []
-            }
-            guard moved else { return [] }
-            phase = .shown(target)
-            return [.cancelTimer, .show(target, sliding: true)]
-        }
-    }
-
-    /// From idle, with the pointer resting on a target and nothing keeping
-    /// cards away, that target's card starts again (after a pinned card of
-    /// another target ended).
-    private mutating func resume() -> [HoverCardEffect] {
-        guard phase == .idle, suppressions.isEmpty, !quiet, let target = lastHit else { return [] }
-        return arm(target, moved: false)
-    }
-
-    private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
-        // A target with no delay: a moving pointer's card shows on this
-        // hit; content moving under a still pointer waits a moment. Targets
-        // with a delay (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default) wait it.
-        if target.delay <= .zero, moved {
-            let hadTimer = armedToken != nil
-            phase = .shown(target)
-            return (hadTimer ? [.cancelTimer] : []) + [.show(target, sliding: false)]
-        }
-        let token = takeToken()
-        phase = .pending(target, token: token)
-        return [.schedule(token: token, after: target.delay > .zero ? target.delay : stillPointerDelay)]
-    }
-
-    /// Back to idle: cancels the timer and hides a shown card.
-    private mutating func end() -> [HoverCardEffect] {
-        wasOnCard = false
-        let wasShown = shownTarget != nil
-        let hadTimer = armedToken != nil
-        phase = .idle
-        var effects: [HoverCardEffect] = []
-        if hadTimer { effects.append(.cancelTimer) }
-        if wasShown { effects.append(.hide) }
+        prune()
         return effects
     }
 
-    private mutating func takeToken() -> Int {
-        defer { nextToken += 1 }
-        return nextToken
+    // MARK: The C forms
+
+    /// `HoverSuppression` in the rule's bit order (bit 0 drag, 1 scroll, 2 sidebarHide).
+    private static let suppressionOrder: [HoverSuppression] = [.drag, .scroll, .sidebarHide]
+
+    private mutating func cEvent(_ event: HoverCardEvent) -> CmuxHoverCardEvent {
+        var raw = CmuxHoverCardEvent()
+        switch event {
+        case .hit(let target, let moved, let aiming, let bridging):
+            raw.kind = 0
+            raw.flag = target != nil
+            if let target { raw.target = cTarget(target) }
+            raw.moved = moved
+            raw.aiming = aiming
+            raw.bridging = bridging
+        case .pointerOnCard(let on):
+            raw.kind = 1
+            raw.flag = on
+        case .deadline(let token):
+            raw.kind = 2
+            raw.token = UInt64(truncatingIfNeeded: token)
+        case .dismiss:
+            raw.kind = 3
+        case .suppress(let reason):
+            raw.kind = 4
+            raw.suppression = Self.bit(reason)
+        case .unsuppress(let reason):
+            raw.kind = 5
+            raw.suppression = Self.bit(reason)
+        case .targetRemoved(let id):
+            raw.kind = 6
+            // An id with no handle is neither the last hit nor the active target: handle 0 matches none.
+            raw.target.id = handles[id] ?? 0
+        case .pin(let target):
+            raw.kind = 7
+            raw.target = cTarget(target)
+        case .owned(let shown):
+            raw.kind = 8
+            raw.flag = shown
+        }
+        return raw
+    }
+
+    private static func bit(_ reason: HoverSuppression) -> UInt8 {
+        UInt8(suppressionOrder.firstIndex(of: reason) ?? 0)
+    }
+
+    private mutating func cTarget(_ target: HoverTarget) -> CmuxHoverTarget {
+        var raw = CmuxHoverTarget()
+        raw.id = handle(target.id)
+        raw.window = Int64(truncatingIfNeeded: target.window)
+        raw.delay = target.delay.hoverNanoseconds
+        if case .hides(let reshow) = target.leave {
+            raw.leave = 1
+            raw.reshow = reshow.hoverNanoseconds
+        }
+        return raw
+    }
+
+    private func target(_ raw: CmuxHoverTarget) -> HoverTarget? {
+        guard let id = ids[raw.id] else { return nil }
+        let leave: HoverCardLeave = raw.leave == 1 ? .hides(reshow: Duration(hoverNanoseconds: raw.reshow)) : .lingers
+        return HoverTarget(id: id, window: Int(truncatingIfNeeded: raw.window), delay: Duration(hoverNanoseconds: raw.delay), leave: leave)
+    }
+
+    private mutating func handle(_ id: HoverTargetID) -> UInt64 {
+        if let known = handles[id] { return known }
+        let fresh = nextHandle
+        nextHandle &+= 1
+        handles[id] = fresh
+        ids[fresh] = id
+        return fresh
+    }
+
+    /// Keeps only the handles the state names (its phase's target and the last hit): the rule
+    /// compares a new target only with those, so a dropped id gets a fresh handle when it returns.
+    private mutating func prune() {
+        let phaseHolds = (1...4).contains(state.phase)
+        let keep = Set([phaseHolds ? state.target.id : nil, state.has_last_hit ? state.last_hit.id : nil].compactMap(\.self))
+        guard ids.count > keep.count else { return }
+        ids = ids.filter { keep.contains($0.key) }
+        handles = handles.filter { keep.contains($0.value) }
+    }
+
+    // MARK: Hashable (the state as Swift reads it)
+
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
+    public func hash(into hasher: inout Hasher) { hasher.combine(snapshot) }
+
+    private struct Snapshot: Hashable {
+        var phase: Phase
+        var suppressions: Set<HoverSuppression>
+        var lastHit: HoverTarget?
+        var quiet, pointerOnCard, ownedCardShown, wasOnCard: Bool
+        var nextToken: Int
+        var windows: [Duration]
+    }
+
+    private var snapshot: Snapshot {
+        Snapshot(phase: phase, suppressions: suppressions, lastHit: lastHit, quiet: quiet, pointerOnCard: pointerOnCard,
+                 ownedCardShown: ownedCardShown, wasOnCard: state.was_on_card, nextToken: nextToken,
+                 windows: [reshowWindow, pinLifetime, leaveWindow, aimWindow, stillPointerDelay])
     }
 }

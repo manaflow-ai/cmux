@@ -1,24 +1,15 @@
+package import CCmuxMotionFFI
 public import Foundation
 
 /// The app's one hover-intent policy (Leo, 2026-10-14: tooltips and hover
 /// cards appeared at once everywhere). Tooltips wait before the first one
 /// shows, then a neighbor's shows at once while the group is warm; hover
-/// cards wait longer, stay while the pointer heads into them, and linger a
-/// moment after it leaves. The native sidebar row and tab cards wait
-/// the default delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
-/// Pages use the same numbers
-/// (webviews/src/ui/hoverIntent.ts, `HOVER_INTENT`; a web test reads this
-/// file and fails when they drift).
-///
-/// Apple's numbers: AppKit's tooltip waits `NSInitialToolTipDelay`
-/// (milliseconds; about 1000 ms at the default setting), and once one
-/// shows, the next view's tooltip shows at once. cmux waits 450 ms (Leo,
-/// 2026-10-14: 400-500): a pointer crossing a 24-30 pt toolbar button at
-/// sweep speed (300-1000 pt/s) is on it for 30-100 ms, far under the delay,
-/// so a sweep still shows nothing, while a deliberate rest gets its answer
-/// in under half a second instead of AppKit's full second. The warm time
-/// (500 ms) is the gap between two buttons a reader moves across. Each
-/// value is a tunable (Debug > Tunables > Hover).
+/// cards stay while the pointer heads into them and linger a moment after it
+/// leaves. The numbers and their history live in cmux-motion
+/// (cmux-tui/crates/cmux-motion/src/hover/timing.rs, `HoverIntentTiming::STANDARD`);
+/// pages use the same ones (webviews/src/ui/hoverIntent.ts, `HOVER_INTENT`; a web
+/// test reads timing.rs and fails when they drift). Each value is a tunable
+/// (Debug > Tunables > Hover).
 public nonisolated struct HoverIntentTiming: Hashable, Sendable {
     /// Pointer rest before the first tooltip of a group shows.
     public var tooltipDelay: Duration
@@ -37,9 +28,19 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
         self.cardAim = cardAim
     }
 
-    /// The defaults (`HOVER_INTENT` in webviews/src/ui/hoverIntent.ts mirrors these).
+    /// Every hover timing token, from cmux-motion (`cmux_hover_timing`), read once.
+    package static let rustTable: CmuxHoverTiming = {
+        var table = CmuxHoverTiming()
+        _ = cmux_hover_timing(&table)
+        return table
+    }()
+
+    /// The defaults.
     public static let standard = HoverIntentTiming(
-        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
+        tooltipDelay: Duration(hoverNanoseconds: rustTable.tooltip_delay),
+        tooltipWarm: Duration(hoverNanoseconds: rustTable.tooltip_warm),
+        cardGrace: Duration(hoverNanoseconds: rustTable.card_grace),
+        cardAim: Duration(hoverNanoseconds: rustTable.card_aim))
 
     /// The values now, with any tunable override.
     public static var current: HoverIntentTiming {
@@ -49,16 +50,21 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
             cardAim: duration(MotionTunables.hoverCardAim.value))
     }
 
-    private static func duration(_ seconds: Double) -> Duration { .milliseconds(Int((max(0, seconds) * 1_000).rounded())) }
+    /// A tunable's seconds: at least zero, rounded to the millisecond (cmux-motion `duration_from_seconds`).
+    private static func duration(_ seconds: Double) -> Duration {
+        Duration(hoverNanoseconds: cmux_hover_duration_from_seconds(seconds))
+    }
 }
 
 /// Hover intent for one warm group of tooltips: a target under the pointer
-/// shows after `tooltipDelay`, or at once while the group is warm (a
-/// tooltip shows, or hid less than `tooltipWarm` ago). Moving to another
-/// target before the delay restarts it, so a sweep shows nothing. Pure: its
-/// owner feeds it the target under the pointer and timer deadlines, and
-/// runs the effects on its one timer.
-public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Sendable {
+/// shows after `delay`, or at once while the group is warm (a tooltip shows,
+/// or hid less than `warmFor` ago). Moving to another target before the
+/// delay restarts it, so a sweep shows nothing. The rule is cmux-motion's
+/// (`hover::HoverIntent`, through `cmux_hover_intent_call`); this value keeps
+/// its state and maps each target to the 64-bit handle the rule sees. Its
+/// owner feeds it the target under the pointer and timer deadlines, and runs
+/// the effects on its one timer.
+public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Sendable {
     public enum Phase: Hashable, Sendable {
         case idle
         /// The pointer rests on `target`; it shows when `token` fires.
@@ -76,14 +82,35 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
         case hide
     }
 
-    public private(set) var phase: Phase = .idle
-    private var nextToken = 1
-    public var delay: Duration
-    public var warmFor: Duration
+    private var state = CmuxHoverIntent()
+    /// The handle of each target the state may still name (the phase's), and back.
+    private var handles: [Target: UInt64] = [:]
+    private var targets: [UInt64: Target] = [:]
+    private var nextHandle: UInt64 = 1
+
+    public var delay: Duration {
+        get { Duration(hoverNanoseconds: state.delay) }
+        set { state.delay = newValue.hoverNanoseconds }
+    }
+
+    public var warmFor: Duration {
+        get { Duration(hoverNanoseconds: state.warm_for) }
+        set { state.warm_for = newValue.hoverNanoseconds }
+    }
 
     public init(delay: Duration, warmFor: Duration) {
-        self.delay = delay
-        self.warmFor = warmFor
+        _ = cmux_hover_intent_init(delay.hoverNanoseconds, warmFor.hoverNanoseconds, &state)
+    }
+
+    /// The phase as the rule holds it (`state.phase`: 0 idle, 1 pending, 2 shown, 3 warm).
+    public var phase: Phase {
+        let token = Int(truncatingIfNeeded: state.token)
+        switch state.phase {
+        case 1: return targets[state.target].map { .pending($0, token: token) } ?? .idle
+        case 2: return targets[state.target].map { .shown($0) } ?? .idle
+        case 3: return .warm(token: token)
+        default: return .idle
+        }
     }
 
     public var shown: Target? {
@@ -91,118 +118,75 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
         return nil
     }
 
-    public var isWarm: Bool {
-        switch phase {
-        case .shown, .warm: true
-        case .idle, .pending: false
-        }
-    }
+    public var isWarm: Bool { state.phase == 2 || state.phase == 3 }
 
     /// The target under the pointer now (nil: none).
     public mutating func hover(_ target: Target?) -> [Effect] {
-        switch phase {
-        case .idle:
-            guard let target else { return [] }
-            return arm(target)
-        case .pending(let pending, _):
-            guard let target else {
-                phase = .idle
-                return [.cancelTimer]
-            }
-            return target == pending ? [] : arm(target)
-        case .shown(let shown):
-            guard let target else {
-                let token = takeToken()
-                phase = .warm(token: token)
-                return [.hide, .schedule(token: token, after: warmFor)]
-            }
-            if target == shown { return [] }
-            phase = .shown(target)
-            return [.show(target)]
-        case .warm:
-            guard let target else { return [] }
-            phase = .shown(target)
-            return [.cancelTimer, .show(target)]
-        }
+        call(0, target: target.map(handle), value: 0)
     }
 
     public mutating func deadline(_ token: Int) -> [Effect] {
-        switch phase {
-        case .pending(let target, let armed) where armed == token:
-            phase = .shown(target)
-            return [.show(target)]
-        case .warm(let armed) where armed == token:
-            phase = .idle
-            return []
-        default:
-            return []
-        }
+        call(1, target: nil, value: UInt64(truncatingIfNeeded: token))
     }
 
     /// A click, a key or a scroll: whatever shows goes, and the group is cold again.
     public mutating func dismiss() -> [Effect] {
-        let effects: [Effect] = switch phase {
-        case .idle: []
-        case .pending, .warm: [.cancelTimer]
-        case .shown: [.hide]
+        call(2, target: nil, value: 0)
+    }
+
+    private mutating func handle(_ target: Target) -> UInt64 {
+        if let known = handles[target] { return known }
+        let fresh = nextHandle
+        nextHandle &+= 1
+        handles[target] = fresh
+        targets[fresh] = target
+        return fresh
+    }
+
+    private mutating func call(_ call: UInt8, target: UInt64?, value: UInt64) -> [Effect] {
+        var raw = (CmuxHoverIntentEffect(), CmuxHoverIntentEffect())
+        let count = withUnsafeMutableBytes(of: &raw) { bytes in
+            cmux_hover_intent_call(&state, call, target != nil, target ?? value,
+                                   bytes.baseAddress?.assumingMemoryBound(to: CmuxHoverIntentEffect.self), 2)
         }
-        phase = .idle
+        let written = [raw.0, raw.1].prefix(count)
+        let effects: [Effect] = written.compactMap { (effect: CmuxHoverIntentEffect) -> Effect? in
+            switch effect.kind {
+            case 0: .schedule(token: Int(truncatingIfNeeded: effect.token), after: Duration(hoverNanoseconds: effect.after))
+            case 1: .cancelTimer
+            case 2: targets[effect.target].map { .show($0) }
+            case 3: .hide
+            default: nil
+            }
+        }
+        prune()
         return effects
     }
 
-    private mutating func arm(_ target: Target) -> [Effect] {
-        guard delay > .zero else {
-            phase = .shown(target)
-            return [.show(target)]
+    /// Keeps only the handle the phase names: the rule compares handles with its phase's only.
+    private mutating func prune() {
+        let keep: UInt64? = state.phase == 1 || state.phase == 2 ? state.target : nil
+        guard targets.count > (keep == nil ? 0 : 1) else { return }
+        let kept = keep.flatMap { targets[$0] }
+        targets.removeAll(keepingCapacity: true)
+        handles.removeAll(keepingCapacity: true)
+        if let keep, let kept {
+            targets[keep] = kept
+            handles[kept] = keep
         }
-        let token = takeToken()
-        phase = .pending(target, token: token)
-        return [.schedule(token: token, after: delay)]
-    }
-
-    private mutating func takeToken() -> Int {
-        defer { nextToken += 1 }
-        return nextToken
     }
 }
 
 /// The safe triangle (Amazon's menu aim, macOS submenus).
 nonisolated extension CGRect {
     /// Whether a pointer moving from `from` to `to` heads for this rect (a
-    /// shown card): `to` lies in it, or the move heads for it (its step
-    /// toward the card is at least half its step along it) and `to` lies in
-    /// the triangle from `from` to its nearer edge. A target it crosses on
-    /// the way then does not take the card over. Screen coordinates; webviews/src/ui/hoverIntent.ts
-    /// (`aimingAt`, for submenus) has the triangle without the heading test:
-    /// a submenu sits beside its row, while a card hangs off a whole strip or
-    /// list that the pointer runs along.
+    /// shown card): `to` lies in it, or the move heads for it and `to` lies in
+    /// the triangle from `from` to its nearer edge (cmux-motion
+    /// `HoverRect::aimed_at`). A target it crosses on the way then does not
+    /// take the card over. Screen coordinates; webviews/src/ui/hoverIntent.ts
+    /// (`aimingAt`, for submenus) has the triangle without the heading test.
     public func isAimedAt(from: CGPoint?, to: CGPoint?) -> Bool {
-        guard let from, let to, width > 0, height > 0, from != to else { return false }
-        if contains(to) { return true }
-        let beside = from.x < minX || from.x > maxX
-        // The move must head for the card more than it runs along it: a pointer sliding across a
-        // tab strip or down a list with a pixel of drift toward the card is not aiming.
-        let dx = to.x - from.x
-        let dy = to.y - from.y
-        let toward = beside ? (from.x < minX ? dx : -dx) : (from.y < minY ? dy : -dy)
-        let along = beside ? abs(dy) : abs(dx)
-        guard toward > 0, toward * 2 >= along else { return false }
-        let a: CGPoint
-        let b: CGPoint
-        if beside {
-            let x = from.x < minX ? minX : maxX
-            a = CGPoint(x: x, y: minY)
-            b = CGPoint(x: x, y: maxY)
-        } else {
-            let y = from.y < minY ? minY : maxY
-            a = CGPoint(x: minX, y: y)
-            b = CGPoint(x: maxX, y: y)
-        }
-        // Inside the triangle `from a b` (either winding).
-        func side(_ p: CGPoint, _ q: CGPoint) -> CGFloat { (q.x - p.x) * (to.y - p.y) - (q.y - p.y) * (to.x - p.x) }
-        let ab = side(from, a)
-        let bc = side(a, b)
-        let ca = side(b, from)
-        return (ab >= 0 && bc >= 0 && ca >= 0) || (ab <= 0 && bc <= 0 && ca <= 0)
+        cmux_hover_is_aimed_at(CmuxHoverRect(self), from != nil, CmuxHoverPoint(from ?? .zero),
+                               to != nil, CmuxHoverPoint(to ?? .zero))
     }
 }

@@ -1,7 +1,10 @@
+internal import CCmuxMotionFFI
 public import CoreGraphics
 
 /// Where a sidebar row's hover card sits, and which part of the screen keeps it
-/// (`HoverCardPlacement.besideRow`). Pure: no window, no view.
+/// (`HoverCardPlacement.besideRow`). Pure: no window, no view. The rule is cmux-motion's
+/// (`hover::HoverCardEscapeGeometry`, through `cmux_hover_escape_geometry`); this value keeps
+/// its result.
 ///
 /// Leo 2026-10-21: "WHY HAS IT NOT BEEN ALIGNED". The card sits beside the sidebar with its top
 /// on the hovered row's top, as Chrome's and Arc's tab hover cards do, and it follows the row
@@ -65,7 +68,7 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// The room between a target and a `.beside` card (the update card or a pull request badge's
     /// card): one device pixel of `scale`. Sidebar row cards use ``rowGap`` so they sit
     /// directly against the row and its resize/drag edge.
-    public static func edgeGap(scale: CGFloat) -> CGFloat { 1 / max(scale, 1) }
+    public static func edgeGap(scale: CGFloat) -> CGFloat { cmux_hover_edge_gap(scale) }
 
     /// Sidebar row cards sit directly against their anchor. Keeping this separate from
     /// ``edgeGap(scale:)`` preserves the small breathing room used by non-sidebar `.beside` cards.
@@ -79,7 +82,7 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// - Parameter column: The sidebar column's visible frame on screen; only its x extent is used.
     /// - Returns: `row`'s vertical extent spanning `column`'s horizontal one.
     public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
-        CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
+        cmux_hover_row_band(CmuxHoverRect(row), CmuxHoverRect(column)).cgRect
     }
 
     /// The room a row's card rests in: the screen's visible frame less `margin`, and between its
@@ -90,11 +93,7 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// - Parameter visible: The screen's visible frame (or the whole screen), screen coordinates.
     /// - Parameter window: The parent window's frame; nil out of a window.
     public static func room(visible: CGRect, window: CGRect?, margin: CGFloat) -> CGRect {
-        let screen = visible.insetBy(dx: margin, dy: margin)
-        guard let window else { return screen }
-        let bottom = max(screen.minY, window.minY), top = min(screen.maxY, window.maxY)
-        guard top > bottom else { return screen }
-        return CGRect(x: screen.minX, y: bottom, width: screen.width, height: top - bottom)
+        cmux_hover_card_room(CmuxHoverRect(visible), window != nil, CmuxHoverRect(window ?? .zero), margin).cgRect
     }
 
     /// Debug Settings: the escape-slot layout (`RowAlignment.middle`) instead of the top-aligned one.
@@ -112,61 +111,29 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// device pixels of `scale`, lined up with the row by `alignment`.
     public init(anchor: CGRect, cardSize size: CGSize, visible: CGRect? = nil, scale: CGFloat = 2, gap: CGFloat? = nil,
                 alignment: RowAlignment = .top) {
-        let scale = max(scale, 1)
-        let gap = gap ?? Self.rowGap
-        func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
-        func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
-        self.anchor = anchor
-        let middle = down(anchor.midY)
-        // Snap toward the row so a fractional edge never leaves a visible seam.
-        var x = down(anchor.maxX) + gap
-        var leading = false
-        if let visible, x + size.width > visible.maxX, up(anchor.minX) - gap - size.width >= visible.minX {
-            x = up(anchor.minX) - gap - size.width
-            leading = true
-        }
-        var y: CGFloat
-        var below = true
-        switch alignment {
-        case .top:
-            // The card's top on the row's top, on a device pixel; the clamp below keeps it on screen.
-            y = (anchor.maxY * scale).rounded() / scale - size.height
-        case .middle:
-            // Below the slot: the card's top on the row's middle; above it near the screen's bottom.
-            y = middle - size.height
-            if let visible, y < visible.minY, middle + size.height <= visible.maxY {
-                y = middle
-                below = false
-            }
-        }
-        if let visible {
-            x = min(max(x, visible.minX), visible.maxX - size.width)
-            y = min(max(y, visible.minY), visible.maxY - size.height)
-        }
-        let card = CGRect(x: x, y: y, width: size.width, height: size.height)
-        self.card = card
-        isLeading = leading
-        // The slot spans from the row to the card's far edge, beside the row's far half (the
-        // row's upper half when the card is below).
-        let slotX = leading ? card.minX : anchor.maxX
-        let slotWidth = leading ? max(0, anchor.minX - slotX) : max(0, card.maxX - slotX)
-        let slot = below
-            ? CGRect(x: slotX, y: card.maxY, width: slotWidth, height: max(0, anchor.maxY - card.maxY))
-            : CGRect(x: slotX, y: anchor.minY, width: slotWidth, height: max(0, card.minY - anchor.minY))
-        escapeSlot = alignment == .middle && slot.width > 0 && slot.height > 0 ? slot : .zero
-        let strip = leading
-            ? CGRect(x: card.maxX, y: card.minY, width: max(0, anchor.minX - card.maxX), height: card.height)
-            : CGRect(x: anchor.maxX, y: card.minY, width: max(0, card.minX - anchor.maxX), height: card.height)
-        gapStrip = strip.width > 0 && strip.height > 0 ? strip : .zero
+        var out = CmuxHoverEscapeGeometry()
+        _ = cmux_hover_escape_geometry(CmuxHoverRect(anchor), size.width, size.height, visible != nil, CmuxHoverRect(visible ?? .zero),
+                                       scale, gap != nil, gap ?? Self.rowGap, alignment == .middle ? 1 : 0, &out)
+        self.anchor = out.anchor.cgRect
+        card = out.card.cgRect
+        escapeSlot = out.escape_slot.cgRect
+        gapStrip = out.gap_strip.cgRect
+        isLeading = out.is_leading
     }
 
     /// What `point` is: the card first, then the row, the slot and the gap.
     public func zone(at point: CGPoint) -> Zone {
-        if card.contains(point) { return .card }
-        if anchor.contains(point) { return .row }
-        if escapeSlot.contains(point) { return .escape }
-        if gapStrip.contains(point) { return .gap }
-        return .outside
+        var geometry = CmuxHoverEscapeGeometry(anchor: CmuxHoverRect(anchor), card: CmuxHoverRect(card),
+                                               escape_slot: CmuxHoverRect(escapeSlot), gap_strip: CmuxHoverRect(gapStrip),
+                                               is_leading: isLeading)
+        // 0 row, 1 card, 2 escape, 3 gap, 4 outside.
+        switch cmux_hover_escape_zone(&geometry, CmuxHoverPoint(point)) {
+        case 0: return .row
+        case 1: return .card
+        case 2: return .escape
+        case 3: return .gap
+        default: return .outside
+        }
     }
 
     /// Whether the pointer at `point` keeps the card by where it is: on the row or on the card.
