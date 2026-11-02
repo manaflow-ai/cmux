@@ -83,13 +83,14 @@ extension TerminalSurfaceView: PaneResizeGestureFollowing {
     public func paneResizeGestureDidChange(active: Bool) {
         guard isFollowingResizeGesture != active else { return }
         isFollowingResizeGesture = active
-        if active {
+        if active, TerminalDragTunables.holdsSurfaceDuringDrag.value {
             // The text stays where it is through the drag (RESIZE VIDEOS A3: drawn reflowed to the pane on every drag
             // frame, the wrap point moved in every frame): the surface keeps its size, clipped where the pane is
             // narrower and beside the terminal background where it is wider, as a Chromium page does.
             (superview as? TerminalHostView)?.holdSurface(size: bounds.size, anchor: .top)
             return
         }
+        guard !active else { return }
         // A release that springs moved the hold to its final size at the spring's start (`restAt`) and let it go when
         // it landed; one that did not spring lets go here: the surface takes its pane's size and reflows once.
         if !isInPaneMotion { (superview as? TerminalHostView)?.releaseSurfaceHold() }
