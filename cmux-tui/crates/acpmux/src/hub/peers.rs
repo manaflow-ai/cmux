@@ -1063,7 +1063,7 @@ impl Hub {
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.values()
             .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
-            .filter(|n| n.to_ascii_lowercase().contains(lower))
+            .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .map(str::to_owned)
             .collect()
     }
@@ -1109,6 +1109,16 @@ impl Hub {
     pub(super) fn visit_remote_rows(
         &self,
         keep: impl Fn(&Value) -> bool,
+        visit: impl FnMut(Value),
+    ) {
+        self.visit_remote_sessions(|r| keep(&r.summary), visit);
+    }
+
+    /// [`Self::visit_remote_rows`] of the rows `keep` takes, judged on the whole row (its peer
+    /// and receipt as well as its summary).
+    pub(super) fn visit_remote_sessions(
+        &self,
+        keep: impl Fn(&RemoteSession) -> bool,
         mut visit: impl FnMut(Value),
     ) {
         let states: HashMap<String, &'static str> = self
@@ -1123,7 +1133,7 @@ impl Hub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
-            .filter(|r| keep(&r.summary))
+            .filter(|r| keep(r))
             .cloned()
             .collect();
         for r in rows {

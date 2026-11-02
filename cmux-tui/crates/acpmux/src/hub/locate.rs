@@ -35,7 +35,8 @@ impl Hub {
         let shown = names_hosts.then_some(own.as_str());
         let parsed = if bead_only { None } else { crate::agent_link::find(query) };
         let named = parsed.as_ref().and_then(|link| link.as_ref().ok());
-        let keep = |s: &Value| may_name(s, query, named, bead_only);
+        let names = Names::new(query, named, bead_only);
+        let keep = |r: &RemoteSession| names.may_name(r);
         let mut summaries = self.located_summaries(&keep, false);
         // Whether `summaries` holds closed chats too (moved chats' targets are read as it was).
         let mut all = false;
@@ -124,7 +125,7 @@ impl Hub {
         let moved = if targets.is_empty() {
             Vec::new()
         } else {
-            let to = |s: &Value| s["sessionId"].as_str().is_some_and(|id| targets.contains(&id));
+            let to = |r: &RemoteSession| targets.contains(&r.receipt.mux_session_id.as_str());
             self.located_summaries(&to, all)
         };
         let found = follow_moves(found, &moved, &own);
@@ -145,14 +146,14 @@ impl Hub {
     /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
     /// too) and the peers' rows `keep` takes, copying no other. The order is the full list's
     /// (`all_session_summaries`), restricted to them.
-    fn located_summaries(&self, keep: &dyn Fn(&Value) -> bool, closed: bool) -> Vec<Value> {
+    fn located_summaries(&self, keep: &dyn Fn(&RemoteSession) -> bool, closed: bool) -> Vec<Value> {
         let mut v: Vec<Value> = if closed {
             self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect()
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open = |row: &Value| row.get("status").and_then(Value::as_str) != Some("closed");
-        self.visit_remote_rows(|row| (closed || open(row)) && keep(row), |row| v.push(row));
+        let open = |r: &RemoteSession| r.summary["status"].as_str() != Some("closed");
+        self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
@@ -164,7 +165,7 @@ impl Hub {
             .sessions()
             .iter()
             .filter_map(|s| self.cached_closed_summary(s, true)["name"].as_str().map(str::to_owned))
-            .filter(|n| n.to_ascii_lowercase().contains(lower))
+            .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .collect();
         names.extend(self.remote_names_containing(lower));
         names
@@ -387,27 +388,53 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
         .collect()
 }
 
-/// Whether peer row `s` could be among `locate`'s matches for `query`: whatever `by_bead`
-/// (`bead_only`), `by_link` (`link`) or `by_key_exact` and `by_key` could take, and every row of
-/// the host a `HOST/...` key names. Only the rows it takes are copied; the matchers then decide.
-fn may_name(s: &Value, query: &str, link: Option<&AgentLink>, bead_only: bool) -> bool {
-    let bead = || s["tags"].get(crate::beads::tag_key(query)).is_some();
-    if bead_only {
-        return bead();
+/// What a `locate` query could name, to judge each peer row before it is copied (`may_name`).
+struct Names<'q> {
+    query: &'q str,
+    link: Option<&'q AgentLink>,
+    bead_only: bool,
+    /// The bead tag a bead id (or a `bead_only` query) is carried by.
+    bead: Option<String>,
+    /// The host a `HOST/...` key names.
+    host: Option<&'q str>,
+}
+
+impl<'q> Names<'q> {
+    fn new(query: &'q str, link: Option<&'q AgentLink>, bead_only: bool) -> Self {
+        let bead =
+            (bead_only || crate::beads::is_bead_id(query)).then(|| crate::beads::tag_key(query));
+        let host = query.split_once('/').map(|(host, _)| host);
+        Self { query, link, bead_only, bead, host }
     }
-    if let Some(link) = link {
-        return s["agentSessionId"].as_str() == Some(link.session.as_str());
+
+    /// Whether peer row `r` could be among the matches: whatever `by_bead` (`bead_only`),
+    /// `by_link` (a link) or `by_key_exact` and `by_key` could take, and every row of the host a
+    /// `HOST/...` key names. It reads the row's peer and receipt (its summary's `sessionId` and
+    /// `qualifiedSessionId` are theirs, `remote_summary`) and two of its summary's fields, so a
+    /// row costs a few compares; the matchers then decide on the rows it took.
+    fn may_name(&self, r: &RemoteSession) -> bool {
+        let s = &r.summary;
+        let bead = || self.bead.as_ref().is_some_and(|tag| s["tags"].get(tag).is_some());
+        if self.bead_only {
+            return bead();
+        }
+        if let Some(link) = self.link {
+            return s["agentSessionId"].as_str() == Some(link.session.as_str());
+        }
+        let q = self.query;
+        let mux = r.receipt.mux_session_id.as_str();
+        let name = s["name"].as_str().unwrap_or_default();
+        let bare =
+            name.strip_prefix(r.peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
+        mux.starts_with(q)
+            || bare.starts_with(q)
+            || name == q
+            || crate::session_name::ends_with_segments(bare, q)
+            || self.host.is_some_and(|host| r.peer.eq_ignore_ascii_case(host))
+            || q.strip_prefix(r.peer.as_str()).and_then(|q| q.strip_prefix('/')) == Some(mux)
+            || s["agentSessionId"].as_str() == Some(q)
+            || bead()
     }
-    ["sessionId", "qualifiedSessionId", "agentSessionId"]
-        .iter()
-        .any(|f| s[*f].as_str() == Some(query))
-        || s["name"].as_str() == Some(query)
-        || key_prefix(s, query)
-        || crate::session_name::ends_with_segments(bare_name(s), query)
-        || (crate::beads::is_bead_id(query) && bead())
-        || query.split_once('/').is_some_and(|(host, _)| {
-            s["peer"].as_str().is_none_or(|peer| peer.eq_ignore_ascii_case(host))
-        })
 }
 
 /// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
