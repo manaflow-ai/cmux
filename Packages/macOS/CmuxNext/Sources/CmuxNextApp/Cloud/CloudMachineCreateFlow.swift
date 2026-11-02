@@ -155,10 +155,10 @@ struct CloudMachineCreateFlow {
                 do {
                     try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
-                            where Self.alreadyAnswered(failure, request: request, answeredEarlier: request == answering) {
+                            where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
-                } catch let failure as CloudApprovalAnswer.Failure where Self.itemClosed(failure, request: request) {
+                } catch let failure as CloudApprovalAnswer.Failure where failure.answeredElsewhere(request: request) {
                     // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
                     // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
                     approved = request
@@ -193,22 +193,6 @@ struct CloudMachineCreateFlow {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
             throw Failure.upgradeRequired(.server)
         }
-    }
-
-    /// The approval item for `request` is no longer open to answer: an attempt already answered it. The
-    /// request has ended ("state"), or, after an attempt with this key began answering it
-    /// (`answeredEarlier`), it still reads pending (`integration.approval.get` shows a running approved op
-    /// as pending) while its feed item is closed.
-    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String, answeredEarlier: Bool) -> Bool {
-        switch failure {
-        case .mismatch(let r, let reason) where r == request: reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
-        case .notInFeed, .mismatch, .refused: false
-        }
-    }
-
-    /// The open feed item for `request` is gone (answered elsewhere, or another team's).
-    static func itemClosed(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
-        if case .mismatch(request, CloudApprovalAnswer.closedItem) = failure { true } else { false }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.

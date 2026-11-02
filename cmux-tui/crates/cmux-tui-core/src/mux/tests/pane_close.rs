@@ -258,6 +258,11 @@ fn closing_a_terminal_with_no_view_runs_no_full_projection() {
         registry.terminal_record(TERMINAL).unwrap().unwrap().lifecycle,
         TerminalLifecycle::Tombstoned
     );
+    assert_eq!(
+        registry.terminal_resource_id(TERMINAL).unwrap(),
+        None,
+        "the public terminal row is retired"
+    );
     let topology = registry.resource_topology_snapshot().unwrap();
     drop(registry);
     let full_after = mux.resource_effect_projection().unwrap();

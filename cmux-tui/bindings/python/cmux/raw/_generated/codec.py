@@ -474,6 +474,8 @@ MODEL_BY_PATH = {
     'commands/send/result': models.SendResult,
     'commands/send-key/request': models.SendKeyRequest,
     'commands/server-stats/request': models.ServerStatsRequest,
+    'commands/set-attach-visibility/request': models.SetAttachVisibilityRequest,
+    'commands/set-attach-visibility/result': models.SetAttachVisibilityResult,
     'commands/set-cell-pixels/request': models.SetCellPixelsRequest,
     'commands/set-client-info/request': models.SetClientInfoRequest,
     'commands/set-client-sizing/request': models.SetClientSizingRequest,
