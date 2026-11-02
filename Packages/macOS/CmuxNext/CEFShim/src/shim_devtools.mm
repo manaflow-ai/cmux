@@ -33,6 +33,13 @@ std::map<int, Placement>& placements() {
   return map;
 }
 
+// Inspected browser id -> the background its next DevTools starts with
+// (cmux_shim_devtools_set_background: the pane's theme color).
+std::map<int, cef_color_t>& backgrounds() {
+  static std::map<int, cef_color_t> map;
+  return map;
+}
+
 // Inspected browser id -> its live DevTools browser.
 std::map<int, CefRefPtr<CefBrowser>>& devtools_browsers() {
   static std::map<int, CefRefPtr<CefBrowser>> map;
@@ -145,10 +152,16 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
 }  // namespace
 
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                          bool* use_default_window) {
+                          CefBrowserSettings& settings, bool* use_default_window) {
   // The host decides now (synchronously, from this event) and calls
-  // cmux_shim_devtools_set_placement.
+  // cmux_shim_devtools_set_background and cmux_shim_devtools_set_placement.
   Emit(CMUX_SHIM_DEVTOOLS_WILL_OPEN, inspected);
+  // Until its frontend draws, DevTools shows its browser's background. With
+  // none of its own Chromium uses CefSettings.background_color from CEF start
+  // (the theme the app launched in): a dark block in a light pane (BROWSER
+  // VIDEO F1). Like every page of the pane, DevTools starts on its theme color.
+  auto color = backgrounds().find(inspected);
+  settings.background_color = color != backgrounds().end() && color->second ? color->second : BackgroundColor();
   Placement placement;
   auto it = placements().find(inspected);
   if (it != placements().end()) {
@@ -172,6 +185,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
 
 void ForgetDevTools(int inspected) {
   placements().erase(inspected);
+  backgrounds().erase(inspected);
 }
 
 }  // namespace cmux_shim
@@ -186,6 +200,10 @@ void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key) {
 
 void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height) {
   placements()[browser_id] = Placement{parent_view, x, y, width, height};
+}
+
+void cmux_shim_devtools_set_background(int browser_id, unsigned int argb) {
+  backgrounds()[browser_id] = static_cast<cef_color_t>(argb);
 }
 
 int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {

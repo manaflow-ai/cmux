@@ -264,35 +264,6 @@ jobs:
           echo "builder=$builder" >> "$GITHUB_OUTPUT"
           echo "macOS targets build on: $builder"
 
-      # The macOS targets are Mac builds: a free owned mini comes first, natively, and the Linux cross build
-      # on Blacksmith 32 vCPU is the overflow (Leo, 2026-10-31: "y'know, we'll have to be more self-reliant
-      # and size the stuff better"). Both targets or neither, since the build takes one label for both.
-      - name: Mint the owned-pool routing token
-        id: route-token
-        if: steps.darwin-builder.outputs.builder == 'linux' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-
-      - name: Look for a free mini for the macOS targets
-        id: darwin-mac
-        if: steps.darwin-builder.outputs.builder == 'linux'
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          JOBS: darwin-aarch64 darwin-x86_64
-          MAC_FIRST: darwin-aarch64 darwin-x86_64
-          MINI_ALL_OR_NONE: "1"
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-
       - name: Check the branch head and tree publication
         id: inspect
         env:
@@ -667,6 +638,49 @@ jobs:
             echo "This run owns tree $key; tree-owner-wait is skipped."
           fi
           echo "owns_key=$owns_key" >> "$GITHUB_OUTPUT"
+
+          # Whether the macOS targets may build in this run, so the mini placement below is worth its
+          # routing App reads (4 a pick). They build only with run_macos and either this run owning the
+          # key or tree-owner-wait taking it over. Only a feat-cmux-next or main push takes over from a
+          # live owner; any other run takes over only after its owner ended unpublished, and then builds
+          # on the Linux cross build, the same as with no free mini. On 2026-11-02 all 10 sampled runs
+          # placed and 9 built nothing, and the routing App's 5000/h ran out 27 minutes into the hour.
+          place_macos=false
+          if [[ "$run_macos" == true ]] && { [[ "$owns_key" == true ]] ||
+              { [[ "$EVENT_NAME" == push ]] && [[ "$REF" == refs/heads/feat-cmux-next || "$REF" == refs/heads/main ]]; }; }; then
+            place_macos=true
+          fi
+          echo "place_macos=$place_macos" >> "$GITHUB_OUTPUT"
+
+      # The macOS targets are Mac builds: a free owned mini comes first, natively, and the Linux cross build
+      # on Blacksmith 32 vCPU is the overflow (Leo, 2026-10-31: "y'know, we'll have to be more self-reliant
+      # and size the stuff better"). Both targets or neither, since the build takes one label for both.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Look for a free mini for the macOS targets
+        id: darwin-mac
+        if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          JOBS: darwin-aarch64 darwin-x86_64
+          MAC_FIRST: darwin-aarch64 darwin-x86_64
+          MINI_ALL_OR_NONE: "1"
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
 
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
