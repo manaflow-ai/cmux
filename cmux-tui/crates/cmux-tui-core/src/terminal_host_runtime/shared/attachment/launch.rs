@@ -176,6 +176,7 @@ fn launch_terminal_host_seeded_in(
 ) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
+    crate::scratch_launch_trace("l.publication_reserved");
     let owner_token = CapabilityToken::random()?;
     let terminal_hex = encode_hex(terminal_id.as_bytes());
     // macOS limits sockaddr_un paths to roughly one hundred bytes and
@@ -211,6 +212,7 @@ fn launch_terminal_host_seeded_in(
         workspace_key: workspace_key.to_owned(),
     };
 
+    crate::scratch_launch_trace("l.spawn_start");
     let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {
         Some(standby) => standby,
         None => StandbyTerminalHost::spawn()?,

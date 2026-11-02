@@ -531,6 +531,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, revision);
             registry.terminal_record(&plan.terminal_id)?.map(|terminal| terminal.workspace_key)
         };
+        crate::scratch_launch_trace("r.registry");
         if let Some(root) = self.terminal_host_root() {
             // Only a Unix owner restarts a dead tab (`manual.rs`).
             #[cfg(unix)]
@@ -538,12 +539,14 @@ impl Mux {
                 wait_for_old_hosts(&root, &plan.terminal_id);
             }
             remove_dead_host_records(&root, &plan.terminal_id);
+            crate::scratch_launch_trace("r.dead_removed");
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
             // launch below would refuse the endpoint, or that removal would
             // delete the new host's endpoint. Wait for it to finish; a later
             // removal finds no old record and touches nothing.
             crate::terminal_host_runtime::wait_for_terminal_host_record_removals();
+            crate::scratch_launch_trace("r.removals_waited");
         }
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;

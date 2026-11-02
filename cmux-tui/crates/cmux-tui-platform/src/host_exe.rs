@@ -107,6 +107,24 @@ pub fn terminal_host_executable() -> io::Result<PathBuf> {
 /// copy, the clone, and the first exec of a new copy: 0.75-0.97 s on macOS,
 /// later terminals 55-110 ms; cx-b4sjc). A terminal that starts meanwhile
 /// waits only for what is left of the install. Elsewhere it does nothing.
+
+/// SCRATCH (never merge): a phase mark with absolute time and thread.
+pub(crate) fn scratch_trace(phase: &str) {
+    let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") else { return };
+    let line = format!(
+        "LAUNCH-TRACE {} {:?} {}\n",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_micros() % 1_000_000_000),
+        format!("{}:{}", std::process::id(), std::thread::current().name().unwrap_or("")),
+        phase
+    );
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 pub fn prepare_in_background() {
     imp::prepare_in_background();
 }
@@ -158,12 +176,16 @@ pub fn spawn_host(
     configure: impl Fn(&mut std::process::Command),
 ) -> io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
+    scratch_trace("x.exe_start");
     let binary = terminal_host_executable()?;
+    scratch_trace("x.exe_ready");
     let spawn = |binary: &Path| {
         let mut command = std::process::Command::new(binary);
         command.arg0("cmux-tui");
         configure(&mut command);
-        command.spawn()
+        let spawned = command.spawn();
+        scratch_trace("x.spawned");
+        spawned
     };
     match spawn(&binary) {
         Err(error) if binary != crate::platform::self_exe_for_spawn()? => {

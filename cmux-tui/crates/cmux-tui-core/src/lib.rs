@@ -233,7 +233,9 @@ pub(crate) fn scratch_launch_trace(phase: &str) {
     let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") else { return };
     let line = format!(
         "LAUNCH-TRACE {} {:?} {}\n",
-        start.elapsed().as_micros(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_micros() % 1_000_000_000),
         format!("{}:{}", std::process::id(), std::thread::current().name().unwrap_or("")),
         phase
     );

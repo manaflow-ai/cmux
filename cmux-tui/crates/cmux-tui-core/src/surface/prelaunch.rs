@@ -76,6 +76,7 @@ impl Surface {
             .ok_or_else(|| anyhow::anyhow!("respawn needs a terminal host root"))?;
         let (opts, terminal_public_id, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AtLaunch)?;
+        crate::scratch_launch_trace("r.prelude");
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)

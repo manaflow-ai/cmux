@@ -126,7 +126,9 @@ pub(super) fn prepare_in_background() {
     static STARTED: Once = Once::new();
     STARTED.call_once(|| {
         let warm = || {
+            super::scratch_trace("x.prepare_start");
             let Ok(path) = terminal_host_executable() else { return };
+            super::scratch_trace("x.prepare_installed");
             // The slim host's copy already ran once (its identity check).
             if crate::platform::self_exe_for_spawn().is_ok_and(|own| own == path)
                 || path.file_name().is_some_and(|name| name == SIBLING_NAME)
@@ -142,6 +144,7 @@ pub(super) fn prepare_in_background() {
                 .stdout(cmux_process::Stdio::null())
                 .stderr(cmux_process::Stdio::null())
                 .status();
+            super::scratch_trace("x.prepare_warmed");
         };
         let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
     });
@@ -178,8 +181,12 @@ fn root() -> Option<PathBuf> {
 /// The verified copy of `source` under `root`, installing it when needed.
 fn verified_copy(root: &Path, source: &Path) -> io::Result<PathBuf> {
     let mut installed = INSTALLED.lock().unwrap_or_else(PoisonError::into_inner);
+    super::scratch_trace("x.installed_locked");
     if let Some(current) = installed.as_mut() {
         let key = file_key(&current.path);
+        if key.as_ref().ok() != Some(&current.key) {
+            super::scratch_trace("x.key_changed");
+        }
         if key.as_ref().ok() == Some(&current.key) {
             return Ok(current.path.clone());
         }
@@ -258,7 +265,9 @@ fn install(root: &Path, source: &Path, name: &str) -> io::Result<Installed> {
     let source = fs::canonicalize(source)?;
     create_root(root, crate::platform::home_dir().as_deref())?;
     ensure_private_dir(root)?;
+    super::scratch_trace("x.install_start");
     let sha = sha256_file(&source)?;
+    super::scratch_trace("x.install_hashed");
     // Not recursive: a root removed during the hash stays removed.
     let dir = root.join(&sha);
     ensure_private_dir(&dir)?;
@@ -273,8 +282,10 @@ fn install(root: &Path, source: &Path, name: &str) -> io::Result<Installed> {
         // daemon's copy landing now, which the rename also tolerates.
         write_copy(&source, &dir, &path, name, &sha)?;
     }
+    super::scratch_trace("x.install_checked");
     let key = file_key(&path)?;
     collect_unused(root, &sha);
+    super::scratch_trace("x.install_done");
     Ok(Installed { path, sha, key })
 }
 
