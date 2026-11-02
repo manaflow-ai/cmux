@@ -118,11 +118,7 @@ enum DebugWindowSnapshot {
 #if DEBUG || CMUX_BENCH_HOOKS
         // An inactive floating palette can have a blank standalone window-server image.
         // Its existing renderer captures the panel's content without Screen Recording.
-        if services.palette.owns(window) {
-            var paletteParams = params
-            paletteParams["path"] = .string(path)
-            return DebugPaletteCapture.capture(paletteParams, services: services)
-        }
+        if services.palette.owns(window) { return DebugPaletteCapture.capture(params.merging(["path": .string(path)]) { $1 }, services: services) }
 #endif
         do {
             let webViews = visibleWebViews(in: window)
