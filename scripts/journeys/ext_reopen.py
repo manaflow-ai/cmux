@@ -1324,6 +1324,10 @@ def cond_key_window_focus(j, want, cache):
     report = j.app.rpc("debug.focus", timeout=10) or {}
     wins = [w for w in report.get("windows") or [] if isinstance(w, dict)]
     key = [w for w in wins if w.get("is_key")]
+    if not key and str(report.get("key_window") or "").startswith("Cef") and len(wins) == 1:
+        # A Chromium page with the keyboard makes its own child window (CefNSWindow) the key window; with one cmux
+        # window, that window owns it.
+        key = wins
     if len(key) != 1:
         return False, {"why": f"{len(key)} key windows of {len(wins)}", "key_window": report.get("key_window")}
     resolved = (key[0].get("model") or {}).get("resolved")
