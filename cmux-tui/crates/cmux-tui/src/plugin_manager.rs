@@ -130,7 +130,14 @@ fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Res
     else {
         return Ok(());
     };
-    if git_text(&plugin.dir, ["status", "--porcelain"]).is_some_and(|status| !status.is_empty()) {
+    let Some(status) = git_text_allow_empty(&plugin.dir, ["status", "--porcelain=v2", "--branch"])
+    else {
+        return Ok(());
+    };
+    if !auto_update_status_is_safe(&status) {
+        return Ok(());
+    }
+    if validate_git_source(&source).is_err() {
         return Ok(());
     }
     let Some(current) = git_text(&plugin.dir, ["rev-parse", "HEAD"]) else {
@@ -162,6 +169,41 @@ fn is_auto_update_source(source: &str) -> bool {
         || source.starts_with("git@")
 }
 
+fn auto_update_status_is_safe(status: &str) -> bool {
+    let mut has_origin_upstream = false;
+    let mut has_ahead_behind = false;
+    for line in status.lines() {
+        if let Some(upstream) = line.strip_prefix("# branch.upstream ") {
+            has_origin_upstream = upstream.starts_with("origin/");
+            continue;
+        }
+        if let Some(ahead_behind) = line.strip_prefix("# branch.ab ") {
+            let mut fields = ahead_behind.split_whitespace();
+            let Some(ahead) = fields
+                .next()
+                .and_then(|value| value.strip_prefix('+'))
+                .and_then(|value| value.parse::<u64>().ok())
+            else {
+                return false;
+            };
+            if fields
+                .next()
+                .and_then(|value| value.strip_prefix('-'))
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_none()
+            {
+                return false;
+            }
+            has_ahead_behind = ahead == 0;
+            continue;
+        }
+        if !line.is_empty() && !line.starts_with('#') {
+            return false;
+        }
+    }
+    has_origin_upstream && has_ahead_behind
+}
+
 fn auto_update_marker_path(root: &Path) -> PathBuf {
     root.join(AUTO_UPDATE_MARKER)
 }
@@ -181,10 +223,20 @@ fn write_auto_update_marker(root: &Path, now: u64) -> anyhow::Result<()> {
     let temporary =
         root.join(format!(".{AUTO_UPDATE_MARKER}.{}-{}.tmp", std::process::id(), now_nanos()));
     fs::write(&temporary, format!("{now}\n"))?;
-    fs::rename(&temporary, &marker).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        anyhow::anyhow!("failed to persist {}: {error}", marker.display())
-    })
+    if let Err(error) = fs::rename(&temporary, &marker) {
+        // Windows does not replace an existing file with rename. Removing
+        // the old marker is safe because a missing marker simply causes the
+        // next launch to perform one bounded check.
+        let _ = fs::remove_file(&marker);
+        fs::rename(&temporary, &marker).map_err(|retry_error| {
+            let _ = fs::remove_file(&temporary);
+            anyhow::anyhow!(
+                "failed to persist {}: {error}; retry failed: {retry_error}",
+                marker.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 /// A userland plugin build must not hold the CLI forever.
@@ -1555,6 +1607,10 @@ fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
 }
 
 fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
+    git_text_allow_empty(dir, args).filter(|value| !value.is_empty())
+}
+
+fn git_text_allow_empty<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
     let mut child = Command::new("git")
         .arg("-c")
         .arg("protocol.file.allow=always")
@@ -1568,7 +1624,7 @@ fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
         String::from_utf8(read_bounded_child_stdout(&mut child, MAX_PLUGIN_GIT_OUTPUT_BYTES)?)
             .ok()?;
     let value = value.trim_end_matches(['\r', '\n']);
-    (!value.is_empty()).then(|| value.to_string())
+    Some(value.to_string())
 }
 
 /// Read child stdout with a hard allocation bound. The extra byte detects
@@ -1646,6 +1702,19 @@ mod tests {
                 "local or insecure source should stay manual: {source}"
             );
         }
+    }
+
+    #[test]
+    fn automatic_updates_require_a_clean_origin_tracking_branch() {
+        let clean = "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -1\n";
+        assert!(auto_update_status_is_safe(clean));
+        assert!(!auto_update_status_is_safe(
+            "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +1 -0\n"
+        ));
+        assert!(!auto_update_status_is_safe(
+            "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n1 .M N... 100644 100644 100644 abc def file\n"
+        ));
+        assert!(!auto_update_status_is_safe("# branch.oid abc\n# branch.head (detached)\n"));
     }
 
     #[test]
