@@ -70,8 +70,9 @@ struct SessionInfoLine: Equatable {
     var font: NSFont {
         switch kind {
         case .title: Typography.bodyEmphasized
-        case .header: Typography.header
-        case .row: Typography.body
+        // A section's header and a section that is one row (Context, the machine) share one weight,
+        // so every section's title sits on one grid (Leo, 2026-11-02: "WTF ARE THESE").
+        case .header, .row: Typography.body
         case .more: Typography.caption
         }
     }
@@ -456,7 +457,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private(set) var line: SessionInfoLine
     private var ink: SessionInfoInk
     private var glyph: NSView?
-    private var grip: NSImageView?
+    private var grip: SessionInfoGripView?
     private let title = ChromeLabel(labelWithString: "")
     private var detail: ChromeLabel?
     private var subtitle: ChromeLabel?
@@ -469,7 +470,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private var marksView: SessionInfoMarksView?
     private(set) var buttons: [SessionInfoButtonView] = []
     private var hovered = false { didSet { paint() } }
-    private(set) var isDragging = false
+    private(set) var isDragging = false { didSet { paint() } }
     private(set) var isMenuOpen = false
     private var dragStart: NSPoint?
 
@@ -527,8 +528,10 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             menuButton?.onPress = { [weak self] in self?.showMenu() }
         }
         if line.reorderable {
-            grip = Self.image("line.3.horizontal", font: Typography.caption, tint: colors.tertiary)
-            grip?.themedToolTip = line.reorderLabel ?? line.title
+            let dots = SessionInfoGripView(color: colors.tertiary)
+            dots.themedToolTip = line.reorderLabel ?? line.title
+            dots.isHidden = !(hovered || isDragging)
+            grip = dots
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
@@ -619,7 +622,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
-    private var textX: CGFloat { lead + (grip != nil ? 14 : 0) + (glyph != nil ? SessionInfoMetrics.glyph + 6 : 0) }
+    // The grip takes no room: it sits in the gutter left of the icon column, so a movable section's
+    // icon and title stay where every other line's are.
+    private var textX: CGFloat { lead + (glyph != nil ? SessionInfoMetrics.glyph + 6 : 0) }
 
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
@@ -712,8 +717,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             glyph.frame = CGRect(x: lead + (SessionInfoMetrics.glyph - side) / 2, y: y + (titleSize.height - side) / 2, width: side, height: side)
         }
         if let grip {
-            let side: CGFloat = 12
-            grip.frame = CGRect(x: max(0, lead - 6), y: y + (titleSize.height - side) / 2, width: side, height: side)
+            let size = SessionInfoGripView.size
+            grip.frame = CGRect(x: max(0, lead - size.width), y: y + (titleSize.height - size.height) / 2, width: size.width, height: size.height)
         }
         y += titleSize.height
         if let subtitle {
@@ -736,7 +741,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        dragStart = line.reorderable && line.id != nil && (grip?.frame.contains(point) == true) ? point : nil
+        // A movable section drags from anywhere on its line; a press that never moves still clicks.
+        dragStart = line.reorderable && line.id != nil ? point : nil
         isDragging = false
     }
     override func mouseDragged(with event: NSEvent) {
@@ -807,8 +813,39 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return true
     }
 
+    /// The grip shows only while the pointer is over this line or it drags, never at rest (Leo,
+    /// 2026-11-02: "THESE ARE JUST SO INSANELY STUPID LOOKING").
     private func paint() {
         layer?.backgroundColor = hovered && line.action != nil ? ink.colors.hover.cgColor : nil
+        grip?.isHidden = !(hovered || isDragging)
+    }
+}
+
+/// The six dots that move a section, as the page draws them (SessionInfoSection.tsx `GRIP_DOTS`): the
+/// symbol set's three bars read as a menu, not a grip.
+final class SessionInfoGripView: NSView {
+    static let size = CGSize(width: 6, height: 14)
+    private let color: NSColor
+
+    init(color: NSColor) {
+        self.color = color
+        super.init(frame: CGRect(origin: .zero, size: Self.size))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    // Presses go to the line, which starts the drag.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        for y in [3.0, 7, 11] {
+            for x in [1.25, 4.75] {
+                NSBezierPath(ovalIn: CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8)).fill()
+            }
+        }
     }
 }
 
