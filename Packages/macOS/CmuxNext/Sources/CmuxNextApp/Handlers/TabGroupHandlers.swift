@@ -76,9 +76,8 @@ enum TabGroupHandlers {
             let tabs = selected.filter { !$0.pinned }
             guard !tabs.isEmpty else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let name = invocation["name"]?.stringValue
-            // A group nobody gave a color is grey, the daemon's own default: no palette color
-            // (an orange dot and underline) appears that nobody picked (Leo, 2026-10-31: "WHERE
-            // IS ORANGE COMING FROM?"). A color the caller names still shows.
+            // No color given is grey, the daemon's default, never a palette color nobody picked (Leo
+            // 2026-10-31: "WHERE IS ORANGE COMING FROM?"). A color the caller names still shows.
             let color = invocation["color"]?.stringValue ?? GroupColor.grey.rawValue
             let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
             run("create-tab-group", pane: pane, ctx, writes.create(tabs, name: name, color: color))
