@@ -22,7 +22,8 @@ Step (`do`):
            kill-daemons   SIGKILL of the app and every background process of its bundle (daemon, holder, terminal
                           hosts): nothing of cmux runs at the reopen
            logout         the quit Apple event with kAEQuitReason kAEReallyLogOut, as loginwindow sends at a logout
-                          (osascript JXA); a refused send (no Automation consent) makes the cycle not_run
+                          (AESendMessage); sent only when the system says, with no prompt, that this process may
+                          (AEDeterminePermissionToAutomateTarget, askUserIfNeeded false); else the cycle is not run
       Writes, per cycle N: reopen-N.mp4 (the video) and reopen-N.json (wall times of each event, the new process's
       kernel start, the app's main_start and launch marks, the panes' screen rects before and after, the markers'
       cell rects, the sync moves, the state before and after and the differences). reopen_judge.py (on the VM)
@@ -153,8 +154,6 @@ JSON.stringify(list.filter(w => w.kCGWindowLayer === 0).map((w, i) => ({order: i
   w: w.kCGWindowBounds.Width, h: w.kCGWindowBounds.Height})));
 """
 
-# The quit Apple event with the reason loginwindow gives at a logout (kAEQuitReason = kAEReallyLogOut).
-LOGOUT_JXA = """
 ObjC.import('Foundation');
 function run(argv) {
   const pid = parseInt(argv[0]);
@@ -319,6 +318,58 @@ def post_key(keycode=KEYCODE_X):
     cg.CFRelease(down)
     cg.CFRelease(up)
     return before, after
+
+
+# ---- the logout quit: the Apple event loginwindow sends (kAEQuitApplication, kAEQuitReason kAEReallyLogOut) ----
+
+class AEDesc(ctypes.Structure):
+    _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+
+
+def _fourcc(text):
+    return int.from_bytes(text.encode("ascii"), "big")
+
+
+def send_logout_quit(pid):
+    """Sends PID the quit Apple event with kAEQuitReason = kAEReallyLogOut. Asks the system first, without a
+    prompt, whether this process may send it (AEDeterminePermissionToAutomateTarget, askUserIfNeeded false): a
+    consent dialog must never open on a shared mini. Returns ("sent", 0) or (why not, status)."""
+    cs = ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+    cs.AECreateDesc.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(AEDesc)]
+    cs.AECreateDesc.restype = ctypes.c_int16
+    cs.AEDeterminePermissionToAutomateTarget.argtypes = [ctypes.POINTER(AEDesc), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_bool]
+    cs.AEDeterminePermissionToAutomateTarget.restype = ctypes.c_int32
+    cs.AECreateAppleEvent.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(AEDesc), ctypes.c_int16, ctypes.c_int32,
+                                      ctypes.POINTER(AEDesc)]
+    cs.AECreateAppleEvent.restype = ctypes.c_int16
+    cs.AEPutAttributePtr.argtypes = [ctypes.POINTER(AEDesc), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_long]
+    cs.AEPutAttributePtr.restype = ctypes.c_int16
+    cs.AESendMessage.argtypes = [ctypes.POINTER(AEDesc), ctypes.POINTER(AEDesc), ctypes.c_int32, ctypes.c_long]
+    cs.AESendMessage.restype = ctypes.c_int32
+    cs.AEDisposeDesc.argtypes = [ctypes.POINTER(AEDesc)]
+    target, event, reply = AEDesc(), AEDesc(), AEDesc()
+    kpid = ctypes.c_int32(pid)
+    err = cs.AECreateDesc(_fourcc("kpid"), ctypes.byref(kpid), 4, ctypes.byref(target))
+    if err:
+        return f"AECreateDesc {err}", err
+    try:
+        allowed = cs.AEDeterminePermissionToAutomateTarget(ctypes.byref(target), _fourcc("aevt"), _fourcc("quit"), False)
+        if allowed != 0:
+            # -1744: a consent prompt would be needed; -1743: denied. Never ask.
+            return f"no consent to send a quit event (AEDeterminePermissionToAutomateTarget {allowed})", allowed
+        err = cs.AECreateAppleEvent(_fourcc("aevt"), _fourcc("quit"), ctypes.byref(target), -1, 0, ctypes.byref(event))
+        if err:
+            return f"AECreateAppleEvent {err}", err
+        reason = ctypes.c_uint32(_fourcc("rlgo"))
+        err = cs.AEPutAttributePtr(ctypes.byref(event), _fourcc("why?"), _fourcc("enum"), ctypes.byref(reason), 4)
+        if err:
+            return f"AEPutAttributePtr {err}", err
+        status = cs.AESendMessage(ctypes.byref(event), ctypes.byref(reply), 1, 600)  # kAENoReply, 10 s in ticks
+        return ("sent", 0) if status == 0 else (f"AESendMessage {status}", status)
+    finally:
+        for desc in (target, event, reply):
+            if desc.dataHandle:
+                cs.AEDisposeDesc(ctypes.byref(desc))
 
 
 # ---- the exact state a reopen must give back -------------------------------------------------------------------
@@ -559,11 +610,10 @@ def _end(j, cua, how, record):
             except OSError:
                 pass
     elif how == "logout":
-        out, err, code = _jxa(LOGOUT_JXA, old, timeout=20)
-        record["logout_send"] = (out or err)[-200:]
-        if out != "sent":
-            raise D.NotRun(f"logout: the quit Apple event was not sent ({(out or err)[-200:]}): no Automation consent "
-                           "for osascript on this mini")
+        sent, status = send_logout_quit(old)
+        record["logout_send"] = {"result": sent, "status": status}
+        if sent != "sent":
+            raise D.NotRun(f"logout: the quit Apple event was not sent: {sent}")
     else:
         raise D.StepError(f"reopen_video: how is quit-keep-hid, kill-app, kill-daemons or logout, not {how!r}")
     gone = D.wait_exit(old, D.QUIT_SECONDS)
