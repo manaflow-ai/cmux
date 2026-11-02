@@ -43,15 +43,26 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-media {
   margin: 16px 0 14px;
-  aspect-ratio: 7 / 4;
+  /* The frame is the picture's own box (#29876): a picture is shown whole at its own shape, never
+     cut to a ratio the page picked, never drawn larger than it was taken, and never taller than
+     --cl-media-height, so a pull request's whole-window screenshot stays one contained preview
+     and nothing under it moves. */
+  width: fit-content;
+  max-width: 100%;
   border-radius: 10px;
   overflow: hidden;
   /* The shared .ui-glass material supplies tint, blur, rim and reduced-transparency behavior. */
 }
 .cl-media img,
-.cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.cl-media video {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: var(--cl-media-height, 440px);
+}
 /* A picture opens enlarged: the whole frame is the button, with no chrome of its own. */
-.cl-media-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cl-media-open { display: block; max-width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
 .cl-media-open:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
@@ -267,8 +278,7 @@ html[data-cmux-page="changelog"] {
   margin: 24px 0 0;
 }
 .cln-lead { display: flex; flex-direction: column; min-width: 0; }
-.cln-lead-media { margin: 0 0 12px; aspect-ratio: 16 / 10; }
-.cln-lead-row[data-count="1"] .cln-lead-media { aspect-ratio: 16 / 9; }
+.cln-lead-media { margin: 0 0 12px; }
 .cln-lead-title {
   margin: 0 0 4px;
   font-size: var(--text-heading);
@@ -330,7 +340,7 @@ html[data-cmux-page="changelog"] {
   text-wrap: pretty;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cln-card-media { margin: 8px 0 0; aspect-ratio: 16 / 10; }
+.cln-card-media { margin: 8px 0 0; --cl-media-height: 240px; }
 .cln-card .cl-row-actions { margin: auto 0 0; padding-top: 8px; opacity: 1; }
 /* Fixed as one line, "Fixed 23 ›", that opens to its list. */
 .cln-fixed { margin-top: 24px; }
@@ -444,9 +454,6 @@ html[data-cmux-page="changelog"] {
 .cll .cl-group li.cl-wide-row { position: relative; display: grid; gap: 8px 24px; padding: 0 0 0 18px; }
 .cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }
 .cll .cl-row-text { min-width: 0; }
-/* The lead picture follows the pane width. Its glass frame remains bounded by the pane's
-   modest margins rather than an arbitrary centered column. */
-.cll-body > .cl-media { width: 100%; }
 .cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
 .cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 @container (min-width: 720px) {
@@ -457,7 +464,7 @@ html[data-cmux-page="changelog"] {
     justify-content: start;
     align-items: start;
   }
-  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; max-width: none; }
+  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; }
 }
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that
@@ -472,7 +479,7 @@ html[data-cmux-page="changelog"] {
 }
 .cll-lead { margin: 0 0 2px; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 /* A change's own picture: beside its row when the pane has room, else under it. */
-.cl-row-media { margin: 6px 0 4px; width: 100%; }
+.cl-row-media { margin: 6px 0 4px; }
 /* A narrow tab: the margin folds above the release, Conductor's mobile layout. */
 @media (max-width: 760px) {
   .cll { padding: 32px 24px 80px; }
@@ -524,7 +531,7 @@ html[data-cmux-page="changelog"] {
 .cld-item .cl-row-summary { font-size: var(--text-detail); line-height: var(--text-detail--line-height); margin-top: 2px; letter-spacing: var(--text-detail--letter-spacing); }
 .cld-item .cl-row-actions,
 .clr-groups .cl-row-actions { margin: 4px 0 0; opacity: 1; }
-.cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
+.cld-thumb { margin: 0; border-radius: 5px; --cl-media-height: 76px; }
 
 @media (prefers-reduced-motion: reduce) {
   .cl-changes summary::before,
@@ -538,10 +545,7 @@ html[data-cmux-page="changelog"] {
 .cln-clip { display: grid; gap: 12px; min-width: 0; }
 /* A clip is never drawn larger than it was recorded (a narrow sidebar crop stays sharp), and never
    wider than its column. */
-.cln-clip-media { justify-self: center; width: fit-content; max-width: 100%; margin: 0; aspect-ratio: auto; border-radius: 12px; }
-.cln-clip-media img,
-.cln-clip-media video { width: auto; max-width: 100%; height: auto; max-height: 440px; object-fit: contain; }
-.cln-clip-media .cl-media-open { width: auto; height: auto; }
+.cln-clip-media { justify-self: center; margin: 0; border-radius: 12px; }
 .cln-clip-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .cln-clip-title {
   margin: 0;

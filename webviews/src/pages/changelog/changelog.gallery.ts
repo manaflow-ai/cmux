@@ -3,6 +3,19 @@ import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import nightly4122410931101 from "./fixtures/nightly-4122410931101-span.json";
+import tabMenuPicture from "../../gallery/fixtures/whats-new/pr-28048-tab-menu-light.png?inline";
+import tabMenuClip from "../../gallery/fixtures/whats-new/clip-pointer-menu-trim.webp?inline";
+
+/** Nightly 4122410931101's span with its lead change's picture replaced by `url` (as the host inlines it). */
+const nightly4122410 = (url: string, alt?: string): ReleaseNotes[] =>
+  (nightly4122410931101 as ReleaseNotes[]).map((n) => ({
+    ...n,
+    highlights: n.highlights.map((h) => ({
+      ...h,
+      media: h.media?.map((m) => ({ ...m, url, alt: alt ?? m.alt })),
+    })),
+  }));
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
@@ -52,6 +65,19 @@ export default changelogPageEntry({
       note: "The update from 1.0.0-nightly.3911762409401 to 3913596493801 (2026-10-18): the ten signed notes of that span as published, perf-split commits, cut titles and bead ids included.",
       notes: nightly3913596493801 as ReleaseNotes[],
       route: "#/?from=1.0.0-nightly.3911762409401&to=1.0.0-nightly.3913596493801",
+    },
+    "nightly-4122410931101": {
+      note: "The update to 1.0.0-nightly.4122410931101 (2026-10-31) as published: its lead change carries a pull request's whole-window screenshot (1200×800, a tab menu open). The picture shows whole at its own shape, at most 440 px tall, never cut to a 16:9 box (#29876).",
+      notes: nightly4122410(tabMenuPicture),
+      route: "#/?from=1.0.0-nightly.4122185214701&to=1.0.0-nightly.4122410931101",
+    },
+    "nightly-4122410931101-clip": {
+      note: "The same update with the highlight's recorded clip (release-notes/next/clips/pointer-menu-trim.json), which its clip line now carries: the tab bar and its shorter menu, cropped to where it happens (#29876).",
+      notes: nightly4122410(
+        tabMenuClip,
+        "Right-click a tab to find everyday actions in a shorter menu, with the rest in More or the command palette.",
+      ),
+      route: "#/?from=1.0.0-nightly.4122185214701&to=1.0.0-nightly.4122410931101",
     },
     "nightly-update": {
       note: "Real nightly-next notes: opened after the update from 1.0.0-nightly.3797234815201 to 3832783556401. Highlights of the span first, then one section per day.",

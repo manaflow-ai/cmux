@@ -1,0 +1,264 @@
+[
+  {
+    "build": "4122410931101",
+    "builtAt": "2026-10-31T17:58:57Z",
+    "changes": [
+      "test(ios): Chief waits count only the time they could run (#28975)",
+      "New Tab quick actions fit narrow panes (carries #27353) (#28185)",
+      "cmux NEXT Home: the Chief welcomes a first launch with ⌘P, shortcuts and what to ask (#26103)",
+      "chore(next): base autofix at ddeb2bcab2d5",
+      "fix(agent-pane): the summary card holds still while the chat scrolls (#29282)",
+      "chore(webviews): remove retired agent session types (#28053)",
+      "cmux NEXT Chief: replies link PRs, issues, commits, runs and workspaces by short name; a workspace link reopens a closed workspace (#25659)",
+      "cmux NEXT: shorten tab and pane menus while keeping every command searchable (carries #28048/#28401) (#29325)",
+      "Home: Chief thread replies stay in their thread (#25588) (#25616)",
+      "cmux NEXT: the unread dot waits for an agent's background subagents (#25607)",
+      "cmux-tui: after a restart the owner answers at once; adoptions take turns, visible workspace first (perf100) (#24307)",
+      "cmux-tui: output's scroll events publish once per frame, not once per chunk (perf100) (#23179)",
+      "optchat-chief: Chief survives an update handoff while the old acpmux still holds its lock (#23019)",
+      "cmux NEXT: a keep quit ends within 4 s whatever any step does; Restart to Update never leaves cmux invisible (#22919)",
+      "EditCounts: keep one count per group, not every earlier prefix (#29368)"
+    ],
+    "date": "2026-10-31",
+    "head": "5fb4ac7bc04490e05aaff1ac9e2d380501eec2da",
+    "highlights": [
+      {
+        "body": "Agent chats and terminal tabs show their unread dot and finished notification when the task's background agents finish. Starting another turn keeps the dot waiting for that turn to finish.",
+        "category": "fixed",
+        "id": "agent-unread-waits-for-background-work",
+        "media": [],
+        "title": "Unread dots wait for background agents"
+      },
+      {
+        "action": {
+          "id": "commandPalette",
+          "title": "Find a command"
+        },
+        "body": "Find common tab and pane actions faster in shorter menus. Hibernate/Wake Tab, terminal themes, column width, and docking remain in the command palette, and Show in Tab Bar lists controls for the selected tab.",
+        "category": "improved",
+        "id": "pointer-menu-trim",
+        "media": [
+          {
+            "alt": "Shorter menus for tabs and panes",
+            "kind": "image",
+            "sha256": "b766aa9db3dc8afdd027fd46849dad3b40e466e4e10e3bcf3fd8a068576d9a6b",
+            "url": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/28048/5b77be55-tab-light.png"
+          }
+        ],
+        "title": "Shorter menus for tabs and panes"
+      }
+    ],
+    "items": [
+      {
+        "author": "Leo",
+        "internal": true,
+        "pr": 28975,
+        "title": "test(ios): Chief waits count only the time they could run"
+      },
+      {
+        "author": "Leo",
+        "pr": 28185,
+        "title": "New Tab quick actions fit narrow panes (carries #27353)"
+      },
+      {
+        "author": "Austin Wang",
+        "pr": 26103,
+        "title": "cmux NEXT Home: the Chief welcomes a first launch with ⌘P, shortcuts and what to ask"
+      },
+      {
+        "author": "github-actions[bot]",
+        "title": "chore(next): base autofix at ddeb2bcab2d5"
+      },
+      {
+        "author": "Leo",
+        "pr": 29282,
+        "title": "fix(agent-pane): the summary card holds still while the chat scrolls"
+      },
+      {
+        "author": "Leo",
+        "pr": 28053,
+        "title": "chore(webviews): remove retired agent session types"
+      },
+      {
+        "author": "Austin Wang",
+        "pr": 25659,
+        "title": "cmux NEXT Chief: replies link PRs, issues, commits, runs and workspaces by short name; a workspace link reopens a closed workspace"
+      },
+      {
+        "author": "Leo",
+        "pr": 29325,
+        "title": "cmux NEXT: shorten tab and pane menus while keeping every command searchable (carries #28048/#28401)"
+      },
+      {
+        "author": "Austin Wang",
+        "pr": 25616,
+        "title": "Home: Chief thread replies stay in their thread (#25588)"
+      },
+      {
+        "author": "Austin Wang",
+        "pr": 25607,
+        "title": "cmux NEXT: the unread dot waits for an agent's background subagents"
+      },
+      {
+        "author": "Lawrence Chen",
+        "pr": 24307,
+        "title": "cmux-tui: after a restart the owner answers at once; adoptions take turns, visible workspace first (perf100)"
+      },
+      {
+        "author": "Lawrence Chen",
+        "pr": 23179,
+        "title": "cmux-tui: output's scroll events publish once per frame, not once per chunk (perf100)"
+      },
+      {
+        "author": "Austin Wang",
+        "pr": 23019,
+        "title": "optchat-chief: Chief survives an update handoff while the old acpmux still holds its lock"
+      },
+      {
+        "author": "Lawrence Chen",
+        "pr": 22919,
+        "title": "cmux NEXT: a keep quit ends within 4 s whatever any step does; Restart to Update never leaves cmux invisible"
+      },
+      {
+        "author": "Leo",
+        "pr": 29368,
+        "title": "EditCounts: keep one count per group, not every earlier prefix"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.4122410931101",
+    "summary": [
+      {
+        "group": "fixed",
+        "title": "The summary card holds still while the chat scrolls"
+      },
+      {
+        "group": "changed",
+        "title": "The Chief welcomes a first launch with ⌘P, shortcuts and what to ask"
+      },
+      {
+        "group": "changed",
+        "title": "Replies link PRs, issues, commits, runs and workspaces by short name; a workspace link reopens a closed workspace"
+      },
+      {
+        "group": "changed",
+        "title": "The unread dot waits for an agent's background subagents"
+      },
+      {
+        "group": "changed",
+        "title": "A keep quit ends within 4 s whatever any step does; Restart to Update never leaves cmux invisible"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-31",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "improved",
+          "id": "pointer-menu-trim",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Find common tab and pane actions faster in shorter menus. Hibernate/Wake Tab, terminal themes, column width, and docking remain in the command palette, and Show in Tab Bar lists controls for the selected tab."
+          },
+          "title": {
+            "en": "Shorter menus for tabs and panes"
+          },
+          "tryIt": {
+            "action": "commandPalette"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "fixed",
+          "docs": "https://cmux.com/docs/agents",
+          "id": "agent-unread-waits-for-background-work",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Agent chats and terminal tabs show their unread dot and finished notification when the task's background agents finish. Starting another turn keeps the dot waiting for that turn to finish."
+          },
+          "title": {
+            "en": "Unread dots wait for background agents"
+          }
+        }
+      ],
+      "headline": {
+        "en": "Shorter menus for tabs and panes, and 1 more"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.4122410931101"
+    }
+  },
+  {
+    "build": "4122185214701",
+    "builtAt": "2026-10-31T17:34:28Z",
+    "changes": [
+      "iOS screen sharing: a failed sign-out still ends the session (#29114)",
+      "perf(ios): Connect your Mac's wait draws only while its pulse plays (#29099)"
+    ],
+    "date": "2026-10-31",
+    "head": "3531e040b663ac9c181f6180780debee116d2c32",
+    "highlights": [],
+    "items": [
+      {
+        "author": "Leo",
+        "pr": 29114,
+        "title": "iOS screen sharing: a failed sign-out still ends the session"
+      },
+      {
+        "author": "Leo",
+        "pr": 29099,
+        "title": "perf(ios): Connect your Mac's wait draws only while its pulse plays"
+      }
+    ],
+    "shortVersion": "1.0.0-nightly.4122185214701",
+    "summary": [
+      {
+        "group": "changed",
+        "title": "A failed sign-out still ends the session"
+      },
+      {
+        "group": "changed",
+        "title": "Connect your Mac's wait draws only while its pulse plays"
+      }
+    ],
+    "version": 1,
+    "whatsNew": {
+      "channel": "nightly",
+      "date": "2026-10-31",
+      "entries": [
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-0",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "A failed sign-out still ends the session."
+          },
+          "title": {
+            "en": "A failed sign-out still ends the session"
+          }
+        },
+        {
+          "audience": "all",
+          "category": "improved",
+          "docs": "https://cmux.com/docs/changelog",
+          "id": "summary-1",
+          "platforms": ["macos"],
+          "summary": {
+            "en": "Connect your Mac's wait draws only while its pulse plays."
+          },
+          "title": {
+            "en": "Connect your Mac's wait draws only while its pulse plays"
+          }
+        }
+      ],
+      "headline": {
+        "en": "A failed sign-out still ends the session"
+      },
+      "schemaVersion": 1,
+      "version": "1.0.0-nightly.4122185214701"
+    }
+  }
+]

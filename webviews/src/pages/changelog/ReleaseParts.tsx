@@ -35,8 +35,10 @@ export function ReleaseMeta({ date, version, strings }: { date: string; version:
   );
 }
 
-/** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. It
-    loads as it nears the viewport. Given `strings`, a click (or Return) opens it enlarged. */
+/** The release's picture in the theme's scheme, whole at its own shape; its frame is the picture's
+    box (styles.css .cl-media, #29876). A picture the host inlined (a data: URL, every verified one)
+    is already in memory, so it loads at once and the page never moves under it; any other loads as
+    it nears the viewport. Given `strings`, a click (or Return) opens it enlarged. */
 export function Media({ media, className, strings }: { media: MediaRef; className?: string; strings?: Strings }) {
   const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
   const src = scheme === "dark" ? media.dark : media.light;
@@ -44,7 +46,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   const picture = media.video ? (
     <LazyVideo key={src} src={src} alt={media.alt} />
   ) : (
-    <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
+    <img key={src} src={src} alt={media.alt} loading={src.startsWith("data:") ? "eager" : "lazy"} decoding="async" />
   );
   return (
     <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
