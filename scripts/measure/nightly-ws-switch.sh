@@ -20,6 +20,7 @@ for arg in "$@"; do
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
     typing=*) extra+=(--typing "${arg#typing=}") ;;
     heavy=1) extra+=(--heavy) ;;
+    heavy=0) ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

@@ -185,7 +185,7 @@ class Journey:
                     self.action(verb)
                     time.sleep(0.6)  # harness: the split's shell starts
                     self.action("terminal.sendText", {"text": text})
-                self.action("newTab")
+                self.action("newSurface")
                 time.sleep(0.4)  # harness: the tab opens
                 self.action("openBrowser", {"url": "https://example.com"})
                 time.sleep(0.4)  # harness: the browser tab opens
