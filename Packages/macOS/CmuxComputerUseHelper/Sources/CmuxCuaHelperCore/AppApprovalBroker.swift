@@ -108,7 +108,7 @@ public final class AppApprovalBroker: Sendable {
     }
 
     /// Unix milliseconds from the system clock.
-    @Sendable static func unixMilliseconds() -> Int64 {
+    @Sendable public static func unixMilliseconds() -> Int64 {
         Int64((Date().timeIntervalSince1970 * 1000).rounded(.down))
     }
 
@@ -116,7 +116,7 @@ public final class AppApprovalBroker: Sendable {
     /// closure: a single-expression closure that returns the `Task` where the
     /// type says `Void` crashed the test process (an 8-byte write past a heap
     /// buffer under ASan, Xcode 26.6).
-    @Sendable static func runAfter(_ delay: Duration, _ action: @escaping @Sendable () -> Void) {
+    @Sendable public static func runAfter(_ delay: Duration, _ action: @escaping @Sendable () -> Void) {
         // task-owner: one bounded deadline per question or waiter; the action is a no-op once answered.
         _ = Task.detached(priority: .utility) {
             try? await Task.sleep(for: delay)
