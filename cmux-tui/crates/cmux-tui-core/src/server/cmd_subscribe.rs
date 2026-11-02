@@ -30,6 +30,11 @@ pub(super) fn subscribe_activity(
     mux.activity.subscribe(mux, client, writer)
 }
 
+/// A connection that reads each terminal's scroll position on its attach stream (the Mac app) says this in
+/// `set-client-info`: its `subscribe` carries no `scroll-changed` (SWITCH FRAMES SF-5: every hidden busy terminal
+/// woke the app's event pump about 15 times a second for an event its store ignores).
+pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll-on-attach-v1";
+
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
     client: u64,

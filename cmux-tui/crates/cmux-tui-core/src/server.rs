@@ -246,6 +246,7 @@ mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
+use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
