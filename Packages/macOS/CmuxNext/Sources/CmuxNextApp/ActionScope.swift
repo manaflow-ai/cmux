@@ -25,10 +25,13 @@ struct ActionScope {
                 }
                 return controller
             case .pane:
-                for controller in services.windows.controllers {
-                    if let pane = controller.content?.panes.values.first(where: { $0.paneKey == target.id }) { return pane }
+                // On the invocation's machine; an id two machines share without one is refused (cmux#30755).
+                guard let model = AppActionContext(services: services).targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
+                guard let controller = services.paneController(for: model) else {
+                    services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
+                    return nil
                 }
-                return notFound(RefusalStrings.noPaneID(target.id))
+                return controller
             default: break
             }
         }

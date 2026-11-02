@@ -814,6 +814,32 @@ final class AppServices {
         }
         return nil
     }
+    /// The pane `id` (its public or resource id) names, when exactly one machine holds it.
+    /// Forks keep pane ids as they keep tab ids (cmux#30755); never pick one by registry order.
+    func locatePane(_ id: String) -> PaneModel? {
+        var found: PaneModel?
+        for daemon in machines.daemons {
+            guard let pane = Self.pane(id, in: daemon) else { continue }
+            guard found == nil else { return nil }
+            found = pane
+        }
+        return found
+    }
+
+    /// The pane `id` names on the named machine only; a missing machine never falls back locally.
+    func locatePane(_ id: String, onMachine machineID: String) -> PaneModel? {
+        machines.daemon(machine: machineID).flatMap { Self.pane(id, in: $0) }
+    }
+
+    private static func pane(_ id: String, in daemon: DaemonService) -> PaneModel? {
+        for workspace in daemon.store.workspaces {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) { return pane }
+            }
+        }
+        return nil
+    }
+
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
