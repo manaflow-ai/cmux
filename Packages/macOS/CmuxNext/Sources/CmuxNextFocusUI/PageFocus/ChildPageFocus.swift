@@ -30,14 +30,19 @@ public final class ChildPageFocus {
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
+    /// A page's own window (Chromium's page window), if it shows one.
+    private let pageWindow: (AnyObject) -> NSWindow?
 
     /// A tracker with no focused page.
     ///
     /// - Parameters:
     ///   - keys: The key window: ``AppKitKeyWindows`` in the app, a recorder in tests.
+    ///   - pageWindow: A page's own window (Chromium's page window), nil when it shows none.
     ///   - setFocus: Gives (`true`) or takes (`false`) a page's focus.
-    public init(keys: any KeyWindowSwitching, setFocus: @escaping (AnyObject, Bool) -> Void) {
+    public init(keys: any KeyWindowSwitching, pageWindow: @escaping (AnyObject) -> NSWindow? = { _ in nil },
+                setFocus: @escaping (AnyObject, Bool) -> Void) {
         self.keys = keys
+        self.pageWindow = pageWindow
         self.setFocus = setFocus
     }
 
