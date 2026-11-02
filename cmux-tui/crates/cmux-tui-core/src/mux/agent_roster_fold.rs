@@ -15,7 +15,7 @@ pub(super) struct AgentRosterFold {
     reader: Option<crate::workspace_registry::SessionJournalReader>,
     /// Pauses the next fold after it reads one journal page (test seam).
     #[cfg(test)]
-    page_hook: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
+    page_hook: Option<(SyncSender<()>, Receiver<()>)>,
 }
 
 impl AgentRosterFold {
@@ -30,7 +30,7 @@ impl AgentRosterFold {
             match kernel.open_reader() {
                 Ok(reader) => self.reader = reader,
                 Err(error) => {
-                    eprintln!("cmux-tui: opening the agent roster reader failed: {error}")
+                    eprintln!("cmux-tui: opening the agent roster reader failed: {error}");
                 }
             }
         }
@@ -52,8 +52,8 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn pause_agent_roster_fold_after_page_for_test(
         &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
     ) {
         self.agent_roster_fold.lock().unwrap().page_hook = Some((entered, release));
     }

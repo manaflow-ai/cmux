@@ -38,10 +38,12 @@ fn a_roster_fold_reads_the_journal_tail_with_the_registry_and_roster_locks_free(
     let head = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
     assert!(head > after_agent, "the tail appended journal records");
 
-    let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
-    let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
-    mux.pause_agent_roster_fold_after_page_for_test(entered_sender, release_receiver);
     let (registry_free, roster_free) = std::thread::scope(|scope| {
+        // Both ends live in this closure, so a failed wait drops `release`
+        // and the paused fold ends instead of blocking the scope's join.
+        let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
+        mux.pause_agent_roster_fold_after_page_for_test(entered_sender, release_receiver);
         let fold = scope.spawn(|| mux.catch_up_agent_roster());
         entered
             .recv_timeout(Duration::from_secs(30))
