@@ -228,6 +228,11 @@ enum DebugDriverControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // A quit as a logout does (REOPEN VIDEO): {reason: "logout"}.
+            .mainActor("debug.app.terminate") { [weak services] call in
+                .value(services.map { $0.quit.origins.debugTerminate(reason: call.params["reason"]?.stringValue, center: NSWorkspace.shared.notificationCenter) { NSApplication.terminateFromRunLoop() } }
+                    .map { refusal in refusal.map { .object(["error": .string($0)]) } ?? .object(["terminating": .bool(true)]) } ?? .null)
+            },
             // The burst bench's record: each press's outcome, refusals, terminal grids, echoes and redraws.
             // `status`: whether the burst is done (its keys posted, no create still asking the daemon, no
             // grid waiting to go or for its echo), the signal the bench waits for before it reads the counts.
