@@ -56,7 +56,7 @@ fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
             mux.with_state(|_| {
                 held.send(()).unwrap();
                 let _ = released.recv_timeout(Duration::from_millis(300));
-            })
+            });
         }
     });
     holding.recv().unwrap();
@@ -71,5 +71,62 @@ fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
         waited < Duration::from_millis(150),
         "the key waited {waited:?} for the session lock automation held (budget 150 ms, the lock was held 300 ms)"
     );
+    mux.shutdown();
+}
+
+/// Records what a test terminal's PTY is sent.
+struct InputRecorder(mpsc::Sender<Vec<u8>>);
+
+impl Write for InputRecorder {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.send(bytes.to_vec()).unwrap();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// REOPEN-F4/F5 class (lead 2026-11-02): a terminal kept for the person's keys must never outlive the terminal its
+/// id routes to. A respawn takes the dead runtime out of the tab and puts a new one in under the same placement id
+/// (`terminal_respawn.rs`, `install_respawned_runtime`); the next key must reach the new shell, never the old one.
+#[cfg(unix)]
+#[test]
+fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
+    let mux = test_mux();
+    let (old, client, writer) = attached_terminal(&mux);
+    let (old_sent, old_input) = mpsc::channel();
+    old.replace_input_writer_for_test(Box::new(InputRecorder(old_sent)));
+    handle_command(&mux, client, key(old.id, b'a'), &writer).unwrap();
+    assert_eq!(
+        old_input.try_recv().ok(),
+        Some(b"a".to_vec()),
+        "the first key reached the terminal"
+    );
+
+    // The respawn: the old runtime leaves the placement, a new one takes it under the same id. The old one is not
+    // dead yet (its host stops after the new one is in), so only the routing says it no longer owns the id.
+    let removed = mux.remove_surface_runtime_for_test(old.id).expect("the placement had a runtime");
+    assert!(Arc::ptr_eq(&removed, &old));
+    // The replacement takes no Kitty image budget slot: the old runtime still holds this id's slot while it lives,
+    // as in a respawn (its host stops after the new runtime is in).
+    let respawned =
+        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), std::sync::Weak::new())
+            .unwrap();
+    let (new_sent, new_input) = mpsc::channel();
+    respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
+    mux.insert_surface_runtime_for_test(respawned);
+
+    handle_command(&mux, client, key(old.id, b'b'), &writer).unwrap();
+    assert_eq!(
+        new_input.try_recv().ok(),
+        Some(b"b".to_vec()),
+        "the key after the respawn did not reach the new shell"
+    );
+    assert!(
+        old_input.try_recv().is_err(),
+        "the key after the respawn went to the replaced terminal"
+    );
+    drop(removed);
     mux.shutdown();
 }
