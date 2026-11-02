@@ -21,6 +21,7 @@ import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 TOOL = os.path.join(HERE, "load_profiles.py")
 PY = sys.executable
 
@@ -50,11 +51,42 @@ if args[:2] == ["mcp", "serve"]:
             name = msg["params"]["name"]
             with open(log_path, "a") as log:
                 log.write(json.dumps(["mcp-tool", name, msg["params"]["arguments"]]) + "\n")
+            allowed = {"workspace_list", "tab_list", "terminal_screen_read", "browser_list", "notification_list",
+                       "browser_profile_open", "tab_move"}
+            if name not in allowed:
+                sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"isError": True,
+                                 "content": [{"type": "text", "text": "unknown tool " + name}]}}) + "\n")
+                sys.stdout.flush()
+                continue
             value = {"tab_id": "tab_mcp%d_%d" % (os.getpid(), n)} if name == "browser_profile_open" else {}
             result = {"content": [{"type": "text", "text": json.dumps({"value": value})}], "structuredContent": {"value": value}}
         sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}) + "\n")
         sys.stdout.flush()
     sys.exit(0)
+import re
+GRAMMAR = [  # the CLI shapes the profiles may use (topology_help.rs, scope_help.rs, app/page.rs)
+    r"workspace create --name \S+( -- .+)?", r"workspace ws_\w+ (close|focus)",
+    r"workspace ws_\w+ status set \S+ .+", r"workspace ws_\w+ progress set [0-9.]+ --label \S+",
+    r"workspace ws_\w+ log append .+ --level info --source \S+", r"workspace list",
+    r"pane list --workspace ws_\w+", r"pane pane_\w+ close",
+    r"pane pane_\w+ split (--right|--down) --ratio [0-9.]+( -- .+)?",
+    r"tab list --pane pane_\w+", r"tab tab_\w+ close",
+    r"tab create terminal (--workspace ws_\w+ )?--pane pane_\w+( --name \S+)?( -- .+)?",
+    r"tab create browser --pane pane_\w+ --url \S+",
+    r"terminal list --pane pane_\w+", r"terminal term_\w+ write --text .+", r"terminal term_\w+ screen read",
+    r"notify --title .+ --body .+ --workspace ws_\w+ --desktop false",
+    r"browser tab_\w+ (navigate \S+|click \S+|snapshot|eval .+)",
+]
+line = " ".join(args).replace("\n", " ")
+if not any(re.fullmatch(g, line, re.S) for g in GRAMMAR):
+    print("stand-in CLI: not a known command shape: " + line, file=sys.stderr)
+    sys.exit(64)
+if os.path.exists(os.path.join(here, "fail-split-3")) and args[:1] == ["pane"] and "split" in args:
+    count_path = os.path.join(here, "splits")
+    count = int(open(count_path).read()) + 1 if os.path.exists(count_path) else 1
+    open(count_path, "w").write(str(count))
+    if count == 3:
+        print("split refused", file=sys.stderr); sys.exit(1)
 lock = open(state_path + ".lock", "a")
 fcntl.flock(lock, fcntl.LOCK_EX)
 state = json.load(open(state_path)) if os.path.exists(state_path) else {"n": 0, "workspaces": [], "focus": {}}
@@ -175,6 +207,11 @@ class FakeApp:
         if method == "debug.focus":
             return {"ok": True, "result": {"key_window": "w1", "windows": [{"appkit": {"first_responder": "GhosttyView"}}]}}
         if method == "action.run":
+            action, target = params.get("action"), str(params.get("target", ""))
+            if action == "toggleBrowserDeveloperTools":
+                if not target.startswith("pane:"):  # targets: [.pane] (BrowserActionCatalog.swift)
+                    return {"ok": False, "error": {"code": "invalid_target"}}
+                return {"ok": False, "error": {"code": "unavailable", "message": "no focused web view"}}
             return {"ok": False, "error": {"code": "unavailable"}}
         if method == "debug.agent_pane":
             return {"ok": False, "error": {"code": "unknown"}}
@@ -261,6 +298,8 @@ class StormL1(Base):
         self.assertEqual(m["refusals"], [])
         calls = m["calls"]
         self.assertTrue(40 <= calls["achieved_per_s"] <= 75, calls)  # 60 asked; process start-up on a busy host
+        self.assertEqual(calls["asked_per_s"], 60)
+        self.assertIn("ok_per_s", calls)
         self.assertEqual(calls["failed"], 0, calls)
         for kind in ("workspace.list", "terminal.write", "screen.read", "status.set", "log.append"):
             self.assertIn(kind, calls["by_kind"])
@@ -284,6 +323,41 @@ class StormL1(Base):
         self.assertIn("change", events)
 
 
+class Safety(Base):
+    def test_failed_split_beside_keep_leaves_nothing(self):
+        open(os.path.join(self.tmp, "fail-split-3"), "w").close()
+        done, out, app = self.run_tool("L3", "--duration", "1", "--keep", "pane_keep")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        m = self.manifest(out, "L3")
+        self.assertEqual(len([p for p in m["made"]["panes"]]), 2, "the two panes made before the refusal are recorded")
+        self.assert_torn_down(app)
+
+    def test_sigterm_during_setup_tears_down(self):
+        app = self.app()
+        out = os.path.join(self.tmp, "out")
+        proc = subprocess.Popen([PY, TOOL, "run", "L3", "--app-socket", app.path, "--socket", "/x/d.sock", "--cli",
+                                 self.cli, "--app", os.path.join(self.tmp, "X.app"), "--home", self.tmp, "--out", out,
+                                 "--keep", "pane_keep", "--duration", "30"], stdout=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:  # wait until set-up made its first tabs
+            if os.path.exists(os.path.join(out, "L3", "manifest.json")) and \
+                    len(self.manifest(out, "L3")["made"]["tabs"]) >= 3:
+                break
+            time.sleep(0.05)
+        proc.terminate()
+        stdout, _ = proc.communicate(timeout=60)
+        self.assertNotIn("LOAD-READY", stdout)
+        self.assertIn("LOAD-DONE L3", stdout)
+        self.assert_torn_down(app)
+
+    def test_l6_exit_code_counts_a_killed_child(self):
+        import load_profiles
+        self.assertEqual(load_profiles.l6_exit({"L1": 0, "L2": -15, "L3": 0}), 1)
+        self.assertEqual(load_profiles.l6_exit({"L1": 0, "L2": 0}), 0)
+        self.assertEqual(load_profiles.l6_exit({"L1": 2, "L2": 1}), 2)
+        self.assertEqual(load_profiles.l6_exit({}), 2)
+
+
 class McpL2(Base):
     def test_clients_tools_and_no_cross_pane_move(self):
         done, out, app = self.run_tool("L2", "--duration", "2")
@@ -293,7 +367,9 @@ class McpL2(Base):
         tools = [a for a in self.argv_log() if a[0] == "mcp-tool"]
         names = {t[1] for t in tools}
         self.assertIn("browser_profile_open", names)
-        self.assertIn("browser_repl_eval", names)
+        self.assertTrue({"tab_list", "terminal_screen_read", "workspace_list"} <= names, names)
+        self.assertFalse(any(n.startswith("browser_repl") for n in names), "the REPL host is not on --app-socket")
+        self.assertEqual(m["calls"]["failed"], 0, m["calls"])
         lanes = {w["workspace_id"]: w["pane_id"] for w in m["made"]["workspaces"]}
         for _, name, args in tools:
             if name == "browser_profile_open":
@@ -308,7 +384,7 @@ class McpL2(Base):
 
 class BrowserL3(Base):
     def test_tabs_beside_keep_and_navigation(self):
-        done, out, app = self.run_tool("L3", "--duration", "4.5", "--keep", "pane_keep", "--no-devtools")
+        done, out, app = self.run_tool("L3", "--duration", "4.5", "--keep", "pane_keep", "--devtools")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         m = self.manifest(out, "L3")
         tabs = m["browser_tabs"]
@@ -319,12 +395,20 @@ class BrowserL3(Base):
         splits = [a for a in self.argv_log() if a[:3] == ["pane", "pane_keep", "split"]]
         self.assertEqual(len(splits), 1, "one column beside the typing pane")
         self.assertGreaterEqual(m["calls"]["by_kind"].get("browser.navigate", 0), 2)
+        self.assertGreaterEqual(sum(m["calls"]["by_kind"].get("browser." + v, 0) for v in ("click", "snapshot", "eval")), 3)
+        actions = [p for meth, p in app.methods if meth == "action.run"]
+        self.assertEqual([p["action"] for p in actions], ["toggleBrowserDeveloperTools"], "no focus action at all")
+        self.assertTrue(actions[0]["target"].startswith("pane:"))
+        hidden_pane = [w["pane_id"] for w in m["made"]["workspaces"]][0]
+        self.assertEqual(actions[0]["target"], "pane:" + hidden_pane)
+        self.assertFalse(m["devtools"]["opened"])
+        self.assertEqual(m["calls"]["failed"], 0, m["calls"])
         self.assertFalse(m["focus_changed"])
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
     def test_beside_needs_keep(self):
-        done, out, _ = self.run_tool("L3", "--duration", "1", "--no-devtools")
+        done, out, _ = self.run_tool("L3", "--duration", "1")
         self.assertEqual(done.returncode, 1)
         self.assertTrue(any("needs --keep" in r["error"] for r in self.manifest(out, "L3")["refusals"]))
 
@@ -336,13 +420,27 @@ class AgentsL4(Base):
         m = self.manifest(out, "L4")
         self.assertEqual(len(m["agents"]), 6)
         self.assertTrue(all(a["mode"] == "terminal" and a["why"] for a in m["agents"]))
+        self.assertEqual(m["agent_modes"], ["terminal"])
+
+    def test_acp_falls_back_once_not_per_pane(self):
+        start = time.monotonic()
+        done, out, app = self.run_tool("L4", "--duration", "1", "--acp", timeout=200)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L4")
+        self.assertEqual(len(m["agents"]), 6)
+        self.assertEqual(m["agent_modes"], ["terminal"])
+        # the chat is tried on the first pane only (its poll waits up to 60 s); the other 5 go straight on
+        self.assertLess(time.monotonic() - start, 120)
+        self.assertLessEqual(sum(1 for meth, p in app.methods if meth == "action.run"), 1)
+        self.assertEqual(len([a for a in m["agents"] if a.get("why") == "the first pane's agent chat did not stream"]), 5)
+        self.assert_torn_down(app)
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
 
 class AllL6(Base):
     def test_l1_to_l5_together(self):
-        done, out, app = self.run_tool("L6", "--duration", "3", "--keep", "pane_keep", "--no-devtools", "--rate", "40",
+        done, out, app = self.run_tool("L6", "--duration", "3", "--keep", "pane_keep", "--rate", "40",
                                        "--heavy-shape", "4,12,4", timeout=300)
         self.assertEqual(done.returncode, 0, done.stdout[-3000:] + done.stderr[-2000:])
         self.assertEqual(done.stdout.count("LOAD-READY L6 "), 1)

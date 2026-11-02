@@ -10,18 +10,22 @@ the person's focus, and they only use the socket named on the command line.
       and terminal list; tab create and close; terminal write; screen read; notify; workspace status,
       progress and log) at --rate calls a second in total (50..200). The achieved rate is logged.
   L2  MCP storm: 4 clients of `cmux mcp serve --all-tools` call tools back to back: workspace_list,
-      browser_profile_open (activate false, its own pane), tab_move inside that pane (never to another
-      pane: that moves focus), browser_repl_eval (snapshot, click, eval). No browser.page.* tool is on
-      MCP, so snapshot, click and eval go through browser_repl_eval.
+      tab_list, terminal_screen_read, browser_list, notification_list, browser_profile_open (activate false,
+      its own pane) and tab_move inside that pane (never to another pane: that moves focus). MCP has no
+      browser.page.* tools, and its browser_repl_* tools use a shared REPL host socket, not --app-socket,
+      so page snapshot, click and eval are in L3 (`cmux browser TAB snapshot|click|eval`).
   L3  Browser: 30 browser tabs. 4 are visible beside --keep: one plays a video (a canvas stream in a <video>),
-      one is a heavy SPA (thousands of nodes re-rendered at each click), and two are the CSS-animation page.
-      26 tabs are in the profile's own workspace. One tab navigates every 2 s, and the browser REPL
-      (cmux-browser-host eval) clicks the SPA every second. --devtools opens DevTools on the SPA tab during
-      set-up. The app focuses the DevTools view, so the profile then focuses --keep again, before
-      LOAD-READY and before the focus guard starts.
-  L4  Agents: 6 agent panes that stream (agent_stream_acp.py "stream:" prompts, tool calls included), in the
-      profile's own workspace (--agents-where beside: beside --keep). A pane where the app cannot open the
-      chat runs tuikit's terminal agent-stream instead; the manifest says which, and why.
+      one is a heavy SPA (3000 rows re-rendered at each click and every 500 ms), and two are the
+      CSS-animation page. 26 tabs are in the profile's own workspace. One tab navigates every 2 s, and once
+      a second `cmux browser TAB click|snapshot|eval` drives the SPA (browser.page.* through --app-socket).
+      DevTools is not open by default: the app opens it only for a focused web view, and it focuses the
+      DevTools view. --devtools tries toggleBrowserDeveloperTools on L3's own hidden pane with no focus
+      action, and records the reply (usually refused).
+  L4  Agents: 6 panes that stream an agent's answer (tool calls and diffs included), in the profile's own
+      workspace (--agents-where beside: beside --keep). By default each runs tuikit's agent-stream in a
+      terminal. --acp tries a real agent chat on the tuikit-stream harness (agent_stream_acp.py) on the
+      first pane: the chat path answers only for a pane a window shows (--agents-where beside), and when it
+      falls back, every pane runs the terminal stand-in. manifest.agent_modes says which ran.
   L5  HEAVY: heavy_profile.py build --no-focus (40 workspaces, 200 tabs, 12 TUI panes, browser, agent),
       then teardown at the end.
   L6  L1 to L5 at the same time, one process each (DIR/L6/L1 ... DIR/L6/L5).
@@ -84,6 +88,7 @@ class Calls:
         self.by_kind = {}
         self.load_calls = 0  # calls made between LOAD-READY and the stop (set-up and teardown left out)
         self.load_failed = 0
+        self.asked = None  # calls a second the profile was asked for, when it has a rate
         self.window = None  # (ready, stop) monotonic, once the load ran
 
     def record(self, kind, start, ok, worker, error=None):
@@ -107,9 +112,16 @@ class Calls:
         """achieved_per_s: the load's own calls over the load's time (LOAD-READY to the stop)."""
         with self.lock:
             span = (self.window[1] - self.window[0]) if self.window else 0.0
-            return {"calls": self.load_calls, "failed": self.load_failed, "all_calls": self.count,
-                    "all_failed": self.failed, "by_kind": dict(self.by_kind), "load_seconds": round(span, 3),
-                    "achieved_per_s": round(self.load_calls / span, 2) if span > 0 else 0.0}
+            achieved = round(self.load_calls / span, 2) if span > 0 else 0.0
+            out = {"calls": self.load_calls, "failed": self.load_failed, "all_calls": self.count,
+                   "all_failed": self.failed, "by_kind": dict(self.by_kind), "load_seconds": round(span, 3),
+                   "achieved_per_s": achieved,
+                   "ok_per_s": round((self.load_calls - self.load_failed) / span, 2) if span > 0 else 0.0,
+                   "asked_per_s": self.asked}
+            if self.asked and achieved < 0.9 * self.asked:
+                out["below_asked"] = "achieved %.1f of %d calls/s asked: the workers wait on the CLI (rate cap about " \
+                                     "workers / call latency)" % (achieved, self.asked)
+            return out
 
     def close(self):
         self.f.close()
@@ -175,8 +187,9 @@ class FocusGuard(threading.Thread):
                 if "error" in now:
                     continue
                 if now != last:
-                    self.changes += 1 if now.get("focus") != last.get("focus") or \
-                        now.get("key_window") != last.get("key_window") else 0
+                    # focus, key window, or a first responder (a web view that takes the keyboard in the
+                    # key window shows only there): each is a change of the person's focus
+                    self.changes += 1
                     f.write(json.dumps({"t_mono": time.monotonic(), "t_wall": time.time(), "ev": "change",
                                         "state": now, "was": last}) + "\n")
                     f.flush()
@@ -244,24 +257,24 @@ class Profile:
 
     def beside_keep(self, count, argv, what):
         """`count` panes in one new column right of --keep (split --right, then --down), each running argv
-        (a placeholder when None). Split keeps the focus. Returns the pane records."""
+        (a placeholder when None). Split keeps the focus. Each pane is recorded as soon as it exists, so a
+        failed split still tears the earlier ones down. Returns the pane records."""
         if not self.a.keep:
             raise heavy_profile.Refused("%s beside the typing pane needs --keep PANE" % what)
         made = []
-        v = self.app.cmux("pane", self.a.keep, "split", "--right", "--ratio", "0.5",
-                          *heavy_profile.run_args(argv or ["/bin/sleep", "86400"]))
-        made.append(v)
-        last = v.get("pane_id")
-        for i in range(1, count):
-            ratio = "%.4f" % (1.0 - 1.0 / (count - i + 1))
-            v = self.app.cmux("pane", last, "split", "--down", "--ratio", ratio,
-                              *heavy_profile.run_args(argv or ["/bin/sleep", "86400"]))
+        last = self.a.keep
+        for i in range(count):
+            self.check()
+            if i == 0:
+                args = ["pane", self.a.keep, "split", "--right", "--ratio", "0.5"]
+            else:
+                args = ["pane", last, "split", "--down", "--ratio", "%.4f" % (1.0 - 1.0 / (count - i + 1))]
+            v = self.app.cmux(*(args + heavy_profile.run_args(argv or ["/bin/sleep", "86400"])))
             made.append(v)
             last = v.get("pane_id")
-        for v in made:
-            self.manifest["made"]["panes"].append({"pane_id": v.get("pane_id"), "tab_id": v.get("tab_id"),
+            self.manifest["made"]["panes"].append({"pane_id": last, "tab_id": v.get("tab_id"),
                                                    "terminal_id": v.get("terminal_id"), "for": what})
-        self.save()
+            self.save()
         return made
 
     def start_process(self, argv, label, env=None, stdin=None, stdout=None):
@@ -271,6 +284,11 @@ class Profile:
         self.manifest["processes"].append({"pid": proc.pid, "label": label, "argv": argv})
         self.save()
         return proc
+
+    def check(self):
+        """Between set-up steps: a SIGTERM during set-up ends it (the teardown still runs)."""
+        if self.stop.is_set():
+            raise Stop()
 
     # lifecycle
     def setup(self):
@@ -290,8 +308,15 @@ class Profile:
             if pane.get("pane_id") and pane.get("pane_id") != self.a.keep:
                 self.cli("teardown.pane.close", "pane", pane["pane_id"], "close")
         for ws in self.manifest["made"]["workspaces"]:
-            if ws.get("workspace_id"):
-                self.cli("teardown.workspace.close", "workspace", ws["workspace_id"], "close")
+            if not ws.get("workspace_id"):
+                continue
+            if self.cli("teardown.workspace.close", "workspace", ws["workspace_id"], "close") is None:
+                # a close that wants a confirmation: the app's close action with confirm (heavy_profile's way)
+                reply = self.rpc("teardown.workspace.close.confirm", "action.run",
+                                 {"action": "closeWorkspace", "target": "workspace:%s" % ws["workspace_id"],
+                                  "args": {"confirm": True}})
+                if not reply or (isinstance(reply, dict) and reply.get("error")):
+                    self.refused("teardown workspace %s" % ws["workspace_id"], json.dumps(reply)[:200])
 
 
 # ---- L1: CLI storm -------------------------------------------------------------------------------
@@ -305,6 +330,7 @@ class L1(Profile):
         self.mine = [[] for _ in range(self.WORKERS)]  # tabs each worker made (it closes only its own)
         self.lock = threading.Lock()
         self.manifest["rate"] = self.a.rate
+        self.calls.asked = self.a.rate
         self.manifest["workers"] = self.WORKERS
         self.manifest["mix"] = dict(L1_KINDS)
         self.save()
@@ -463,6 +489,7 @@ class L2(Profile):
         self.base = start_pages(self)
         self.lanes = []
         for i in range(self.CLIENTS):
+            self.check()
             ws = self.workspace("mcp%d" % i)
             try:
                 client = Mcp(self, i)
@@ -494,19 +521,22 @@ class L2(Profile):
                 self.cli("mcp.tab_close(cli)", "tab", tab, "close", worker=i)
                 self.manifest["made"]["tabs"].remove(tab) if tab in self.manifest["made"]["tabs"] else None
             return
-        if roll < 0.35:
+        # No browser_repl_* tool: the REPL host listens on a shared socket ($TMPDIR/cmux-<uid>/browser-host.sock),
+        # not on --app-socket, so it could reach another cmux. Page reads and clicks are L3's (`cmux browser`).
+        if roll < 0.3:
             name, args = "workspace_list", {}
-        elif roll < 0.5 and len(lane["tabs"]) > 1:
+        elif roll < 0.45 and len(lane["tabs"]) > 1:
             # Inside the same pane only: a move to another pane makes it the focused pane.
             name, args = "tab_move", {"tab": rng.choice(lane["tabs"]), "destination_pane": ws["pane_id"],
                                       "index": rng.randrange(len(lane["tabs"]))}
+        elif roll < 0.65:
+            name, args = "tab_list", {"pane": ws["pane_id"]}
+        elif roll < 0.8:
+            name, args = "terminal_screen_read", {"terminal": ws["terminal_id"]}
+        elif roll < 0.9:
+            name, args = "browser_list", {}
         else:
-            tab = rng.choice(lane["tabs"])
-            code = rng.choice((
-                'const p = await tabs.use("%s"); return (await p.snapshot()).length' % tab,
-                'const p = await tabs.use("%s"); await p.click("#bump"); return 1' % tab,
-                'const p = await tabs.use("%s"); return await p.evaluate(() => document.title)' % tab))
-            name, args = "browser_repl_eval", {"session": "tk-load-L2-%d" % i, "code": code, "timeoutMs": 5000}
+            name, args = "notification_list", {}
         start = time.monotonic()
         try:
             c.tool(name, args)
@@ -633,68 +663,56 @@ class L3(Profile):
         self.visible = []
         panes = self.beside_keep(len(self.VISIBLE), None, "L3 visible browser")
         for pane, kind in zip(panes, self.VISIBLE):
+            self.check()
             rec = self.browser_tab(pane["pane_id"], page_url(self.base, kind, len(self.visible)), "visible " + kind)
             self.visible.append(rec)
             if pane.get("tab_id"):
                 self.cli("setup.placeholder.close", "tab", pane["tab_id"], "close")
         ws = self.workspace("tabs")
-        self.hidden = [self.browser_tab(ws["pane_id"], page_url(self.base, "anim", i), "hidden")
-                       for i in range(self.HIDDEN)]
+        self.hidden = []
+        for i in range(self.HIDDEN):
+            self.check()
+            self.hidden.append(self.browser_tab(ws["pane_id"], page_url(self.base, "anim", i), "hidden"))
         self.spa = self.visible[1]
         if self.a.devtools:
-            self.open_devtools(self.spa)
-        self.host = os.path.join(self.app.app_path or "", "Contents", "Resources", "bin", "cmux-browser-host")
-        self.manifest["repl"] = self.host if os.path.exists(self.host) else None
+            self.open_devtools(ws["pane_id"])
         self.save()
 
-    def open_devtools(self, tab):
-        """DevTools needs the web view focused, and opening it focuses the DevTools view, so this happens in
-        set-up, before LOAD-READY. Then the person's pane --keep is focused again, and the result is checked."""
-        steps = {}
-        steps["focus_spa"] = self.app.rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % tab["tab_id"],
-                                                         "focus": True})
-        time.sleep(0.5)  # set-up: the web view takes the first responder
-        steps["toggle"] = self.app.rpc("action.run", {"action": "toggleBrowserDeveloperTools",
-                                                      "target": "tab:%s" % tab["tab_id"]})
-        time.sleep(1.0)  # set-up: DevTools opens docked
-        steps["refocus_keep"] = self.app.rpc("action.run", {"action": "pane.focus", "target": "pane:%s" % self.a.keep,
-                                                            "focus": True})
-        time.sleep(0.3)
-        focus = (self.app.topology().get("focus") or {})
-        steps["keep_focused"] = focus.get("pane") == self.a.keep
-        self.manifest["devtools"] = steps
-        if not steps["keep_focused"]:
-            self.refused("devtools set-up", "the typing pane %s is not focused after DevTools: %s" % (self.a.keep, focus))
+    def open_devtools(self, pane):
+        """--devtools: toggleBrowserDeveloperTools on L3's own hidden pane (the action takes a pane target).
+        No focus action is sent. The app opens DevTools only for a focused web view, so this is usually
+        refused; the reply is recorded, and a refusal is a note, not a failure."""
+        reply = self.app.rpc("action.run", {"action": "toggleBrowserDeveloperTools", "target": "pane:%s" % pane})
+        opened = isinstance(reply, dict) and not reply.get("error")
+        self.manifest["devtools"] = {"pane": pane, "reply": reply, "opened": opened}
+        if not opened:
+            self.manifest.setdefault("notes", []).append(
+                "DevTools did not open (it needs a focused web view; the load never focuses one): %s"
+                % json.dumps(reply)[:200])
         self.save()
 
-    def repl_click(self):
-        start = time.monotonic()
-        code = 'const p = await tabs.use("%s"); await p.click("#bump"); return 1' % self.spa["tab_id"]
-        env = {"HOME": self.app.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_SOCKET_PATH": self.app.app_sock}
-        try:
-            done = subprocess.run([self.host, "eval", "--session", "tk-load-L3", "--timeout-ms", "5000", "-"],
-                                  input=code, capture_output=True, text=True, timeout=15, env=env)
-            ok = done.returncode == 0
-            self.calls.record("repl.click", start, ok, 1, None if ok else (done.stderr or done.stdout)[:200])
-        except (OSError, subprocess.TimeoutExpired) as error:
-            self.calls.record("repl.click", start, False, 1, error)
+    def page_call(self):
+        """One `cmux browser TAB snapshot|click|eval` on the SPA (through --app-socket, as browser.page.*)."""
+        tab = self.spa["tab_id"]
+        verb = self.rng.choice(("click", "click", "snapshot", "eval"))
+        args = {"click": ["browser", tab, "click", "#bump"], "snapshot": ["browser", tab, "snapshot"],
+                "eval": ["browser", tab, "eval", "document.querySelectorAll('.r').length"]}[verb]
+        self.cli("browser." + verb, *args, worker=1)
 
     def load(self):
-        tabs = self.visible + self.hidden
-        rng = self.rng
+        tabs = [t for t in self.visible + self.hidden if t is not self.spa and "video" not in t["for"]]
         next_load = next_click = time.monotonic()
         while not self.stop.is_set():
             now = time.monotonic()
             if now >= next_load:
                 next_load += 2.0
-                tab = rng.choice([t for t in tabs if t is not self.spa and "video" not in t["for"]])
+                tab = self.rng.choice(tabs)
                 self.cli("browser.navigate", "browser", tab["tab_id"], "navigate",
-                         page_url(self.base, "anim", rng.randrange(4)) + "?n=%d" % rng.randrange(10 ** 6), worker=0)
-            if self.manifest.get("repl") and now >= next_click:
+                         page_url(self.base, "anim", self.rng.randrange(4)) + "?n=%d" % self.rng.randrange(10 ** 6))
+            if now >= next_click:
                 next_click += 1.0
-                self.repl_click()
-            self.stop.wait(max(0.0, min(next_load, next_click if self.manifest.get("repl") else next_load)
-                               - time.monotonic()))
+                self.page_call()
+            self.stop.wait(max(0.0, min(next_load, next_click) - time.monotonic()))
 
     def teardown(self):
         for tab in list(self.manifest["made"]["tabs"]):
@@ -709,33 +727,52 @@ class L4(Profile):
     AGENTS = 6
 
     def setup(self):
-        plan = {"out": self.dir, "python": sys.executable, "kit": os.path.join(HERE, "tuikit.py"),
-                "duration": self.a.duration}
-        rec = heavy_profile.Recorder(os.path.join(self.dir, "agents.json"), {"made": {}})
         if self.a.agents_where == "beside":
             panes = [p["pane_id"] for p in self.beside_keep(self.AGENTS, None, "L4 agent")]
         else:
             ws = self.workspace("agents")
             panes, last = [ws["pane_id"]], ws["pane_id"]
             for i in range(1, self.AGENTS):
+                self.check()
                 ratio = "%.4f" % (1.0 - 1.0 / (self.AGENTS - i + 1))
                 v = self.app.cmux("pane", last, "split", "--down", "--ratio", ratio, "--", "/bin/sleep", "86400")
                 last = v.get("pane_id")
                 panes.append(last)
+                self.manifest["made"]["panes"].append({"pane_id": last, "tab_id": v.get("tab_id"), "for": "L4 agent"})
+                self.save()
+        plan = {"out": self.dir, "python": sys.executable, "kit": os.path.join(HERE, "tuikit.py"),
+                "duration": self.a.duration}
+        rec = heavy_profile.Recorder(os.path.join(self.dir, "agents.json"), {"made": {}})
         self.manifest["agents"] = []
+        chat = self.a.acp
         for i, pane in enumerate(panes):
+            self.check()
             seed = self.a.seed * 100 + i
             spec = {"prompt": "stream: %d %s %d" % (seed, self.a.duration, self.a.agent_cps),
                     "fallback_argv": tuikit.program_argv(sys.executable, plan["kit"], "agent-stream", seed,
                                                          self.a.duration, None, ["--cps", str(self.a.agent_cps)])}
             try:
-                entry = heavy_profile.open_agent(self.app, plan, rec, pane, spec)
+                if chat:
+                    # The agent chat path (debug.agent_pane) answers only for a pane a window shows; it is
+                    # tried on the first pane, and when it falls back the other panes go straight to
+                    # the terminal stand-in (no 60 s wait each).
+                    entry = heavy_profile.open_agent(self.app, plan, rec, pane, spec)
+                    if i == 0:
+                        self.manifest["harness_file"] = rec.data.get("harness_file")
+                    if entry["mode"] != "acp":
+                        chat = False
+                else:
+                    v = self.app.cmux("tab", "create", "terminal", "--pane", pane,
+                                      *heavy_profile.run_args(spec["fallback_argv"]))
+                    entry = {"mode": "terminal", "why": "--acp not given" if not self.a.acp else
+                             "the first pane's agent chat did not stream", "pane_id": pane,
+                             "tab_id": v.get("tab_id"), "terminal_id": v.get("terminal_id")}
             except heavy_profile.Refused as error:
                 self.refused("agent pane %d" % i, error)
                 continue
             entry["steps"] = len(entry.get("steps") or [])
             self.manifest["agents"].append(dict(entry, seed=seed))
-        self.manifest["harness_file"] = rec.data.get("harness_file")
+        self.manifest["agent_modes"] = sorted({a["mode"] for a in self.manifest["agents"]})
         self.save()
 
     def teardown(self):
@@ -758,11 +795,22 @@ class L5(Profile):
                 "--duration", str(self.a.duration + 60), "--out", self.heavy_out, "--no-focus"] + reach
         workspaces, tabs, visible = self.a.heavy_shape.split(",")
         argv += ["--workspaces", workspaces, "--tabs", tabs, "--visible", visible]
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=1800)
-        self.manifest["heavy"] = {"argv": argv, "exit": done.returncode, "stdout": done.stdout.strip()[-600:],
-                                  "manifest": os.path.join(self.heavy_out, "heavy.json"), "reach": reach}
-        if done.returncode != 0:
-            self.refused("heavy build", "exit %d: %s" % (done.returncode, (done.stdout + done.stderr).strip()[-300:]))
+        self.manifest["heavy"] = {"argv": argv, "manifest": os.path.join(self.heavy_out, "heavy.json"), "reach": reach}
+        self.manifest.setdefault("notes", []).append(
+            "--no-focus: the heavy profile's shown workspace is not shown; its 12 TUI panes run hidden")
+        self.save()
+        with open(os.path.join(self.dir, "heavy-build.out"), "w") as log:
+            proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
+            while proc.poll() is None:
+                if self.stop.wait(0.2):
+                    proc.terminate()  # a SIGTERM during set-up: heavy build stops; its manifest has what it made
+                    proc.wait(60)
+                    raise Stop()
+        with open(os.path.join(self.dir, "heavy-build.out")) as log:
+            out = log.read()
+        self.manifest["heavy"].update({"exit": proc.returncode, "stdout": out.strip()[-600:]})
+        if proc.returncode != 0:
+            self.refused("heavy build", "exit %d: %s" % (proc.returncode, out.strip()[-300:]))
         self.save()
 
     def teardown(self):
@@ -824,7 +872,15 @@ def run_l6(a):
     manifest["all_ready"] = announced
     tuikit.write_atomic(os.path.join(folder, "manifest.json"), json.dumps(manifest, indent=2) + "\n")
     print("LOAD-DONE L6 exits=%s" % json.dumps(codes, sort_keys=True), flush=True)
-    return max(codes.values()) if codes else 2
+    return l6_exit(codes)
+
+
+def l6_exit(codes):
+    """L6's exit from its children's: 2 when one could not reach the app, else 1 when any is non-zero (a
+    child killed by a signal has a negative code), else 0."""
+    if not codes or any(code == 2 for code in codes.values()):
+        return 2
+    return 1 if any(code != 0 for code in codes.values()) else 0
 
 
 def passthrough(a):
@@ -834,8 +890,10 @@ def passthrough(a):
                         ("--app", a.app)):
         if value:
             out += [flag, value]
-    if not a.devtools:
-        out.append("--no-devtools")
+    if a.devtools:
+        out.append("--devtools")
+    if a.acp:
+        out.append("--acp")
     return out
 
 
@@ -960,7 +1018,10 @@ def main(argv=None):
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
     p.add_argument("--agent-cps", type=int, default=400, help="L4: characters a second each agent streams")
     p.add_argument("--agents-where", choices=("hidden", "beside"), default="hidden")
-    p.add_argument("--no-devtools", dest="devtools", action="store_false", help="L3: no DevTools set-up")
+    p.add_argument("--devtools", action="store_true",
+                   help="L3: try DevTools on its own hidden pane, with no focus action (usually refused)")
+    p.add_argument("--no-devtools", dest="devtools", action="store_false", help=argparse.SUPPRESS)
+    p.add_argument("--acp", action="store_true", help="L4: try real agent chats first (see L4 above)")
     p.add_argument("--heavy-shape", default="40,200,12", help="L5: workspaces,tabs,visible TUI panes")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("plan")

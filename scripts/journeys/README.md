@@ -491,9 +491,9 @@ time as the others; never moves focus; only the `--app-socket` named, and never 
 ```bash
 L=scripts/journeys/tui-kit/load_profiles.py
 python3 $L run L1 --app-socket SOCK --home HOME --keep PANE --seed 7 --duration 120 --rate 100  # CLI storm
-python3 $L run L2 --app-socket SOCK ...      # 4 MCP clients back to back
-python3 $L run L3 --app-socket SOCK --keep PANE ...   # 30 browser tabs, 4 beside PANE, DevTools set-up
-python3 $L run L4 --app-socket SOCK ...      # 6 streaming agent panes
+python3 $L run L2 --app-socket SOCK ...      # 4 MCP clients back to back (no REPL tools: shared host socket)
+python3 $L run L3 --app-socket SOCK --keep PANE ...   # 30 browser tabs, 4 beside PANE, page clicks via cmux browser
+python3 $L run L4 --app-socket SOCK [--acp] ...       # 6 streaming agent panes (terminal; --acp tries chats)
 python3 $L run L5 --app-socket SOCK ...      # the heavy profile, --no-focus
 python3 $L run L6 --app-socket SOCK --keep PANE ...   # L1..L5 at once
 ```
