@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBookmarks
+import CmuxNextBrowserImport
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -29,7 +30,7 @@ struct BookmarkDaemonOnlyTests {
     }
 
     @Test func anEditBeforeTheHomeDaemonServesBookmarksIsRefusedAndWritesNoFile() throws {
-        let (services, bookmarks, directory) = Self.started()
+        let (_, bookmarks, directory) = Self.started()
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(!bookmarks.usesDaemon, "no home daemon is connected in this test")
 
@@ -65,5 +66,36 @@ struct BookmarkDaemonOnlyTests {
         bar.addToBar(url: try #require(URL(string: "https://example.com/")), title: "Example", index: 0)
         bar.moveToBar(BookmarkID.make(), index: 0)
         #expect(refusals == [Self.gateText(services), Self.gateText(services)])
+    }
+
+    /// Remove Imported Browser Data with no home daemon: the real sink must refuse (the gate's text),
+    /// not find no folder in an empty tree and report success, which let the saved import be deleted
+    /// while the bookmarks stayed in the daemon (review of #32110, B1).
+    @Test func removingImportedBookmarksWithNoHomeDaemonIsRefused() async throws {
+        let (services, _, directory) = Self.started()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sink = try #require(services.importedBookmarkSink)
+        let source = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "default", targetProfileID: "default")
+        await #expect(throws: BookmarkError.unavailable(message: Self.gateText(services))) {
+            try await sink.replaceImportedBookmarks([], source: source)
+        }
+    }
+
+    /// Imports saved before bookmarks existed: a pass refused for want of the home daemon writes no
+    /// done-marker, so it runs again once the daemon serves bookmarks.
+    @Test func aLegacyImportPassRefusedForWantOfTheDaemonRunsAgain() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let directory = FileManager.default.temporaryDirectory.appending(path: "bookmark-legacy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ImportedDataStore(directory: directory.appending(path: "imports"))
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "default", targetProfileID: "default"), kinds: [.bookmarks])
+        batch.bookmarks = [ImportedBookmark(title: "A", url: try #require(URL(string: "https://a.example/")))]
+        _ = try await store.save(batch)
+        services.bookmarks.start(directory: directory, importStore: store)
+        await services.bookmarks.migrateLegacyImports()
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "bookmarks-imports-migrated").path))
     }
 }
