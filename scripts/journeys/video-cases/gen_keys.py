@@ -168,6 +168,25 @@ case("browser-agent", "Ctrl-Shift-L, H, J, K with a browser page focused (p1), t
      browser_agent, [focus("p1")] + singles([L, H, J, K], "page") + [focus("p2")] + singles([L, H, J, K], "chat"),
      ["p0"], seconds=16, budget=180, after="p0")
 
+# 9. K3 cause (STATUS 6884): xctrace Time Profiler on the app clock (xtp_align.py), browser page + agent chat, no recorder.
+def xtp_browser_agent():
+    jid = "rk-xtpa-browser-agent"
+    steps = [G.theme(True)] + G.first_pane(jid, False) + browser_agent(False) + [focus("p1"), G.settle(1.5),
+              {"do": "trace_only_start", "name": "close", "title": "the geometry trace (display-link ticks), no recorder"},
+              {"do": "xtp_start", "name": "xtp", "seconds": 5.0, "wait_first_sample": True, "first_sample_wait": 1.0,
+               "title": "xctrace Time Profiler on the app"},
+              {"do": "rpc", "method": "debug.stall", "params": {"ms": 60}, "title": "clock mark: a 60 ms main-thread stall"},
+              {"do": "wait", "seconds": 0.5, "title": "the mark's frames pass"}]
+    for i, key in enumerate([L, H, L, H]):
+        steps += [G.kit_key(key[0], list(key[1]), f"close{i}" if i == 0 else f"k{i}", NAMES[key]), rest(0.6)]
+    steps += [{"do": "trace_only_stop", "name": "close"}, {"do": "xtp_stop", "name": "xtp"}] + after_check("p0")
+    CASES.append({"id": jid, "priority": "P1", "title": "xctrace, app clock: Ctrl-Shift-L, H, L, H with a browser page and an agent chat (K3 cause)",
+                  "why": "RESIZE KEYS K3: horizontal presses lose 5-8 refreshes with a page and a chat in the moving column.",
+                  "source": "RESIZE KEYS", "budget_seconds": 200, "options": {"key_path": "real"}, "steps": steps})
+
+
+xtp_browser_agent()
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
