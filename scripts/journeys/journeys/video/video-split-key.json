@@ -82,24 +82,39 @@
    "tail": 0.8
   },
   {
+   "do": "use_pane",
+   "pane": "p0",
+   "click": true,
+   "title": "after: click into p0"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "after: a real HID Ctrl-C (STATUS 6209: debug.key Ctrl-C can reach a menu)"
+  },
+  {
    "do": "type",
    "text": "echo rv-done-${nonce}",
    "enter": true,
-   "mark": "done"
+   "mark": "after"
   },
   {
    "do": "expect",
-   "since": "done",
-   "timeout": 15,
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
    "all": [
     {
-     "app_text_contains": "rv-done-${nonce}"
+     "daemon_line": "rv-done-${nonce}"
     },
     {
-     "daemon_prompt": true
+     "app_text_line": "rv-done-${nonce}"
     },
     {
-     "pane_frame_text": "rv-done-${nonce}"
+     "frame_text": "rv-done-${nonce}"
     }
    ]
   }
