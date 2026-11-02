@@ -65,6 +65,8 @@ def main():
     ap.add_argument("--journey", action="append", required=True)
     ap.add_argument("--label", required=True, help="the folder name under PUBLISH (the build's name)")
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--vdisplay", default="120x1", help="HZxSCALE of the lease's own main display (run.py --vdisplay); "
+                    "'none' keeps the mini's own 60 Hz display (geometry only, never pacing evidence)")
     ap.add_argument("--publish", default="/Users/lawrence/fun/wt/handoff/resize-videos")
     ap.add_argument("--out", default="/work/tmp/resize-videos/runs")
     ap.add_argument("--go-wait-hours", type=float, default=6)
@@ -86,13 +88,17 @@ def main():
         # --frame-interval 60: the driver's clip snapshots run on the app's main thread; none may fall in a recording.
         cmd = [sys.executable, str(HERE / "run.py"), "--build", opts.build, "--whole-host", "--exclusive", "--frame-interval", "60",
                "--hosts", host, "--out", str(out)]
+        if opts.vdisplay != "none":
+            cmd += ["--vdisplay", opts.vdisplay]
         for jid in opts.journey:
             cmd += ["--journey", jid]
         print(f"round {n + 1}: GO {host}: {' '.join(cmd)}", flush=True)
         done = subprocess.run(cmd, env=env)
         status = {0: "pass", 1: "fail"}.get(done.returncode, "not run")
         gate.go_done(opts.spec, go, f"{opts.label} round {n + 1}", None if status != "not run" else "not run")
-        cases = publish(out, opts.label, opts.publish, opts.journey) if out.is_dir() else []
+        cases = publish(out, f"{opts.label}-{opts.vdisplay}", opts.publish, opts.journey) if out.is_dir() else []
+        if (out / "display.json").is_file():
+            shutil.copy2(out / "display.json", Path(opts.publish) / f"{opts.label}-{opts.vdisplay}" / "display.json")
         print(json.dumps({"round": n + 1, "host": host, "status": status, "out": str(out), "published": cases}), flush=True)
         not_run += status == "not run"
     return 75 if not_run else 0

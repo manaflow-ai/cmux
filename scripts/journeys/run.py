@@ -372,6 +372,7 @@ def kit_tar(specs):
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
+        tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
@@ -428,7 +429,38 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 
 
-def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None):
+VDISPLAY_PLIST = ('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
+                  '<string>VD</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.vdisplay</string>'
+                  '<key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>')
+
+
+def start_vdisplay(host, work, mode, hold, out, timeout):
+    """--vdisplay HZxSCALE (whole-host only): the lease's own virtual display at HZ, 1x or 2x, made the main display
+    before the app launches (handoff resize-videos/KIT.md, recording precondition). Writes OUT/display.json with what
+    a fresh process measures (CVDisplayLink median interval, mode, pixels); raises when it is not the main display."""
+    hz, scale = (int(v) for v in mode.lower().split("x"))
+    text = remote(host, f"set -e; cd {q(work)}; mkdir -p VD.app/Contents/MacOS; "
+                        f"xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo "
+                        f"kit/vdisplay120.m -o VD.app/Contents/MacOS/VD; printf '%s' {q(VDISPLAY_PLIST)} > VD.app/Contents/Info.plist; "
+                        f"codesign -s - --force VD.app 2>/dev/null; rm -f vd.out vd.err; "
+                        f"open --stdout \"$PWD/vd.out\" --stderr \"$PWD/vd.err\" VD.app --args {hz} {scale} 0 0 {int(hold)}; "
+                        f"for i in $(seq 25); do grep -q '^ready\\|^error' vd.out 2>/dev/null && break; sleep 1; done; "
+                        f"cat vd.out; sleep 1; VD.app/Contents/MacOS/VD check", timeout=timeout).stdout.decode()
+    ready = next((l.split() for l in text.splitlines() if l.startswith("ready ")), None)
+    main = next((l.split() for l in text.splitlines() if l.startswith("main ")), None)
+    facts = {"asked": {"hz": hz, "scale": scale}, "raw": text.strip()[-600:]}
+    if ready and main:
+        facts.update({"display_id": int(ready[1]), "made_interval_ms": float(ready[2]), "main_id": int(main[1]),
+                      "mode": main[3], "pixels": main[5], "refresh": float(main[7]), "main_interval_ms": float(main[9]),
+                      "displays": int(main[11])})
+    (out / "display.json").write_text(json.dumps(facts, indent=1) + "\n")
+    if not ready or not main or facts["main_id"] != facts["display_id"]:
+        raise RuntimeError(f"--vdisplay {mode}: the virtual display is not the main display: {text.strip()[-300:]}")
+    return facts
+
+
+def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None,
+              vdisplay=None):
     """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
@@ -459,6 +491,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
         remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
                input=kit, timeout=left(120))
+        if vdisplay:
+            if not whole_host:
+                raise RuntimeError("--vdisplay needs --whole-host (a slot shares the mini's screen)")
+            facts = start_vdisplay(host, work, vdisplay, LEASE_SECONDS, out, left(90))
+            log(f"virtual display on {host}: {facts.get('mode')} pixels {facts.get('pixels')} refresh "
+                f"{facts.get('refresh')} Hz, measured {facts.get('main_interval_ms')} ms, main {facts.get('main_id')}")
         if hog_swap_gb > 0:
             # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
             # journeys: it holds incompressible memory until swap used is hog_swap_gb above the start, gives
@@ -538,6 +576,11 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             return {i: {"status": "not run", "reason": reason, "host": host} for i in ids}
         return stamp_harness(collect(out, ids, host, missing_reason=reason, ident=ident), out, ident.get("harness"), harness)
     finally:
+        if vdisplay and host:
+            try:  # our own display process only, by its path under this lease's root
+                remote(host, f"pkill -f {q(work + '/VD.app/')} ; true", timeout=30, check=False)
+            except (RuntimeError, subprocess.TimeoutExpired) as error:
+                log(f"stopping the virtual display on {host} failed ({error}); it ends by itself at its hold")
         if hog_started and host:
             # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
             # A stop that times out must not skip the release below.
@@ -731,6 +774,9 @@ def main(argv=None):
     ap.add_argument("--whole-host", action="store_true",
                     help="lease the whole mini (capture-host acquire without --slot) and launch the app active "
                          "(--activate): it gets a key window. Needs CuaDriver's grants on the mini")
+    ap.add_argument("--vdisplay", metavar="HZxSCALE",
+                    help="whole-host only: make the lease's own virtual display at HZ, 1x or 2x (e.g. 120x1, 120x2) the "
+                         "main display before the app launches; OUT/display.json has what was measured")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
@@ -805,7 +851,7 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive,
+            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive, vdisplay=opts.vdisplay,
                                      hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run))
 
     lines = []

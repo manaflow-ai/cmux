@@ -23,7 +23,8 @@ Every file of one recording goes to <journey out>/video/<name>.*:
                           window frame and screen (debug.layers), the app pid, the clock note
 
 Steps (`do`):
-  video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30}
+  video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30, require_hz?: 120}
+               require_hz: a pacing case; not run unless the app's display link runs at that rate
   video_stop   {name, tail?: 0.6}  waits `tail` s (the motion's end), stops, waits for the files (30 s)
   hid_drag     {target, by: [dx, dy] | to: [x, y], duration_ms, steps?, hold_ms?: 0, mark?}
                a REAL drag (CuaDriver `drag`, desktop scope, true pixels) from the target's center. target:
@@ -101,7 +102,17 @@ def step_video_start(j, step):
                "trace_views": trace.get("views"), "notes": {}}
     # The first frames show the layout at rest: the judge's reference.
     time.sleep(float(step.get("lead", 0.4)))
-    return {"path": str(path), "start": started, "trace_views": trace.get("views")}
+    # The refresh the app's display link runs at on the window's screen (the recording precondition, KIT.md): a
+    # pacing case (`require_hz`) does not record at another rate; a geometry case records it.
+    refresh = float(_motion(j, "trace_read").get("refresh_ms") or 0)
+    j.video["refresh_ms"] = refresh
+    want = step.get("require_hz")
+    if want and abs(refresh - 1000.0 / float(want)) > 0.35:
+        _motion(j, "record_stop")
+        _motion(j, "trace_stop")
+        j.video = None
+        raise D.NotRun(f"video_start {name}: the window's display runs at {refresh} ms a frame, not {want} Hz")
+    return {"path": str(path), "start": started, "trace_views": trace.get("views"), "refresh_ms": refresh}
 
 
 def step_video_stop(j, step):
@@ -126,11 +137,22 @@ def step_video_stop(j, step):
     layers = R._layers_window(j)
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
             "t_start": rec["t_start"], "t_stop": D.now(), "notes": rec["notes"], "trace_views": rec["trace_views"],
+            "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(),
             "clock": "host seconds: mach_absolute_time (time.monotonic, CACurrentMediaTime, ScreenCaptureKit display time)"}
     (base.parent / f"{rec['name']}.meta.json").write_text(json.dumps(meta))
     if not counts.get("written"):
         raise D.StepError(f"video_stop {rec['name']}: the movie was not written within 30 s: {json.dumps(counts)[:300]}")
     return {"counts": counts, "samples": len(trace.get("samples") or []), "hid": len(rec["hid"]), "journal": len(entries)}
+
+
+def _display_facts():
+    """What the lease's display check measured (run.py --vdisplay writes vd.out beside the kit), if any."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(os.path.dirname(here), "vd.out")) as f:
+            return f.read().strip()[-300:]
+    except OSError:
+        return None
 
 
 def _latest_sample(j):

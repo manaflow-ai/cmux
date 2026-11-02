@@ -71,7 +71,8 @@
   },
   {
    "do": "video_start",
-   "name": "col-drag-slow"
+   "name": "col-drag-slow",
+   "require_hz": 120
   },
   {
    "do": "layout_note",
@@ -96,7 +97,8 @@
   },
   {
    "do": "video_start",
-   "name": "col-drag-fast"
+   "name": "col-drag-fast",
+   "require_hz": 120
   },
   {
    "do": "layout_note",
@@ -121,7 +123,8 @@
   },
   {
    "do": "video_start",
-   "name": "col-drag-fling"
+   "name": "col-drag-fling",
+   "require_hz": 120
   },
   {
    "do": "layout_note",
