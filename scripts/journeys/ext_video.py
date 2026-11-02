@@ -488,9 +488,17 @@ def _hid_inject_app(j):
     cached = getattr(j, "hid_inject_app", None)
     if cached:
         return cached
+    import hashlib
     here = os.path.dirname(os.path.abspath(__file__))
-    app = os.path.join(os.path.dirname(here), "HIDInject.app")
+    source = os.path.join(here, "hid_inject.swift")
+    digest = hashlib.sha256(open(source, "rb").read()).hexdigest()[:16]
+    # One build per mini and source version at a fixed path outside the lease (release removes the lease root): a
+    # PostEvent grant binds to the ad-hoc signature's code hash, so a rebuild at each lease would lose it.
+    app = os.path.expanduser(f"~/.cache/cmux-journeys/HIDInject-{digest}.app")
     exe_dir = os.path.join(app, "Contents", "MacOS")
+    if os.path.exists(os.path.join(exe_dir, "hid_inject")):
+        j.hid_inject_app = app
+        return app
     os.makedirs(exe_dir, exist_ok=True)
     built = subprocess.run(["xcrun", "swiftc", "-O", "-swift-version", "5", "-target", "arm64-apple-macos14.4",
                             os.path.join(here, "hid_inject.swift"), "-o", os.path.join(exe_dir, "hid_inject")],
