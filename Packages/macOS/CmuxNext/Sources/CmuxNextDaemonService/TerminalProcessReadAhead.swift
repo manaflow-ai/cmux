@@ -70,31 +70,30 @@ public final class TerminalProcessReadAhead {
         }
     }
 
+    /// The focused terminal's watch: its shell state, observed while it has the focus.
+    private var watch: Task<Void, Never>?
+    private var watched: SurfaceID?
+
     public init() {}
 
-    /// Keeps the focused terminal read: `focused` is the active window's focused pane's selected tab and its daemon,
-    /// observed (one tab, never the session); each focus change and each new prompt or command of it reads it again.
-    /// Ends at the first change after `ended` answers true (its owner is gone).
-    public func follow(focused: @escaping @MainActor @Sendable () -> (tab: TabModel, daemon: DaemonService)?,
-                       ended: @escaping @MainActor @Sendable () -> Bool) {
-        // task-owner: the app's lifetime; ends with the services that own `focused`.
-        Task { [weak self] in
-            let focus = ObservationStream { () -> Focus? in
-                guard let tab = focused()?.tab, tab.isLiveTerminal else { return nil }
-                return Focus(surface: tab.surface, stamp: Self.stamp(tab))
-            }
-            var last: Focus?
-            for await now in focus where now != last {
-                last = now
-                guard let self, !ended() else { return }
-                guard now?.stamp != nil, let current = focused(), current.tab.surface == now?.surface else { continue }
-                prepare(current.tab, on: current.daemon)
+    /// The focus moved to `tab` of `daemon` (nil: no terminal has it). The focused terminal is read now and again at
+    /// each new prompt or command its shell reports, while it has the focus: one observed tab, never the session.
+    public func focus(_ tab: TabModel?, on daemon: DaemonService?) {
+        guard let tab, tab.isLiveTerminal, let daemon else {
+            watch?.cancel()
+            (watch, watched) = (nil, nil)
+            return
+        }
+        guard watched != tab.surface else { return }
+        watch?.cancel()
+        watched = tab.surface
+        prepare(tab, on: daemon)
+        // task-owner: cancelled at the next focus change; the stream then returns nil.
+        watch = Task { [weak self, weak tab, weak daemon] in
+            for await _ in ObservationStream({ [weak tab] in tab.flatMap(Self.stamp) }) {
+                guard !Task.isCancelled, let self, let tab, let daemon else { return }
+                prepare(tab, on: daemon)
             }
         }
-    }
-
-    private struct Focus: Equatable, Sendable {
-        var surface: SurfaceID
-        var stamp: Stamp?
     }
 }

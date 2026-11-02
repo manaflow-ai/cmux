@@ -433,6 +433,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
+        // What the focused terminal runs is read now, so its Cmd-W decides the close in the key's turn (TabCloseGuard).
+        services.terminalReadAhead.focus(controller.focusedPane?.selectedTab, on: controller.focusedPane?.daemon)
         if registry.context != next { registry.context = next }
     }
 
