@@ -45,8 +45,9 @@ enum RoomMoveHandlers {
             // document: the document's own write goes after it, or it could win and leave the workspaces behind.
             let document = context.services.sidebarDoc.store, from = document?.groupRoom(id.rawValue)
             context.services.registry.track(Task { @MainActor in
-                guard await home.failure("update-personal-group", { try await $0.updatePersonalGroup(id, room: target) }) == nil else { return }
+                if let failed = await home.failure("update-personal-group", { try await $0.updatePersonalGroup(id, room: target) }) { return failed }
                 document?.moveGroup(id.rawValue, toSpace: target.rawValue, from: from)
+                return nil
             })
         }
     }
