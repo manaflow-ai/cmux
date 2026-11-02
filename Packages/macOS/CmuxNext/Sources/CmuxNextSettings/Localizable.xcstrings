@@ -1,6 +1,930 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.agentRetry": {
+      "comment": "Settings > Agents: group title for the automatic retry loop after errors",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة بعد الأخطاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovni pokušaj nakon grešaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen efter fejl"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Fehlern wiederholen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry After Errors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar tras errores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer après une erreur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova dopo gli errori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー後の再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្ដងទៀតក្រោយកំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 후 재시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv på nytt etter feil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponawianie po błędach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar novamente após erros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повтор после ошибок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองใหม่หลังเกิดข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hatalardan Sonra Yeniden Dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повтор після помилок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử lại sau lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出错后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出錯後重試"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.enabled": {
+      "comment": "Settings > Agents > Retry After Errors: toggle title",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski ponovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch wiederholen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Automatically"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer automatiquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova automaticamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的に再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្ដងទៀតដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동으로 재시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv på nytt automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponawiaj automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar novamente automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторять автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองใหม่โดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik Olarak Yeniden Dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторювати автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動重試"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.enabled.help": {
+      "comment": "Settings > Agents > Retry After Errors: toggle help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يكون النموذج محدود المعدل أو بلا سعة، أو ينقطع الاتصال، تعيد المحادثة المحاولة من تلقاء نفسها. يعمل زر إعادة المحاولة في بطاقة الخطأ دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je model ograničen brzinom ili bez kapaciteta, ili veza pukne, chat sam pokuša ponovo. Ponovi na kartici greške uvijek radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en model er hastighedsbegrænset eller uden kapacitet, eller forbindelsen afbrydes, prøver chatten selv igen. Prøv igen på fejlkortet virker altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Modell ratenbegrenzt oder ausgelastet ist oder die Verbindung abbricht, versucht der Chat es von selbst erneut. „Wiederholen“ auf der Fehlerkarte funktioniert immer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un modelo tiene el límite de uso alcanzado o no tiene capacidad, o se corta la conexión, el chat vuelve a intentarlo solo. Reintentar en la tarjeta de error siempre funciona."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un modèle est limité en débit ou saturé, ou que la connexion tombe, la discussion réessaie d’elle-même. Réessayer sur la carte d’erreur fonctionne toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un modello è limitato o senza capacità, o la connessione cade, la chat riprova da sola. Riprova sulla scheda di errore funziona sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルがレート制限中や容量不足のとき、または接続が切れたとき、チャットが自動で再試行します。エラーカードの再試行はいつでも使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលម៉ូដែលត្រូវបានកំណត់អត្រា ឬអស់សមត្ថភាព ឬការតភ្ជាប់ដាច់ ការជជែកនឹងព្យាយាមម្ដងទៀតដោយខ្លួនឯង។ ប៊ូតុងព្យាយាមម្ដងទៀតលើកាតកំហុសតែងតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델이 속도 제한에 걸리거나 용량이 부족할 때, 또는 연결이 끊길 때 채팅이 스스로 다시 시도합니다. 오류 카드의 재시도는 언제든 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en modell er hastighetsbegrenset eller uten kapasitet, eller tilkoblingen brytes, prøver chatten på nytt selv. Prøv på nytt på feilkortet virker alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy model ma limit zapytań lub brak mocy, albo połączenie zostanie zerwane, czat sam spróbuje ponownie. Ponów na karcie błędu zawsze działa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um modelo atinge o limite de taxa ou fica sem capacidade, ou a conexão cai, o chat tenta de novo sozinho. Tentar novamente no cartão de erro sempre funciona."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если у модели сработал лимит запросов или нет мощностей, либо оборвалось соединение, чат сам повторит попытку. Кнопка «Повторить» в карточке ошибки работает всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อโมเดลถูกจำกัดอัตราหรือความจุเต็ม หรือการเชื่อมต่อหลุด แชตจะลองใหม่เอง ปุ่มลองใหม่บนการ์ดข้อผิดพลาดใช้ได้เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir model hız sınırına takıldığında ya da kapasitesi dolduğunda veya bağlantı koptuğunda sohbet kendiliğinden yeniden dener. Hata kartındaki Yeniden Dene her zaman çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли модель обмежена за частотою запитів або не має потужностей, чи обірвалося з’єднання, чат сам повторить спробу. Кнопка «Повторити» на картці помилки працює завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi mô hình bị giới hạn tốc độ hoặc hết dung lượng, hay kết nối bị ngắt, cuộc trò chuyện tự thử lại. Nút Thử lại trên thẻ lỗi luôn hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当模型被限速或容量不足，或连接中断时，对话会自动重试。错误卡片上的“重试”始终可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當模型被限速或容量不足，或連線中斷時，對話會自動重試。錯誤卡片上的「重試」隨時可用。"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.interval": {
+      "comment": "Settings > Agents > Retry After Errors: number of seconds before each retry",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الثواني بين المحاولات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunde između pokušaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunder mellem forsøg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunden zwischen Versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seconds Between Retries"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segundos entre reintentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secondes entre les tentatives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secondi tra i tentativi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行の間隔（秒）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិនាទីរវាងការព្យាយាម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도 간격(초)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunder mellom forsøk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekundy między próbami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segundos entre tentativas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секунд между попытками"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วินาทีระหว่างการลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denemeler Arası Saniye"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секунд між спробами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số giây giữa các lần thử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试间隔（秒）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試間隔（秒）"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.interval.help": {
+      "comment": "Settings > Agents > Retry After Errors: interval help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدة انتظار المحادثة قبل كل محاولة. القيمة 0 تنتظر أطول بعد كل محاولة فاشلة: 10 ثوانٍ، ثم دقيقة، ثم 5 دقائق، ثم 20 دقيقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko chat čeka prije svakog pokušaja. 0 čeka duže nakon svakog neuspjelog pokušaja: 10 sekundi, 1 minutu, 5 minuta, zatim 20 minuta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe chatten venter før hvert forsøg. 0 venter længere efter hvert mislykket forsøg: 10 sekunder, 1 minut, 5 minutter og derefter 20 minutter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange der Chat vor jedem Versuch wartet. 0 wartet nach jedem Fehlversuch länger: 10 Sekunden, 1 Minute, 5 Minuten, dann 20 Minuten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto espera el chat antes de cada intento. 0 espera más tras cada intento fallido: 10 segundos, 1 minuto, 5 minutos y luego 20 minutos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée d’attente de la discussion avant chaque tentative. 0 attend plus longtemps après chaque échec : 10 secondes, 1 minute, 5 minutes, puis 20 minutes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto attende la chat prima di ogni tentativo. 0 attende di più dopo ogni tentativo fallito: 10 secondi, 1 minuto, 5 minuti, poi 20 minuti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各試行の前にチャットが待つ時間。0 にすると失敗するたびに待ち時間が延びます：10 秒、1 分、5 分、その後 20 分。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែលការជជែករង់ចាំមុនការព្យាយាមនីមួយៗ។ 0 រង់ចាំយូរជាងក្រោយការព្យាយាមបរាជ័យនីមួយៗ៖ 10 វិនាទី 1 នាទី 5 នាទី បន្ទាប់មក 20 នាទី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 시도 전에 채팅이 기다리는 시간입니다. 0이면 실패할 때마다 더 오래 기다립니다: 10초, 1분, 5분, 이후 20분."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge chatten venter før hvert forsøk. 0 venter lenger etter hvert mislykket forsøk: 10 sekunder, 1 minutt, 5 minutter og deretter 20 minutter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo czat czeka przed każdą próbą. 0 czeka dłużej po każdej nieudanej próbie: 10 sekund, 1 minutę, 5 minut, potem 20 minut."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto tempo o chat espera antes de cada tentativa. 0 espera mais após cada falha: 10 segundos, 1 minuto, 5 minutos e depois 20 minutos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько чат ждёт перед каждой попыткой. 0 — ждать дольше после каждой неудачи: 10 секунд, 1 минуту, 5 минут, затем 20 минут."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาที่แชตรอก่อนลองแต่ละครั้ง 0 จะรอนานขึ้นหลังลองไม่สำเร็จแต่ละครั้ง: 10 วินาที 1 นาที 5 นาที แล้ว 20 นาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin her denemeden önce ne kadar beklediği. 0, her başarısız denemeden sonra daha uzun bekler: 10 saniye, 1 dakika, 5 dakika, sonra 20 dakika."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки чат чекає перед кожною спробою. 0 — чекати довше після кожної невдачі: 10 секунд, 1 хвилину, 5 хвилин, потім 20 хвилин."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian cuộc trò chuyện chờ trước mỗi lần thử. 0 chờ lâu hơn sau mỗi lần thất bại: 10 giây, 1 phút, 5 phút, rồi 20 phút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次重试前对话等待的时间。设为 0 时每次失败后等待更久：10 秒、1 分钟、5 分钟，之后 20 分钟。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次重試前對話等待的時間。設為 0 時每次失敗後等待更久：10 秒、1 分鐘、5 分鐘，之後 20 分鐘。"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.attempts": {
+      "comment": "Settings > Agents > Retry After Errors: how many retries run",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحاولات لكل خطأ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaji po grešci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forsøg pr. fejl"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versuche pro Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retries per Error"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentos por error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentatives par erreur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativi per errore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーごとの再試行回数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនព្យាយាមក្នុងមួយកំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류당 재시도 횟수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forsøk per feil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próby na błąd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativas por erro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попыток на ошибку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนครั้งที่ลองใหม่ต่อข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hata Başına Deneme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спроб на помилку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lần thử lại mỗi lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个错误的重试次数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個錯誤的重試次數"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.attempts.help": {
+      "comment": "Settings > Agents > Retry After Errors: attempts help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد مرات إعادة المحادثة للمحاولة قبل أن تتوقف وتنتظرك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko puta chat pokuša ponovo prije nego što stane i sačeka vas."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange gange chatten prøver igen, før den stopper og venter på dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie oft der Chat es erneut versucht, bevor er anhält und auf dich wartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many times the chat tries again before it stops and waits for you."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuántas veces vuelve a intentarlo el chat antes de detenerse y esperarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de nouvelles tentatives avant que la discussion s’arrête et vous attende."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quante volte la chat riprova prima di fermarsi e aspettarti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止してあなたを待つまでに、チャットが再試行する回数。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនដងដែលការជជែកព្យាយាមម្ដងទៀត មុនពេលវាឈប់ ហើយរង់ចាំអ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 멈추고 사용자를 기다리기 전까지 다시 시도하는 횟수입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange ganger chatten prøver på nytt før den stopper og venter på deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile razy czat spróbuje ponownie, zanim się zatrzyma i zaczeka na Ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantas vezes o chat tenta de novo antes de parar e esperar por você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько раз чат повторит попытку, прежде чем остановится и подождёт вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนครั้งที่แชตลองใหม่ก่อนจะหยุดและรอคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin durup sizi beklemeden önce kaç kez yeniden deneyeceği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки разів чат повторить спробу, перш ніж зупиниться й чекатиме на вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lần cuộc trò chuyện thử lại trước khi dừng và chờ bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话在停止并等待你之前重试的次数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話在停止並等待你之前重試的次數。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.presentation": {
       "comment": "Settings > Agent Chat > Chat Presentation",
       "extractionState": "manual",
