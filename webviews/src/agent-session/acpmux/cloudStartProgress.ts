@@ -81,12 +81,12 @@ export type CloudStartupOperation = {
 };
 
 export type CloudStartupSetup = {
-  state: "pending" | "running" | "done" | "failed" | "skipped";
+  state: "pending" | "running" | "done" | "failed" | "skipped" | "unverified";
   startedAt?: number;
   finishedAt?: number;
   error?: string;
   /// `ready` means the setup snapshot is cached; `building` is still running.
-  status?: "ready" | "building" | "failed";
+  status?: "ready" | "building" | "failed" | "unverified";
   logTail?: string;
   hasScript?: boolean;
 };
@@ -294,11 +294,11 @@ function setupStatus(value: unknown): CloudStartupSetup | undefined {
     return setupStatus(merged);
   }
   const raw = record.status ?? record.state;
-  const status = raw === "ready" || raw === "building" || raw === "failed" ? raw : undefined;
+  const status = raw === "ready" || raw === "building" || raw === "failed" || raw === "unverified" ? raw : undefined;
   const base = operation({
     ...record,
     state:
-      status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state,
+      status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : status === "unverified" ? "pending" : record.state,
   });
   if (!base && raw !== "skipped") return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
@@ -312,6 +312,7 @@ function setupStatus(value: unknown): CloudStartupSetup | undefined {
   const logTail = logLine(record.logTail ?? record.log_tail, 1200);
   return {
     ...(base ?? { state: "skipped" as const }),
+    ...(status === "unverified" && { state: "unverified" as const }),
     ...(status && { status }),
     ...(startedAt !== undefined && { startedAt }),
     ...(finishedAt !== undefined && { finishedAt }),

@@ -68,6 +68,42 @@ test("the startup checklist skips clone without a repository and explains a miss
   expect(rows[2]?.detail).toContain("Add a setup script");
 });
 
+test("opening a chat never certifies missing repository setup evidence", () => {
+  const started: CloudStartProgress = {
+    key: "k",
+    task: "work on this repo",
+    state: "starting",
+    hasRepository: true,
+    initialized: true,
+  };
+  expect(startupChecklist(started)[2]?.status).toBe("pending");
+  expect(startupChecklist({ ...started, initialized: false })[2]?.status).toBe("pending");
+  // The no-setup-script case remains a deliberate skip.
+  expect(startupChecklist({ ...started, setup: { state: "skipped", hasScript: false } })[2]?.status).toBe("skipped");
+  // A real verified prepared snapshot remains complete even after the chat initializes.
+  expect(startupChecklist({ ...started, setup: { state: "done", status: "ready" } })[2]?.status).toBe("done");
+});
+
+test("a warm base snapshot cannot mark dependencies ready in the checklist", () => {
+  const startWithUnverified: CloudStartProgress = {
+    key: "k",
+    task: "hi",
+    state: "starting",
+    initialized: true,
+    setup: {
+      state: "unverified",
+      status: "unverified",
+      error: "Verify dependencies in this chat.",
+    },
+  };
+  const row = startupChecklist(startWithUnverified)[2];
+  expect(row).toMatchObject({ status: "pending", detail: "Verify dependencies in this chat." });
+  const html = renderToStaticMarkup(<CloudStartView start={{ ...startWithUnverified, initialized: false }} />);
+  expect(html).toContain('data-step-id="setup"');
+  expect(html).toContain('data-status="pending"');
+  expect(html).toContain("Verify dependencies in this chat.");
+});
+
 test("environment setup status maps cached, running and failed states", () => {
   const base = { key: "k", task: "hi", state: "starting" as const };
   expect(startupChecklist({ ...base, setup: { state: "done", status: "ready" } })[2]?.detail).toBe("cached");

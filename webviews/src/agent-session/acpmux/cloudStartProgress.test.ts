@@ -122,6 +122,23 @@ test("a copy's files and bytes, its fallback and an https install link reach the
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });
 
+test("a base snapshot is kept as unverified with a visible dependency remedy", () => {
+  const progress = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    setup: {
+      state: "unverified",
+      status: "unverified",
+      error: "Verify dependencies in this chat.",
+    },
+  });
+  expect(progress?.setup).toEqual({
+    state: "unverified",
+    status: "unverified",
+    error: "Verify dependencies in this chat.",
+  });
+});
+
 test("forwards the environment id and setup ran or cached state", () => {
   const ran = cloudStartPushed(begun(), {
     key: "k-1",
