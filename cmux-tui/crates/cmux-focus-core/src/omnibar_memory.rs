@@ -89,9 +89,33 @@ impl OmnibarFocusMemory {
     /// [`is_return`] (a topology report, which the handle does not build as
     /// an event).
     pub fn note_reduction(&mut self, returning: bool, before: &Resolved, after: &Resolved) -> bool {
-        // Red stub: the rule moves in the next commit.
-        let _ = (returning, before, after, tab_of(after));
-        false
+        let after_tab = tab_of(after);
+        if let Resolved::AddressBar { tab: left, .. } = before
+            && after_tab != Some(left.as_str())
+        {
+            // Tabs of other workspaces stay remembered; a closed tab's id
+            // never comes back, so past the bound the oldest entry goes.
+            if !self.tabs.contains(left) {
+                if self.tabs.len() >= LIMIT {
+                    self.tabs.remove(0);
+                }
+                self.tabs.push(left.clone());
+            }
+        }
+        let Some(tab) = after_tab else { return false };
+        let Some(index) = self.tabs.iter().position(|t| t == tab) else { return false };
+        self.tabs.remove(index);
+        // Only a return to the tab restores: its page, reached from another
+        // tab by a tab or pane change. A click in its page is the user's
+        // choice (a responder report), and so is any other target there.
+        if !matches!(after, Resolved::BrowserPage { .. })
+            || tab_of(before) == Some(tab)
+            || !returning
+        {
+            return false;
+        }
+        self.return_queued = true;
+        true
     }
 
     /// Whether `event`, about to be reduced, is the [`return_event`] this
@@ -100,8 +124,10 @@ impl OmnibarFocusMemory {
     /// `OmniboxViewViews::OnTabChanged` restores the saved selection)
     /// instead of selecting all. True once per queued return event.
     pub fn take_return(&mut self, event: &FocusEvent) -> bool {
-        // Red stub: the rule moves in the next commit.
-        let _ = (event, is_return_event(event), self.return_queued);
-        false
+        if !self.return_queued || !is_return_event(event) {
+            return false;
+        }
+        self.return_queued = false;
+        true
     }
 }
