@@ -337,14 +337,18 @@ final class ClassicUpgradeSimulator {
     }
 
     /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces), workspace ids
-    /// in the order shown. On the sidebar document a pinned workspace lists in the Pinned band, not in its machine section.
+    /// in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
+    /// on the sidebar document a pinned workspace lists in the Pinned band or pinned in its group, never in the legacy
+    /// Pinned list section.
     func windows() -> [[[String]]] {
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         let pinned = services.sidebarDoc.store?.shown?.layout.sections.first { $0.id.rawValue == SidebarDocStore.pinnedSection }?
             .items.compactMap { refs.workspaceID(for: $0.ref) } ?? []
+        let room = ProfileID.defaultProfile
+        let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: room.rawValue)
         return services.windows.registry.value.windows.map { window in
             let members = Set(window.workspaceIDs)
-            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: room, top: top).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
