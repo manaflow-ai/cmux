@@ -897,12 +897,14 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     lines = test_reds.log_lines(log)
     skip = test_reds.echoed(lines)
     found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
-    whole = False
+    done = whole = False
     for n, text in enumerate(lines):
         if n in skip:
             continue
         if GUARD_RUN_DONE.match(text):
-            found, whole = {kind: set() for kind in found}, False
+            found, done, whole = {kind: set() for kind in found}, True, False
+        elif not done:
+            continue  # a cut-short run's step output may quote verdict lines; none count before the run finished
         elif match := GUARD_RED_STEP.match(text):
             found[match.group(1)].add(match.group(2).strip())
         elif GUARD_SUMMARY.match(text):

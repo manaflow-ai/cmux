@@ -1906,6 +1906,16 @@ class GuardGroupPerStep(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
             self.judge(github)
 
+    def test_a_base_run_cut_short_before_its_guards_finished_is_refused(self):
+        # Verdict lines quoted by a failing step's output, with no run_ci_guards.py closing line, prove nothing.
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"], [])
+        github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "guard red step (base): Lint every workflow",
+                             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed")
+        with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
     def test_a_red_outside_the_guard_comparison_is_refused(self):
         github = GuardGroupGitHub(["guard red step (new): Lint every workflow",
                                    "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
