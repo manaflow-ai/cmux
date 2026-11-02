@@ -978,7 +978,7 @@ export function ComposerPickers({
   // narrow row ("Med"). Before the session reports, it names the held pick.
   const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
   const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })

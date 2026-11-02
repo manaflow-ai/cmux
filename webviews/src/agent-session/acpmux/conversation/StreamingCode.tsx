@@ -138,7 +138,14 @@ function CodeHandoffFade({ code, lang, actions, artifactIdentity, artifactRevisi
           artifactRevision={artifactRevision}
         />
       )}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
+      <div
+        className="cv-code-handoff__real"
+        // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
+        // while the plain card is visible underneath.
+        aria-hidden={stage !== "done" || undefined}
+        inert={stage !== "done" || undefined}
+        onAnimationEnd={() => setStage("done")}
+      >
         <CodeBlock
           code={code}
           lang={lang}

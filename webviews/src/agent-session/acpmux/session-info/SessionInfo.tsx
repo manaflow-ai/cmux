@@ -97,7 +97,7 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
-import { UsageSection, usageMeta } from "./UsageSection";
+import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
@@ -820,7 +820,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     [drawn, scopedAgent, snapshot.summary, rows],
   );
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],
@@ -1255,6 +1255,7 @@ export function SessionInfo({
   allSessions,
   onOpenChat,
   onShowUsage,
+  usageOwnRowLayout,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1332,6 +1333,8 @@ export function SessionInfo({
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
   onShowUsage?: () => void;
+  /// Gallery-only alternatives for the Usage section's own-metrics leading column.
+  usageOwnRowLayout?: UsageOwnRowLayout;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1355,7 +1358,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
@@ -1557,6 +1560,7 @@ export function SessionInfo({
         onOpenDocument={onOpenDocument}
         onOpenFile={onOpenOutput}
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+        onOpenBeside={onOpenUrl}
       />
     </SessionInfoSection>
   );
@@ -1636,6 +1640,7 @@ export function SessionInfo({
         onCompact={onCompact}
         onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
+        ownRowLayout={usageOwnRowLayout}
       />
     </SessionInfoSection>
   );

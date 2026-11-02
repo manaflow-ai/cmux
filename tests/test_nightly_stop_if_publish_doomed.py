@@ -145,6 +145,14 @@ class StepsAreWired(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertEqual(self.steps[self.index(name)]["env"]["ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY"], "32")
 
+    def test_prepared_app_upload_sends_blocks_in_parallel(self):
+        # Signing waits on the preparation's end; both legs share the upload step (65-156 s at 5 on a Mac).
+        for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
+            with self.subTest(job=job):
+                step = next(s for s in JOBS[job]["steps"] if s.get("name") == "Upload prepared app for signing")
+                self.assertEqual(step["env"]["ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY"], "32")
+                self.assertEqual(step["with"]["compression-level"], 0)
+
 
 class CheckBehaviour(unittest.TestCase):
     env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "2", "GH_TOKEN": "t",

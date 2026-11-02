@@ -4,6 +4,71 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
+    ConversationThreadOp {
+        name: "conversation.thread",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationThreadParams,
+        result: ConversationThreadResult,
+        error: ConversationThreadError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadResult {
+    pub root: HomeMessage,
+    pub replies: Vec<HomeMessage>,
+    pub has_more: bool,
+    pub thread: HomeThreadSummary,
+}
+
+wire_errors! {
+    /// The error codes conversation.thread declares.
+    ConversationThreadError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    DmOpenOp {
+        name: "dm.open",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: DmOpenParams,
+        result: DmOpenResult,
+        error: DmOpenError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DmOpenParamsPeerVariant2 {
     pub email: String,
@@ -837,69 +902,4 @@ wire_op! {
         result: FeedSeenResult,
         error: FeedSeenError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenParams {
-    pub items: Vec<FeedItemId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenResult {
-    pub items: Vec<FeedSeenResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.seen declares.
-    FeedSeenError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
-    FeedSnoozeOp {
-        name: "feed.snooze",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedSnoozeParams,
-        result: FeedSnoozeResult,
-        error: FeedSnoozeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeParams {
-    pub items: Vec<FeedItemId>,
-    pub until: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeResult {
-    pub items: Vec<FeedSnoozeResultItemsItem>,
 }
