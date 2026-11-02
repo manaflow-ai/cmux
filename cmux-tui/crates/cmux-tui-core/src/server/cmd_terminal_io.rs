@@ -129,8 +129,9 @@ fn input_surface(
     if let Some(surface) = mux.control_clients.attached_input_surface(client, id) {
         return Ok(surface);
     }
+    let generation = crate::route_table::route_generation();
     let surface = get_surface(mux, id)?;
-    mux.control_clients.remember_attached_input(client, id, &surface);
+    mux.control_clients.remember_attached_input(client, id, &surface, generation);
     Ok(surface)
 }
 

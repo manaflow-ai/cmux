@@ -395,24 +395,32 @@ impl ClientRegistry {
         surface: SurfaceId,
     ) -> Option<Arc<crate::Surface>> {
         let state = self.state.lock().recover_poison();
-        let input = state.clients.get(&client)?.attached.get(&surface)?.input.upgrade()?;
+        let (kept, generation) = &state.clients.get(&client)?.attached.get(&surface)?.input;
+        // A routing change since it was kept (respawn, close, move): the id may name another terminal now.
+        if *generation != crate::route_table::route_generation() {
+            return None;
+        }
+        let input = kept.upgrade()?;
         drop(state);
         (!input.is_dead()).then_some(input)
     }
 
     /// Keeps `surface` as the terminal `client`'s keys to `id` go to, when the client is attached to `id` (the id the
     /// keys name: a runtime found through the terminal catalog has another id).
+    /// `generation`: the route generation read BEFORE the lookup that found `surface`, so a routing change during
+    /// that lookup leaves a kept terminal the next key checks again.
     pub(super) fn remember_attached_input(
         &self,
         client: u64,
         id: SurfaceId,
         surface: &Arc<crate::Surface>,
+        generation: u64,
     ) {
         let mut state = self.state.lock().recover_poison();
         if let Some(attached) =
             state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&id))
         {
-            attached.input = Arc::downgrade(surface);
+            attached.input = (Arc::downgrade(surface), generation);
         }
     }
 
