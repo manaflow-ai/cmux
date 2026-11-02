@@ -4,9 +4,10 @@
 # No app, no GUI, no build:
 #   cmux-ci run --class exclusive --script scripts/measure/tui-kit-selftest.sh --ref SHA --timeout 900 \
 #     [--arg=pace_seconds=30]
-# Output: TUI-KIT-HOST (host, macOS, python, vim, htop/btop present or not), the unittest lines, one
+# Output: TUI-KIT-HOST (host, macOS, python, vim, htop/btop present or not), the unittest lines (the kit's
+# and load_profiles' against a stand-in app), one
 # TUI-KIT-PACE-VARIANT line per variant (pace_probe.py: frame intervals p50/p95/p99/max, late frames,
-# draw time, CPU), and TUI-KIT-PACE, the default (sleep) again. Exit: the tests'.
+# draw time, CPU), and TUI-KIT-PACE, the gradient's default (spin) again. Exit: the tests'.
 set -euo pipefail
 pace_seconds=30
 for arg in "$@"; do
@@ -26,9 +27,10 @@ echo "TUI-KIT-HOST host=$(scutil --get ComputerName 2>/dev/null || hostname) mac
   "rev=$(git -C "$root" rev-parse HEAD)"
 status=0
 "$py" "$kit/test_tuikit.py" || status=$?
+"$py" "$kit/test_load_profiles.py" || status=$?
 out="${TMPDIR:-/tmp}/tui-kit-selftest.$$"
 mkdir -p "$out"
 trap 'rm -rf "$out"' EXIT
 "$py" "$kit/pace_probe.py" --seconds "$pace_seconds" --out "$out" | tee "$out/pace.txt"
-sed -n 's/^TUI-KIT-PACE-VARIANT sleep /TUI-KIT-PACE (default sleep) /p' "$out/pace.txt"
+sed -n 's/^TUI-KIT-PACE-VARIANT spin /TUI-KIT-PACE (default spin) /p' "$out/pace.txt"
 exit "$status"

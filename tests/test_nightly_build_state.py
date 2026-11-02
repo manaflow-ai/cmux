@@ -169,6 +169,14 @@ class DedicatedBuilder(unittest.TestCase):
                 self.commit({name: f'changed {name}\n'})
                 self.assertEqual(self.build()[0], 'mode=clean')
 
+    def test_a_prototype_package_or_import_change_stays_incremental(self):
+        self.build()
+        self.commit({'Prototypes/Lab/Package.swift': '// swift-tools-version:5.9\n',
+                     'Prototypes/Lab/Sources/Lab/a.swift': 'import SwiftUI\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
                            ('Sources/b.swift', '@_exported import Bar\n'),
