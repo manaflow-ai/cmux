@@ -7,7 +7,8 @@ public actor CodexResumePermissionEvidenceReader {
 
     /// Creates an evidence reader with a bounded transcript search window.
     ///
-    /// - Parameter maximumBytes: Maximum tail bytes to inspect; defaults to 4 MiB.
+    /// - Parameter maximumBytes: Maximum tail content bytes to inspect; defaults
+    ///   to 4 MiB. One preceding delimiter byte may also be read.
     public init(maximumBytes: Int = 4 * 1024 * 1024) {
         self.maximumBytes = max(0, maximumBytes)
     }
@@ -66,8 +67,17 @@ public actor CodexResumePermissionEvidenceReader {
                 }
             }
         }
-        // The first buffered line is complete only when the scan reached byte 0.
-        guard lowerBound == 0 else { return [] }
+        // A record at the window edge is complete when preceded by a newline.
+        // The single delimiter probe is separate from the content-byte budget.
+        if lowerBound > 0 {
+            do {
+                try handle.seek(toOffset: lowerBound - 1)
+                guard let delimiter = try handle.read(upToCount: 1),
+                      delimiter.first == 0x0A else { return [] }
+            } catch {
+                return []
+            }
+        }
         return policy.permissionArguments(from: pending, before: capturedAt) ?? []
     }
 }

@@ -71,6 +71,7 @@ let repaired = policy.repairing(launch, with: ["-a", "never", "-s", "workspace-w
 The hook-producing CLI skips the transcript when
 `requiresTranscriptEvidence(for:)` is false. Otherwise it awaits
 `CodexResumePermissionEvidenceReader`, an actor that scans at most the last
-4 MiB. Only complete records inside that window can supply evidence. If none
+4 MiB of content, plus at most one preceding delimiter byte to verify a record
+starting exactly at the window edge. Only complete records inside that window can supply evidence. If none
 qualifies, recovery leaves the captured arguments unchanged; it never infers
 permissions from a truncated record. Tests can inject a smaller byte budget.
