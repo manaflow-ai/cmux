@@ -138,7 +138,8 @@ impl<B: Backend> Server<B> {
     /// complete before its acknowledgement arrives; on in_progress the
     /// viewer may already be open, and closing its pane would discard it.
     fn failed_open(&self, made: Option<String>, answer: Value) -> Value {
-        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress") {
+        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress")
+        {
             let Some(pane) = made else { return answer };
             let Some(mut receipt) = answer.get("structuredContent").cloned() else {
                 return answer;

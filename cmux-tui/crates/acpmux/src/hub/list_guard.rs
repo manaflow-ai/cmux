@@ -712,20 +712,20 @@ mod tests {
         assert!(list.page(None, &json!({"cursor": 3}), usize::MAX).is_err());
     }
 
-
-
     /// A many-session daemon keeps the full keyset in its snapshot, but a one-row
     /// request copies and serializes only its selected row, with the same cursors
     /// and exact filters as the old owned path.
     #[test]
     fn three_thousand_key_snapshot_pages_only_selected_rows() {
         let rows: Vec<Value> = (0..3_000)
-            .map(|i| json!({
-                "sessionId": format!("s{i:04}"),
-                "updatedAt": 3_000 - i,
-                "peer": (i % 5 == 0).then_some("machine"),
-                "status": if i % 3 == 0 { "closed" } else { "idle" },
-            }))
+            .map(|i| {
+                json!({
+                    "sessionId": format!("s{i:04}"),
+                    "updatedAt": 3_000 - i,
+                    "peer": (i % 5 == 0).then_some("machine"),
+                    "status": if i % 3 == 0 { "closed" } else { "idle" },
+                })
+            })
             .collect();
         let list = Snapshot::new(
             (false, 0, 0, Vec::new()),
@@ -735,16 +735,14 @@ mod tests {
             Snapshot::serialize(&rows),
         );
         let first: Value =
-            serde_json::from_str(&list.page(None, &json!({"limit": 1}), usize::MAX).unwrap()).unwrap();
+            serde_json::from_str(&list.page(None, &json!({"limit": 1}), usize::MAX).unwrap())
+                .unwrap();
         assert_eq!(first["sessions"].as_array().unwrap().len(), 1);
         assert_eq!(first["sessions"][0]["sessionId"], "s0000");
         let second: Value = serde_json::from_str(
-            &list.page(
-                None,
-                &json!({"limit": 1, "cursor": first["nextCursor"]}),
-                usize::MAX,
-            )
-            .unwrap(),
+            &list
+                .page(None, &json!({"limit": 1, "cursor": first["nextCursor"]}), usize::MAX)
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(second["sessions"][0]["sessionId"], "s0001");
@@ -761,7 +759,8 @@ mod tests {
             json!({"status": "closed", "peer": "machine", "limit": 2}),
             filter,
         ] {
-            let owned = super::super::session_pages::session_list_reply(rows.clone(), &params).unwrap();
+            let owned =
+                super::super::session_pages::session_list_reply(rows.clone(), &params).unwrap();
             let borrowed =
                 super::super::session_pages::session_list_reply_borrowed(&rows, &params).unwrap();
             assert_eq!(owned, borrowed, "{params}");

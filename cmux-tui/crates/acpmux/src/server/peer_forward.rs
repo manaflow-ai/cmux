@@ -844,13 +844,7 @@ mod tests {
     #[tokio::test]
     async fn removed_peer_wakes_all_waiting_uploads_without_a_connect_attempt() {
         let (notices, _receiver) = tokio::sync::mpsc::channel(1);
-        let peer = crate::peer::Peer::new(
-            "gone",
-            "ws://127.0.0.1:9",
-            None,
-            None,
-            notices,
-        );
+        let peer = crate::peer::Peer::new("gone", "ws://127.0.0.1:9", None, None, notices);
         let mut pending = Vec::new();
         for _ in 0..2 {
             let peer = peer.clone();

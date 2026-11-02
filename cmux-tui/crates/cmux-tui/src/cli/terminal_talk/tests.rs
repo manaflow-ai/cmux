@@ -419,11 +419,8 @@ fn lost_ack_title_send_retries_using_the_original_terminal_id() {
     let failed = send::run(&daemon, None, &request).expect_err("paste applied, reply lost");
     assert_eq!(failed.failure.error["details"]["terminal"], TERMINAL);
     let send_id = failed.failure.idempotency_key.expect("stable recovery id");
-    let retry = SendRequest {
-        target: TERMINAL.into(),
-        idempotency_key: Some(send_id.clone()),
-        ..request
-    };
+    let retry =
+        SendRequest { target: TERMINAL.into(), idempotency_key: Some(send_id.clone()), ..request };
     let receipt = send::run(&daemon, None, &retry).expect("replayed original paste, sent Enter");
     assert_eq!(receipt["idempotency_key"], send_id);
     assert_eq!(receipt["terminal"], TERMINAL);
