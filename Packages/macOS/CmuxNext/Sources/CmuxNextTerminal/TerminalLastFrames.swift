@@ -49,9 +49,10 @@ public struct TerminalLastFrames {
     public mutating func note(_ outcome: String) { outcomes[outcome, default: 0] += 1 }
 
     /// How many evicted terminals keep a last frame: the warm set's hidden terminal capacity.
-    public static func capacity(warm: Int, physicalBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
-        warm
-    }
+    public static func capacity(warm: Int) -> Int { warm }
+
+    /// ``capacity(warm:)`` for a Mac with `physicalBytes` of memory.
+    public static func capacity(warm: Int, physicalBytes: UInt64) -> Int { warm }
 
     /// One frame of a large pane on a 2x display (about 1800 x 1100 points, BGRA): 24 MB.
     public static let frameCostBytes: UInt64 = 24 << 20
