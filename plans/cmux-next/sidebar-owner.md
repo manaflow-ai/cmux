@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: pinned-section header text uses the shared optical midline (`SidebarStyle.textY`), as machine
+  headers already do. Centering its full line box left the visible capitals off the chevron's center line.
+  Regression: `SidebarIconColumnTests.aBandHeaderTitleAndChevronShareTheMidLine`, across sidebar densities and text sizes.
+
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
   Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
   New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours
