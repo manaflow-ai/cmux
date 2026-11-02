@@ -205,7 +205,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # jobs also read it for the bounded attempt-2 retry added in #29847. OwnedVerify in
         # test_nightly_sign_runner.py checks that retry and its later overflow destinations. The cmux
         # NIGHTLY-identity copy's release-signer image job and its verify take the legacy verify's route.
-        self.assertEqual(uses, ['generate-nightly-deltas', 'legacy-signer-dmg-image', 'sign-nightly-identity-legacy',
+        self.assertEqual(uses, ['generate-nightly-deltas', 'launch-smoke-nightly', 'legacy-signer-dmg-image', 'sign-nightly-identity-legacy',
                                 'signer-dmg-image', 'verify-final-dmg-nightly',
                                 'verify-nightly-identity-legacy', 'verify-nightly-identity-legacy-pool',
                                 'verify-signed-nightly'])

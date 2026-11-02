@@ -69,3 +69,11 @@ it("stays off for a listed service while the experiment itself is off", async ()
   const key = await service(h);
   expect((await h.request("/v1/meshes", as(key))).status).toBe(404);
 });
+
+it("lets every listed service through, as staging lists cmux-platform's dev and staging keys", async () => {
+  h = await makeHarness({ mesh: { tenants: [], services: [SERVICE, "cloud-platform-staging"] } });
+  const dev = await service(h);
+  const staging = await service(h, "cloud-platform-staging");
+  expect((await h.request("/v1/meshes", as(dev))).status).toBe(200);
+  expect((await h.request("/v1/meshes", as(staging))).status).toBe(200);
+});

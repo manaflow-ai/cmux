@@ -48,6 +48,9 @@ extension CloudService {
             await onSent()
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
+        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
+        // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
+        if !pinned.wasSent { _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + pinned.idempotencyKey, .user) }
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
         do {
@@ -105,10 +108,6 @@ extension CloudService {
             },
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
-                try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
-            },
-            watchPause: { attempt in
-                // wakeup-allow: same-key watch while the approval sheet is open; cancelled when the sheet closes
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )

@@ -63,6 +63,9 @@ export function environmentSection(
       machine.kind === "local" ? "composer.envLocal" : machine.kind === "ssh" ? "composer.envSSH" : "composer.cloud",
     ),
     ...(machine.kind !== "local" && machine.name ? { symbolColor: machineHue(machine.name) } : {}),
+    // What a Cloud machine is and how long its files last, as the web panel's note says it
+    // (EnvironmentSection.tsx, data-note="cloud-lifetime").
+    ...(machine.kind === "cloud" ? { subtitle: t("cloudRepository.lifetime") } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
   if (cloudSession && input.cloudRepositoryAvailable) {

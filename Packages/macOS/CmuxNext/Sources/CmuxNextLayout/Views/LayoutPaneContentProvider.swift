@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -15,8 +16,15 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// Whether this pane's live content keeps its painted size while a split or close springs.
     /// The host clips the held page and lays it out once when the spring lands.
     func holdsContentInMotion(for pane: PaneID) -> Bool
-    /// The pane left the layout. Called in the same update, with no removal animation.
+    /// The pane's content goes: torn down now. Called in the update the pane left the layout, or, for a pane a
+    /// springing close retired (``retainContentView(_:for:retired:)``), when that motion lands; for a pane a zoom
+    /// covers, when the unzoomed layout no longer has it.
     func releaseContentView(_ view: NSView, for pane: PaneID)
+    /// `retired` true: a springing close took the pane out of the layout in this update, but its host is only hidden
+    /// until the motion lands (`LayoutViewContext.retire`): the provider stops counting it as shown now and keeps its
+    /// content for ``releaseContentView(_:for:)`` or its return. False: the layout took that host back (a close taken
+    /// back before it landed), as if made again. A zoom's covered panes stay in the layout model and get neither.
+    func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
@@ -25,6 +33,7 @@ public protocol LayoutPaneContentProvider: AnyObject {
 extension LayoutPaneContentProvider {
     public func holdsContentInMotion(for pane: PaneID) -> Bool { false }
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
+    public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
 }
 
@@ -124,11 +133,14 @@ final class LayoutViewContext {
         if let host = hosts[pane] { return host }
         // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
         if let entry = retired.removeValue(forKey: pane) {
+            // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
+            runClosingWork(of: pane, now: true)
             entry.host.isHidden = false
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
+            if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
         let content = provider?.makeContentView(for: pane) ?? NSView()
@@ -160,6 +172,10 @@ final class LayoutViewContext {
     /// with the unzoom as they were (RESIZE VIDEOS Z1: the landing tore down every other pane, 11 pane controllers in
     /// one frame of 42 ms, and the unzoom made them all again in one frame of 48 ms).
     private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
+    /// Work that waits for a closing pane to go (``afterClosing(_:id:_:)``), by pane and id.
+    private var closingWork: [PaneID: [String: @MainActor () -> Void]] = [:]
+    /// Runs work once the current main run-loop pass committed its frame (`AfterFrameCommit`); a test collects it and runs it.
+    var afterCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
 
     /// Until when a retired host is kept.
     enum Retirement {
@@ -176,6 +192,9 @@ final class LayoutViewContext {
         host.isHidden = true
         host.chrome.isHidden = true
         retired[pane] = (host, screen, until)
+        // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
+        // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
+        if until == .landing { provider?.retainContentView(host.content, for: pane, retired: true) }
     }
 
     /// Tears down the hosts `screen` retired until `until` (a close's: its motion landed or it settles at once; a
@@ -185,7 +204,30 @@ final class LayoutViewContext {
         for (pane, entry) in retired where entry.screen == screen && (until == nil || entry.until == until) {
             retired[pane] = nil
             tearDown(entry.host)
+            runClosingWork(of: pane)
         }
+    }
+
+    /// Whether `pane` left the layout in a close that still springs: its host waits, hidden, for the landing.
+    func isClosing(_ pane: PaneID) -> Bool {
+        if case .landing? = retired[pane]?.until { return true }
+        return false
+    }
+
+    /// Holds `work` until closing `pane` goes (its motion lands, its screen goes) or comes back, then runs it after
+    /// that frame's commit; false (nothing held) when `pane` is not closing. A second `id` replaces the first.
+    /// The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1): in the motion's frames
+    /// it missed refreshes, so it follows the motion, as Chrome keeps its UI thread to what the next frame shows.
+    func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
+        guard isClosing(pane) else { return false }
+        closingWork[pane, default: [:]][id] = work
+        return true
+    }
+
+    /// `now`: the pane comes back and the work runs before it shows again; else after this frame's commit.
+    private func runClosingWork(of pane: PaneID, now: Bool = false) {
+        guard let work = closingWork.removeValue(forKey: pane) else { return }
+        if now { for item in work.values { item() } } else { afterCommit { for item in work.values { item() } } }
     }
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
