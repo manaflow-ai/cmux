@@ -87,32 +87,10 @@ enum WorkspaceGroupClose {
         }
     }
 
-    /// The closed items of this close: the new workspace items (newest first)
-    /// whose members carry the closing workspaces' names, each name taken
-    /// once (one bulk close is one item of several members, `BulkClosePlan`;
-    /// an older daemon stores one item per workspace), the names no item took
-    /// yet, and the group's own record.
-    nonisolated static func matching(names: [String], group id: String?, fresh: [ClosedItem])
-        -> (workspaces: [String], missing: [String], group: String?) {
-        var wanted = names
-        var workspaces: [String] = []
-        for item in fresh where item.kind == .workspace && item.group == nil {
-            let carried = item.memberNames.isEmpty ? [item.name] : item.memberNames
-            var took = false
-            for name in carried {
-                guard let index = wanted.firstIndex(of: name ?? "") else { continue }
-                wanted.remove(at: index)
-                took = true
-            }
-            if took { workspaces.append(item.id) }
-        }
-        return (workspaces, wanted, id.flatMap { id in fresh.first { $0.group?.id == id }?.id })
-    }
-
     private static func matches(names: [String], group id: String?, after seen: Set<String>,
-                                _ services: AppServices) -> (workspaces: [String], missing: [String], group: String?) {
+                                _ services: AppServices) -> ClosedItemMatch {
         let fresh = DaemonClosedHistory.entries([.workspace], in: services).map(\.item).filter { !seen.contains($0.id) }
-        return matching(names: names, group: id, fresh: fresh)
+        return ClosedItemMatch(names: names, group: id, fresh: fresh)
     }
 
     /// Reopens what this close recorded once every member's item is in the

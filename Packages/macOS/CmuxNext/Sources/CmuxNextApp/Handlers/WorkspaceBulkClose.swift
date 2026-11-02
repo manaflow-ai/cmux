@@ -127,7 +127,7 @@ enum WorkspaceBulkClose {
         }
         // The unpinned groups these closes empty go once the closes land (cx-rcby); a refused close keeps its group.
         for cleanup in cleanups {
-            // task-owner: one cleanup per group, bounded by `PersonalGroupLife.closeSettleLimit` and its delete
+            // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
             Task { @MainActor in await cleanup.run() }
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
