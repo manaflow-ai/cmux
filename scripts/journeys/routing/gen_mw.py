@@ -42,7 +42,11 @@ def variants(spec):
             body = body[:start] + [{"do": "video_start", "name": name, "seconds": SECONDS,
                                     "title": "film the judged part (geometry and content, no pacing claim)"}] + \
                 body[start:] + [{"do": "video_stop", "name": name, "tail": 0.6}]
-        fin = list(spec.get("finally") or [])
+        # The app log of the run (records only): the dogfood line's cross-window input guard logs each key it drops
+        # (category focus.cross-window, "dropped a key typed into window ..."), which tells a product drop from a
+        # debug.key delivery artifact (MW-2).
+        fin = list(spec.get("finally") or []) + [{"do": "app_log", "seconds": 240, "grep": "cross-window|dropped a key|keyWindow|makeKey",
+                                                    "title": "the app log of the run (records only)"}]
         if film:
             fin = [{"do": "video_close_open", "title": "stop a recording a failed check left open"}] + fin
         out.append(dict(spec, id=name + ("" if film else "-nf"),

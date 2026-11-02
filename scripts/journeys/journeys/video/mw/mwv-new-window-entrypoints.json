@@ -352,6 +352,12 @@
     {
       "do": "close_extra_windows",
       "title": "clean-up: close the three new windows"
+    },
+    {
+      "do": "app_log",
+      "seconds": 240,
+      "grep": "cross-window|dropped a key|keyWindow|makeKey",
+      "title": "the app log of the run (records only)"
     }
   ]
 }

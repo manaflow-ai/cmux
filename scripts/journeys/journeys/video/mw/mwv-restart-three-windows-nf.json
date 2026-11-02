@@ -266,6 +266,12 @@
         "mw-rs-a-${nonce}"
       ],
       "title": "clean-up: close windows 2 and 3"
+    },
+    {
+      "do": "app_log",
+      "seconds": 240,
+      "grep": "cross-window|dropped a key|keyWindow|makeKey",
+      "title": "the app log of the run (records only)"
     }
   ]
 }
