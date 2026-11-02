@@ -234,3 +234,46 @@ fn a_split_that_leads_the_next_group_commits_after_the_open_group() {
         "the ninth split was stored at {last:?}, before the open group's panes at {revisions:?}"
     );
 }
+
+/// A create that panics gives input queued for its new terminal back at
+/// once (fourth review of #32461): the panic skipped the end of the create,
+/// so the input waited for the 10 s expiry and came back as "expired".
+#[test]
+fn a_create_that_panics_gives_queued_input_back_at_once() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let (writer, _outbound) = captured_writer();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let terminal_id = "5d0000000000400080000000000000a1";
+    let (notice_tx, notice_rx) = mpsc::channel::<String>();
+    let notice_tx = Mutex::new(notice_tx);
+    let notice: crate::mux::creating_input::UnclaimedNotice =
+        Arc::new(move |_: &str, _: &[u8], reason: &str| {
+            let _ = notice_tx.lock().unwrap().send(reason.to_string());
+        });
+    let hook_mux = mux.clone();
+    mux.set_creation_before_effect_hook_for_test(Box::new(move || {
+        // Input for the terminal arrives while it is being created, then the
+        // create panics.
+        let queued = hook_mux.write_terminal_input(terminal_id, client, b"ls\n", false, notice);
+        assert!(matches!(queued, Ok(crate::mux::creating_input::TerminalInputTarget::Queued)));
+        // crash-allow: unit test only; the panic stands in for a defect inside a create.
+        panic!("a create panics");
+    }));
+    let request =
+        json!({"id": 50, "cmd": "split", "pane": pane, "dir": "down", "terminal_id": terminal_id});
+    assert!(handle_connection_frame(
+        &mux,
+        client,
+        ClientTransport::Unix,
+        &request.to_string(),
+        &writer,
+        &scheduler,
+    ));
+    let reason = notice_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    scheduler.finish_and_wait();
+    assert_eq!(reason, "failed", "the queued input came back late, as {reason:?}");
+}
