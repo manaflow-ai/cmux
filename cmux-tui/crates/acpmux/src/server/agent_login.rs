@@ -161,10 +161,10 @@ async fn signed_in(
         Agent::Claude => ".claude",
         Agent::Codex => ".codex",
     });
-    if current.store(agent) == canonical {
-        if let Err(e) = machine.choose_own(agent) {
-            tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
-        }
+    if current.store(agent) == canonical
+        && let Err(e) = machine.choose_own(agent)
+    {
+        tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
     hub.login_changed(agent.name(), store, route.as_deref()).await?;
     let Some(key) = text(params, "sessionId") else { return Ok(false) };
