@@ -87,6 +87,12 @@ public final class TerminalSurfaceView: NSView {
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// NEVER MERGE: SWITCH FRAMES SF-2 reveal trace (TerminalSurfaceView+RevealTrace.swift).
+    private(set) lazy var revealTrace = TerminalRevealTrace(view: self)
+    /// Each reveal of this surface: host times, reclaim, ink of the frames shown after it (`debug.surfaces` reveals).
+    public var revealTraceRows: [[String: Double]] { revealTrace.rows }
+    #endif
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
@@ -468,7 +474,13 @@ public final class TerminalSurfaceView: NSView {
         let drawing = pause == nil
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hadVolatile = volatileFrame != nil
+        #endif
         holdPresentedFrame(volatile: pause != nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if drawing { revealTrace.revealed(hadVolatile: hadVolatile, contentsNil: layer?.contents == nil) }
+        #endif
         ghostty_surface_set_occlusion(surface, drawing)
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
         // background update) before its view has ever joined a window. The visibility message
