@@ -5,8 +5,10 @@ set -euo pipefail
 cache_path="build-universal/CompilationCache.noindex"
 # A trusted NEXT worker links it to the cache it keeps on disk
 # (nightly_build_state.py); measure and bound the cache itself.
-if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; fi
 max_cache_kib=$((5 * 1024 * 1024))
+# A kept cache is never saved to R2 and runs with app-build-release.sh's 10 GiB limit when the disk
+# has room: bound it above that, so a full one is not deleted.
+if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; max_cache_kib=$((12 * 1024 * 1024)); fi
 if [ -d "$cache_path" ]; then
   # Xcode's CAS chains v1.N generations: the newest is the primary,
   # the one before it is the upstream it faults objects in from, and
@@ -29,7 +31,8 @@ if [ "$cache_kib" -gt "$max_cache_kib" ]; then
   # Nothing is saved, so the next build restores the same older entry
   # and lands here again: the cache freezes at its last saved entry
   # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
-  echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
+  if [ "$max_cache_kib" -gt $((5 * 1024 * 1024)) ]; then echo "::warning::kept Xcode compilation cache exceeds 12 GiB; emptying it"
+  else echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"; fi
   rm -rf "$cache_path"
 elif [ "$cache_kib" -gt 0 ]; then
   save=true

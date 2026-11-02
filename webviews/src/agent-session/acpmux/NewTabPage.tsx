@@ -111,6 +111,9 @@ export type NewTabHost = {
   cwd?: string;
   host?: string;
   location?: string;
+  /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+  /// field's draft, taken once; nothing sends it.
+  draft?: string;
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
@@ -182,6 +185,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(cwd ? { cwd } : {}),
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
+    ...(typeof object.draft === "string" && object.draft.trim() ? { draft: object.draft } : {}),
     ...(omnibar ? { omnibar } : {}),
     ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
@@ -342,6 +346,8 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
+  onFieldEdit?(text: string): void;
   now?: number;
 };
 
@@ -376,6 +382,7 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  onFieldEdit,
 }: Props) {
   const t = useT();
   const { plainFooter, spellChecking } = useComposerSettings();
@@ -762,6 +769,7 @@ export function NewTabPage({
     setTouched(true);
     setOpenFailed(false);
     const plain = field.current?.agentText(next) ?? next;
+    onFieldEdit?.(plain);
     const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : typed, plain);
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {
