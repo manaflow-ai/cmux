@@ -242,6 +242,44 @@ struct ChatWorkspaceShowsAtOnceTests {
         #expect(failure == nil, "refused: \(failure ?? "")")
     }
 
+    /// The order a fleet run hit (green 13 at 82875f61): the daemon's create, its first tab and the close of the
+    /// stand-in all reach the store in one apply, with no sidebar rows pass between them. The pending row was then
+    /// never marked taken over (that mark came only from a rows pass that saw the daemon's workspace), and nothing
+    /// dropped it once the workspace was gone: a row the window lists for nothing, which also refuses moving its
+    /// workspaces out. Forced here by holding the store's events until the close's event is among them.
+    @Test func aStandInsRowGoesWhenItsCreateAndCloseApplyInOneBatch() async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let store = services.daemon.store
+        let key = WorkspaceKey.generate()
+        // Held until the daemon's close of this workspace is buffered: create, tab and close then apply together.
+        store.eventHold = { events in
+            !events.contains { if case .workspaceClosed(let delta) = $0.event { delta.entity.key == key } else { false } }
+        }
+
+        let work = try AgentSessionWorkspace.open(session: "s-batch", name: "batch", key: key, cwd: nil, services: services)
+        let rowAtOnce = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
+        let ran = services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: key.rawValue)))
+        let released = await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { store.eventHold == nil || !store.workspaces.contains { $0.key == key } }
+        store.eventHold = nil
+        store.releaseHeldEvents()
+        _ = await work.value
+        let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            !store.workspaces.contains { $0.key == key } && !PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
+        }
+        let rowLeft = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
+        let back = store.workspaces.filter { $0.key == key }.map(\.id)
+        await launched.stop()
+
+        try #require(rowAtOnce, "the open showed no pending row")
+        #expect(ran, "Close Workspace refused the stand-in")
+        #expect(released, "the daemon's close never reached the store")
+        #expect(back.isEmpty, "the closed workspace is listed: \(back)")
+        #expect(gone && !rowLeft, "the closed workspace's pending row is left after its create and close applied in one batch")
+    }
+
     @Test func openChatShowsItsWorkspaceBeforeTheDaemonAnswers() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
