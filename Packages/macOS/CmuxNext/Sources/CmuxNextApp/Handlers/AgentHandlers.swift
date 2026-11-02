@@ -13,6 +13,7 @@ import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
+import CmuxNextTerminal
 import Observation
 
 /// Agent actions. Fork Conversation (``AgentForkDestination``): an agent chat tab forks through
@@ -174,7 +175,8 @@ enum AgentHandlers {
             if let (pane, content) = context.visibleContent(invocation), case .terminal(let entry) = content {
                 guard let tabID = pane.stripModel.selectedID?.rawValue,
                       let tab = pane.pane.tabs.first(where: { $0.id == tabID }) else { return }
-                terminalDictation.toggle(entry: entry, surface: tab.surface, daemon: context.services.daemon(for: pane.pane))
+                let surface = tab.surface, daemon = context.services.daemon(for: pane.pane)
+                terminalDictation.toggle(host: entry.session.view) { text in daemon.send("dictation") { try await $0.send(surface, text: text, paste: true) } }
                 return
             }
             if terminalDictation.stopIfActive() { return }
