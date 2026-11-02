@@ -16,10 +16,17 @@ import CmuxNextWakeups
 /// first surface, and delayed that surface and its first frame. A launch
 /// whose first window shows no terminal never settles; the palette then
 /// does its first-open work when it first opens, as without warm-up.
+///
+/// It never settles before the first window frame is committed
+/// (`FirstFrameGate`): a page or an agent shown first makes the pane region
+/// ready while `applicationDidFinishLaunching` still builds the window, and
+/// the deferred work then delayed that frame by about 33 ms (REOPEN-F7).
 @MainActor
 final class LaunchSettle {
     private var waiters: [@MainActor () -> Void] = []
     private(set) var isSettled = false
+    /// `settle` was called; the launch settles at the first window frame.
+    private var settleAsked = false
     private var unavailableWatch: Task<Void, Never>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
@@ -49,12 +56,18 @@ final class LaunchSettle {
         backstop.cancel()
     }
 
-    /// Settles (first call only) and runs the waiters in order.
+    /// Settles (first call only) once the first window frame is committed (at once after it), and runs the
+    /// waiters in order.
     func settle() {
-        guard !isSettled else { return }
-        isSettled = true
+        guard !settleAsked else { return }
+        settleAsked = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
+        firstFrame.whenOpen { [weak self] in self?.finishSettle() }
+    }
+
+    private func finishSettle() {
+        isSettled = true
         // The agent pages' warm-up page is done: their first page made its own process by now.
         AgentPaneView.finishWarmup()
         let waiting = waiters
