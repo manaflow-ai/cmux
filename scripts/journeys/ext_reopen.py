@@ -723,7 +723,6 @@ def _type_markers(j, cua, keys, pid, before, rects, record):
         record["markers_error"] = "the reopened app showed no window"
         return marks
     record["window_listed_wall"] = time.time()
-    main = None
     wid = _wid(windows[0])
     terms = [t for t in before["visible_terminals"] if not t.get("live")]  # never a key into a running TUI
     order = [t for t in terms if t["focused"]] + [t for t in terms if not t["focused"]]
@@ -733,17 +732,11 @@ def _type_markers(j, cua, keys, pid, before, rects, record):
             continue
         cell = cursor_cell(before["screens"].get(t["pane"]), rect)
         mark = {"pane": t["pane"], "focused_before": t["focused"], "cell": cell}
-        if index > 0 and main is None:
-            # The app's main window (its helper windows are layer 0 too, a few points wide): the largest of the new
-            # pid; looked up only now, after the focused pane's key (that key needs no click).
-            server = main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == pid])
-            main = max(server, key=lambda w: w["w"] * w["h"]) if server else {"x": 0, "y": 0, "number": wid}
-            wid = int(main.get("number") or wid)
-            record["marker_window"] = main
         if index > 0:
-            # A click in the pane's lower half, on its text area (window points from the window's top-left).
+            # A click in the pane's lower half, on its text area, at its screen point (the window restores in place:
+            # any move is an exactness defect of its own). No window lookup: it would delay the click by an
+            # osascript call while the app launches.
             sx, sy = rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] * 0.6
-            origin = main or {"x": 0, "y": 0}
             mark["click_sent_wall"] = time.time()
             if record.get("can_post_events"):
                 post_click(sx, sy)
