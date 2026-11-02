@@ -16,7 +16,10 @@ struct SidebarWorkspaceRowModel: Equatable {
     // position-neutralized copies; the stored value stays authoritative.
     var index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
-    let settings: SidebarTabItemSettingsSnapshot
+    // `var` only so `hasHeightEquivalentContent` can neutralize the paint-only
+    // `settings.showsGroupDividers` flag on compared copies; the stored value
+    // stays authoritative.
+    var settings: SidebarTabItemSettingsSnapshot
     // `var` (not `let`) so the optimistic press/deselect paint can apply a
     // selection-flipped copy of the model; the stored model stays
     // authoritative and reconciles on the next configure.
@@ -73,6 +76,10 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// Increase Contrast) the row paints with. Part of equality so a
     /// System Settings change repaints visible rows.
     var displayAccessibility: DisplayAccessibilityOptions = .standard
+    /// The member indent guide to paint, or `nil` when none is drawn. `var`
+    /// only so `hasHeightEquivalentContent` can neutralize this paint-only
+    /// field (like `index`/`isFirstRow`); the stored value stays authoritative.
+    var groupGuide: SidebarGroupGuide? = nil
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 
@@ -87,6 +94,11 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// a workspace shifts both for every row below it; height caching keyed on
     /// full equality would re-measure that whole tail and lose its entries
     /// exactly when a stale-width fallback needs them.
+    ///
+    /// `groupGuide` and the `settings.showsGroupDividers` flag are paint-only:
+    /// the indent guide draws in the member gutter at the row's measured
+    /// height without changing it, so a guide recolor, a run-boundary flip or
+    /// a group-divider toggle must not remeasure the row.
     func hasHeightEquivalentContent(to other: Self) -> Bool {
         if self == other { return true }
         var normalizedSelf = self
@@ -95,6 +107,10 @@ struct SidebarWorkspaceRowModel: Equatable {
         normalizedOther.index = 0
         normalizedSelf.isFirstRow = false
         normalizedOther.isFirstRow = false
+        normalizedSelf.groupGuide = nil
+        normalizedOther.groupGuide = nil
+        normalizedSelf.settings.showsGroupDividers = false
+        normalizedOther.settings.showsGroupDividers = false
         return normalizedSelf == normalizedOther
     }
 }

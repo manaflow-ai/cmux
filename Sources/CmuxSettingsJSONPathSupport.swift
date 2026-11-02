@@ -50,6 +50,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
+    static let groupDividersKey = sidebar.groupDividers.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showCloudDeviceIcons = sidebar.showCloudDeviceIcons.defaultValue
@@ -63,6 +64,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
     static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
+    static let groupDividers = sidebar.groupDividers.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -448,6 +450,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "compactAgentStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
+        ),
+        .init(
+            jsonKey: "groupDividers",
+            defaultsKey: SidebarWorkspaceDetailDefaults.groupDividersKey
         ),
     ]
 

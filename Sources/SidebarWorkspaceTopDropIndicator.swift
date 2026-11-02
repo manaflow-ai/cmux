@@ -8,19 +8,25 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let rowSpacing: CGFloat
     let isBottomEdge: Bool
     let leadingInset: CGFloat
+    /// Scaled top gap painted above a group header band; `0` keeps today's
+    /// placement. When positive the top line centres in the combined gap (the
+    /// inter-row spacing plus this in-row gap) instead of sitting on the edge.
+    let topInset: CGFloat
 
     init(
         isVisible: Bool,
         isFirstRow: Bool,
         rowSpacing: CGFloat,
         isBottomEdge: Bool = false,
-        leadingInset: CGFloat = 0
+        leadingInset: CGFloat = 0,
+        topInset: CGFloat = 0
     ) {
         self.isVisible = isVisible
         self.isFirstRow = isFirstRow
         self.rowSpacing = rowSpacing
         self.isBottomEdge = isBottomEdge
         self.leadingInset = leadingInset
+        self.topInset = topInset
     }
 
     var body: some View {
@@ -37,6 +43,10 @@ struct SidebarWorkspaceTopDropIndicator: View {
     private static let horizontalPadding = SidebarReorderIndicatorView.horizontalInset
 
     private var indicatorOffset: CGFloat {
-        isBottomEdge ? rowSpacing / 2 : (isFirstRow ? 0 : -(rowSpacing / 2))
+        if isBottomEdge { return rowSpacing / 2 }
+        if topInset > 0 {
+            return (topInset - rowSpacing) / 2 - SidebarReorderIndicatorView.thickness / 2
+        }
+        return isFirstRow ? 0 : -(rowSpacing / 2)
     }
 }

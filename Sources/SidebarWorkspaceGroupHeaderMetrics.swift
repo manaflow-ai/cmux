@@ -27,11 +27,21 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     /// proportionally larger as the configured `sidebar-font-size` grows.
     let fontScale: CGFloat
 
+    /// Whether the group-divider treatment is on. Off keeps today's flat look:
+    /// the 11 pt header name and no top gap above the header (see ``nameFontSize``
+    /// and ``topGap(isFirstRenderedRow:)``).
+    let showsGroupDividers: Bool
+
     /// Creates header metrics for the given sidebar font scale.
-    /// - Parameter fontScale: The scale from ``SidebarTabItemFontScale/scale(for:)``;
-    ///   `1.0` at the default sidebar font size.
-    init(fontScale: CGFloat) {
+    /// - Parameters:
+    ///   - fontScale: The scale from ``SidebarTabItemFontScale/scale(for:)``;
+    ///     `1.0` at the default sidebar font size.
+    ///   - showsGroupDividers: Whether the group-divider treatment is on. The
+    ///     default `false` preserves today's flat-list sizing for callers that
+    ///     do not opt in.
+    init(fontScale: CGFloat, showsGroupDividers: Bool = false) {
         self.fontScale = fontScale
+        self.showsGroupDividers = showsGroupDividers
     }
 
     /// Chevron glyph point size at the default sidebar font size.
@@ -44,8 +54,17 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let baseIconFrame: CGFloat = 14
     /// Pinned group glyph point size at the default sidebar font size.
     static let basePinnedIconFontSize: CGFloat = 9
-    /// Group name point size at the default sidebar font size.
+    /// Group name point size at the default sidebar font size when group
+    /// dividers are off; the flat-list baseline.
     static let baseNameFontSize: CGFloat = 11
+    /// Group name point size at the default sidebar font size when group
+    /// dividers are on, matching the workspace title size so a header reads as
+    /// the start of its group rather than a smaller caption.
+    static let baseNameFontSizeWithDividers: CGFloat = 12.5
+    /// Top gap above the header band at the default sidebar font size, giving
+    /// each group air above it. Suppressed for the first rendered row and when
+    /// group dividers are off (see ``topGap(isFirstRenderedRow:)``).
+    static let baseTopGap: CGFloat = 10
     /// Unread badge point size at the default sidebar font size.
     static let baseUnreadFontSize: CGFloat = 10
     /// Unread badge horizontal padding at the default sidebar font size.
@@ -71,8 +90,14 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var iconFrame: CGFloat { Self.baseIconFrame * fontScale }
     /// Scaled pinned group glyph point size.
     var pinnedIconFontSize: CGFloat { Self.basePinnedIconFontSize * fontScale }
-    /// Scaled group name point size.
-    var nameFontSize: CGFloat { Self.baseNameFontSize * fontScale }
+    /// Scaled group name point size: the larger divider size when group
+    /// dividers are on, otherwise the flat-list baseline.
+    var nameFontSize: CGFloat {
+        (showsGroupDividers ? Self.baseNameFontSizeWithDividers : Self.baseNameFontSize) * fontScale
+    }
+    /// Scaled top gap above the header band, before the first-row and
+    /// setting-off exemptions applied by ``topGap(isFirstRenderedRow:)``.
+    var topGap: CGFloat { Self.baseTopGap * fontScale }
     /// Scaled unread badge point size.
     var unreadFontSize: CGFloat { Self.baseUnreadFontSize * fontScale }
     /// Scaled unread badge horizontal padding.
@@ -89,5 +114,17 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var dropTargetHeight: CGFloat {
         let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)
         return max(24 * fontScale, contentHeight + 10)
+    }
+
+    /// The effective top gap for this header: the scaled ``topGap`` when group
+    /// dividers are on, and `0` for the first rendered row (so the pinned Home
+    /// group stays flush under the title bar) or when dividers are off
+    /// (restoring today's flush layout).
+    /// - Parameter isFirstRenderedRow: Whether this header is the first row the
+    ///   list actually renders, a stable list-position fact — not the drag-only
+    ///   `isFirstRow` the drop indicators use.
+    func topGap(isFirstRenderedRow: Bool) -> CGFloat {
+        guard showsGroupDividers, !isFirstRenderedRow else { return 0 }
+        return topGap
     }
 }

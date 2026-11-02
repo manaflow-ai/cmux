@@ -145,6 +145,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showAgentUsage` | boolean | `false` | Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
 | `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
+| `sidebar.groupDividers` | boolean | `true` | Mark workspace group boundaries with a tinted header band and an indent guide down each group's members. Off restores the flat list with a smaller header name and no band or guide. |
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |

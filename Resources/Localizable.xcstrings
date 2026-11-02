@@ -575280,6 +575280,183 @@
         }
       }
     },
+    "settings.app.groupDividers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group dividers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فواصل المجموعات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppentrenner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separadores de grupos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Séparateurs de groupes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ区切り"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 구분선"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组分隔线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群組分隔線"
+          }
+        }
+      }
+    },
+    "settings.app.groupDividers.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint each group's header and run a guide down its members."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوّن رأس كل مجموعة وارسم دليلاً يمتد على امتداد عناصرها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbe die Kopfzeile jeder Gruppe ein und zeichne eine Führungslinie entlang ihrer Mitglieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe la cabecera de cada grupo y traza una guía a lo largo de sus miembros."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colorez l’en-tête de chaque groupe et tracez un repère le long de ses membres."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各グループのヘッダーに色を付け、メンバーに沿ってガイドを引きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 그룹의 헤더에 색을 입히고 구성원을 따라 안내선을 그립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个分组的标题着色，并沿其成员绘制一条引导线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個群組的標題著色，並沿其成員繪製一條引導線。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.group-dividers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary مجموعة فواصل شريط دليل مجلد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary Gruppe Trenner Band Führungslinie Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary grupo separador banda guía carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary groupe séparateur bande repère dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary グループ 区切り 帯 ガイド フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary 그룹 구분선 띠 안내선 폴더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary 分组 分隔线 色带 引导线 文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary 群組 分隔線 色帶 引導線 資料夾"
+          }
+        }
+      }
+    },
     "sidebar.agentStatus.glyph.tooltip": {
       "extractionState": "manual",
       "localizations": {

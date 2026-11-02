@@ -11846,6 +11846,18 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Effective header color hex per group (custom color, else the
+        /// per-directory config color), so the header icon, band, and guide read
+        /// one value below the list boundary.
+        let groupColorHexByGroupId: [UUID: String]
+        /// The first render item that actually yields a row, computed from the
+        /// rendered projection rather than the drag-only `sidebarReorderIds`, so
+        /// the header top-gap exemption is stable at rest and during a drag.
+        let firstRenderedRowId: SidebarWorkspaceRenderItemID?
+        /// Member workspace ids that end their group's contiguous rendered run,
+        /// so the indent guide terminates each run without crossing a gap left
+        /// by a dropped member or a root row.
+        let guideRunEndWorkspaceIds: Set<UUID>
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11994,6 +12006,30 @@ struct VerticalTabsSidebar: View, Equatable {
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
+        // Facts the band and guide need are computed once here, below no row's
+        // body: `value(for:) != nil` matches exactly what `workspaceRowInput(...)`
+        // later drops on a snapshot-cache miss, so these facts and the rendered
+        // rows see the same list.
+        let groupColorHexByGroupId = Self.groupColorHexByGroupId(
+            groups: workspaceGroups,
+            configColor: { group in
+                let anchorCwd = group.liveAnchorWorkspaceId
+                    .flatMap { workspaceById[$0]?.currentDirectory }
+                return cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.color
+            }
+        )
+        let isWorkspaceRowRendered: (UUID) -> Bool = {
+            workspaceSnapshotCache.value(for: $0) != nil
+        }
+        let firstRenderedRowId = SidebarWorkspaceRenderItem.firstRenderedRowId(
+            items: workspaceRenderItems,
+            isRendered: isWorkspaceRowRendered
+        )
+        let guideRunEndWorkspaceIds = SidebarWorkspaceRenderItem.guideRunEndWorkspaceIds(
+            items: workspaceRenderItems,
+            groupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+            isRendered: isWorkspaceRowRendered
+        )
 #if DEBUG
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
@@ -12035,7 +12071,10 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            groupColorHexByGroupId: groupColorHexByGroupId,
+            firstRenderedRowId: firstRenderedRowId,
+            guideRunEndWorkspaceIds: guideRunEndWorkspaceIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -12847,7 +12886,8 @@ struct VerticalTabsSidebar: View, Equatable {
             todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id),
-            displayAccessibility: environment.displayAccessibility
+            displayAccessibility: environment.displayAccessibility,
+            groupGuide: input.groupGuide
         )
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,
@@ -15368,9 +15408,31 @@ struct VerticalTabsSidebar: View, Equatable {
             indicatorScope: dragState.dropIndicatorScope
         )
         let settings = renderContext.tabItemSettings
+        let groupId = renderContext.workspaceGroupIdByWorkspaceId[tab.id] ?? nil
+        // The indent guide draws for a rendered member of an expanded group
+        // (collapsed members are dropped from the render projection, so a
+        // non-nil groupId here is always an expanded member) when the setting
+        // is on and the indent leaves room. endsRun comes from the render
+        // context's rendered-adjacency fact, never from list position.
+        let groupGuide: SidebarGroupGuide? = {
+            guard settings.showsGroupDividers,
+                  SidebarWorkspaceGroupingMetrics.showsGuide,
+                  let groupId else { return nil }
+            let color = sidebarGroupGuideColor(
+                groupColorHex: renderContext.groupColorHexByGroupId[groupId],
+                colorScheme: renderContext.environment.colorScheme,
+                increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+                brightenInDarkMode: settings.brightenInDarkMode,
+                over: renderContext.environment.readabilityBackdropHex
+            )
+            return SidebarGroupGuide(
+                color: color,
+                endsRun: renderContext.guideRunEndWorkspaceIds.contains(tab.id)
+            )
+        }()
         let result = SidebarWorkspaceRowInput(
             workspaceId: tab.id,
-            groupId: renderContext.workspaceGroupIdByWorkspaceId[tab.id] ?? nil,
+            groupId: groupId,
             index: index,
             workspaceCount: renderContext.workspaceCount,
             workspace: workspaceSnapshot,
@@ -15407,7 +15469,8 @@ struct VerticalTabsSidebar: View, Equatable {
             inferredTaskStatus: workspaceSnapshot.taskStatusInput.inferred,
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
             isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
-            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor
+            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor,
+            groupGuide: groupGuide
         )
         return result
     }

@@ -201,6 +201,78 @@ enum SidebarWorkspaceRenderItem {
         numberedWorkspaceIds(from: renderItems(tabs: tabs, groupsById: groupsById))
     }
 
+    /// Identity of the first render item that actually yields a row.
+    ///
+    /// Group headers always render; a `.workspace` item is dropped when its
+    /// snapshot is cache-missing (`workspaceRowInput(...)` returns nil and both
+    /// renderers `compactMap` it out), so the first render item and the first
+    /// rendered row are not the same thing. `isRendered` reports whether a
+    /// `.workspace` item has a snapshot. This is the stable list-position fact
+    /// the header top-gap exemption needs; it takes no drag input, so unlike the
+    /// drag-only `isFirstRow` it is identical at rest and during a drag.
+    static func firstRenderedRowId(
+        items: [SidebarWorkspaceRenderItem],
+        isRendered: (UUID) -> Bool
+    ) -> SidebarWorkspaceRenderItemID? {
+        for item in items {
+            switch item {
+            case .groupHeader(let groupId, _):
+                return .group(groupId)
+            case .workspace(let workspaceId):
+                if isRendered(workspaceId) {
+                    return .workspace(workspaceId)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Member workspace ids whose contiguous rendered run of their group ends at
+    /// them — the next rendered row is not a member of the same group.
+    ///
+    /// Walks the same filtered projection `firstRenderedRowId(items:isRendered:)`
+    /// uses: headers always render, a cache-missing `.workspace` is dropped. A
+    /// member separated from its next same-group member by a dropped member or a
+    /// root row therefore ends its run rather than drawing a guide across the
+    /// gap. The render item list emits a header once and tolerates one group
+    /// split into two runs, so each run ends its own segment. Membership comes
+    /// from `groupIdByWorkspaceId`, never from list position, so a root or
+    /// stale-group row between members is never counted as a member. A collapsed
+    /// group's members are already absent from `items`, so they contribute no
+    /// run ends.
+    static func guideRunEndWorkspaceIds(
+        items: [SidebarWorkspaceRenderItem],
+        groupIdByWorkspaceId: [UUID: UUID?],
+        isRendered: (UUID) -> Bool
+    ) -> Set<UUID> {
+        let rendered = items.filter { item in
+            switch item {
+            case .groupHeader:
+                return true
+            case .workspace(let workspaceId):
+                return isRendered(workspaceId)
+            }
+        }
+        var runEnds: Set<UUID> = []
+        for index in rendered.indices {
+            guard case .workspace(let workspaceId) = rendered[index],
+                  let groupId = groupIdByWorkspaceId[workspaceId] ?? nil else {
+                continue
+            }
+            var continuesRun = false
+            let nextIndex = index + 1
+            if nextIndex < rendered.count,
+               case .workspace(let nextWorkspaceId) = rendered[nextIndex],
+               (groupIdByWorkspaceId[nextWorkspaceId] ?? nil) == groupId {
+                continuesRun = true
+            }
+            if !continuesRun {
+                runEnds.insert(workspaceId)
+            }
+        }
+        return runEnds
+    }
+
     static func memberWorkspaceIdsByGroupId(tabs: [Workspace]) -> [UUID: [UUID]] {
         memberWorkspaceIdsByGroupId(tabs: tabs, groupsById: nil)
     }

@@ -161,7 +161,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(
+            fontScale: model.fontScale,
+            showsGroupDividers: model.showsGroupDividers
+        )
         let percent = model.globalFontMagnificationPercent
         let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
         let colorResolver = SidebarAppearanceColorResolver()
@@ -349,7 +352,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        // Paint the group band, not clear: a plain click off an active colored
+        // header must leave the band in place, else it flashes away for one
+        // frame until the authoritative single-selection apply repaints it.
+        backgroundView.layer?.backgroundColor = headerBandColor(for: model).cgColor
         applySelectionEdge(nil)
         CATransaction.commit()
         let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
@@ -383,7 +389,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
         }
-        return .clear
+        return headerBandColor(for: model)
+    }
+
+    /// The idle group-divider band fill resolved before the list boundary, or
+    /// clear when the setting is off (`model.bandStyle` is nil).
+    private func headerBandColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+        guard let style = model.bandStyle, let color = style.color else { return .clear }
+        return color.withAlphaComponent(color.alphaComponent * style.opacity)
     }
 
     /// Subtle-selection hairline, matching selected workspace rows.
@@ -417,9 +430,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Layout
 
-    /// Deterministic row height; must stay in lockstep with `layout()`.
+    /// Deterministic row height; must stay in lockstep with `layout()`. The
+    /// scaled `model.topGap` is added to the band height so the pre-measurement
+    /// estimate (``SidebarWorkspaceTableRowHeightCalculator`` delegates here)
+    /// equals this authoritative value and the list does not settle.
     static func preferredHeight(model: SidebarGroupHeaderRowModel) -> CGFloat {
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(
+            fontScale: model.fontScale,
+            showsGroupDividers: model.showsGroupDividers
+        )
         let percent = model.globalFontMagnificationPercent
         let nameFont = NSFont.systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
@@ -427,7 +446,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
         let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)
-        return ceil(content + 10)
+        return ceil(content + 10 + model.topGap)
     }
 
     override func layout() {
@@ -438,12 +457,23 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(
+            fontScale: model.fontScale,
+            showsGroupDividers: model.showsGroupDividers
+        )
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
+        // The scaled top gap is air above the band: the band and all content
+        // shift down by it, and content centres on the band (not the cell).
+        let topGap = model.topGap
+        let bgFrame = NSRect(
+            x: outerPad,
+            y: topGap,
+            width: bounds.width - outerPad * 2,
+            height: bounds.height - topGap
+        )
         backgroundView.frame = bgFrame
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
-        let midY = bounds.height / 2
+        let midY = bgFrame.midY
         var x = bgFrame.minX
 
         func centered(_ size: CGFloat) -> NSRect {
@@ -508,7 +538,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
-        let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
+        // With a top gap the insertion line centres in the combined gap (the
+        // inter-row spacing above the cell plus the in-cell gap). Without one,
+        // today's placement: at the top edge for the first row, else up into
+        // the inter-row spacing.
+        let topOffset: CGFloat
+        if topGap > 0 {
+            topOffset = (topGap - model.rowSpacing) / 2 - SidebarReorderIndicatorView.thickness / 2
+        } else {
+            topOffset = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
+        }
         topDropIndicator.position(in: bounds, at: topOffset)
         let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
         bottomDropIndicator.position(

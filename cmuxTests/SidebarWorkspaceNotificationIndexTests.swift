@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxCore
 import CmuxWorkspaces
@@ -203,6 +204,38 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         #expect(single.notifications.map(\.id) == [singleNotification.id])
     }
 
+    @Test
+    func rowSnapshotForwardsGroupGuideIntoSwiftUISnapshot() throws {
+        let workspaceId = UUID()
+        let suiteName = "SidebarWorkspaceGuidePlumbingTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let guide = SidebarGroupGuide(color: try #require(NSColor(hex: "#4F8FE6")), endsRun: true)
+        let input = Self.rowInput(
+            workspaceId: workspaceId,
+            groupId: UUID(),
+            unreadCount: 0,
+            isMultiSelected: false,
+            isRemote: false,
+            remoteState: .connected,
+            settings: settings,
+            groupGuide: guide
+        )
+        let list = SidebarWorkspaceRowsSnapshot(
+            workspaceRowsById: [workspaceId: input],
+            groupRowsById: [:],
+            selectedContextTargetIds: [],
+            anchorWorkspaceIds: [workspaceId],
+            workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            canCreateEmptyGroup: true,
+            notificationIndex: SidebarWorkspaceNotificationIndex(notifications: [])
+        )
+
+        #expect(input.groupGuide == guide)
+        #expect(input.rowSnapshot(list: list).groupGuide == guide)
+    }
+
     private static func rowInput(
         workspaceId: UUID,
         groupId: UUID?,
@@ -211,7 +244,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         isRemote: Bool,
         remoteState: WorkspaceRemoteConnectionState,
         settings: SidebarTabItemSettingsSnapshot,
-        hasManualCustomColor: Bool = false
+        hasManualCustomColor: Bool = false,
+        groupGuide: SidebarGroupGuide? = nil
     ) -> SidebarWorkspaceRowInput {
         SidebarWorkspaceRowInput(
             workspaceId: workspaceId,
@@ -247,7 +281,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             inferredTaskStatus: .todo,
             activeTodoOverride: nil,
             isTodoStatusHidden: false,
-            hasManualCustomColor: hasManualCustomColor
+            hasManualCustomColor: hasManualCustomColor,
+            groupGuide: groupGuide
         )
     }
 

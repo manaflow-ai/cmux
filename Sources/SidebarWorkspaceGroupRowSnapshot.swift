@@ -47,4 +47,16 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let bottomDropIndicatorVisible: Bool
     let shouldCollectWorkspaceDropTargets: Bool
     let notificationBadgeColorHex: String?
+    /// Header band fill resolved before the list boundary, or `nil` when the
+    /// group-divider setting is off. Carried for the SwiftUI header renderer.
+    var bandStyle: SidebarWorkspaceRowBackgroundStyle? = nil
+    /// Whether the group-divider treatment is on; the header metrics turn it
+    /// into the 11↔12.5 pt name size.
+    var showsGroupDividers = false
+    /// Scaled top gap above the header band; `0` for the first rendered row or
+    /// when the setting is off.
+    var topGap: CGFloat = 0
+    /// Whether this header is the first row the list renders (the stable
+    /// list-position fact, not the drag-only ``isFirstRow``); feeds ``topGap``.
+    var isFirstRenderedRow = false
 }

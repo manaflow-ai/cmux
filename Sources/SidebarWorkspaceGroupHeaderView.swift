@@ -45,7 +45,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
             lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
-            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex
+            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex &&
+            lhs.bandStyle == rhs.bandStyle &&
+            lhs.showsGroupDividers == rhs.showsGroupDividers &&
+            lhs.topGap == rhs.topGap
     }
 
     let groupId: UUID
@@ -87,6 +90,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let bottomDropIndicatorVisible: Bool
     /// Notification Badge color setting; nil falls back to the cmux accent.
     let notificationBadgeColorHex: String?
+    /// Idle header band fill resolved before the list boundary, or `nil` when
+    /// the group-divider setting is off. Active and multi-selected fills win
+    /// over it; see `body`'s `.background`.
+    var bandStyle: SidebarWorkspaceRowBackgroundStyle? = nil
+    /// Whether the group-divider treatment is on; drives the 11↔12.5 pt name
+    /// size through the header metrics.
+    var showsGroupDividers = false
+    /// Scaled top gap painted above the band, already `0` for the first
+    /// rendered row or when the setting is off.
+    var topGap: CGFloat = 0
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -106,7 +119,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 #endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
-        SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
+        SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale, showsGroupDividers: showsGroupDividers)
+    }
+
+    /// The idle band fill, or clear when the setting is off (`bandStyle` nil).
+    private var bandBackgroundColor: Color {
+        guard let bandStyle, let color = bandStyle.color else { return .clear }
+        return Color(nsColor: color).opacity(bandStyle.opacity)
     }
 
     private var iconColor: Color {
@@ -306,7 +325,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ? Color.primary.opacity(0.08)
                 : isMultiSelected
                     ? multiSelectionBackgroundColor
-                    : Color.clear
+                    : bandBackgroundColor
         )
         .clipShape(RoundedRectangle(
             cornerRadius: selectionCornerRadius,
@@ -324,6 +343,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetX: shortcutHintXOffset,
             offsetY: shortcutHintYOffset
         )
+        // Air above the band, outside it but inside the drop-indicator overlays
+        // so the top line can still centre in the gap.
+        .padding(.top, topGap)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
@@ -331,7 +353,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: isFirstRow,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                topInset: topGap
             )
         }
         .overlay(alignment: .bottom) {

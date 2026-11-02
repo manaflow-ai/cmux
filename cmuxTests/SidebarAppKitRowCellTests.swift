@@ -75,7 +75,10 @@ struct SidebarAppKitRowCellTests {
         compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
         shortcutHintText: String? = nil,
         isMarkdownExpanded: Bool = false,
-        colorSchemeIsDark: Bool = true
+        colorSchemeIsDark: Bool = true,
+        isGrouped: Bool = false,
+        isBeingDragged: Bool = false,
+        groupGuide: SidebarGroupGuide? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -99,10 +102,10 @@ struct SidebarAppKitRowCellTests {
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
-            isBeingDragged: false,
+            isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isGrouped: false,
+            isGrouped: isGrouped,
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
@@ -114,16 +117,20 @@ struct SidebarAppKitRowCellTests {
             editingChecklistItemId: nil,
             todoControlsEnabled: false,
             isMetadataExpanded: false,
-            isMarkdownExpanded: isMarkdownExpanded
+            isMarkdownExpanded: isMarkdownExpanded,
+            groupGuide: groupGuide
         )
     }
 
     private static func makeSwiftUIRow(
-        settings: SidebarTabItemSettingsSnapshot
+        settings: SidebarTabItemSettingsSnapshot,
+        groupId: UUID? = nil,
+        isBeingDragged: Bool = false,
+        groupGuide: SidebarGroupGuide? = nil
     ) -> SidebarWorkspaceRowSnapshot {
         SidebarWorkspaceRowSnapshot(
             workspaceId: UUID(),
-            groupId: nil,
+            groupId: groupId,
             index: 0,
             workspaceCount: 1,
             workspace: makeSnapshot(),
@@ -142,7 +149,7 @@ struct SidebarAppKitRowCellTests {
             rowSpacing: 8,
             showsModifierShortcutHints: false,
             isPointerHovering: false,
-            isBeingDragged: false,
+            isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
             settings: settings,
@@ -167,7 +174,8 @@ struct SidebarAppKitRowCellTests {
                 allNotificationsMuted: false,
                 hasManualCustomColor: false,
                 notifications: []
-            )
+            ),
+            groupGuide: groupGuide
         )
     }
 
@@ -2654,5 +2662,461 @@ struct SidebarGroupHeaderBadgeColorTests {
         let fallback = NSColor.systemPurple
         #expect(cmuxNotificationBadgeNSColor(hex: "not a color", fallback: fallback) == fallback)
         #expect(cmuxNotificationBadgeNSColor(hex: nil, fallback: fallback) == fallback)
+    }
+}
+
+/// Group-divider header painting: band fill, top gap height/layout, name size,
+/// optimistic-deselection band, and the estimate/authoritative height match.
+@Suite
+@MainActor
+struct SidebarGroupHeaderBandTests {
+    static func makeModel(
+        fontScale: CGFloat = 1,
+        globalFontMagnificationPercent: Int = 100,
+        showsGroupDividers: Bool = false,
+        topGap: CGFloat = 0,
+        isFirstRow: Bool = true,
+        isAnchorActive: Bool = false,
+        isMultiSelected: Bool = false,
+        bandStyle: SidebarWorkspaceRowBackgroundStyle? = nil,
+        topDropIndicatorVisible: Bool = false,
+        rowSpacing: CGFloat = 2
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: fontScale,
+            globalFontMagnificationPercent: globalFontMagnificationPercent,
+            cwdContextMenuItems: [],
+            rowSpacing: rowSpacing,
+            isFirstRow: isFirstRow,
+            isBeingDragged: false,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: nil,
+            bandStyle: bandStyle,
+            showsGroupDividers: showsGroupDividers,
+            topGap: topGap,
+            isFirstRenderedRow: isFirstRow
+        )
+    }
+
+    private static func bandStyle(opacity: Double = 0.16) throws -> SidebarWorkspaceRowBackgroundStyle {
+        SidebarWorkspaceRowBackgroundStyle(color: try #require(NSColor(hex: "#4F8FE6")), opacity: opacity)
+    }
+
+    private static func backgroundColor(of cell: SidebarGroupHeaderTableCellView) throws -> CGColor {
+        try #require(cell.backgroundView.layer?.backgroundColor)
+    }
+
+    private func nameField(in cell: SidebarGroupHeaderTableCellView) throws -> NSTextField {
+        try #require(
+            SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == "Group" }
+        )
+    }
+
+    @Test
+    func preferredHeightAddsTheTopGap() {
+        let flush = Self.makeModel(showsGroupDividers: true, topGap: 0)
+        let gapped = Self.makeModel(showsGroupDividers: true, topGap: 10)
+        #expect(
+            SidebarGroupHeaderTableCellView.preferredHeight(model: gapped)
+                == SidebarGroupHeaderTableCellView.preferredHeight(model: flush) + 10
+        )
+    }
+
+    @Test
+    func idleBandPaintsWhenSettingOnAndClearWhenOff() throws {
+        let band = try Self.bandStyle()
+        let onCell = SidebarGroupHeaderTableCellView()
+        onCell.configurePresentation(model: Self.makeModel(showsGroupDividers: true, topGap: 10, bandStyle: band))
+        let expectedBand = try #require(band.color).withAlphaComponent(
+            try #require(band.color).alphaComponent * band.opacity
+        )
+        #expect(try Self.backgroundColor(of: onCell) == expectedBand.cgColor)
+
+        let offCell = SidebarGroupHeaderTableCellView()
+        offCell.configurePresentation(model: Self.makeModel(bandStyle: nil))
+        #expect(try Self.backgroundColor(of: offCell) == NSColor.clear.cgColor)
+    }
+
+    @Test
+    func activeHeaderPaintsSelectionFillNotBand() throws {
+        let band = try Self.bandStyle()
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: Self.makeModel(
+            showsGroupDividers: true,
+            topGap: 10,
+            isAnchorActive: true,
+            bandStyle: band
+        ))
+        let expectedActive = SidebarAppearanceColorResolver()
+            .resolvedColor(.labelColor, for: .dark, opacity: 0.08)
+        #expect(try Self.backgroundColor(of: cell) == expectedActive.cgColor)
+    }
+
+    @Test
+    func optimisticDeselectionPaintsTheIdleBandThenRestoreReappliesTheStoredFill() throws {
+        let band = try Self.bandStyle()
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: Self.makeModel(
+            showsGroupDividers: true,
+            topGap: 10,
+            isAnchorActive: true,
+            bandStyle: band
+        ))
+
+        cell.showOptimisticDeselection()
+        let expectedBand = try #require(band.color).withAlphaComponent(
+            try #require(band.color).alphaComponent * band.opacity
+        )
+        #expect(try Self.backgroundColor(of: cell) == expectedBand.cgColor)
+
+        cell.restoreStoredModelPaint()
+        let expectedActive = SidebarAppearanceColorResolver()
+            .resolvedColor(.labelColor, for: .dark, opacity: 0.08)
+        #expect(try Self.backgroundColor(of: cell) == expectedActive.cgColor)
+    }
+
+    @Test(arguments: [CGFloat(1), CGFloat(1.4)])
+    func estimateEqualsAuthoritativeForFirstAndNonFirst(scale: CGFloat) {
+        let calculator = SidebarWorkspaceTableRowHeightCalculator()
+        for topGap in [CGFloat(0), 10 * scale] {
+            let model = Self.makeModel(
+                fontScale: scale,
+                showsGroupDividers: true,
+                topGap: topGap,
+                isFirstRow: topGap == 0
+            )
+            #expect(
+                calculator.estimatedGroupHeaderHeight(model: model)
+                    == SidebarGroupHeaderTableCellView.preferredHeight(model: model)
+            )
+        }
+    }
+
+    @Test(arguments: [CGFloat(1), CGFloat(1.4)])
+    func nilModelFallbackEstimateEqualsAuthoritativeDefaultHeader(scale: CGFloat) {
+        // The model-less fallback recomputes `preferredHeight` by hand (the
+        // model has no cheap default initializer), so pin it to the authoritative
+        // height of a default header — dividers off, no top gap, default
+        // magnification — to catch any future drift between the two formulas.
+        let calculator = SidebarWorkspaceTableRowHeightCalculator()
+        let defaultHeader = Self.makeModel(fontScale: scale)
+        #expect(
+            calculator.estimatedGroupHeaderHeight(fontScale: scale)
+                == SidebarGroupHeaderTableCellView.preferredHeight(model: defaultHeader)
+        )
+    }
+
+    @Test
+    func nameFontSizeIs12Point5WhenDividersOnAnd11WhenOff() throws {
+        let onCell = SidebarGroupHeaderTableCellView()
+        onCell.configurePresentation(model: Self.makeModel(showsGroupDividers: true, topGap: 10))
+        #expect(try nameField(in: onCell).font?.pointSize == 12.5)
+
+        let offCell = SidebarGroupHeaderTableCellView()
+        offCell.configurePresentation(model: Self.makeModel(showsGroupDividers: false))
+        #expect(try nameField(in: offCell).font?.pointSize == 11)
+    }
+
+    private func topIndicatorMinY(model: SidebarGroupHeaderRowModel) throws -> CGFloat {
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 200,
+            height: SidebarGroupHeaderTableCellView.preferredHeight(model: model)
+        )
+        cell.configurePresentation(model: model)
+        cell.layoutSubtreeIfNeeded()
+        let indicator = try #require(
+            SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? SidebarReorderIndicatorView }
+                .first { !$0.isHidden }
+        )
+        return indicator.frame.minY
+    }
+
+    @Test
+    func topIndicatorKeepsTodaysPlacementWhenNoGap() throws {
+        // First rendered row: flush at the top edge.
+        #expect(try topIndicatorMinY(model: Self.makeModel(
+            isFirstRow: true,
+            topDropIndicatorVisible: true,
+            rowSpacing: 2
+        )) == 0)
+        // Non-first, no gap: up into the inter-row spacing, as today.
+        #expect(try topIndicatorMinY(model: Self.makeModel(
+            isFirstRow: false,
+            topDropIndicatorVisible: true,
+            rowSpacing: 2
+        )) == -1)
+    }
+
+    @Test
+    func topIndicatorCentresInTheGapWhenPresent() throws {
+        // (topGap - rowSpacing)/2 - thickness/2 = (10 - 2)/2 - 2/2 = 3.
+        #expect(try topIndicatorMinY(model: Self.makeModel(
+            showsGroupDividers: true,
+            topGap: 10,
+            isFirstRow: false,
+            topDropIndicatorVisible: true,
+            rowSpacing: 2
+        )) == 3)
+    }
+}
+
+/// The lazy SwiftUI header must re-equate when a paint-only band fact changes,
+/// or a setting toggle leaves the fallback renderer stale.
+@Suite
+@MainActor
+struct SidebarWorkspaceGroupHeaderViewEquatableTests {
+    private static func noopActions() -> SidebarGroupHeaderRowActions {
+        SidebarGroupHeaderRowActions(
+            onToggleCollapsed: {},
+            onFocusAnchor: { _ in },
+            onTapPlus: {},
+            onRunResolvedItem: { _ in },
+            onRename: {},
+            onTogglePinned: {},
+            onMarkRead: {},
+            onMarkUnread: {},
+            onClearLatestNotifications: {},
+            onMarkAllRead: {},
+            onMarkAllUnread: {},
+            onUngroup: {},
+            onDelete: {},
+            onEditConfig: {},
+            onOpenDocs: {}
+        )
+    }
+
+    private static func makeHeader(
+        bandStyle: SidebarWorkspaceRowBackgroundStyle? = nil,
+        topGap: CGFloat = 0,
+        showsGroupDividers: Bool = false
+    ) -> SidebarWorkspaceGroupHeaderView {
+        SidebarWorkspaceGroupHeaderView(
+            groupId: Self.sharedGroupId,
+            anchorWorkspaceId: Self.sharedAnchorId,
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            statusGlyph: nil,
+            shortcutDigit: nil,
+            shortcutModifierSymbol: nil,
+            showsShortcutHint: false,
+            isPointerHovering: false,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            cwdContextMenuItems: [],
+            newWorkspacePlacement: nil,
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            notificationBadgeColorHex: nil,
+            bandStyle: bandStyle,
+            showsGroupDividers: showsGroupDividers,
+            topGap: topGap,
+            actions: Self.noopActions(),
+            onContextMenuAppear: {},
+            onContextMenuDisappear: {}
+        )
+    }
+
+    private static let sharedGroupId = UUID()
+    private static let sharedAnchorId = UUID()
+
+    @Test
+    func differsWhenOnlyBandStyleDiffers() throws {
+        let blue = SidebarWorkspaceRowBackgroundStyle(color: try #require(NSColor(hex: "#4F8FE6")), opacity: 0.16)
+        let green = SidebarWorkspaceRowBackgroundStyle(color: try #require(NSColor(hex: "#3FAE6A")), opacity: 0.16)
+        #expect(Self.makeHeader(bandStyle: blue) != Self.makeHeader(bandStyle: green))
+    }
+
+    @Test
+    func differsWhenOnlyTopGapDiffers() {
+        #expect(Self.makeHeader(topGap: 0) != Self.makeHeader(topGap: 10))
+    }
+
+    @Test
+    func equalWhenAllBandFactsMatch() throws {
+        let blue = SidebarWorkspaceRowBackgroundStyle(color: try #require(NSColor(hex: "#4F8FE6")), opacity: 0.16)
+        #expect(
+            Self.makeHeader(bandStyle: blue, topGap: 10, showsGroupDividers: true)
+                == Self.makeHeader(bandStyle: blue, topGap: 10, showsGroupDividers: true)
+        )
+    }
+}
+
+/// Member indent guide: the AppKit cell's layer-backed segment, the paint-only
+/// height equivalence, the dragged-row dim, and the SwiftUI overlay parity.
+@MainActor
+struct SidebarWorkspaceMemberGuideTests {
+    private static let guideWidth = SidebarWorkspaceGroupingMetrics.guideWidth
+    private static let rowSpacing: CGFloat = 8
+
+    private static func guide(endsRun: Bool, hex: String = "#4F8FE6") throws -> SidebarGroupGuide {
+        SidebarGroupGuide(color: try #require(NSColor(hex: hex)), endsRun: endsRun)
+    }
+
+    /// Lays the cell out at `width` and returns the measured height plus the
+    /// guide paint after the apply pass frames every subview.
+    private static func paint(
+        for model: SidebarWorkspaceRowModel,
+        width: CGFloat = 440
+    ) -> (height: CGFloat, isHidden: Bool, frame: NSRect, color: CGColor?) {
+        let cell = SidebarAppKitRowCellTests.configuredCell(model: model)
+        let height = cell.layoutContent(model: model, width: width, apply: true)
+        let guidePaint = cell.memberGuidePaintForTesting
+        return (height, guidePaint.isHidden, guidePaint.frame, guidePaint.color)
+    }
+
+    @Test
+    func midRunMemberDrawsGuideThatOverlapsBothGaps() throws {
+        let guide = try Self.guide(endsRun: false)
+        let model = SidebarAppKitRowCellTests.makeModel(isGrouped: true, groupGuide: guide)
+        let result = Self.paint(for: model)
+
+        #expect(!result.isHidden)
+        #expect(result.frame.minX == SidebarWorkspaceGroupingMetrics.guideCenterX - Self.guideWidth / 2)
+        #expect(result.frame.width == Self.guideWidth)
+        // Starts half a row spacing above the top edge so it meets the segment
+        // of the row above in the inter-row gap.
+        #expect(result.frame.minY == -Self.rowSpacing / 2)
+        // Overlaps the gap below too (extends past the measured bottom edge).
+        #expect(result.frame.maxY > result.height)
+        #expect(try #require(result.color) == guide.color.cgColor)
+    }
+
+    @Test
+    func runEndingMemberStopsShortOfTheBottomEdge() throws {
+        let midModel = SidebarAppKitRowCellTests.makeModel(
+            isGrouped: true,
+            groupGuide: try Self.guide(endsRun: false)
+        )
+        let endModel = SidebarAppKitRowCellTests.makeModel(
+            isGrouped: true,
+            groupGuide: try Self.guide(endsRun: true)
+        )
+        let mid = Self.paint(for: midModel)
+        let end = Self.paint(for: endModel)
+
+        // The guide is paint-only, so both rows measure the same height.
+        #expect(mid.height == end.height)
+        #expect(end.frame.minY == -Self.rowSpacing / 2)
+        // A run-ending segment stops short of the bottom instead of overlapping
+        // the gap: it ends exactly (rowSpacing/2 + endInset) above where the
+        // mid-run segment would.
+        let endInset = SidebarWorkspaceGroupingMetrics.guideEndRunBottomInset(fontScale: endModel.fontScale)
+        #expect(mid.frame.maxY - end.frame.maxY == Self.rowSpacing / 2 + endInset)
+        #expect(end.frame.maxY < end.height)
+    }
+
+    @Test
+    func ungroupedRowHidesTheGuide() {
+        let model = SidebarAppKitRowCellTests.makeModel(isGrouped: false, groupGuide: nil)
+        #expect(Self.paint(for: model).isHidden)
+    }
+
+    @Test
+    func absentGuideHidesTheView() {
+        // The setting-off and below-minimum-indent cases both resolve to a nil
+        // guide before the row sees it, so the cell hides the segment.
+        let model = SidebarAppKitRowCellTests.makeModel(isGrouped: true, groupGuide: nil)
+        #expect(Self.paint(for: model).isHidden)
+    }
+
+    @Test
+    func draggedMemberDimsGuideWithTheCellAlpha() throws {
+        let model = SidebarAppKitRowCellTests.makeModel(
+            isGrouped: true,
+            isBeingDragged: true,
+            groupGuide: try Self.guide(endsRun: false)
+        )
+        let cell = SidebarAppKitRowCellTests.configuredCell(model: model)
+        _ = cell.layoutContent(model: model, width: 440, apply: true)
+        #expect(cell.alphaValue == 0.6)
+        #expect(!cell.memberGuidePaintForTesting.isHidden)
+    }
+
+    @Test
+    func guidePresenceColorAndBoundaryAreHeightEquivalent() throws {
+        let base = SidebarAppKitRowCellTests.makeModel(isGrouped: true, groupGuide: nil)
+        var withGuide = base
+        withGuide.groupGuide = try Self.guide(endsRun: false)
+        #expect(base != withGuide)
+        #expect(base.hasHeightEquivalentContent(to: withGuide))
+
+        var blueMidRun = base
+        blueMidRun.groupGuide = try Self.guide(endsRun: false, hex: "#4F8FE6")
+        var greenRunEnd = base
+        greenRunEnd.groupGuide = try Self.guide(endsRun: true, hex: "#3FAE6A")
+        #expect(blueMidRun != greenRunEnd)
+        #expect(blueMidRun.hasHeightEquivalentContent(to: greenRunEnd))
+    }
+
+    @Test
+    func groupDividerToggleIsHeightEquivalent() throws {
+        let base = SidebarAppKitRowCellTests.makeModel(
+            isGrouped: true,
+            groupGuide: try Self.guide(endsRun: false)
+        )
+        var on = base
+        on.settings.showsGroupDividers = true
+        var off = base
+        off.settings.showsGroupDividers = false
+        #expect(on != off)
+        #expect(on.hasHeightEquivalentContent(to: off))
+    }
+
+    @Test
+    func swiftUIOverlayDimsWithTheDraggedRow() throws {
+        let guide = try Self.guide(endsRun: false)
+        let dragged = SidebarWorkspaceMemberGuideOverlay(
+            guide: guide, rowSpacing: Self.rowSpacing, fontScale: 1, isBeingDragged: true
+        )
+        let idle = SidebarWorkspaceMemberGuideOverlay(
+            guide: guide, rowSpacing: Self.rowSpacing, fontScale: 1, isBeingDragged: false
+        )
+        #expect(dragged.resolvedOpacity == 0.6)
+        #expect(idle.resolvedOpacity == 1)
     }
 }

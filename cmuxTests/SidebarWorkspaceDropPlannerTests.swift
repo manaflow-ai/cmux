@@ -298,6 +298,59 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(explicitGroupId, fixture.groupId)
     }
 
+    @Test func TopGapAboveNonEmptyHeaderPlansBeforeGroupFromBothLanes() throws {
+        // The band's top gap makes the header row taller; a drop in that gap is
+        // the header's top edge, which for a non-empty header plans a root slot
+        // before the group from both horizontal lanes (no ambiguity split).
+        let fixture = topGapHeaderReorderFixture()
+
+        let leftLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 45))
+        ))
+        let rightLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 120, y: 45))
+        ))
+
+        expectEqual(leftLanePlan, rightLanePlan)
+        expectEqual(leftLanePlan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
+        expectEqual(leftLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
+        guard case .reorder(_, let usesTopLevelRows, let explicitGroupId) = leftLanePlan.action else {
+            Issue.record("Expected a root reorder plan")
+            return
+        }
+        expectTrue(usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+    }
+
+    @Test func TopGapAboveEmptyHeaderPlansBeforeOnLeftAndAdoptsOnRight() throws {
+        // An empty header's top gap is the ambiguous root/group divider: the
+        // left half plans before the group, the right half keeps the adopt.
+        let fixture = topGapEmptyHeaderReorderFixture()
+
+        let leftLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 45))
+        ))
+        let rightLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 120, y: 45))
+        ))
+
+        expectEqual(leftLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
+        guard case .reorder(_, _, let leftGroupId) = leftLanePlan.action else {
+            Issue.record("Expected a root reorder plan on the left lane")
+            return
+        }
+        #expect(leftGroupId == nil)
+
+        expectEqual(rightLanePlan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        expectEqual(rightLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+        guard case .reorder(_, let usesTopLevelRows, let rightGroupId) = rightLanePlan.action else {
+            Issue.record("Expected a group reorder plan on the right lane")
+            return
+        }
+        expectFalse(usesTopLevelRows)
+        expectEqual(rightGroupId, fixture.groupId)
+    }
+
     @Test func RootLaneOverExpandedGroupHeaderTopUsesGroupBlockBoundary() throws {
         let fixture = reorderFixture()
 
@@ -968,8 +1021,129 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         }
     }
 
+    /// A non-empty group whose header row carries the band's top gap, so the
+    /// anchor header target is taller than a flat-list header (y 40–82 with the
+    /// top ~10 pt the gap). Otherwise mirrors `ReorderFixture`.
+    private struct TopGapHeaderReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let child = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: child, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 42)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: child,
+                        groupId: groupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 82, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 124, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 164, width: 180, height: 32)
+                    )
+                ]
+            )
+        }
+    }
+
+    /// An empty group (header is the whole block) whose header carries the top
+    /// gap, so the anchor header target is taller (y 40–82, top ~10 pt the gap).
+    private struct TopGapEmptyHeaderReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 42)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 82, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 122, width: 180, height: 32)
+                    )
+                ]
+            )
+        }
+    }
+
     private func reorderFixture() -> ReorderFixture {
         ReorderFixture()
+    }
+
+    private func topGapHeaderReorderFixture() -> TopGapHeaderReorderFixture {
+        TopGapHeaderReorderFixture()
+    }
+
+    private func topGapEmptyHeaderReorderFixture() -> TopGapEmptyHeaderReorderFixture {
+        TopGapEmptyHeaderReorderFixture()
     }
 
     private func emptyGroupReorderFixture() -> EmptyGroupReorderFixture {

@@ -17,6 +17,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Chrome
     private let backgroundView = NSView()
     private let railView = NSView()
+    /// Layer-backed member indent guide, reused across cell recycling (shown
+    /// or hidden by `model.groupGuide`) so recycling costs no allocation. It
+    /// extends past the cell bounds into the inter-row gap; the cell does not
+    /// clip (`masksToBounds = false`), and dims with the dragged row through
+    /// the cell-wide `alphaValue`.
+    private let guideView = NSView()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
@@ -322,6 +328,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(backgroundView)
         railView.wantsLayer = true
         addSubview(railView)
+        guideView.wantsLayer = true
+        guideView.isHidden = true
+        addSubview(guideView)
         addSubview(contentContainer)
 
         for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
@@ -539,6 +548,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         railView.isHidden = railColor == nil
         if let railColor {
             railView.layer?.backgroundColor = railColor.withAlphaComponent(0.95).cgColor
+        }
+        guideView.isHidden = model.groupGuide == nil
+        if let guide = model.groupGuide {
+            guideView.layer?.backgroundColor = guide.color.cgColor
         }
 
         // Title line
@@ -774,6 +787,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var closeButtonPaintForTesting: (isHidden: Bool, alpha: CGFloat) {
         (closeButton.isHidden, closeButton.alphaValue)
+    }
+
+    var memberGuidePaintForTesting: (isHidden: Bool, frame: NSRect, color: CGColor?) {
+        (guideView.isHidden, guideView.frame, guideView.layer?.backgroundColor)
     }
 #endif
 
@@ -1535,6 +1552,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
+            if let guide = model.groupGuide {
+                // Center the segment in the member gutter and overlap half the
+                // row spacing into the inter-row gap so adjacent segments join;
+                // a run-ending segment stops `guideEndRunBottomInset` short of
+                // the bottom edge instead. guideCenterX is a fixed metric from
+                // the cell's leading edge, matching the SwiftUI overlay.
+                let guideWidth = SidebarWorkspaceGroupingMetrics.guideWidth
+                let guideTop = -model.rowSpacing / 2
+                let guideBottom = guide.endsRun
+                    ? y - SidebarWorkspaceGroupingMetrics.guideEndRunBottomInset(fontScale: model.fontScale)
+                    : y + model.rowSpacing / 2
+                guideView.frame = NSRect(
+                    x: SidebarWorkspaceGroupingMetrics.guideCenterX - guideWidth / 2,
+                    y: guideTop,
+                    width: guideWidth,
+                    height: max(0, guideBottom - guideTop)
+                )
+            }
             let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)
             topDropIndicator.position(in: indicatorBounds, at: model.isFirstRow ? 0 : -(model.rowSpacing / 2))
             bottomDropIndicator.position(in: indicatorBounds, at: y - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2)

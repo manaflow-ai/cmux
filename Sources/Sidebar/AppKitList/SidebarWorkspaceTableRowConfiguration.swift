@@ -140,7 +140,14 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
             return value == groupHeaderModel
         }
-        self.isHeightEquivalentValue = self.isEquivalentValue
+        // Keep the height cache across a group recolor: the band, tint and
+        // multi-selection wash a recolor rewrites are paint-only, so the
+        // header's own comparator ignores them while catching the gap,
+        // first-row fact, divider flag and name that do change its height.
+        self.isHeightEquivalentValue = { value in
+            guard let value = value as? SidebarGroupHeaderRowModel else { return false }
+            return value.hasHeightEquivalentContent(to: groupHeaderModel)
+        }
     }
 
     init(
@@ -248,6 +255,24 @@ struct SidebarWorkspaceTableRowConfiguration {
         let fontScale = CGFloat(environment.globalFontMagnificationPercent) / 100
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         if isGroupHeader {
+            if let headerModel = appKitGroupHeaderModel {
+                return calculator.estimatedGroupHeaderHeight(model: headerModel)
+            }
+            // A header row must never settle on a workspace-shaped estimate. In
+            // production every header carries its model (built through the
+            // `groupHeaderModel:` init; `presentationSnapshot` copies it
+            // through), so this branch is unreachable outside test fixtures that
+            // build a header through the generic content init — assert it in a
+            // non-test DEBUG build, then still hand back a header-shaped estimate.
+#if DEBUG
+            if !TestProcessDefaults.hostsTestBundles(
+                environment: ProcessInfo.processInfo.environment
+            ) {
+                assertionFailure(
+                    "group-header row configuration built without an AppKit header model"
+                )
+            }
+#endif
             return calculator.estimatedGroupHeaderHeight(fontScale: fontScale)
         }
         return calculator.estimatedWorkspaceHeight(

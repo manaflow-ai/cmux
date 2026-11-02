@@ -37,6 +37,7 @@ public struct SidebarSection: View {
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
+    @State private var groupDividers: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
@@ -71,6 +72,7 @@ public struct SidebarSection: View {
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
+        _groupDividers = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.groupDividers))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -111,6 +113,7 @@ public struct SidebarSection: View {
             notificationBadgePosition,
             showMetadata,
             compactAgentStatus,
+            groupDividers,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -535,6 +538,17 @@ public struct SidebarSection: View {
                 subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details.")
             ) {
                 Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.groupDividers"),
+                String(localized: "settings.app.groupDividers", defaultValue: "Group dividers"),
+                subtitle: String(localized: "settings.app.groupDividers.subtitle", defaultValue: "Tint each group's header and run a guide down its members.")
+            ) {
+                Toggle("", isOn: Binding(get: { groupDividers.current }, set: { groupDividers.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

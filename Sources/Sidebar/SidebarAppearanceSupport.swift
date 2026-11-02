@@ -487,6 +487,18 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     static let clear = Self(color: nil, opacity: 0)
 }
 
+/// The member indent guide a workspace row paints in both renderers. `color`
+/// is the resolved guide tint — ``sidebarGroupGuideColor`` already bakes the
+/// wash opacity into its alpha — and `endsRun` marks the row that terminates
+/// its group's contiguous rendered run, so its segment stops short of the
+/// bottom edge instead of overlapping the inter-row gap. Paint-only: carried
+/// on the row snapshot/model and normalized out of member-row height
+/// equivalence, so a guide color or boundary change never remeasures a row.
+struct SidebarGroupGuide: Equatable, Hashable {
+    let color: NSColor
+    let endsRun: Bool
+}
+
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
@@ -588,6 +600,209 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         return .clear
     }
+}
+
+/// Wash opacities for the workspace-group header band and the member indent
+/// guide, and the decorative-separation floor the backdrop-aware fallback aims
+/// for. Both sidebar renderers resolve their band and guide through the
+/// functions below so they paint identical colors. Values were picked on the
+/// design mockups (`--sb-bg` #30354B dark; group blue #4F8FE6/#1565C0, green
+/// #3FAE6A/#196F3D) and are pinned by `SidebarGroupDividerAppearanceTests`.
+enum SidebarGroupDividerColors {
+    /// Increase Contrast raises every wash opacity by this much, and it is also
+    /// the headroom above the table value that the separation check may use.
+    static let increaseContrastBump: CGFloat = 0.10
+
+    static let bandColoredDarkOpacity: CGFloat = 0.24
+    static let bandColoredLightOpacity: CGFloat = 0.16
+    static let bandNeutralDarkOpacity: CGFloat = 0.09
+    static let bandNeutralLightOpacity: CGFloat = 0.07
+
+    static let guideColoredDarkOpacity: CGFloat = 0.60
+    static let guideColoredLightOpacity: CGFloat = 0.55
+    static let guideNeutralDarkOpacity: CGFloat = 0.18
+    static let guideNeutralLightOpacity: CGFloat = 0.20
+
+    /// Minimum contrast between the composited wash and a concrete backdrop for
+    /// the band or guide to read as separate. Low on purpose: this is
+    /// decorative separation, not the 3.5:1 text floor, and must not reuse
+    /// `WindowChromeColorResolver.contrastFloored` (which goes fully opaque when
+    /// its target is unreachable). The mockup palette colors clear it at their
+    /// table opacity, while a backdrop equal to the group color (ratio 1.0 at
+    /// every alpha) drops to the neutral fallback.
+    static let decorativeSeparationContrast: CGFloat = 1.12
+}
+
+/// A resolved group tint: an opaque base color and the wash opacity to paint it
+/// at. The band carries the two separately; the guide bakes the opacity into
+/// the returned color's alpha.
+private struct SidebarGroupTintResolution {
+    let color: NSColor
+    let opacity: CGFloat
+}
+
+/// Lowest opacity in `start...cap` whose `base` wash composites to the
+/// decorative-separation floor over `backdrop`, or `nil` when the floor is
+/// unreachable within the cap. `base` must be opaque; its RGB is the wash hue.
+private func sidebarGroupSeparatedOpacity(
+    _ base: NSColor,
+    from start: CGFloat,
+    cap: CGFloat,
+    over backdrop: NSColor
+) -> CGFloat? {
+    let step: CGFloat = 0.005
+    var opacity = start
+    while opacity <= cap + 1e-6 {
+        let clamped = min(opacity, cap)
+        let composite = cmuxCompositedNSColor(base.withAlphaComponent(clamped), over: backdrop)
+        if cmuxContrastRatio(foreground: composite, background: backdrop)
+            >= SidebarGroupDividerColors.decorativeSeparationContrast {
+            return clamped
+        }
+        opacity += step
+    }
+    return nil
+}
+
+/// Neutral band/guide tint over a concrete backdrop. A genuine neutral request
+/// (`allowSchemeNeutral`) first tries the scheme's label color; a colored
+/// request that could not be separated skips straight to the luminance shift.
+/// The shift uses the backdrop's own readable foreground so a neutral equal to
+/// the backdrop is not left invisible — `cmuxCompositedNSColor` (fg·α + bg·(1−α))
+/// leaves equal fg/bg unchanged at every alpha. Best-effort at the cap when even
+/// the shifted neutral cannot reach the floor (a mid-luminance backdrop).
+private func sidebarGroupNeutralFallbackTint(
+    resolver: SidebarAppearanceColorResolver,
+    colorScheme: ColorScheme,
+    neutralOpacity: CGFloat,
+    bump: CGFloat,
+    over backdrop: NSColor,
+    allowSchemeNeutral: Bool
+) -> SidebarGroupTintResolution {
+    let start = neutralOpacity + bump
+    let cap = neutralOpacity + SidebarGroupDividerColors.increaseContrastBump
+
+    if allowSchemeNeutral {
+        let schemeNeutral = resolver.resolvedColor(.labelColor, for: colorScheme).withAlphaComponent(1)
+        if let opacity = sidebarGroupSeparatedOpacity(schemeNeutral, from: start, cap: cap, over: backdrop) {
+            return SidebarGroupTintResolution(color: schemeNeutral, opacity: opacity)
+        }
+    }
+
+    let shifted = cmuxReadableForegroundBaseColor(on: backdrop)
+    let opacity = sidebarGroupSeparatedOpacity(shifted, from: start, cap: cap, over: backdrop) ?? cap
+    return SidebarGroupTintResolution(color: shifted, opacity: opacity)
+}
+
+/// Shared band/guide tint math: the group's display color as a wash when the
+/// group has one, else a neutral label-color tint. Over a concrete backdrop the
+/// wash is raised within the `table + increaseContrastBump` cap to clear the
+/// decorative-separation floor, and falls back to a luminance-shifted neutral
+/// when the group color cannot be told apart from the backdrop. With no backdrop
+/// (material, custom tint, or Reduce Transparency) the table opacity is used
+/// with no check, like the existing sidebar washes over the same material.
+private func sidebarGroupTint(
+    groupColorHex: String?,
+    colorScheme: ColorScheme,
+    increaseContrast: Bool,
+    brightenInDarkMode: Bool,
+    coloredOpacity: CGFloat,
+    neutralOpacity: CGFloat,
+    over backdropHex: String?
+) -> SidebarGroupTintResolution {
+    let bump: CGFloat = increaseContrast ? SidebarGroupDividerColors.increaseContrastBump : 0
+    let backdrop = backdropHex.flatMap { NSColor(hex: $0) }
+    let resolver = SidebarAppearanceColorResolver()
+
+    if let groupColorHex,
+       let colored = WorkspaceTabColorSettings.displayNSColor(
+           hex: groupColorHex,
+           colorScheme: colorScheme,
+           brightenInDarkMode: brightenInDarkMode
+       ) {
+        let start = coloredOpacity + bump
+        guard let backdrop else {
+            return SidebarGroupTintResolution(color: colored, opacity: start)
+        }
+        let cap = coloredOpacity + SidebarGroupDividerColors.increaseContrastBump
+        if let opacity = sidebarGroupSeparatedOpacity(colored, from: start, cap: cap, over: backdrop) {
+            return SidebarGroupTintResolution(color: colored, opacity: opacity)
+        }
+        return sidebarGroupNeutralFallbackTint(
+            resolver: resolver,
+            colorScheme: colorScheme,
+            neutralOpacity: neutralOpacity,
+            bump: bump,
+            over: backdrop,
+            allowSchemeNeutral: false
+        )
+    }
+
+    let schemeNeutral = resolver.resolvedColor(.labelColor, for: colorScheme).withAlphaComponent(1)
+    guard let backdrop else {
+        return SidebarGroupTintResolution(color: schemeNeutral, opacity: neutralOpacity + bump)
+    }
+    return sidebarGroupNeutralFallbackTint(
+        resolver: resolver,
+        colorScheme: colorScheme,
+        neutralOpacity: neutralOpacity,
+        bump: bump,
+        over: backdrop,
+        allowSchemeNeutral: true
+    )
+}
+
+/// The fill behind a group header: the group's color as a low-opacity wash when
+/// the group has one, else a neutral tint. See ``sidebarGroupTint`` for the
+/// backdrop-aware separation and fallback rules.
+func sidebarGroupBandStyle(
+    groupColorHex: String?,
+    colorScheme: ColorScheme,
+    increaseContrast: Bool,
+    brightenInDarkMode: Bool,
+    over backdropHex: String?
+) -> SidebarWorkspaceRowBackgroundStyle {
+    let isDark = colorScheme == .dark
+    let resolution = sidebarGroupTint(
+        groupColorHex: groupColorHex,
+        colorScheme: colorScheme,
+        increaseContrast: increaseContrast,
+        brightenInDarkMode: brightenInDarkMode,
+        coloredOpacity: isDark
+            ? SidebarGroupDividerColors.bandColoredDarkOpacity
+            : SidebarGroupDividerColors.bandColoredLightOpacity,
+        neutralOpacity: isDark
+            ? SidebarGroupDividerColors.bandNeutralDarkOpacity
+            : SidebarGroupDividerColors.bandNeutralLightOpacity,
+        over: backdropHex
+    )
+    return SidebarWorkspaceRowBackgroundStyle(color: resolution.color, opacity: Double(resolution.opacity))
+}
+
+/// The member indent guide color: the same resolution as the band at the guide
+/// opacity table, with the opacity baked into the returned color's alpha.
+func sidebarGroupGuideColor(
+    groupColorHex: String?,
+    colorScheme: ColorScheme,
+    increaseContrast: Bool,
+    brightenInDarkMode: Bool,
+    over backdropHex: String?
+) -> NSColor {
+    let isDark = colorScheme == .dark
+    let resolution = sidebarGroupTint(
+        groupColorHex: groupColorHex,
+        colorScheme: colorScheme,
+        increaseContrast: increaseContrast,
+        brightenInDarkMode: brightenInDarkMode,
+        coloredOpacity: isDark
+            ? SidebarGroupDividerColors.guideColoredDarkOpacity
+            : SidebarGroupDividerColors.guideColoredLightOpacity,
+        neutralOpacity: isDark
+            ? SidebarGroupDividerColors.guideNeutralDarkOpacity
+            : SidebarGroupDividerColors.guideNeutralLightOpacity,
+        over: backdropHex
+    )
+    return resolution.color.withAlphaComponent(resolution.opacity)
 }
 
 extension WorkspaceIndicatorStyle {

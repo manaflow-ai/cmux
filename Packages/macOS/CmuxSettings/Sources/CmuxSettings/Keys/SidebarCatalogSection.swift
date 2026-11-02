@@ -193,6 +193,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarCompactAgentStatus"
     )
 
+    /// Whether workspace groups draw a tinted header band and an indent guide
+    /// down their members to mark group boundaries in the sidebar
+    /// (`sidebar.groupDividers`). Defaults to on; off restores today's flat
+    /// look with the smaller header name and no band or guide.
+    public let groupDividers = DefaultsKey<Bool>(
+        id: "sidebar.groupDividers",
+        defaultValue: true,
+        userDefaultsKey: "sidebarGroupDividers"
+    )
+
     /// `sidebar.compactAgentStatus` glyph overrides: SF Symbol names keyed by
     /// state (`needsInput`, `terminal`, `pullRequestMerged`, ...).
     public let compactStatusIcons = DefaultsKey<[String: String]>(

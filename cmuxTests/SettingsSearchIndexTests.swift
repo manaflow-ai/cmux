@@ -35,6 +35,8 @@ struct SettingsSearchIndexTests {
         assertSearch("reset shortcut defaults", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults"))
         assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
+        assertSearch("group dividers", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "group-dividers"))
+        assertSearch("divider", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "group-dividers"))
         assertSearch("naming", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("nmaing", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("auto name", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
@@ -128,6 +130,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.makePullRequestsClickable")
                 == SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesGroupDividers() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.groupDividers")
+                == SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "group-dividers")
         )
     }
 

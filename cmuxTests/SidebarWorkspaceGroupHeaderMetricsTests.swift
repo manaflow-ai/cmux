@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxFoundation
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -108,5 +109,102 @@ import Testing
                     == SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
             )
         }
+    }
+
+    @Test func nameSizeGrowsWithDividersOnAndKeepsBaselineOff() {
+        let on = SidebarWorkspaceGroupHeaderMetrics(fontScale: 1, showsGroupDividers: true)
+        let off = SidebarWorkspaceGroupHeaderMetrics(fontScale: 1, showsGroupDividers: false)
+
+        #expect(on.nameFontSize == 12.5)
+        #expect(off.nameFontSize == 11)
+        #expect(off.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize)
+    }
+
+    @Test func nameSizeScalesWithFontScaleInBothDividerStates() {
+        for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
+            #expect(
+                SidebarWorkspaceGroupHeaderMetrics(fontScale: scale, showsGroupDividers: true).nameFontSize
+                    == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSizeWithDividers * scale
+            )
+            #expect(
+                SidebarWorkspaceGroupHeaderMetrics(fontScale: scale, showsGroupDividers: false).nameFontSize
+                    == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize * scale
+            )
+        }
+    }
+
+    @Test func topGapScalesWithFontScaleWhenDividersOn() {
+        for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
+            let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: scale, showsGroupDividers: true)
+
+            #expect(metrics.topGap == SidebarWorkspaceGroupHeaderMetrics.baseTopGap * scale)
+            #expect(
+                metrics.topGap(isFirstRenderedRow: false)
+                    == SidebarWorkspaceGroupHeaderMetrics.baseTopGap * scale
+            )
+        }
+    }
+
+    @Test func topGapIsZeroForFirstRenderedRowAndWhenDividersOff() {
+        let on = SidebarWorkspaceGroupHeaderMetrics(fontScale: 2, showsGroupDividers: true)
+        #expect(on.topGap(isFirstRenderedRow: true) == 0)
+
+        let off = SidebarWorkspaceGroupHeaderMetrics(fontScale: 2, showsGroupDividers: false)
+        #expect(off.topGap(isFirstRenderedRow: false) == 0)
+        #expect(off.topGap(isFirstRenderedRow: true) == 0)
+    }
+}
+
+@Suite struct SidebarWorkspaceGroupingMetricsTests {
+    @Test func guideWidthIsTwoPoints() {
+        #expect(SidebarWorkspaceGroupingMetrics.guideWidth == 2)
+    }
+
+    @Test func guideCenterXSitsInTheMiddleOfTheMemberIndent() {
+        #expect(
+            SidebarWorkspaceGroupingMetrics.guideCenterX
+                == SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+                    + SidebarWorkspaceGroupingMetrics.memberIndent / 2
+        )
+    }
+
+    @Test func guideEndRunBottomInsetScalesWithFontScale() {
+        for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
+            #expect(
+                SidebarWorkspaceGroupingMetrics.guideEndRunBottomInset(fontScale: scale)
+                    == SidebarWorkspaceGroupingMetrics.baseGuideEndRunBottomInset * scale
+            )
+        }
+    }
+
+    @Test func showsGuideFollowsTheMinimumIndent() {
+        #expect(SidebarWorkspaceGroupingMetrics.guideMinimumIndent == 6)
+        #expect(
+            SidebarWorkspaceGroupingMetrics.showsGuide
+                == (SidebarWorkspaceGroupingMetrics.memberIndent
+                    >= SidebarWorkspaceGroupingMetrics.guideMinimumIndent)
+        )
+        // Today's 12 pt member indent clears the 6 pt minimum, so the guide is
+        // declared visible; it is declared hidden only below the minimum.
+        #expect(SidebarWorkspaceGroupingMetrics.showsGuide)
+    }
+}
+
+@Suite struct SidebarGroupDividersSettingTests {
+    private static func makeDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "SidebarGroupDividersSettingTests.\(UUID().uuidString)")!
+    }
+
+    @Test func snapshotDefaultsGroupDividersOnAndFollowsDefaultsKey() {
+        let defaultSnapshot = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        #expect(defaultSnapshot.showsGroupDividers)
+
+        let offDefaults = Self.makeDefaults()
+        offDefaults.set(false, forKey: "sidebarGroupDividers")
+        #expect(!SidebarTabItemSettingsSnapshot(defaults: offDefaults).showsGroupDividers)
+
+        let onDefaults = Self.makeDefaults()
+        onDefaults.set(true, forKey: "sidebarGroupDividers")
+        #expect(SidebarTabItemSettingsSnapshot(defaults: onDefaults).showsGroupDividers)
     }
 }

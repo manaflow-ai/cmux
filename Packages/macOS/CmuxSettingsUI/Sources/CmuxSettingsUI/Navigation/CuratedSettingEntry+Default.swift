@@ -376,6 +376,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["sidebar.compactAgentStatus"],
                 synonyms: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
             ),
+            .init(
+                section: .sidebarAppearance,
+                id: "group-dividers",
+                title: String(localized: "settings.app.groupDividers", defaultValue: "Group dividers"),
+                detailText: String(localized: "settings.app.groupDividers.subtitle", defaultValue: "Tint each group's header and run a guide down its members."),
+                paths: ["sidebar.groupDividers"],
+                synonyms: "sidebar.groupDividers group dividers divider band guide folder separator header tint group boundary"
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), synonyms: "Dock Max Width sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile

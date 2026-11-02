@@ -36,4 +36,7 @@ struct SidebarWorkspaceRowSnapshot: Equatable {
     let checklistAddFieldActivationToken: Int
     let isChecklistPopoverPresented: Bool
     let contextMenu: SidebarWorkspaceContextMenuSnapshot
+    /// Member indent guide for this row, or `nil` when none is drawn. Carried
+    /// so the SwiftUI row overlay has a value to read below the list boundary.
+    var groupGuide: SidebarGroupGuide? = nil
 }

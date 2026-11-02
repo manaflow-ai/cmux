@@ -8,6 +8,57 @@ import CmuxSettings
 import CmuxWorkspaces
 
 extension VerticalTabsSidebar {
+    /// Effective header color hex per group, resolved once per sidebar refresh
+    /// so the header icon, band, and guide all read the same value below the
+    /// list boundary. Matches the rule the header icon already used: the
+    /// group's own custom color wins, else the matching per-directory
+    /// workspace-group config color (`configColor`), else no entry. Groups with
+    /// no effective color are omitted so callers index with an optional lookup.
+    static func groupColorHexByGroupId(
+        groups: [WorkspaceGroup],
+        configColor: (WorkspaceGroup) -> String?
+    ) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        result.reserveCapacity(groups.count)
+        for group in groups {
+            guard let color = group.customColor ?? configColor(group) else { continue }
+            result[group.id] = color
+        }
+        return result
+    }
+
+    /// The two computed header-band facts — the band fill and the scaled top
+    /// gap — resolved once per refresh so both renderers carry identical values
+    /// below the list boundary. `bandStyle` is `nil` and `topGap` is `0` when
+    /// the divider treatment is off; the gap is also `0` for the first rendered
+    /// row. The band color math lives in ``sidebarGroupBandStyle``, which the
+    /// row background already consumes with the same inputs.
+    static func sidebarGroupHeaderBandFacts(
+        showsGroupDividers: Bool,
+        isFirstRenderedRow: Bool,
+        groupColorHex: String?,
+        fontScale: CGFloat,
+        colorScheme: ColorScheme,
+        increaseContrast: Bool,
+        brightenInDarkMode: Bool,
+        over backdropHex: String?
+    ) -> (bandStyle: SidebarWorkspaceRowBackgroundStyle?, topGap: CGFloat) {
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(
+            fontScale: fontScale,
+            showsGroupDividers: showsGroupDividers
+        )
+        let topGap = metrics.topGap(isFirstRenderedRow: isFirstRenderedRow)
+        guard showsGroupDividers else { return (nil, topGap) }
+        let bandStyle = sidebarGroupBandStyle(
+            groupColorHex: groupColorHex,
+            colorScheme: colorScheme,
+            increaseContrast: increaseContrast,
+            brightenInDarkMode: brightenInDarkMode,
+            over: backdropHex
+        )
+        return (bandStyle, topGap)
+    }
+
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
@@ -26,7 +77,7 @@ extension VerticalTabsSidebar {
             && selectedTabIds.count > 1
         let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
+        let effectiveColor = renderContext.groupColorHexByGroupId[group.id]
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
@@ -104,6 +155,17 @@ extension VerticalTabsSidebar {
             tabIds: renderContext.sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
+        let isFirstRenderedRow = renderContext.firstRenderedRowId == .group(group.id)
+        let bandFacts = VerticalTabsSidebar.sidebarGroupHeaderBandFacts(
+            showsGroupDividers: settings.showsGroupDividers,
+            isFirstRenderedRow: isFirstRenderedRow,
+            groupColorHex: effectiveColor,
+            fontScale: settings.sidebarFontScale,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            brightenInDarkMode: settings.brightenInDarkMode,
+            over: renderContext.environment.readabilityBackdropHex
+        )
         let model = SidebarGroupHeaderRowModel(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -138,7 +200,11 @@ extension VerticalTabsSidebar {
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
             notificationBadgeColorHex: settings.notificationBadgeColorHex,
-            accentColor: settings.accentColor
+            accentColor: settings.accentColor,
+            bandStyle: bandFacts.bandStyle,
+            showsGroupDividers: settings.showsGroupDividers,
+            topGap: bandFacts.topGap,
+            isFirstRenderedRow: isFirstRenderedRow
         )
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: group.id,
@@ -213,7 +279,7 @@ extension VerticalTabsSidebar {
             && selectedTabIds.count > 1
         let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
+        let effectiveColor = renderContext.groupColorHexByGroupId[group.id]
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
@@ -294,6 +360,17 @@ extension VerticalTabsSidebar {
             tabIds: renderContext.sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
+        let isFirstRenderedRow = renderContext.firstRenderedRowId == rowId
+        let bandFacts = VerticalTabsSidebar.sidebarGroupHeaderBandFacts(
+            showsGroupDividers: settings.showsGroupDividers,
+            isFirstRenderedRow: isFirstRenderedRow,
+            groupColorHex: effectiveColor,
+            fontScale: settings.sidebarFontScale,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            brightenInDarkMode: settings.brightenInDarkMode,
+            over: renderContext.environment.readabilityBackdropHex
+        )
         return SidebarWorkspaceGroupRowSnapshot(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -330,7 +407,11 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
-            notificationBadgeColorHex: settings.notificationBadgeColorHex
+            notificationBadgeColorHex: settings.notificationBadgeColorHex,
+            bandStyle: bandFacts.bandStyle,
+            showsGroupDividers: settings.showsGroupDividers,
+            topGap: bandFacts.topGap,
+            isFirstRenderedRow: isFirstRenderedRow
         )
     }
 
@@ -385,6 +466,9 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
             notificationBadgeColorHex: snapshot.notificationBadgeColorHex,
+            bandStyle: snapshot.bandStyle,
+            showsGroupDividers: snapshot.showsGroupDividers,
+            topGap: snapshot.topGap,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}

@@ -46,6 +46,10 @@ struct SidebarWorkspaceRowInput {
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
     let hasManualCustomColor: Bool
+    /// The member indent guide to paint, or `nil` for an ungrouped row, when
+    /// the setting is off, or when the indent is too narrow. Resolved before
+    /// the list boundary and forwarded into the SwiftUI snapshot.
+    var groupGuide: SidebarGroupGuide? = nil
 
     @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
@@ -100,7 +104,8 @@ struct SidebarWorkspaceRowInput {
                 allNotificationsMuted: targetAggregate.allNotificationsMuted,
                 hasManualCustomColor: targetAggregate.hasManualCustomColor,
                 notifications: targetAggregate.notifications
-            )
+            ),
+            groupGuide: groupGuide
         )
     }
 }

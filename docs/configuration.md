@@ -262,6 +262,22 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
+## `sidebar.groupDividers`
+
+Makes workspace group boundaries read clearly. Each group's collapsible header sits on a full-width tinted band, tinted from the group's color, with space above it to break the run from the group before. A thin vertical guide runs down the member gutter from the header to the last member, so the group reads as one block instead of a flat list. The band, gap, guide, and header name size all scale with the sidebar font size and follow light and dark appearance.
+
+```json
+{
+  "sidebar": {
+    "groupDividers": true
+  }
+}
+```
+
+- Default: `true`.
+- Turn it off to restore the flat list exactly: no band, no top gap, no guide, and the smaller group header name.
+- The top gap changes the header row's frame, so drop-before-group indicators center in the new gap; drag and drop targets are unchanged.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
