@@ -331,16 +331,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     Ok(()) => {
                         wrote = true;
                         log.state.lock().unwrap_or_else(PoisonError::into_inner).store_succeeded();
-                        snapshot_written(
-                            directory,
-                            &log,
-                            tail,
-                            digest,
-                            size,
-                            &generation,
-                            stream_end,
-                            gaps,
-                        );
+                        let written =
+                            Written { digest, size, generation: &generation, stream_end, gaps };
+                        snapshot_written(directory, &log, tail, written);
                     }
                     Err(error) => {
                         report_store_error(&log, "output snapshot", &error);
@@ -532,18 +525,21 @@ enum Capture {
     },
 }
 
-/// The snapshot at `stream_end` is in place: record it, and in snapshot mode
-/// drop the tail it covers (the file, then the unwritten bytes before it).
-fn snapshot_written(
-    directory: &Path,
-    log: &TerminalLog,
-    tail: bool,
+/// A snapshot file just written: what it shows and where in the log's stream it ends.
+struct Written<'a> {
+    /// The screen digest of the capture.
     digest: u64,
     size: (u16, u16),
-    generation: &Arc<str>,
+    generation: &'a Arc<str>,
     stream_end: u64,
+    /// The log's stream-gap count at the capture.
     gaps: u64,
-) {
+}
+
+/// The snapshot at `stream_end` is in place: record it, and in snapshot mode
+/// drop the tail it covers (the file, then the unwritten bytes before it).
+fn snapshot_written(directory: &Path, log: &TerminalLog, tail: bool, written: Written<'_>) {
+    let Written { digest, size, generation, stream_end, gaps } = written;
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     state.snapshot_digest = Some(digest);
     state.snapshot_at = Some(Instant::now());
